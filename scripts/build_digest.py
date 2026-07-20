@@ -1,0 +1,387 @@
+#!/usr/bin/env python
+"""Build the Monday digest for MedTech Radar from SQLite.
+
+Contract (build conventions, Workstream 1):
+
+- Selects everything at or above score_threshold since the last digest.
+  Inbound opportunities first, then Signals. Signals combine opportunities
+  with thread_type signal and rows from the signals table, sorted by score.
+- An ageing section lists flagged items older than two weeks whose status has
+  not moved (status new or digested), so nothing rots quietly.
+- A threads awaiting action section reads the touches table, the latest touch
+  per company with a next action set, same query as touch.py pending.
+- Ends with one line of pipeline stats from the runs table, covering the
+  inbox and signals workflows.
+- Prints {"subject", "text", "html", "item_count"} JSON to stdout for the n8n
+  Gmail node.
+- --dry-run also writes test/last_digest.html and test/last_digest.txt.
+- --commit marks the included items status digested and stamps
+  meta.last_digest_ts. Only n8n passes it after a successful send. A build
+  without --commit never mutates anything, so it can run repeatedly.
+  --dry-run and --commit together are rejected, a dry run never mutates.
+- --quiet suppresses stdout, used with --commit in the workflow.
+- --db PATH for test isolation.
+"""
+
+from __future__ import annotations
+
+import argparse
+import html as html_mod
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import radar_common
+
+TEST_DIR = radar_common.REPO_ROOT / "test"
+EPOCH = "1970-01-01T00:00:00Z"
+AGEING_DAYS = 14
+
+
+def get_meta(conn, key: str):
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_meta(conn, key: str, value: str) -> None:
+    conn.execute("INSERT INTO meta (key, value) VALUES (?, ?)"
+                 " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                 (key, value))
+
+
+def fmt_date(iso: str) -> str:
+    try:
+        parsed = datetime.strptime((iso or "")[:10], "%Y-%m-%d")
+    except ValueError:
+        return iso or ""
+    return f"{parsed.day} {parsed.strftime('%B %Y')}"
+
+
+def parse_flags(raw) -> list[str]:
+    try:
+        flags = json.loads(raw) if raw else []
+    except (ValueError, TypeError):
+        flags = []
+    if not isinstance(flags, list):
+        flags = [flags]
+    return [str(flag) for flag in flags]
+
+
+def sentence(text: str) -> str:
+    text = (text or "").strip()
+    if text and text[-1] not in ".?":
+        text += "."
+    return text
+
+
+def plural(count: int, singular: str, plural_form: str) -> str:
+    return singular if count == 1 else plural_form
+
+
+def collect(conn, config: dict) -> dict:
+    threshold = int(config.get("score_threshold", 70))
+    last_ts = get_meta(conn, "last_digest_ts") or EPOCH
+    age_cutoff = (datetime.now(timezone.utc)
+                  - timedelta(days=AGEING_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    inbound = [dict(r) for r in conn.execute(
+        "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
+        " AND combined IS NOT NULL AND combined >= ? AND thread_type = 'inbound'"
+        " ORDER BY combined DESC, first_seen", (last_ts, threshold))]
+    opp_signals = [dict(r) for r in conn.execute(
+        "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
+        " AND combined IS NOT NULL AND combined >= ? AND thread_type = 'signal'"
+        " ORDER BY combined DESC, first_seen", (last_ts, threshold))]
+    table_signals = [dict(r) for r in conn.execute(
+        "SELECT * FROM signals WHERE status = 'new' AND first_seen > ?"
+        " AND relevance IS NOT NULL AND relevance >= ?"
+        " ORDER BY relevance DESC, first_seen", (last_ts, threshold))]
+
+    signals = sorted(
+        [{**o, "kind": "opportunity", "score": o["combined"]} for o in opp_signals]
+        + [{**s, "kind": "signal", "score": s["relevance"]} for s in table_signals],
+        key=lambda entry: -(entry["score"] or 0))
+
+    used_opp_ids = {o["id"] for o in inbound} | {o["id"] for o in opp_signals}
+    used_sig_ids = {s["id"] for s in table_signals}
+
+    ageing = []
+    for row in conn.execute(
+            "SELECT * FROM opportunities WHERE status IN ('new','digested')"
+            " AND combined IS NOT NULL AND combined >= ?"
+            " AND COALESCE(status_changed_at, first_seen) <= ?"
+            " ORDER BY COALESCE(status_changed_at, first_seen)",
+            (threshold, age_cutoff)):
+        if row["id"] not in used_opp_ids:
+            ageing.append({**dict(row), "kind": "opportunity"})
+    for row in conn.execute(
+            "SELECT * FROM signals WHERE status IN ('new','digested')"
+            " AND relevance IS NOT NULL AND relevance >= ? AND first_seen <= ?"
+            " ORDER BY first_seen", (threshold, age_cutoff)):
+        if row["id"] not in used_sig_ids:
+            ageing.append({**dict(row), "kind": "signal"})
+
+    threads = [dict(r) for r in conn.execute(
+        "SELECT t.company, t.touched_at, t.channel, t.next_action,"
+        " t.next_action_date"
+        " FROM touches t"
+        " JOIN (SELECT company, MAX(id) AS max_id FROM touches"
+        "       GROUP BY company) latest ON t.id = latest.max_id"
+        " WHERE t.next_action IS NOT NULL AND TRIM(t.next_action) <> ''"
+        " ORDER BY (t.next_action_date IS NULL), t.next_action_date, t.company")]
+
+    stats = dict(conn.execute(
+        "SELECT"
+        " COALESCE(SUM(CASE WHEN workflow = 'inbox' THEN 1 END), 0) AS runs,"
+        " COALESCE(SUM(CASE WHEN workflow = 'inbox' THEN items_in END), 0) AS seen,"
+        " COALESCE(SUM(CASE WHEN workflow = 'inbox' THEN items_new END), 0) AS new,"
+        " COALESCE(SUM(CASE WHEN workflow = 'signals' THEN 1 END), 0) AS signal_runs,"
+        " COALESCE(SUM(CASE WHEN workflow = 'signals' THEN items_new END), 0) AS signal_new,"
+        " COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) AS tokens"
+        " FROM runs WHERE workflow IN ('inbox', 'signals') AND ts > ?",
+        (last_ts,)).fetchone())
+
+    return {"threshold": threshold, "last_ts": last_ts, "inbound": inbound,
+            "signals": signals, "ageing": ageing, "threads": threads,
+            "stats": stats}
+
+
+def stats_line(stats: dict) -> str:
+    dups = max(0, stats["seen"] - stats["new"])
+    return (f"Pipeline. {stats['runs']} inbox {plural(stats['runs'], 'run', 'runs')}, "
+            f"{stats['seen']} {plural(stats['seen'], 'opportunity', 'opportunities')} "
+            f"seen, {stats['new']} new, "
+            f"{dups} {plural(dups, 'duplicate', 'duplicates')} skipped, "
+            f"{stats['signal_runs']} signal {plural(stats['signal_runs'], 'check', 'checks')}, "
+            f"{stats['signal_new']} scored, "
+            f"{stats['tokens']} tokens since the last digest.")
+
+
+def render_text(data: dict, today_label: str) -> str:
+    inbound, signals, ageing = data["inbound"], data["signals"], data["ageing"]
+    lines = [f"MedTech Radar. Weekly digest for {today_label}.", ""]
+
+    if inbound:
+        lines.append(f"Inbound. {len(inbound)} at or above {data['threshold']}.")
+    else:
+        lines.append("Inbound. Nothing cleared the bar since the last digest.")
+    for i, o in enumerate(inbound, 1):
+        lines.append("")
+        lines.append(f"{i}. {o['title']}. {o['company']}. {o['location']}.")
+        lines.append(f"   Scores. Combined {o['combined']}. CV {o['cv_match']}. "
+                     f"Want {o['want_match']}.")
+        if o["one_line_why"]:
+            lines.append(f"   {sentence(o['one_line_why'])}")
+        flags = parse_flags(o["red_flags"])
+        lines.append("   Red flags. "
+                     + (" ".join(sentence(f) for f in flags) if flags else "None noted."))
+        action = sentence(o["suggested_action"]) or "No action suggested."
+        act_by = f" Act by {fmt_date(o['act_by'])}." if o["act_by"] else ""
+        lines.append(f"   Next step. {action}{act_by}")
+        if o["source_url"]:
+            lines.append(f"   {o['source_url']}")
+
+    lines.append("")
+    if signals:
+        lines.append(f"Signals. {len(signals)} worth a look.")
+    else:
+        lines.append("Signals. Quiet since the last digest.")
+    for i, s in enumerate(signals, 1):
+        lines.append("")
+        if s["kind"] == "signal":
+            lines.append(f"{i}. {sentence(s['headline'] or s['company'])}")
+            lines.append(f"   Relevance {s['score']}. {s['company']}.")
+            if s.get("why"):
+                lines.append(f"   {sentence(s['why'])}")
+            if s.get("playbook_step"):
+                lines.append(f"   Playbook step. {sentence(s['playbook_step'])}")
+        else:
+            lines.append(f"{i}. {s['title']}. {s['company']}. {s['location']}.")
+            lines.append(f"   Scores. Combined {s['combined']}. CV {s['cv_match']}. "
+                         f"Want {s['want_match']}.")
+            if s["one_line_why"]:
+                lines.append(f"   {sentence(s['one_line_why'])}")
+        if s.get("source_url"):
+            lines.append(f"   {s['source_url']}")
+
+    lines.append("")
+    lines.append("Ageing. Flagged items older than two weeks with no movement.")
+    if ageing:
+        for a in ageing:
+            label = (f"{a['title']}, {a['company']}" if a["kind"] == "opportunity"
+                     else (a["headline"] or a["company"]))
+            lines.append(f"- {label}. First seen {fmt_date(a['first_seen'])}. "
+                         f"Status {a['status']}.")
+    else:
+        lines.append("- Nothing sitting idle.")
+
+    lines.append("")
+    lines.append("Threads awaiting action. The latest touch per company, from the tracker.")
+    if data["threads"]:
+        for t in data["threads"]:
+            due = f" By {fmt_date(t['next_action_date'])}." if t["next_action_date"] else ""
+            lines.append(f"- {t['company']}. {sentence(t['next_action'])}{due} "
+                         f"Last touch {fmt_date(t['touched_at'])} "
+                         f"via {t['channel'] or 'other'}.")
+    else:
+        lines.append("- Nothing waiting. Every thread is quiet.")
+
+    lines.append("")
+    lines.append(stats_line(data["stats"]))
+    return "\n".join(lines) + "\n"
+
+
+def render_html(data: dict, today_label: str) -> str:
+    esc = html_mod.escape
+    inbound, signals, ageing = data["inbound"], data["signals"], data["ageing"]
+    parts = ["<div style=\"font-family:Georgia,serif;max-width:640px\">",
+             f"<h1 style=\"font-size:20px\">MedTech Radar. Weekly digest for {esc(today_label)}.</h1>"]
+
+    parts.append("<h2 style=\"font-size:16px\">Inbound</h2>")
+    if inbound:
+        parts.append("<ol>")
+        for o in inbound:
+            flags = parse_flags(o["red_flags"])
+            flag_text = " ".join(sentence(f) for f in flags) if flags else "None noted."
+            action = sentence(o["suggested_action"]) or "No action suggested."
+            act_by = f" Act by {esc(fmt_date(o['act_by']))}." if o["act_by"] else ""
+            link = (f"<br><a href=\"{esc(o['source_url'])}\">View the advert</a>"
+                    if o["source_url"] else "")
+            parts.append(
+                f"<li><strong>{esc(o['title'])}</strong>. {esc(o['company'])}. "
+                f"{esc(o['location'])}.<br>"
+                f"Scores. Combined {o['combined']}. CV {o['cv_match']}. Want {o['want_match']}.<br>"
+                f"<em>{esc(sentence(o['one_line_why']))}</em><br>"
+                f"Red flags. {esc(flag_text)}<br>"
+                f"Next step. {esc(action)}{act_by}{link}</li>")
+        parts.append("</ol>")
+    else:
+        parts.append("<p>Nothing cleared the bar since the last digest.</p>")
+
+    parts.append("<h2 style=\"font-size:16px\">Signals</h2>")
+    if signals:
+        parts.append("<ol>")
+        for s in signals:
+            link = (f"<br><a href=\"{esc(s['source_url'])}\">Source</a>"
+                    if s.get("source_url") else "")
+            if s["kind"] == "signal":
+                why = f"<br><em>{esc(sentence(s['why']))}</em>" if s.get("why") else ""
+                step = (f"<br>Playbook step. {esc(sentence(s['playbook_step']))}"
+                        if s.get("playbook_step") else "")
+                parts.append(
+                    f"<li><strong>{esc(s['headline'] or s['company'])}</strong><br>"
+                    f"Relevance {s['score']}. {esc(s['company'])}.{why}{step}{link}</li>")
+            else:
+                parts.append(
+                    f"<li><strong>{esc(s['title'])}</strong>. {esc(s['company'])}. "
+                    f"{esc(s['location'])}.<br>"
+                    f"Scores. Combined {s['combined']}. CV {s['cv_match']}. "
+                    f"Want {s['want_match']}.<br>"
+                    f"<em>{esc(sentence(s['one_line_why']))}</em>{link}</li>")
+        parts.append("</ol>")
+    else:
+        parts.append("<p>Quiet since the last digest.</p>")
+
+    parts.append("<h2 style=\"font-size:16px\">Ageing</h2>")
+    if ageing:
+        parts.append("<ul>")
+        for a in ageing:
+            label = (f"{a['title']}, {a['company']}" if a["kind"] == "opportunity"
+                     else (a["headline"] or a["company"]))
+            parts.append(f"<li>{esc(label)}. First seen {esc(fmt_date(a['first_seen']))}. "
+                         f"Status {a['status']}.</li>")
+        parts.append("</ul>")
+    else:
+        parts.append("<p>Nothing sitting idle.</p>")
+
+    parts.append("<h2 style=\"font-size:16px\">Threads awaiting action</h2>")
+    if data["threads"]:
+        parts.append("<ul>")
+        for t in data["threads"]:
+            due = (f" By {esc(fmt_date(t['next_action_date']))}."
+                   if t["next_action_date"] else "")
+            parts.append(f"<li>{esc(t['company'])}. {esc(sentence(t['next_action']))}{due} "
+                         f"Last touch {esc(fmt_date(t['touched_at']))} "
+                         f"via {esc(t['channel'] or 'other')}.</li>")
+        parts.append("</ul>")
+    else:
+        parts.append("<p>Nothing waiting. Every thread is quiet.</p>")
+
+    parts.append(f"<p style=\"color:#666\">{esc(stats_line(data['stats']))}</p>")
+    parts.append("</div>")
+    return "\n".join(parts)
+
+
+def main(argv=None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+    parser = argparse.ArgumentParser(description="Build the Monday digest from SQLite.")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="also write test/last_digest.html and .txt previews")
+    parser.add_argument("--commit", action="store_true",
+                        help="mark included items digested and stamp last_digest_ts")
+    parser.add_argument("--quiet", action="store_true", help="no stdout JSON")
+    parser.add_argument("--db", help="database path override for tests")
+    args = parser.parse_args(argv)
+
+    if args.dry_run and args.commit:
+        print("Choose one of --dry-run or --commit, not both. A dry run never mutates.",
+              file=sys.stderr)
+        return 2
+
+    radar_common.load_env()
+    config = radar_common.load_config()
+    conn = radar_common.get_db(Path(args.db).resolve() if args.db else None)
+
+    data = collect(conn, config)
+    now = radar_common.now_iso()
+    today_label = fmt_date(now)
+    text = render_text(data, today_label)
+    html = render_html(data, today_label)
+    item_count = len(data["inbound"]) + len(data["signals"])
+    n_sig = len(data["signals"])
+    subject = (f"Radar digest. {len(data['inbound'])} inbound, "
+               f"{n_sig} {plural(n_sig, 'signal', 'signals')}. {today_label}.")
+
+    if args.commit:
+        for o in data["inbound"]:
+            conn.execute("UPDATE opportunities SET status = 'digested',"
+                         " status_changed_at = ? WHERE id = ?", (now, o["id"]))
+        for s in data["signals"]:
+            if s["kind"] == "opportunity":
+                conn.execute("UPDATE opportunities SET status = 'digested',"
+                             " status_changed_at = ? WHERE id = ?", (now, s["id"]))
+            else:
+                conn.execute("UPDATE signals SET status = 'digested' WHERE id = ?",
+                             (s["id"],))
+        set_meta(conn, "last_digest_ts", now)
+        conn.commit()
+
+    if args.dry_run:
+        TEST_DIR.mkdir(parents=True, exist_ok=True)
+        (TEST_DIR / "last_digest.html").write_text(html, encoding="utf-8")
+        (TEST_DIR / "last_digest.txt").write_text(text, encoding="utf-8")
+
+    mode = "dry-run" if args.dry_run else ("commit" if args.commit else "build")
+    radar_common.log_run(conn, "digest", mode=mode, items_in=item_count,
+                         items_new=0,
+                         note=(f"{len(data['inbound'])} inbound, "
+                               f"{len(data['signals'])} signals, "
+                               f"{len(data['ageing'])} ageing"))
+    conn.close()
+
+    if not args.quiet:
+        print(json.dumps({"subject": subject, "text": text, "html": html,
+                          "item_count": item_count}))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

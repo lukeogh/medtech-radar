@@ -1,0 +1,3 @@
+anthropic>=0.100
+PyYAML>=6.0
+feedparser>=6.0

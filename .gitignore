@@ -1,0 +1,28 @@
+# Secrets and personal data. Never tracked.
+.env
+config/profile/
+
+# Personal strategy documents stay local and untracked on purpose.
+# The repo has no remote tonight, but if one is ever added these must not travel.
+Radar_Project_Instructions.md
+Radar_Project_Knowledge_Pack.md
+
+# Runtime artefacts
+db/radar.sqlite
+db/*.sqlite
+db/*.sqlite-journal
+db/*.sqlite-wal
+db/*.sqlite-shm
+test/*.sqlite
+test/*.sqlite-journal
+test/*.sqlite-wal
+test/*.sqlite-shm
+test/last_digest.html
+test/last_digest.txt
+test/last_signal.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

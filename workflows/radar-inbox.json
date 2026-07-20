@@ -1,0 +1,267 @@
+{
+  "name": "Radar Inbox",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Radar inbox\n\nDrains the aggregator inbox, splits each alert email into individual roles, dedupes on URL hash, scores new roles against the CV and preferences, and writes them to SQLite. All logic lives in scripts/process_email.py in the repo, this workflow is only the trigger, the hand-off and the label step.\n\nArming steps.\n1. Create the Gmail label radar-processed in the aggregator account once.\n2. Attach your Gmail OAuth credential to the trigger node and both Gmail nodes at the end.\n3. Put the real label id into the label node. n8n shows it in the label picker.\n4. Set repo_path and python_bin in the Config node to match the n8n host, and make sure .env with ANTHROPIC_API_KEY sits in the repo on that host.\n5. Run once manually, then check the scores in SQLite before activating.\n\nNothing here sends email. Labelling and marking read are the only writes to the mailbox, so nothing gets scanned twice. If a run fails, or extraction returns nothing usable, the email keeps its unread state and no label, so it stays visible in the inbox for a re-run instead of being marked processed.",
+        "width": 460,
+        "height": 400
+      },
+      "id": "9c1f7a10-4a01-4f6e-8b0e-000000000101",
+      "name": "How this works",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-560, -120]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyHour"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "is:unread -label:radar-processed"
+        },
+        "options": {}
+      },
+      "id": "9c1f7a10-4a01-4f6e-8b0e-000000000102",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [-40, 40],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_AFTER_IMPORT",
+          "name": "Gmail - Radar Aggregator"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-repo-path",
+              "name": "repo_path",
+              "value": "/data/medtech-radar",
+              "type": "string"
+            },
+            {
+              "id": "cfg-python-bin",
+              "name": "python_bin",
+              "value": "python3",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "9c1f7a10-4a01-4f6e-8b0e-000000000103",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [180, 40]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Pack the email fields into the JSON contract process_email.py expects,\n// then base64 encode it so no shell quoting can break the command line.\n// The encoded payload travels as one command line argument, which the Linux\n// host caps at 128 KiB, so body_html is dropped whenever body_text exists\n// and both fields are capped well under the limit. The extractor reads at\n// most 12000 chars of body text anyway.\nconst src = $('Gmail Trigger').item.json;\nconst pick = (...vals) => vals.find(v => typeof v === 'string' && v.length) || '';\nlet fromField = '';\nif (src.from && typeof src.from === 'object') {\n  fromField = src.from.text || (src.from.value && src.from.value[0] && src.from.value[0].address) || '';\n} else {\n  fromField = pick(src.from, src.From);\n}\nconst bodyText = pick(src.text, src.textPlain, src.snippet);\nconst bodyHtml = bodyText ? '' : pick(src.html, src.textHtml);\nconst email = {\n  subject: pick(src.subject, src.Subject),\n  from: fromField,\n  date: pick(src.date, src.Date),\n  body_text: bodyText.slice(0, 16000),\n  body_html: bodyHtml.slice(0, 60000),\n};\nreturn {\n  json: {\n    repo_path: $json.repo_path,\n    python_bin: $json.python_bin,\n    b64: Buffer.from(JSON.stringify(email), 'utf8').toString('base64'),\n    messageId: src.id,\n  },\n};"
+      },
+      "id": "9c1f7a10-4a01-4f6e-8b0e-000000000104",
+      "name": "Pack Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 40]
+    },
+    {
+      "parameters": {
+        "command": "={{ $json.python_bin }} {{ $json.repo_path }}/scripts/process_email.py --b64 {{ $json.b64 }}"
+      },
+      "id": "9c1f7a10-4a01-4f6e-8b0e-000000000105",
+      "name": "Process Email",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [620, 40]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Turn the script stdout into a clean result item for the IF gate.\nlet out = { ok: false, processed: 0, new: 0, duplicates: 0 };\ntry {\n  const raw = ($json.stdout || '').trim();\n  const parsed = JSON.parse(raw.slice(raw.indexOf('{')));\n  out = { ok: true, extract_failed: false, ...parsed };\n} catch (err) {\n  out.error = String(err);\n  out.stderr = $json.stderr || '';\n}\nreturn { json: out };"
+      },
+      "id": "9c1f7a10-4a01-4f6e-8b0e-000000000106",
+      "name": "Parse Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [840, 40]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-processed-ok",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-extract-ok",
+              "leftValue": "={{ $json.extract_failed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9c1f7a10-4a01-4f6e-8b0e-000000000107",
+      "name": "Processed OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1060, 40]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": [
+          "REPLACE_WITH_LABEL_ID_radar-processed"
+        ]
+      },
+      "id": "9c1f7a10-4a01-4f6e-8b0e-000000000108",
+      "name": "Label Processed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1280, 20],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_AFTER_IMPORT",
+          "name": "Gmail - Radar Aggregator"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "markAsRead",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}"
+      },
+      "id": "9c1f7a10-4a01-4f6e-8b0e-000000000109",
+      "name": "Mark Read",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1500, 20],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_AFTER_IMPORT",
+          "name": "Gmail - Radar Aggregator"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Pack Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pack Email": {
+      "main": [
+        [
+          {
+            "node": "Process Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Email": {
+      "main": [
+        [
+          {
+            "node": "Parse Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Result": {
+      "main": [
+        [
+          {
+            "node": "Processed OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processed OK?": {
+      "main": [
+        [
+          {
+            "node": "Label Processed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Label Processed": {
+      "main": [
+        [
+          {
+            "node": "Mark Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

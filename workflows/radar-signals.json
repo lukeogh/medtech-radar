@@ -1,0 +1,120 @@
+{
+  "name": "Radar Signals",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Radar signals\n\nChecks the watchlist every two hours and scores anything new against the signal rubric. Dry run by default. Payloads land in test/last_signal.txt on the host and nothing is sent.\n\nArming steps.\n1. Set repo_path and python_bin in the Config node if the defaults are wrong.\n2. Spot-check two sources from the host, e.g. `python3 scripts/check_signals.py --dry-run --source qbic`\n3. Send one manual test push to the ntfy topic so you know it reaches your phone.\n4. Edit the Check signals node and change `--dry-run` to `--push`.\n5. Activate the workflow.\n\nPoliteness lives in the script, not here. Robots.txt respected, one request per source per check, six-hour floor between checks, etag and last-modified honoured. Re-runs never duplicate or re-score, so a manual execution is always safe.",
+        "width": 420,
+        "height": 420
+      },
+      "id": "7f3c2a91-4b6d-4e8a-9c1f-2d5b8e7a0c43",
+      "name": "How to arm this",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-240, 140]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "c81d5e02-6f3a-47b9-8d24-9a0e1b6c5f77",
+      "name": "Every two hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9e2f4a6b-1c8d-4e3a-b5f7-0d9c2a8e6b41",
+              "name": "repo_path",
+              "value": "/data/medtech-radar",
+              "type": "string"
+            },
+            {
+              "id": "3b7d1f9c-5a2e-48b6-9c0d-7e4f8a1b3d62",
+              "name": "python_bin",
+              "value": "python3",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "5a9b3c7d-2e1f-4a86-b4c9-8f0d6e2a7b15",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "command": "={{ $json.python_bin }} {{ $json.repo_path }}/scripts/check_signals.py --dry-run"
+      },
+      "id": "e4f8b2a6-9d3c-41e7-8a5b-6c0f9d4e2a88",
+      "name": "Check signals",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pull the result JSON out of the script's stdout so the execution log\n// shows counts and payloads at a glance.\nconst out = [];\nfor (const item of $input.all()) {\n  const stdout = item.json.stdout || '';\n  const start = stdout.indexOf('{');\n  let summary;\n  try {\n    summary = start >= 0 ? JSON.parse(stdout.slice(start)) : { note: 'no JSON in stdout', stderr: item.json.stderr || '' };\n  } catch (err) {\n    summary = { note: 'could not parse stdout', error: String(err), stdout: stdout.slice(0, 500) };\n  }\n  out.push({ json: summary });\n}\nreturn out;"
+      },
+      "id": "b6d0e8f4-3a7c-45b1-9e2d-1f8a5c9b0e36",
+      "name": "Summarise run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Every two hours": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Check signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check signals": {
+      "main": [
+        [
+          {
+            "node": "Summarise run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

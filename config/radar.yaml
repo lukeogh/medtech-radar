@@ -1,0 +1,35 @@
+# MedTech Radar configuration. Luke edits this file, scripts and workflows read it.
+# Secrets never live here. They live in .env, referenced by name only.
+#
+# Lines marked TODO were not filled in before the overnight build.
+# Sensible defaults were inferred where possible. Confirm each one in the morning.
+
+project_dir: "."                        # repo root, scripts resolve relative to this file
+
+# Self-hosted n8n. Inferred from the Claude_Code_N8n project on this machine.
+n8n_url: "https://n8n.keogh.cloud"      # TODO confirm
+
+# Self-hosted ntfy. Guessed from the keogh.cloud naming pattern.
+ntfy_url: "https://ntfy.keogh.cloud"    # TODO confirm, this one is a guess
+ntfy_topic_radar: "radar-signals"
+
+aggregator_email: "CHANGE_ME@gmail.com" # TODO the dedicated Gmail aggregator address
+digest_to: "luke.keogh19@gmail.com"     # TODO confirm digest destination
+
+digest_day_time: "Monday 07:30 Europe/London"
+
+cv_file: "config/profile/cv.pdf"        # drop the CV here, gitignored
+prefs_file: "config/profile/preferences.md"
+
+score_threshold: 70                     # combined score needed to appear in digest
+fast_signal_threshold: 75               # relevance needed for an immediate ntfy push
+
+claude_model_extract: "claude-haiku-4-5"
+claude_model_score: "claude-sonnet-4-6"
+api_key_env: "ANTHROPIC_API_KEY"        # name only, value lives in .env
+
+# Minimum hours between checks of any single watched source. Politeness floor.
+min_check_interval_hours: 6
+
+# User agent for polite fetching. A normal browser-style string with contact hint.
+fetch_user_agent: "Mozilla/5.0 (compatible; MedTechRadar/1.0; personal news watcher)"

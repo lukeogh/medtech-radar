@@ -1,0 +1,302 @@
+# MedTech Radar watchlist. Read by scripts/check_signals.py.
+#
+# Every entry under `sources:` was verified live on 20 July 2026 unless marked
+# status: unverified. Fields per source:
+#   id                    stable key, used in the source_state and signals tables
+#   name                  human label
+#   tier                  1 = origin sources where hours matter, checked every 6 hours
+#                         2 = trade-press safety net, a day behind is fine, checked daily
+#   url                   the verified listing page (the final URL after any redirects)
+#   method                rss  = fetch rss_url, parse with feedparser, new entry ids are new items
+#                         diff = fetch url, hash normalised text, on change diff the article links
+#   rss_url               only present where a working feed was found
+#   check_interval_hours  per-source floor. The script also honours the global
+#                         min_check_interval_hours in config/radar.yaml, whichever is longer.
+#   status                live = verified fetchable tonight. unverified = could not confirm
+#                         (the script skips these unless spot-checked with --source)
+#   notes                 what verification found, including fallbacks and known quirks
+#
+# The `email_sources:` section is tier 3, informational only. Those signals arrive
+# by email into the aggregator inbox and are handled by the radar-inbox workflow,
+# never fetched by check_signals.py. Listed here so the whole watchlist lives in one file.
+
+sources:
+  # ---- Tier 1. Origins. Institute press desks, accelerators and investor news pages.
+  - id: imec-press
+    name: imec press releases
+    tier: 1
+    url: "https://www.imec-int.com/en/reading-room?type=press"
+    method: diff
+    check_interval_hours: 6
+    status: live
+    notes: >
+      Press releases live under /en/press/<slug>; the listing is the reading room
+      filtered to type=press. Page fetches OK but the list items are populated
+      client-side via JS, so a plain HTTP diff may see little or no change. No RSS
+      feed found. If this source stays silent, the Tier 2 net and email alerts cover it.
+
+  - id: imec-xpand
+    name: imec.xpand
+    tier: 1
+    url: "https://imecxpand.com/en/news"
+    method: diff
+    check_interval_hours: 6
+    status: live
+    notes: >
+      News page lists dated portfolio company news including funding and acquisitions.
+      No RSS feed (/feed returns 404). Content renders in plain HTML so diffing works.
+
+  - id: imec-istart
+    name: imec.istart accelerator cohort announcements
+    tier: 1
+    url: "https://www.imecistart.com/en/news"
+    method: diff
+    check_interval_hours: 6
+    status: live
+    notes: >
+      Working news listing with cohort announcements. No RSS feed found
+      (/en/news/rss.xml 404s). Next.js site with a cookie banner but the listing
+      renders in plain HTML, so diff watching works.
+
+  - id: qbic
+    name: Qbic fund news
+    tier: 1
+    url: "https://qbic.be/news"
+    method: diff
+    check_interval_hours: 6
+    status: live
+    notes: >
+      Chronological fund and portfolio news, server-rendered, no cookie wall.
+      No RSS feed (/news/rss 404s). Article URLs use a /nieuws/ path.
+
+  - id: noshaq
+    name: Noshaq news
+    tier: 1
+    url: "https://noshaq.be/actualites/"
+    method: diff
+    check_interval_hours: 6
+    status: live
+    notes: >
+      French-language news listing for the Liege investment fund, server-rendered.
+      No RSS feed (/feed/ returns HTTP 500). Story cards carry no visible dates,
+      so the differ keys on titles and links. Cookie banner present but content
+      is static HTML.
+
+  - id: kurma
+    name: Kurma Partners news
+    tier: 1
+    url: "https://www.kurmapartners.com/en/news"
+    method: diff
+    check_interval_hours: 6
+    status: live
+    notes: >
+      Server-rendered chronological listing of portfolio financings and exits with
+      dates. No RSS feed (/en/news/feed returned HTTP 500).
+
+  - id: white-fund
+    name: White Fund news
+    tier: 1
+    url: "https://whitefund.be/"
+    method: rss
+    rss_url: "https://whitefund.be/feed/"
+    check_interval_hours: 6
+    status: live
+    notes: >
+      Correct domain is whitefund.be (white-fund.be does not resolve). WordPress
+      site with no dedicated news page. /feed/ is a valid RSS feed that currently
+      holds zero items, so new posts should appear there first. If the feed stays
+      empty while the fund is visibly active, switch this entry to diff on the homepage.
+
+  - id: wallonie-entreprendre
+    name: Wallonie Entreprendre press
+    tier: 1
+    url: "https://www.wallonie-entreprendre.be/fr/actualites/"
+    method: diff
+    check_interval_hours: 6
+    status: live
+    notes: >
+      Server-rendered dated news listing with standard pagination. No RSS feed
+      (/fr/actualites/feed/ 404s).
+
+  - id: csem
+    name: CSEM news and spin-offs
+    tier: 1
+    url: "https://www.csem.ch/en/news/"
+    method: diff
+    check_interval_hours: 6
+    status: live
+    notes: >
+      Server-rendered dated news listing including spin-off announcements. No RSS
+      feed (/en/news/rss 404s). JS filters on the page but the core listing is
+      plain HTML.
+
+  - id: tyndall
+    name: Tyndall National Institute news
+    tier: 1
+    url: "https://www.tyndall.ie/news/"
+    method: diff
+    check_interval_hours: 6
+    status: live
+    notes: >
+      Paginated dated news listing, plain HTTP, no cookie wall. /news/feed/ returns
+      valid RSS XML but it is an empty comments feed with no items, so diffing the
+      listing page is the reliable method.
+
+  - id: cea-leti
+    name: CEA-Leti press
+    tier: 1
+    url: "https://www.leti-cea.com/cea-tech/leti/english/Pages/What%27s-On/Press%20release/press-releases.aspx"
+    method: rss
+    rss_url: "https://www.leti-cea.com/cea-tech/leti/english/_layouts/15/i2i/web/ceasrchrss.ashx?pid=9&wid=g_29d89a54_1e17_43a9_b17f_30d9e1502a6f"
+    check_interval_hours: 6
+    status: live
+    notes: >
+      Working RSS 2.0 feed with recent items mixing press releases and news across
+      semiconductors, quantum, photonics and biomedical. SharePoint site. The feed
+      URL embeds a GUID widget id that could change if the site is rebuilt, so keep
+      the press-releases listing page above as the fallback diff target.
+
+  - id: fraunhofer-venture
+    name: Fraunhofer Venture news
+    tier: 1
+    url: "https://www.fraunhoferventure.de/de/news.html"
+    method: diff
+    check_interval_hours: 6
+    status: live
+    notes: >
+      German-language spin-off and funding news, static dated entries with
+      pagination. No RSS feed found.
+
+  - id: tno
+    name: TNO press and spin-offs
+    tier: 1
+    url: "https://www.tno.nl/en/newsroom/news/"
+    method: diff
+    check_interval_hours: 6
+    status: live
+    notes: >
+      Dated news listing in plain HTML, newest first, includes spin-off and
+      joint-venture announcements. No RSS feed (/en/rss 404s).
+
+  - id: holst
+    name: Holst Centre news
+    tier: 1
+    url: "https://www.holstcentre.com/insights/"
+    method: diff
+    check_interval_hours: 6
+    status: live
+    notes: >
+      Insights page is the news listing, dated articles under
+      /insights/news/[year]/[slug]/. No RSS feed (/feed 404s).
+
+  # ---- Tier 2. Safety net. Trade press, a day behind is acceptable.
+  - id: optics-org
+    name: optics.org
+    tier: 2
+    url: "https://optics.org/news"
+    method: diff
+    check_interval_hours: 24
+    status: live
+    notes: >
+      Server-rendered listing of roughly twenty dated photonics industry articles.
+      No RSS feed (/rss 404s).
+
+  - id: pic-magazine
+    name: PIC Magazine
+    tier: 2
+    url: "https://picmagazine.net/news/list/1"
+    method: diff
+    check_interval_hours: 24
+    status: live
+    notes: >
+      Chronological photonic integrated circuit industry news, server-rendered.
+      No RSS feed (/rss 404s). Minor JS loading elements but the core list is
+      plain HTML.
+
+  - id: electronics-weekly
+    name: Electronics Weekly
+    tier: 2
+    url: "https://www.electronicsweekly.com/news"
+    method: rss
+    rss_url: "https://www.electronicsweekly.com/feed/"
+    check_interval_hours: 24
+    status: live
+    notes: >
+      Valid RSS 2.0 feed updated same-day covering funding, semiconductors and
+      markets. No hard paywall. Category feeds likely exist if the firehose proves
+      noisy.
+
+  - id: new-electronics
+    name: New Electronics
+    tier: 2
+    url: "https://www.newelectronics.co.uk/electronics-news/"
+    method: diff
+    check_interval_hours: 24
+    status: unverified
+    notes: >
+      Site returns HTTP 403 to plain fetches (bot blocking), so neither the news
+      page nor any feed could be confirmed. Feed directories claim an RSS feed
+      exists but no working URL was verifiable. A watcher would need browser-like
+      headers or JS rendering. Skipped on normal runs, spot-check with --source.
+
+  - id: semiconductor-digest
+    name: Semiconductor Digest
+    tier: 2
+    url: "https://www.semiconductor-digest.com/"
+    method: rss
+    rss_url: "https://www.semiconductor-digest.com/feed/"
+    check_interval_hours: 24
+    status: live
+    notes: >
+      WordPress /feed/ is a valid RSS 2.0 feed updated same-day. Homepage is
+      JS-heavy with a cookie banner, so RSS is the right method here.
+
+  - id: silicon-semiconductor
+    name: Silicon Semiconductor
+    tier: 2
+    url: "https://www.siliconsemiconductor.net/news/list/1"
+    method: diff
+    check_interval_hours: 24
+    status: live
+    notes: >
+      Combined news listing with roughly twenty five dated items, newest first.
+      No RSS feed (/rss 404s). Plain HTML renders fine.
+
+  - id: startups-magazine
+    name: Startups Magazine
+    tier: 2
+    url: "https://startupsmagazine.co.uk/articles/news"
+    method: diff
+    check_interval_hours: 24
+    status: live
+    notes: >
+      Server-rendered dated news listing. No RSS feed (/rss.xml 404s). Trending
+      and events sidebars may cause minor churn, the link differ ignores repeats
+      it has already seen.
+
+# ---- Tier 3. Email-borne. Informational only, never fetched by check_signals.py.
+# These land in the aggregator inbox and travel through the radar-inbox workflow.
+email_sources:
+  - id: google-alerts
+    name: Google Alerts
+    tier: 3
+    method: email
+    queries:
+      - "imec spin-off"
+      - "Ghent University spin-off"
+      - "KU Leuven spin-off"
+      - "IVD seed funding"
+      - "medical device software funding"
+      - "photonics diagnostics funding"
+    notes: >
+      Luke creates these six alerts in the morning, delivery set to the aggregator
+      inbox, as-it-happens frequency.
+
+  - id: dealroom-alerts
+    name: Dealroom spinout and funding alerts
+    tier: 3
+    method: email
+    notes: >
+      Dealroom alerts for imec, Ghent and KU Leuven spinouts and funding rounds,
+      delivered to the aggregator inbox. Databases catch the quiet top-ups that
+      never get a press release.
