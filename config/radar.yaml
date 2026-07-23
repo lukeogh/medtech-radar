@@ -6,15 +6,17 @@
 
 project_dir: "."                        # repo root, scripts resolve relative to this file
 
-# Self-hosted n8n. Inferred from the Claude_Code_N8n project on this machine.
-n8n_url: "https://n8n.keogh.cloud"      # TODO confirm
+# Self-hosted n8n. Confirmed responding on the morning of 21 July 2026.
+n8n_url: "https://n8n.keogh.cloud"
 
-# Self-hosted ntfy. Guessed from the keogh.cloud naming pattern.
-ntfy_url: "https://ntfy.keogh.cloud"    # TODO confirm, this one is a guess
+# Self-hosted ntfy. TODO this guess does not answer from this machine.
+# Put the real ntfy base URL here before arming radar-signals. If the server
+# is LAN-only it may still be right from the n8n host, test from there.
+ntfy_url: "https://ntfy.keogh.cloud"
 ntfy_topic_radar: "radar-signals"
 
-aggregator_email: "CHANGE_ME@gmail.com" # TODO the dedicated Gmail aggregator address
-digest_to: "luke.keogh19@gmail.com"     # TODO confirm digest destination
+aggregator_email: "medtechradar@gmail.com"
+digest_to: "digest@lkeoghqa.co.uk"      # emitted by build_digest.py, used by the send node
 
 digest_day_time: "Monday 07:30 Europe/London"
 

@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Radar digest\n\nBuilds the Monday email from SQLite. Everything at or above the score threshold since the last digest, Inbound first then Signals, plus an ageing list and one line of pipeline stats. All logic lives in scripts/build_digest.py, this workflow only schedules it, sends the result and confirms the send.\n\nThe build step runs with --dry-run, which is safe to repeat. It prints the digest JSON and writes previews to test/last_digest.html and test/last_digest.txt without touching any statuses. Only the final commit step, which runs after a successful send, marks items digested and stamps the last digest time.\n\nArming steps.\n1. Set repo_path, python_bin and digest_to in the Config node.\n2. Attach your Gmail OAuth credential to the send node.\n3. Enable the send node and the mark digested node. Both ship disabled so an accidental activation cannot email anyone.\n4. Set GENERIC_TIMEZONE=Europe/London on the n8n host so the cron fires at half past seven on Monday morning, local time.\n\nRead test/last_digest.html once before arming. If it reads well, arm it.",
+        "content": "## Radar digest\n\nBuilds the Monday email from SQLite. Everything at or above the score threshold since the last digest, Inbound first then Signals, plus an ageing list and one line of pipeline stats. All logic lives in scripts/build_digest.py, this workflow only schedules it, sends the result and confirms the send.\n\nThe build step runs with --dry-run, which is safe to repeat. It prints the digest JSON and writes previews to test/last_digest.html and test/last_digest.txt without touching any statuses. Only the final commit step, which runs after a successful send, marks items digested and stamps the last digest time.\n\nArming steps.\n1. Set repo_path and python_bin in the Config node. The recipient comes from digest_to in config/radar.yaml, carried through the build step's JSON.\n2. Attach your Gmail OAuth credential to the send node.\n3. Enable the send node and the mark digested node. Both ship disabled so an accidental activation cannot email anyone.\n4. Set GENERIC_TIMEZONE=Europe/London on the n8n host so the cron fires at half past seven on Monday morning, local time.\n\nRead test/last_digest.html once before arming. If it reads well, arm it.",
         "width": 480,
         "height": 460
       },
@@ -11,7 +11,10 @@
       "name": "How this works",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-560, -160]
+      "position": [
+        -560,
+        -160
+      ]
     },
     {
       "parameters": {
@@ -28,7 +31,10 @@
       "name": "Monday 0730",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [-40, 40]
+      "position": [
+        -40,
+        40
+      ]
     },
     {
       "parameters": {
@@ -45,12 +51,6 @@
               "name": "python_bin",
               "value": "python3",
               "type": "string"
-            },
-            {
-              "id": "cfg-digest-to",
-              "name": "digest_to",
-              "value": "REPLACE_WITH_DIGEST_EMAIL",
-              "type": "string"
             }
           ]
         },
@@ -61,7 +61,10 @@
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [180, 40]
+      "position": [
+        180,
+        40
+      ]
     },
     {
       "parameters": {
@@ -71,7 +74,10 @@
       "name": "Build Digest",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [400, 40]
+      "position": [
+        400,
+        40
+      ]
     },
     {
       "parameters": {
@@ -82,7 +88,10 @@
       "name": "Parse Digest",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [620, 40]
+      "position": [
+        620,
+        40
+      ]
     },
     {
       "parameters": {
@@ -112,11 +121,14 @@
       "name": "Anything To Send?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [840, 40]
+      "position": [
+        840,
+        40
+      ]
     },
     {
       "parameters": {
-        "sendTo": "={{ $('Config').item.json.digest_to }}",
+        "sendTo": "={{ $json.to }}",
         "subject": "={{ $json.subject }}",
         "emailType": "html",
         "message": "={{ $json.html }}",
@@ -128,7 +140,10 @@
       "name": "Send Digest",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
-      "position": [1060, 20],
+      "position": [
+        1060,
+        20
+      ],
       "disabled": true,
       "credentials": {
         "gmailOAuth2": {
@@ -145,7 +160,10 @@
       "name": "Mark Digested",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [1280, 20],
+      "position": [
+        1280,
+        20
+      ],
       "disabled": true
     }
   ],

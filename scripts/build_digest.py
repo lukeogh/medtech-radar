@@ -12,8 +12,8 @@ Contract (build conventions, Workstream 1):
   per company with a next action set, same query as touch.py pending.
 - Ends with one line of pipeline stats from the runs table, covering the
   inbox and signals workflows.
-- Prints {"subject", "text", "html", "item_count"} JSON to stdout for the n8n
-  Gmail node.
+- Prints {"subject", "text", "html", "item_count", "to"} JSON to stdout for
+  the n8n Gmail node. The recipient comes from digest_to in config/radar.yaml.
 - --dry-run also writes test/last_digest.html and test/last_digest.txt.
 - --commit marks the included items status digested and stamps
   meta.last_digest_ts. Only n8n passes it after a successful send. A build
@@ -379,7 +379,8 @@ def main(argv=None) -> int:
 
     if not args.quiet:
         print(json.dumps({"subject": subject, "text": text, "html": html,
-                          "item_count": item_count}))
+                          "item_count": item_count,
+                          "to": config.get("digest_to", "")}))
     return 0
 
 
