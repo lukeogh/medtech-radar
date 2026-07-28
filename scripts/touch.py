@@ -13,10 +13,18 @@ Usage examples:
   python scripts/touch.py list
   python scripts/touch.py list --company Cantilex
   python scripts/touch.py pending
+  python scripts/touch.py mark "Cantilex Dx" --as actioned
+  python scripts/touch.py mark --opportunity 12 --as dead
 
 pending shows the most recent touch per company where a next action is set.
 Logging a newer touch for the same company supersedes its pending entry, so
 finishing an action means doing it and logging it.
+
+mark retires a thread so the digest's ageing section stops nagging about it.
+It flips matching opportunities and signals to actioned or dead, the only two
+statuses a human may set. new and digested stay machine-owned. Match by exact
+company name, case does not matter, or by a single row with --opportunity ID
+or --signal ID. It refuses when nothing matches.
 
 --db PATH points at another database file. Tests use a throwaway one so the
 live db/radar.sqlite is never polluted.
@@ -164,6 +172,58 @@ def cmd_pending(args, conn) -> int:
     return 0
 
 
+def cmd_mark(args, conn) -> int:
+    chosen = [x for x in (args.company, args.opportunity, args.signal)
+              if x not in (None, "")]
+    if len(chosen) != 1:
+        print("Give exactly one target. A company name, or --opportunity ID,"
+              " or --signal ID.", file=sys.stderr)
+        return 2
+    status = args.as_status
+    now = radar_common.now_iso()
+    changed: list[str] = []
+
+    def flip_opportunity(where: str, params: tuple) -> None:
+        rows = conn.execute(
+            f"SELECT id, company, title, status FROM opportunities WHERE {where}",
+            params).fetchall()
+        for r in rows:
+            conn.execute("UPDATE opportunities SET status = ?,"
+                         " status_changed_at = ? WHERE id = ?",
+                         (status, now, r["id"]))
+            changed.append(f"opportunity {r['id']}. {r['company']}. "
+                           f"{r['title']}. {r['status']} to {status}.")
+
+    def flip_signal(where: str, params: tuple) -> None:
+        rows = conn.execute(
+            f"SELECT id, company, headline, status FROM signals WHERE {where}",
+            params).fetchall()
+        for r in rows:
+            conn.execute("UPDATE signals SET status = ? WHERE id = ?",
+                         (status, r["id"]))
+            changed.append(f"signal {r['id']}. {r['company']}. "
+                           f"{r['headline'] or ''} {r['status']} to {status}.")
+
+    if args.opportunity:
+        flip_opportunity("id = ?", (args.opportunity,))
+    elif args.signal:
+        flip_signal("id = ?", (args.signal,))
+    else:
+        company = _clean(args.company)
+        flip_opportunity("LOWER(company) = LOWER(?)", (company,))
+        flip_signal("LOWER(company) = LOWER(?)", (company,))
+
+    if not changed:
+        print("Nothing matched, nothing changed. Check the exact company name"
+              " with list, or pass --opportunity or --signal with an id.",
+              file=sys.stderr)
+        return 2
+    conn.commit()
+    for line in changed:
+        print(line)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="touch.py",
@@ -193,9 +253,21 @@ def main(argv: list[str] | None = None) -> int:
 
     p_pending = sub.add_parser("pending", help="show threads awaiting action")
 
+    p_mark = sub.add_parser(
+        "mark", help="retire a thread, mark its rows actioned or dead")
+    p_mark.add_argument("company", nargs="?", default=None,
+                        help="exact company name, case does not matter")
+    p_mark.add_argument("--as", dest="as_status", required=True,
+                        choices=("actioned", "dead"),
+                        help="the status to set, humans own these two only")
+    p_mark.add_argument("--opportunity", type=int, default=None, metavar="ID",
+                        help="mark one opportunity row by id instead")
+    p_mark.add_argument("--signal", type=int, default=None, metavar="ID",
+                        help="mark one signal row by id instead")
+
     # --db is also accepted after the subcommand. SUPPRESS keeps the
     # subparser from clobbering a value given before it.
-    for p in (p_add, p_list, p_pending):
+    for p in (p_add, p_list, p_pending, p_mark):
         p.add_argument("--db", default=argparse.SUPPRESS, metavar="PATH",
                        help="database file (default db/radar.sqlite)")
 
@@ -206,6 +278,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_add(args, conn)
         if args.command == "list":
             return cmd_list(args, conn)
+        if args.command == "mark":
+            return cmd_mark(args, conn)
         return cmd_pending(args, conn)
     finally:
         conn.close()

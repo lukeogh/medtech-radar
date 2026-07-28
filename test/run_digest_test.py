@@ -44,6 +44,7 @@ SAMPLES_DIR = REPO_ROOT / "test" / "sample_emails"
 DEFAULT_DB = REPO_ROOT / "test" / "test_radar.sqlite"
 PROCESS = REPO_ROOT / "scripts" / "process_email.py"
 BUILD = REPO_ROOT / "scripts" / "build_digest.py"
+TOUCH = REPO_ROOT / "scripts" / "touch.py"
 
 failures: list[str] = []
 
@@ -246,6 +247,39 @@ def main() -> int:
     check(gate["item_count"] == 0 and gate["ageing_count"] > 0
           and gate["send"] is True,
           "an ageing-only week still sends with the flag off")
+
+    # Retirement. touch.py mark is the only way a human ends a thread.
+    proc = run_script(TOUCH, ["mark", "Nonexistent Corp", "--as", "dead",
+                              "--db", str(db)])
+    check(proc.returncode != 0, "marking an unknown company is refused")
+    proc = run_script(TOUCH, ["mark", "orvala health", "--as", "actioned",
+                              "--db", str(db)])
+    check(proc.returncode == 0 and "Orvala" in proc.stdout,
+          "mark by company flips the row and says so, case insensitive")
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    orvala_row = conn.execute("SELECT status, status_changed_at FROM"
+                              " opportunities WHERE company = 'Orvala Health'"
+                              ).fetchone()
+    check(orvala_row["status"] == "actioned"
+          and (orvala_row["status_changed_at"] or "") > iso(now - timedelta(days=1)),
+          "mark sets actioned and stamps status_changed_at")
+    late_id = conn.execute("SELECT id FROM opportunities"
+                           " WHERE company = 'Lateshift Labs'").fetchone()["id"]
+    conn.close()
+    proc = run_script(TOUCH, ["mark", "--opportunity", str(late_id),
+                              "--as", "dead", "--db", str(db)])
+    check(proc.returncode == 0, "mark by opportunity id works")
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    late_status = conn.execute("SELECT status FROM opportunities WHERE id = ?",
+                               (late_id,)).fetchone()["status"]
+    check(late_status == "dead", "the id-marked row is dead")
+    conn.close()
+    proc = run_script(BUILD, ["--db", str(db)])
+    after_mark = json.loads(proc.stdout)
+    check("Orvala" not in after_mark["text"],
+          "a marked item drops out of the ageing section")
 
     # Retire everything, a truly empty week holds with the flag off and
     # sends a quiet-week digest with it on.

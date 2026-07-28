@@ -30,5 +30,17 @@ newer touch for the same company replaces its pending entry, so the way to
 clear an action is to do it and log it. To park a company with nothing
 planned, log a touch without --next.
 
-All three commands accept --db PATH for a different database file. Tests use
+Retire a thread when it is handled or has gone nowhere, so the digest's
+ageing section stops nagging about it:
+
+    python scripts/touch.py mark "Cantilex Dx" --as actioned
+    python scripts/touch.py mark --opportunity 12 --as dead
+
+mark flips every opportunity and signal for that exact company name, case
+does not matter, or one precise row with --opportunity or --signal and an
+id from the dashboard. actioned and dead are the only statuses a human
+sets. new and digested belong to the machine. It refuses when nothing
+matches rather than quietly doing nothing.
+
+All the commands accept --db PATH for a different database file. Tests use
 a throwaway one. Day to day, leave it alone and the live database is used.

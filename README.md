@@ -68,6 +68,10 @@ medtech-radar/
 6. For a browsable view of everything in the database, run
    `python scripts/build_dashboard.py` and open `dashboard.html`. It is read
    only, regenerates in a second, and every row links back to its source.
+7. When a thread is handled or has gone nowhere, retire it so the ageing
+   section stops nagging, for example
+   `python scripts/touch.py mark "Cantilex Dx" --as actioned`. Use
+   `--as dead` for the ones that died.
 
 ## Google Alerts to create.
 
