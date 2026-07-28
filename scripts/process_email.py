@@ -99,6 +99,9 @@ def main(argv=None) -> int:
         os.environ["RADAR_MOCK"] = "1"
     radar_common.load_env()
     config = radar_common.load_config()
+    # Refuse to run a live pipeline that would score against the fixture CV.
+    # This fires before the extraction call, so no tokens are spent either.
+    score_item.assert_profile_ready(config)
 
     # utf-8-sig and lstrip cope with a BOM from Windows shells and editors.
     raw = (base64.b64decode(args.b64).decode("utf-8-sig") if args.b64

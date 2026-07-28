@@ -23,6 +23,11 @@ digest_day_time: "Monday 07:30 Europe/London"
 cv_file: "config/profile/cv.pdf"        # drop the CV here, gitignored
 prefs_file: "config/profile/preferences.md"
 
+# Live scoring refuses to run against the test fixture profile when no CV is
+# in config/profile/. This override exists for deliberate experiments only.
+# Mock mode always uses the fixture freely, the tests depend on that.
+allow_fixture_profile: false
+
 score_threshold: 70                     # combined score needed to appear in digest
 fast_signal_threshold: 75               # relevance needed for an immediate ntfy push
 

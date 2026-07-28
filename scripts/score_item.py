@@ -42,11 +42,41 @@ def load_prompt(name: str) -> str:
     return (PROMPTS_DIR / name).read_text(encoding="utf-8")
 
 
+FIXTURE_REFUSAL = (
+    "No usable CV in config/profile/ and live scoring against the test "
+    "fixture is refused. A plausible score from the wrong document is worse "
+    "than a loud failure. Put the CV at config/profile/cv.txt, or cv.pdf "
+    "with pypdf installed. allow_fixture_profile true in config/radar.yaml "
+    "overrides this for deliberate experiments only."
+)
+
+
+def _fixture_allowed(config: dict) -> bool:
+    return (radar_common.mock_mode_active()
+            or bool(config.get("allow_fixture_profile", False)))
+
+
+def assert_profile_ready(config: dict) -> None:
+    """Fail before any API call when live scoring would use the fixture CV.
+
+    A cv.pdf that exists but yields no text still gets caught by the same
+    refusal inside load_cv_text, also before any API call.
+    """
+    if _fixture_allowed(config):
+        return
+    cv_txt = REPO_ROOT / "config" / "profile" / "cv.txt"
+    cv_pdf = REPO_ROOT / config.get("cv_file", "config/profile/cv.pdf")
+    if not cv_txt.exists() and not cv_pdf.exists():
+        raise SystemExit(FIXTURE_REFUSAL)
+
+
 def load_cv_text(config: dict) -> tuple[str, str]:
     """CV text plus a label saying where it came from.
 
-    Order: config/profile/cv.txt, then cv.pdf via pypdf if installed, then the
-    test fixture with a loud stderr warning.
+    Order: config/profile/cv.txt, then cv.pdf via pypdf if installed, then
+    the test fixture. The fixture is for mock mode and deliberate
+    experiments only. A live run that would fall through to it stops with a
+    clear error instead, before any API call.
     """
     cv_txt = REPO_ROOT / "config" / "profile" / "cv.txt"
     if cv_txt.exists():
@@ -66,6 +96,8 @@ def load_cv_text(config: dict) -> tuple[str, str]:
             print("WARNING. cv.pdf found but pypdf is not installed. "
                   "pip install pypdf or provide config/profile/cv.txt.", file=sys.stderr)
 
+    if not _fixture_allowed(config):
+        raise SystemExit(FIXTURE_REFUSAL)
     fixture = REPO_ROOT / "test" / "fixtures" / "profile_snapshot.md"
     print("WARNING. Using fixture profile, drop the real CV into config/profile/",
           file=sys.stderr)

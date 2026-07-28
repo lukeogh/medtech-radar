@@ -149,6 +149,31 @@ def main() -> int:
           f"runs logged with mode {expected_mode}")
     conn.close()
 
+    # The fixture-CV guard. With mock off and no CV in config/profile/, the
+    # scorer must refuse before any network attempt. No key is needed for
+    # this check, and a bogus base URL makes any accidental live call fail
+    # locally instead of reaching the API.
+    real_cv = ((REPO_ROOT / "config" / "profile" / "cv.txt").exists()
+               or (REPO_ROOT / "config" / "profile" / "cv.pdf").exists())
+    if real_cv:
+        print("skip  fixture-CV guard, a real CV is present in config/profile/")
+    else:
+        guard_env = dict(CHILD_ENV or os.environ)
+        guard_env.pop("RADAR_MOCK", None)
+        guard_env.pop("ANTHROPIC_API_KEY", None)
+        guard_env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:9"
+        opp = json.dumps({"company": "Guard Test", "title": "Director",
+                          "location": "Remote", "source_url": ""})
+        proc = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "score_item.py")],
+            input=opp, capture_output=True, text=True, encoding="utf-8",
+            env=guard_env)
+        check(proc.returncode != 0,
+              "live scoring without a CV refuses to run")
+        check("fixture" in (proc.stderr or "").lower()
+              and "cv" in (proc.stderr or "").lower(),
+              "the refusal names the fixture and the fix")
+
     # Idempotency and the stdin path in one pass. Re-feed the first email.
     stdin_text = samples[0].read_text(encoding="utf-8")
     proc = run_process(["--db", str(db)] + (["--mock"] if mock else []),

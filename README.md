@@ -96,7 +96,10 @@ fires until the step that arms it.
 1. Skim the build log at the bottom of this file.
 2. Get the repo onto the n8n host, cloned there or mounted into the
    container, with python3, the pip dependencies and a filled `.env` on that
-   host. The workflows shell out to the scripts locally.
+   host. The workflows shell out to the scripts locally. Then copy your CV
+   and preferences into `config/profile/` on that host by hand. Both are
+   gitignored, so a clone arrives without them, and live scoring refuses to
+   run until the CV is there.
 3. Run `test/run_all.sh`. Everything green before touching n8n.
 4. Read `test/last_digest.html`. Carry on only if it reads well.
 5. Import the three workflow JSONs from `workflows/` into n8n. They import
