@@ -65,6 +65,9 @@ medtech-radar/
    and edit it. It ships with working defaults.
 5. Check `config/radar.yaml`. Lines marked TODO were inferred during the
    build and need confirming.
+6. For a browsable view of everything in the database, run
+   `python scripts/build_dashboard.py` and open `dashboard.html`. It is read
+   only, regenerates in a second, and every row links back to its source.
 
 ## Google Alerts to create.
 

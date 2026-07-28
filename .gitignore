@@ -8,6 +8,7 @@ Radar_Project_Instructions.md
 Radar_Project_Knowledge_Pack.md
 
 # Runtime artefacts
+dashboard.html
 db/radar.sqlite
 db/*.sqlite
 db/*.sqlite-journal
