@@ -182,6 +182,45 @@ def main() -> int:
     check(poison_rows == 0, "the poison email stored no junk rows")
     conn.close()
 
+    # A scoring failure must not bury the row. It lands with null scores and
+    # a note, and rescore.py clears it.
+    unscorable = json.dumps({
+        "subject": "One new role for you",
+        "from": "alerts@jobs.example",
+        "date": "2026-07-28",
+        "body_text": ("RADAR-UNSCORABLE Director of Software\n"
+                      "Nebulon Health · Ghent, Belgium\n"
+                      "€900 per day\n"
+                      "https://example.invalid/nebulon-unscorable\n"),
+        "body_html": "",
+    })
+    unscorable_b64 = base64.b64encode(unscorable.encode()).decode("ascii")
+    proc = run_process(["--b64", unscorable_b64, "--db", str(db)]
+                       + (["--mock"] if mock else []))
+    check(proc.returncode == 0, "unscorable email still exits 0")
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT combined, notes FROM opportunities"
+                       " WHERE company = 'Nebulon Health'").fetchone()
+    check(row is not None and row["combined"] is None,
+          "the unscorable row is stored with a null score")
+    check(bool(row and row["notes"]), "the failure note is stored on the row")
+    conn.close()
+    proc = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "rescore.py"),
+         "--db", str(db)] + (["--mock"] if mock else []),
+        capture_output=True, text=True, encoding="utf-8", env=CHILD_ENV)
+    check(proc.returncode == 0, "rescore.py exits 0")
+    rescored = json.loads(proc.stdout)
+    check(rescored["opportunities_rescored"] == 1,
+          "rescore.py reports one opportunity rescored")
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT combined FROM opportunities"
+                       " WHERE company = 'Nebulon Health'").fetchone()
+    check(row["combined"] is not None, "the rescored row now carries a score")
+    conn.close()
+
     # The fixture-CV guard. With mock off and no CV in config/profile/, the
     # scorer must refuse before any network attempt. No key is needed for
     # this check, and a bogus base URL makes any accidental live call fail

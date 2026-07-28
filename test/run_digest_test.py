@@ -302,6 +302,54 @@ def main() -> int:
     check("Pipeline." in quiet_week["text"],
           "the quiet-week digest keeps the stats line")
 
+    # Needs review. Null-scored rows surface in the digest instead of
+    # vanishing, and rescore.py clears them.
+    conn = radar_common.get_db(db.resolve())
+    conn.execute(
+        "INSERT INTO opportunities (url_hash, first_seen, source, company,"
+        " title, thread_type, status, status_changed_at, notes)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        (radar_common.url_hash("radar://seed/norvik-null"),
+         iso(now + timedelta(minutes=5)),
+         "linkedin-alert", "Norvik Bio", "Head of Software, IVD",
+         "inbound", "new", iso(now + timedelta(minutes=5)),
+         "response was not valid JSON after one retry"))
+    conn.execute(
+        "INSERT INTO signals (url_hash, first_seen, source_id, company,"
+        " headline, summary, source_url, why, status)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        (radar_common.url_hash("radar://seed/aldra-null"),
+         iso(now + timedelta(minutes=5)),
+         "test-seed", "Aldra Photonics",
+         "Aldra Photonics raises seed round for optical diagnostics",
+         "Seed round for an optical diagnostics startup.",
+         "https://example.invalid/aldra",
+         "scorer returned unparseable output, review by hand", "new"))
+    conn.commit()
+    conn.close()
+    proc = run_script(BUILD, ["--no-send-when-empty", "--db", str(db)])
+    review = json.loads(proc.stdout)
+    check(review["needs_review_count"] == 2,
+          "both null rows counted as needs review")
+    check("Needs review." in review["text"]
+          and "Norvik Bio" in review["text"]
+          and "Aldra Photonics" in review["text"],
+          "the Needs review section lists the null rows")
+    check("rescore.py" in review["text"],
+          "the Needs review footer names the clearing command")
+    check(review["send"] is True,
+          "needs review items alone force a send with the flag off")
+    proc = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "rescore.py"),
+         "--db", str(db)] + (["--mock"] if mock else []),
+        capture_output=True, text=True, encoding="utf-8", env=CHILD_ENV)
+    check(proc.returncode == 0, "rescore.py exits 0")
+    proc = run_script(BUILD, ["--db", str(db)])
+    cleared = json.loads(proc.stdout)
+    check(cleared["needs_review_count"] == 0
+          and "Needs review." not in cleared["text"],
+          "rescore clears the Needs review section")
+
     # Mode bookkeeping.
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row

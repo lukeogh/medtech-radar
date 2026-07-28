@@ -185,6 +185,22 @@ def collect(conn, config: dict) -> dict:
         if row["id"] not in used_sig_ids:
             ageing.append({**dict(row), "kind": "signal"})
 
+    needs_review = [
+        {"label": r["title"] or "Untitled role", "company": r["company"] or "",
+         "note": r["notes"] or "scoring failed"}
+        for r in conn.execute(
+            "SELECT title, company, notes FROM opportunities"
+            " WHERE combined IS NULL AND status = 'new' AND first_seen > ?"
+            " ORDER BY first_seen", (last_ts,))
+    ] + [
+        {"label": r["headline"] or "Signal", "company": r["company"] or "",
+         "note": r["why"] or "scoring failed"}
+        for r in conn.execute(
+            "SELECT headline, company, why FROM signals"
+            " WHERE relevance IS NULL AND status = 'new' AND first_seen > ?"
+            " ORDER BY first_seen", (last_ts,))
+    ]
+
     threads = [dict(r) for r in conn.execute(
         "SELECT t.company, t.touched_at, t.channel, t.next_action,"
         " t.next_action_date"
@@ -210,7 +226,7 @@ def collect(conn, config: dict) -> dict:
 
     return {"threshold": threshold, "last_ts": last_ts, "inbound": inbound,
             "signals": signals, "ageing": ageing, "threads": threads,
-            "stats": stats}
+            "needs_review": needs_review, "stats": stats}
 
 
 def stats_line(stats: dict) -> str:
@@ -295,6 +311,15 @@ def render_text(data: dict, today_label: str) -> str:
     else:
         lines.append("- Nothing waiting. Every thread is quiet.")
 
+    if data["needs_review"]:
+        lines.append("")
+        lines.append("Needs review. The scorer could not score these, so a"
+                     " human look is due.")
+        for n in data["needs_review"]:
+            lines.append(f"- {n['label']}, {n['company']}. {sentence(n['note'])}")
+        lines.append("Clear this list with python scripts/rescore.py once the"
+                     " cause is fixed.")
+
     lines.append("")
     lines.append(stats_line(data["stats"]))
     return "\n".join(lines) + "\n"
@@ -376,6 +401,18 @@ def render_html(data: dict, today_label: str) -> str:
     else:
         parts.append("<p>Nothing waiting. Every thread is quiet.</p>")
 
+    if data["needs_review"]:
+        parts.append("<h2 style=\"font-size:16px\">Needs review</h2>")
+        parts.append("<p>The scorer could not score these, so a human look"
+                     " is due.</p>")
+        parts.append("<ul>")
+        for n in data["needs_review"]:
+            parts.append(f"<li>{esc(n['label'])}, {esc(n['company'])}. "
+                         f"{esc(sentence(n['note']))}</li>")
+        parts.append("</ul>")
+        parts.append("<p>Clear this list with <code>python scripts/rescore.py"
+                     "</code> once the cause is fixed.</p>")
+
     parts.append(f"<p style=\"color:#666\">{esc(stats_line(data['stats']))}</p>")
     parts.append("</div>")
     return "\n".join(parts)
@@ -447,7 +484,8 @@ def main(argv=None) -> int:
 
     send_when_empty = (bool(config.get("digest_send_when_empty", True))
                        if args.send_when_empty is None else args.send_when_empty)
-    content = item_count + len(data["ageing"]) + len(data["threads"])
+    content = (item_count + len(data["ageing"]) + len(data["threads"])
+               + len(data["needs_review"]))
     send = bool(send_when_empty or content > 0)
 
     if args.dry_run:
@@ -468,6 +506,7 @@ def main(argv=None) -> int:
                           "item_count": item_count,
                           "ageing_count": len(data["ageing"]),
                           "thread_count": len(data["threads"]),
+                          "needs_review_count": len(data["needs_review"]),
                           "token": token, "send": send,
                           "to": config.get("digest_to", "")}))
     return 0

@@ -118,6 +118,11 @@ def _day_rate(text: str) -> tuple[bool, int]:
 
 def mock_scorer(user_content: str) -> str:
     opp = _payload(user_content)
+    title_text = str(opp.get("title") or opp.get("role_title") or "")
+    if "RADAR-UNSCORABLE" in title_text and not opp.get("rescore"):
+        # Scoring failure trigger for tests. The rescore pass marks its
+        # payload and succeeds, proving rescore.py clears the backlog.
+        return "SCORER NOISE ((( not json"
     text = " ".join(str(opp.get(k, "")) for k in
                     ("title", "role_title", "company", "location", "salary_rate"))
 
