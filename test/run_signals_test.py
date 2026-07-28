@@ -236,6 +236,60 @@ def main() -> int:
     finally:
         cs.rc.http_get = real_http_get
 
+    print("\nPush resilience checks. A failed push delays, never loses,"
+          " stubbed, nothing sent.")
+    os.environ["RADAR_MOCK"] = "1"
+    sys.path.insert(0, str(TEST_DIR))
+    import mocks_signals as ms
+    real_push = cs.rc.push_ntfy
+
+    def throwing_push(*a, **k):
+        raise OSError("stubbed ntfy outage")
+
+    push_calls = []
+
+    def working_push(config, title, message, **k):
+        push_calls.append((title, message))
+        return "sent:stub"
+
+    try:
+        push_db = (db.parent / "test_push.sqlite").resolve()
+        if push_db.exists():
+            push_db.unlink()
+        push_conn = rc.get_db(push_db)
+        cfg = rc.load_config()
+        rubric = cs.RUBRIC_PATH.read_text(encoding="utf-8")
+        blocks = [{"type": "text", "text": rubric}]
+        item = cs.parse_announcement_file(SAMPLES["perfect"])
+        push_result = {"mode": "push", "sources_checked": 0, "items_in": 0,
+                       "items_new": 0, "duplicates": 0, "pushed": 0,
+                       "payloads": [], "notes": [], "usage": {}}
+
+        cs.rc.push_ntfy = throwing_push
+        cs.process_item(item, push_conn, cfg, blocks,
+                        ms.mock_signal_scorer, True, push_result)
+        row = push_conn.execute("SELECT pushed, relevance FROM signals"
+                                ).fetchone()
+        check(row is not None and row["pushed"] == 0,
+              "a failed live push leaves pushed at zero")
+        check(push_result["pushed"] == 0
+              and any("push failed" in n for n in push_result["notes"]),
+              "the failure lands in the run notes and the run carries on")
+
+        cs.rc.push_ntfy = working_push
+        cs.catch_up_pushes(push_conn, cfg, push_result)
+        row = push_conn.execute("SELECT pushed FROM signals").fetchone()
+        check(row["pushed"] == 1 and len(push_calls) == 1,
+              "the catch-up sweep pushes the delayed signal once")
+        cs.catch_up_pushes(push_conn, cfg, push_result)
+        check(len(push_calls) == 1,
+              "a pushed signal is not pushed again by the next sweep")
+        push_conn.close()
+        push_db.unlink(missing_ok=True)
+    finally:
+        cs.rc.push_ntfy = real_push
+        os.environ.pop("RADAR_MOCK", None)
+
     print()
     if failures:
         print(f"FAIL. {len(failures)} check(s) failed.")
