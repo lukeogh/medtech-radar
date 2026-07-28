@@ -128,6 +128,17 @@ fires until the step that arms it.
 10. Read `playbook/announcement-day.md` once, so the first real signal is
     executed rather than improvised.
 
+## Hosting.
+
+The repo lives in a private GitHub repository at
+github.com/lukeogh/medtech-radar, so the laptop's C drive is no longer the
+single point of failure. Clone it onto the n8n host with
+`gh repo clone lukeogh/medtech-radar` or over https with a token. Two things
+never travel with a clone. `.env` holds the API key and `config/profile/`
+holds the CV and preferences, both gitignored, both copied across by hand.
+The history was scanned for secret material before the first push and is
+clean. Keep it that way, secrets go in `.env` and nowhere else.
+
 ## Playbook and drafts.
 
 `playbook/announcement-day.md` is the exact sequence for the day a signal
@@ -229,3 +240,40 @@ ANTHROPIC_API_KEY. That live rerun is the first morning step.
    contains a hardcoded Anthropic API key and a Firefly III token, and the
    .claude/settings.local.json there embeds your n8n API key. Rotate all
    three and move them into credential stores.
+
+### Entry two. The hardening night, 28 July 2026.
+
+A full external review of the first build turned into sixteen ordered
+tasks. All sixteen are done. Plain reporting.
+
+What changed. Line endings are pinned to LF so shebangs survive the Linux
+host. The signal scorer can no longer pitch in first contact, and both test
+runners now enforce that doctrine in mock and live alike. Scoring runs at
+temperature zero, so the same advert scores the same on any day. The digest
+gained build tokens, so the commit step marks exactly the emailed items and
+a late arrival falls into next week instead of vanishing, plus an honest
+send gate that counts ageing, threads and needs-review items, and a
+quiet-week email so silence can only mean breakage. Items can die now,
+touch.py mark retires threads from the ageing nag. Live scoring refuses to
+run against the fixture CV. The inbox trigger keys on labels rather than
+read state, and a poison email costs three attempts before it is shelved
+under radar-failed. Failed scorings surface in a Needs review section in
+the digest and dashboard, cleared by the new rescore.py. Diff signals fetch
+and score real article text instead of a headline. SQLite runs in WAL mode.
+A failed ntfy push is retried by a catch-up sweep inside 24 hours. Test
+runners pin their mode so a stale shell variable cannot flip a run. And the
+repo now lives in a private GitHub remote, history scanned clean before the
+first push.
+
+What passed. bash test/run_all.sh, all three runners, in mock mode, after
+every one of the sixteen tasks and once more after the final merge. The
+review's own regression, the mixed live and mock runs of 28 July, is now a
+test that fails if it ever happens again.
+
+What still needs you. Rotate the Anthropic key, it was treated as
+compromised all night and no live call was made with it. Re-import all
+three workflow JSONs into n8n, they changed on disk. Copy the CV and
+preferences into config/profile/ on the n8n host. Create both Gmail
+labels. Confirm the ntfy URL and the n8n timezone. Then run the suite live
+with the fresh key and read the previews before arming anything. The full
+ordered list is in MORNING_REPORT.md.
