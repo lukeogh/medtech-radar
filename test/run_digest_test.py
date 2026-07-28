@@ -42,6 +42,10 @@ BUILD = REPO_ROOT / "scripts" / "build_digest.py"
 
 failures: list[str] = []
 
+# Built once in main() from the decided mode. Children get exactly this
+# environment, so a stale shell export cannot flip a run's mode.
+CHILD_ENV: dict | None = None
+
 
 def check(cond: bool, label: str) -> None:
     print(("PASS  " if cond else "FAIL  ") + label)
@@ -51,7 +55,8 @@ def check(cond: bool, label: str) -> None:
 
 def run_script(script: Path, cli_args: list[str]):
     return subprocess.run([sys.executable, str(script)] + cli_args,
-                          capture_output=True, text=True, encoding="utf-8")
+                          capture_output=True, text=True, encoding="utf-8",
+                          env=CHILD_ENV)
 
 
 def iso(moment: datetime) -> str:
@@ -69,11 +74,18 @@ def main() -> int:
         db.unlink()
 
     radar_common.load_env()
-    mock = not os.environ.get("ANTHROPIC_API_KEY")
+    forced = radar_common.mock_mode_active()
+    mock = forced or not os.environ.get("ANTHROPIC_API_KEY")
+    global CHILD_ENV
+    CHILD_ENV = os.environ.copy()
     if mock:
+        CHILD_ENV["RADAR_MOCK"] = "1"
         print("=" * 74)
-        print("MOCK MODE - no API key found - rerun after filling .env for live validation")
+        print("MOCK MODE - RADAR_MOCK set explicitly" if forced else
+              "MOCK MODE - no API key found - rerun after filling .env for live validation")
         print("=" * 74)
+    else:
+        CHILD_ENV.pop("RADAR_MOCK", None)
 
     # Populate through the real pipeline.
     for path in sorted(SAMPLES_DIR.glob("*.json")):
@@ -176,6 +188,15 @@ def main() -> int:
     meta = conn.execute("SELECT value FROM meta"
                         " WHERE key = 'last_digest_ts'").fetchone()["value"]
     check(meta > iso(now - timedelta(days=1)), "last_digest_ts stamped by commit")
+    expected_mode = "mock" if mock else "live"
+    seed_modes = conn.execute("SELECT DISTINCT mode FROM runs"
+                              " WHERE workflow = 'inbox'").fetchall()
+    check(bool(seed_modes) and all(r[0] == expected_mode for r in seed_modes),
+          f"seeding runs logged with mode {expected_mode}")
+    digest_modes = {r[0] for r in conn.execute(
+        "SELECT DISTINCT mode FROM runs WHERE workflow = 'digest'")}
+    check(bool(digest_modes) and digest_modes <= {"dry-run", "build", "commit"},
+          "digest runs logged with build modes only")
     conn.close()
 
     # A rebuild after commit must be empty, and ageing must keep nagging.

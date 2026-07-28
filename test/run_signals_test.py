@@ -10,9 +10,11 @@ checks:
    carrying the company, what happened, why it matters and the playbook step
 3. re-running the same injections duplicates nothing (idempotent)
 
-Auto-detects an API key. With ANTHROPIC_API_KEY in env or .env the scoring
-runs live against the real model. Without one it runs the deterministic mock
-in test/mocks_signals.py. Exits non-zero on any failure.
+Mode selection. An explicit RADAR_MOCK=1 in the environment forces mock mode.
+Otherwise the runner goes live when ANTHROPIC_API_KEY is in env or .env and
+mock when it is not. Whatever the runner decides, it builds the child process
+environment explicitly so an inherited variable can never flip a child to the
+other mode. Exits non-zero on any failure.
 """
 
 from __future__ import annotations
@@ -47,6 +49,10 @@ SAMPLE_URLS = {
 
 failures: list[str] = []
 
+# Built once in main() from the decided mode. Children get exactly this
+# environment, so a stale shell export cannot flip a run's mode.
+CHILD_ENV: dict | None = None
+
 
 def check(condition: bool, label: str) -> None:
     print(("  ok    " if condition else "  FAIL  ") + label)
@@ -60,7 +66,7 @@ def run_inject(sample: Path, db: Path, mock: bool) -> dict:
     if mock:
         cmd.append("--mock")
     proc = subprocess.run(cmd, capture_output=True, text=True,
-                          encoding="utf-8", cwd=str(REPO_ROOT))
+                          encoding="utf-8", cwd=str(REPO_ROOT), env=CHILD_ENV)
     if proc.returncode != 0:
         print(proc.stdout)
         print(proc.stderr, file=sys.stderr)
@@ -85,13 +91,19 @@ def main() -> int:
         PAYLOAD_PATH.unlink()
 
     rc.load_env()
-    mock = not os.environ.get("ANTHROPIC_API_KEY")
+    forced = rc.mock_mode_active()
+    mock = forced or not os.environ.get("ANTHROPIC_API_KEY")
+    global CHILD_ENV
+    CHILD_ENV = os.environ.copy()
     if mock:
+        CHILD_ENV["RADAR_MOCK"] = "1"
         print("=" * 68)
-        print("MOCK MODE - no API key found - rerun after filling .env "
+        print("MOCK MODE - RADAR_MOCK set explicitly" if forced else
+              "MOCK MODE - no API key found - rerun after filling .env "
               "for live validation")
         print("=" * 68)
     else:
+        CHILD_ENV.pop("RADAR_MOCK", None)
         print("Live mode. ANTHROPIC_API_KEY found, scoring with the real model.")
 
     print("\nFirst pass. Injecting the three sample announcements.")

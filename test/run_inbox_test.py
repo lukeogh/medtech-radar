@@ -38,6 +38,10 @@ PROCESS = REPO_ROOT / "scripts" / "process_email.py"
 
 failures: list[str] = []
 
+# Built once in main() from the decided mode. Children get exactly this
+# environment, so a stale shell export cannot flip a run's mode.
+CHILD_ENV: dict | None = None
+
 
 def check(cond: bool, label: str) -> None:
     print(("PASS  " if cond else "FAIL  ") + label)
@@ -48,7 +52,7 @@ def check(cond: bool, label: str) -> None:
 def run_process(cli_args: list[str], stdin_text: str | None = None):
     return subprocess.run([sys.executable, str(PROCESS)] + cli_args,
                           input=stdin_text, capture_output=True,
-                          text=True, encoding="utf-8")
+                          text=True, encoding="utf-8", env=CHILD_ENV)
 
 
 def main() -> int:
@@ -62,11 +66,18 @@ def main() -> int:
         db.unlink()
 
     radar_common.load_env()
-    mock = not os.environ.get("ANTHROPIC_API_KEY")
+    forced = radar_common.mock_mode_active()
+    mock = forced or not os.environ.get("ANTHROPIC_API_KEY")
+    global CHILD_ENV
+    CHILD_ENV = os.environ.copy()
     if mock:
+        CHILD_ENV["RADAR_MOCK"] = "1"
         print("=" * 74)
-        print("MOCK MODE - no API key found - rerun after filling .env for live validation")
+        print("MOCK MODE - RADAR_MOCK set explicitly" if forced else
+              "MOCK MODE - no API key found - rerun after filling .env for live validation")
         print("=" * 74)
+    else:
+        CHILD_ENV.pop("RADAR_MOCK", None)
 
     samples = sorted(SAMPLES_DIR.glob("*.json"))
     check(len(samples) == 5, f"five sample emails found ({len(samples)})")
@@ -120,6 +131,11 @@ def main() -> int:
     run_rows = conn.execute("SELECT COUNT(*) AS c FROM runs"
                             " WHERE workflow = 'inbox'").fetchone()["c"]
     check(run_rows == len(good), "every run logged to the runs table")
+    expected_mode = "mock" if mock else "live"
+    mode_rows = conn.execute("SELECT DISTINCT mode FROM runs"
+                             " WHERE workflow = 'inbox'").fetchall()
+    check(bool(mode_rows) and all(r[0] == expected_mode for r in mode_rows),
+          f"runs logged with mode {expected_mode}")
     conn.close()
 
     # Idempotency and the stdin path in one pass. Re-feed the first email.
