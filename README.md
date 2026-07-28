@@ -72,6 +72,9 @@ medtech-radar/
    section stops nagging, for example
    `python scripts/touch.py mark "Cantilex Dx" --as actioned`. Use
    `--as dead` for the ones that died.
+8. If the digest or dashboard shows a Needs review section, something
+   failed scoring. Run `python scripts/rescore.py` to re-score it in
+   place once the cause is fixed.
 
 ## Google Alerts to create.
 
@@ -115,7 +118,10 @@ fires until the step that arms it.
    on purpose. Send without commit resends the same digest every Monday,
    because nothing marks the items digested. Commit alone can never fire,
    it is gated on Gmail returning a sent message id, but a split arming
-   invites confusion.
+   invites confusion. While you are in there, confirm the n8n instance
+   timezone is Europe/London or adjust the cron expression. n8n runs cron
+   in the instance timezone, set `GENERIC_TIMEZONE=Europe/London` on the
+   host.
 9. In radar-signals, switch `check_signals.py` from `--dry-run` to `--push`,
    spot-check two watchlist sources with `--source`, and send one test ntfy
    push to the phone.
