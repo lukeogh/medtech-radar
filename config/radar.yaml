@@ -26,6 +26,11 @@ prefs_file: "config/profile/preferences.md"
 score_threshold: 70                     # combined score needed to appear in digest
 fast_signal_threshold: 75               # relevance needed for an immediate ntfy push
 
+# Send the Monday email even when there is nothing to report. A quiet week
+# then sends a short digest saying so, because silence should mean breakage
+# and nothing else. Set false to hold the email on genuinely empty weeks.
+digest_send_when_empty: true
+
 claude_model_extract: "claude-haiku-4-5"
 claude_model_score: "claude-sonnet-4-6"
 api_key_env: "ANTHROPIC_API_KEY"        # name only, value lives in .env

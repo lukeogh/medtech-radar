@@ -3,9 +3,9 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Radar digest\n\nBuilds the Monday email from SQLite. Everything at or above the score threshold since the last digest, Inbound first then Signals, plus an ageing list and one line of pipeline stats. All logic lives in scripts/build_digest.py, this workflow only schedules it, sends the result and confirms the send.\n\nThe build step runs with --dry-run, which is safe to repeat. It prints the digest JSON and writes previews to test/last_digest.html and test/last_digest.txt without touching any statuses. Only the final commit step, which runs after a successful send, marks items digested and stamps the last digest time.\n\nArming steps.\n1. Set repo_path and python_bin in the Config node. The recipient comes from digest_to in config/radar.yaml, carried through the build step's JSON.\n2. Attach your Gmail OAuth credential to the send node.\n3. Enable the send node and the mark digested node. Both ship disabled so an accidental activation cannot email anyone.\n4. Set GENERIC_TIMEZONE=Europe/London on the n8n host so the cron fires at half past seven on Monday morning, local time.\n\nRead test/last_digest.html once before arming. If it reads well, arm it.",
+        "content": "## Radar digest\n\nBuilds the Monday email from SQLite. All logic lives in scripts/build_digest.py, this workflow schedules it, sends the result and commits the send.\n\nThe build step runs with --dry-run, safe to repeat. It stores the exact built set under a one-use token and prints the digest JSON. The commit step passes that token back, so only the items that were in the sent email get marked digested and a late arrival falls into the next week's window. The commit runs only when Gmail returned a sent message id, so a disabled or failed send can never mark anything. A quiet week still sends a short digest saying so, controlled by digest_send_when_empty in config/radar.yaml, because silence should mean breakage and nothing else.\n\nArming steps.\n1. Set repo_path and python_bin in the Config node. The recipient comes from digest_to in config/radar.yaml.\n2. Attach your Gmail OAuth credential to the send node.\n3. Arm the digest as one action. Enable Send Digest and Mark Digested together, never one without the other. Send without commit resends the same digest every Monday. Commit without send can never fire, the sent-id gate fails closed, but a split arming invites confusion.\n4. Confirm the n8n instance timezone is Europe/London or adjust the cron. n8n runs cron in the instance timezone, set GENERIC_TIMEZONE=Europe/London on the host.\n\nRead test/last_digest.html once before arming. If it reads well, arm it.",
         "width": 480,
-        "height": 460
+        "height": 520
       },
       "id": "b7d2e830-5b12-4c7f-9c1f-000000000201",
       "name": "How this works",
@@ -104,12 +104,12 @@
           },
           "conditions": [
             {
-              "id": "cond-has-items",
-              "leftValue": "={{ $json.item_count }}",
-              "rightValue": 0,
+              "id": "cond-send-flag",
+              "leftValue": "={{ $json.send }}",
+              "rightValue": true,
               "operator": {
-                "type": "number",
-                "operation": "gt"
+                "type": "boolean",
+                "operation": "true"
               }
             }
           ],
@@ -154,17 +154,64 @@
     },
     {
       "parameters": {
-        "command": "={{ $('Config').item.json.python_bin }} {{ $('Config').item.json.repo_path }}/scripts/build_digest.py --commit --quiet"
+        "command": "={{ $('Config').item.json.python_bin }} {{ $('Config').item.json.repo_path }}/scripts/build_digest.py --commit-token {{ $json.token }} --quiet"
       },
       "id": "b7d2e830-5b12-4c7f-9c1f-000000000208",
       "name": "Mark Digested",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
-        1280,
+        1720,
         20
       ],
       "disabled": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Commit only when Gmail returned a sent message id. A disabled or\n// failed send node leaves no id here, so this gate fails closed and\n// nothing gets marked digested.\nconst sentId = $json.id || '';\nconst token = $('Parse Digest').item.json.token || '';\nreturn { json: { sent_ok: Boolean(sentId) && Boolean(token), token, sent_id: sentId } };"
+      },
+      "id": "b7d2e830-5b12-4c7f-9c1f-000000000209",
+      "name": "Confirm Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-sent-ok",
+              "leftValue": "={{ $json.sent_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b7d2e830-5b12-4c7f-9c1f-000000000210",
+      "name": "Sent OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1500,
+        20
+      ]
     }
   ],
   "connections": {
@@ -228,11 +275,34 @@
       "main": [
         [
           {
-            "node": "Mark Digested",
+            "node": "Confirm Sent",
             "type": "main",
             "index": 0
           }
         ]
+      ]
+    },
+    "Confirm Sent": {
+      "main": [
+        [
+          {
+            "node": "Sent OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sent OK?": {
+      "main": [
+        [
+          {
+            "node": "Mark Digested",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },

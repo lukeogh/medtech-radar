@@ -102,8 +102,12 @@ fires until the step that arms it.
    the `radar-processed` label in the aggregator inbox once.
 7. Trigger radar-inbox manually against the real inbox and sanity-check the
    scores in SQLite before activating it.
-8. In radar-digest, enable the Gmail send node. It ships disabled on
-   purpose.
+8. Arm radar-digest as one action. Enable the Send Digest node and the Mark
+   Digested node together, never one without the other. Both ship disabled
+   on purpose. Send without commit resends the same digest every Monday,
+   because nothing marks the items digested. Commit alone can never fire,
+   it is gated on Gmail returning a sent message id, but a split arming
+   invites confusion.
 9. In radar-signals, switch `check_signals.py` from `--dry-run` to `--push`,
    spot-check two watchlist sources with `--source`, and send one test ntfy
    push to the phone.

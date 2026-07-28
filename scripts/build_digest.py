@@ -12,14 +12,24 @@ Contract (build conventions, Workstream 1):
   per company with a next action set, same query as touch.py pending.
 - Ends with one line of pipeline stats from the runs table, covering the
   inbox and signals workflows.
-- Prints {"subject", "text", "html", "item_count", "to"} JSON to stdout for
-  the n8n Gmail node. The recipient comes from digest_to in config/radar.yaml.
+- Every build stores the exact set of included ids in the meta table under a
+  one-use token and emits the token in its stdout JSON. Builds never touch
+  statuses, the token record is their only write, so they can run repeatedly.
+- Prints {"subject", "text", "html", "item_count", "ageing_count",
+  "thread_count", "token", "send", "to"} JSON to stdout for the n8n nodes.
+  The recipient comes from digest_to in config/radar.yaml.
+- send is the gate the workflow obeys. It is true when inbound plus signals
+  plus ageing plus threads is above zero, or always when
+  digest_send_when_empty is true in config. A quiet week sends a short
+  digest that says so, because silence must mean breakage and nothing else.
 - --dry-run also writes test/last_digest.html and test/last_digest.txt.
-- --commit marks the included items status digested and stamps
-  meta.last_digest_ts. Only n8n passes it after a successful send. A build
-  without --commit never mutates anything, so it can run repeatedly.
-  --dry-run and --commit together are rejected, a dry run never mutates.
-- --quiet suppresses stdout, used with --commit in the workflow.
+- --commit-token TOKEN marks exactly the stored set digested, stamps
+  meta.last_digest_ts with the build time so late arrivals fall into the
+  next window, and clears the record. A token commits once. Unknown or
+  reused tokens are rejected. Only n8n passes it, after a confirmed send.
+- --send-when-empty and --no-send-when-empty override the config flag,
+  used by the tests.
+- --quiet suppresses stdout, used with --commit-token in the workflow.
 - --db PATH for test isolation.
 """
 
@@ -28,6 +38,7 @@ from __future__ import annotations
 import argparse
 import html as html_mod
 import json
+import secrets
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -52,6 +63,54 @@ def set_meta(conn, key: str, value: str) -> None:
     conn.execute("INSERT INTO meta (key, value) VALUES (?, ?)"
                  " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                  (key, value))
+
+
+def prune_pending(conn) -> None:
+    """Drop pending-build tokens older than two weeks. Dry runs create them
+    freely, so they need a broom."""
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for row in conn.execute(
+            "SELECT key, value FROM meta WHERE key LIKE 'digest_pending_%'"):
+        try:
+            built = json.loads(row["value"]).get("built_at", "")
+        except (ValueError, TypeError):
+            built = ""
+        if not built or built < cutoff:
+            conn.execute("DELETE FROM meta WHERE key = ?", (row["key"],))
+
+
+def commit_token(conn, token: str, quiet: bool) -> int:
+    """Mark exactly the stored build set digested. One use per token."""
+    key = f"digest_pending_{token}"
+    raw = get_meta(conn, key)
+    if not raw:
+        print(f"Unknown or already committed digest token {token}. "
+              "Nothing changed.", file=sys.stderr)
+        return 2
+    pending = json.loads(raw)
+    now = radar_common.now_iso()
+    for oid in pending.get("opp_ids", []):
+        conn.execute("UPDATE opportunities SET status = 'digested',"
+                     " status_changed_at = ? WHERE id = ? AND status = 'new'",
+                     (now, oid))
+    for sid in pending.get("sig_ids", []):
+        conn.execute("UPDATE signals SET status = 'digested'"
+                     " WHERE id = ? AND status = 'new'", (sid,))
+    # Stamp the build time, not the commit time. An item that arrived between
+    # build and send stays inside the next digest's window. Never move the
+    # stamp backwards.
+    current = get_meta(conn, "last_digest_ts") or EPOCH
+    built_at = pending.get("built_at", now)
+    set_meta(conn, "last_digest_ts", max(current, built_at))
+    conn.execute("DELETE FROM meta WHERE key = ?", (key,))
+    conn.commit()
+    count = len(pending.get("opp_ids", [])) + len(pending.get("sig_ids", []))
+    radar_common.log_run(conn, "digest", mode="commit", items_in=count,
+                         note=f"token committed {count} items")
+    if not quiet:
+        print(json.dumps({"token": token, "committed": count}))
+    return 0
 
 
 def fmt_date(iso: str) -> str:
@@ -325,20 +384,31 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Build the Monday digest from SQLite.")
     parser.add_argument("--dry-run", action="store_true",
                         help="also write test/last_digest.html and .txt previews")
-    parser.add_argument("--commit", action="store_true",
-                        help="mark included items digested and stamp last_digest_ts")
+    parser.add_argument("--commit-token", metavar="TOKEN",
+                        help="mark exactly the stored build set digested, once")
+    parser.add_argument("--send-when-empty", dest="send_when_empty",
+                        action="store_true", default=None,
+                        help="override config, send even with nothing to report")
+    parser.add_argument("--no-send-when-empty", dest="send_when_empty",
+                        action="store_false",
+                        help="override config, hold the email on an empty week")
     parser.add_argument("--quiet", action="store_true", help="no stdout JSON")
     parser.add_argument("--db", help="database path override for tests")
     args = parser.parse_args(argv)
 
-    if args.dry_run and args.commit:
-        print("Choose one of --dry-run or --commit, not both. A dry run never mutates.",
-              file=sys.stderr)
+    if args.dry_run and args.commit_token:
+        print("Choose one of --dry-run or --commit-token, not both. "
+              "A dry run never commits.", file=sys.stderr)
         return 2
 
     radar_common.load_env()
     config = radar_common.load_config()
     conn = radar_common.get_db(Path(args.db).resolve() if args.db else None)
+
+    if args.commit_token:
+        code = commit_token(conn, args.commit_token, args.quiet)
+        conn.close()
+        return code
 
     data = collect(conn, config)
     now = radar_common.now_iso()
@@ -347,29 +417,40 @@ def main(argv=None) -> int:
     html = render_html(data, today_label)
     item_count = len(data["inbound"]) + len(data["signals"])
     n_sig = len(data["signals"])
-    subject = (f"Radar digest. {len(data['inbound'])} inbound, "
-               f"{n_sig} {plural(n_sig, 'signal', 'signals')}. {today_label}.")
+    if item_count == 0:
+        subject = f"Radar digest. A quiet week, nothing new. {today_label}."
+    else:
+        subject = (f"Radar digest. {len(data['inbound'])} inbound, "
+                   f"{n_sig} {plural(n_sig, 'signal', 'signals')}. {today_label}.")
 
-    if args.commit:
-        for o in data["inbound"]:
-            conn.execute("UPDATE opportunities SET status = 'digested',"
-                         " status_changed_at = ? WHERE id = ?", (now, o["id"]))
-        for s in data["signals"]:
-            if s["kind"] == "opportunity":
-                conn.execute("UPDATE opportunities SET status = 'digested',"
-                             " status_changed_at = ? WHERE id = ?", (now, s["id"]))
-            else:
-                conn.execute("UPDATE signals SET status = 'digested' WHERE id = ?",
-                             (s["id"],))
-        set_meta(conn, "last_digest_ts", now)
-        conn.commit()
+    # Record the exact built set under a one-use token. The commit step marks
+    # this set and nothing else, so an item that arrives between build and
+    # send cannot be marked digested unseen.
+    token = (datetime.now(timezone.utc).strftime("dg%Y%m%d%H%M%S")
+             + secrets.token_hex(3))
+    pending = {
+        "opp_ids": sorted({o["id"] for o in data["inbound"]}
+                          | {s["id"] for s in data["signals"]
+                             if s["kind"] == "opportunity"}),
+        "sig_ids": sorted({s["id"] for s in data["signals"]
+                           if s["kind"] == "signal"}),
+        "built_at": now,
+    }
+    prune_pending(conn)
+    set_meta(conn, f"digest_pending_{token}", json.dumps(pending))
+    conn.commit()
+
+    send_when_empty = (bool(config.get("digest_send_when_empty", True))
+                       if args.send_when_empty is None else args.send_when_empty)
+    content = item_count + len(data["ageing"]) + len(data["threads"])
+    send = bool(send_when_empty or content > 0)
 
     if args.dry_run:
         TEST_DIR.mkdir(parents=True, exist_ok=True)
         (TEST_DIR / "last_digest.html").write_text(html, encoding="utf-8")
         (TEST_DIR / "last_digest.txt").write_text(text, encoding="utf-8")
 
-    mode = "dry-run" if args.dry_run else ("commit" if args.commit else "build")
+    mode = "dry-run" if args.dry_run else "build"
     radar_common.log_run(conn, "digest", mode=mode, items_in=item_count,
                          items_new=0,
                          note=(f"{len(data['inbound'])} inbound, "
@@ -380,6 +461,9 @@ def main(argv=None) -> int:
     if not args.quiet:
         print(json.dumps({"subject": subject, "text": text, "html": html,
                           "item_count": item_count,
+                          "ageing_count": len(data["ageing"]),
+                          "thread_count": len(data["threads"]),
+                          "token": token, "send": send,
                           "to": config.get("digest_to", "")}))
     return 0
 
