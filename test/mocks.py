@@ -67,6 +67,10 @@ def mock_extractor(user_content: str) -> str:
     a separator line (middle dot or hyphen, no currency) is company/location.
     """
     email = _payload(user_content)
+    if "RADAR-POISON" in (email.get("subject") or ""):
+        # Simulates a model losing the plot so tests can exercise the
+        # extraction retry cap. Never valid JSON, whatever the retry says.
+        return "EXTRACTION NOISE {{{ not json"
     body = email.get("body_text", "") or ""
     lines = body.splitlines()
     opportunities = []

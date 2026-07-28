@@ -12,8 +12,11 @@ Contract (build conventions, Workstream 1):
 - Output, one JSON object on stdout:
   {"processed": N, "new": N, "duplicates": N, "items": [...]}
   When extraction fails after its one retry the object also carries
-  "extract_failed": true and a "note", and the radar-inbox workflow gate
-  leaves the email unlabelled so it is not falsely marked processed.
+  "extract_failed": true, a "note", the running "attempts" count for this
+  email and "give_up": true once attempts reach three. The radar-inbox
+  workflow leaves a failed email unlabelled for a retry, and shelves it
+  under the radar-failed label when give_up is set, so a poison message
+  costs at most three attempts. A successful extraction clears the count.
 - Flags. --mock forces RADAR_MOCK (deterministic mocks from test/mocks.py).
   --db PATH points at a throwaway database for test isolation.
 
@@ -116,6 +119,27 @@ def main(argv=None) -> int:
         email, config, mock_fn=extract_fn)
     radar_common.add_usage(usage_total, usage)
 
+    # Poison-message cap. Count extraction failures per email so the
+    # workflow can shelve a hopeless one instead of retrying forever.
+    email_key = radar_common.url_hash(
+        "radar-email://" + "|".join(str(email.get(k, ""))
+                                    for k in ("from", "subject", "date")))
+    attempts = 0
+    if extract_note:
+        conn.execute(
+            "INSERT INTO email_attempts (email_hash, attempts, last_attempt,"
+            " subject) VALUES (?, 1, ?, ?)"
+            " ON CONFLICT(email_hash) DO UPDATE SET"
+            " attempts = attempts + 1, last_attempt = excluded.last_attempt",
+            (email_key, radar_common.now_iso(),
+             str(email.get("subject", ""))[:200]))
+        attempts = conn.execute(
+            "SELECT attempts FROM email_attempts WHERE email_hash = ?",
+            (email_key,)).fetchone()["attempts"]
+    else:
+        conn.execute("DELETE FROM email_attempts WHERE email_hash = ?",
+                     (email_key,))
+
     source = detect_source(email.get("from", ""))
     now = radar_common.now_iso()
     system_blocks = None  # built lazily, only when something new needs scoring
@@ -174,6 +198,8 @@ def main(argv=None) -> int:
     if extract_note:
         out["extract_failed"] = True
         out["note"] = extract_note
+        out["attempts"] = attempts
+        out["give_up"] = attempts >= 3
     print(json.dumps(out))
     return 0
 

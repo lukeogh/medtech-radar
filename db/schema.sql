@@ -82,6 +82,17 @@ CREATE TABLE IF NOT EXISTS runs (
   note             TEXT
 );
 
+-- Extraction attempts per email, keyed on a hash of sender, subject and
+-- date. Feeds the poison-message cap. An email that fails extraction three
+-- times gets give_up in the script output and the radar-failed label in the
+-- workflow, so it stops retrying every hour forever.
+CREATE TABLE IF NOT EXISTS email_attempts (
+  email_hash   TEXT PRIMARY KEY,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  last_attempt TEXT,
+  subject      TEXT
+);
+
 -- Small key value store, e.g. last_digest_ts.
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,

@@ -159,6 +159,8 @@ def main() -> int:
     check("Ageing." in text, "Ageing section renders")
     check("Orvala" in text, "the seeded old row appears in the ageing section")
     check("Pipeline." in text, "pipeline stats line present")
+    check("failed extraction" in text,
+          "stats line reports the failed-email count")
     check("Caldora" not in text, "below threshold roles stay out of the digest")
     check("Meridian" not in text, "the wrong rate role stays below the bar")
 

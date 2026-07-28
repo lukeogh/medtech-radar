@@ -149,6 +149,39 @@ def main() -> int:
           f"runs logged with mode {expected_mode}")
     conn.close()
 
+    # The poison-message cap. A hopeless email costs three attempts, then
+    # the script says give_up and the workflow shelves it.
+    poison = json.dumps({
+        "subject": "RADAR-POISON weekly job alert",
+        "from": "alerts@jobs.example",
+        "date": "2026-07-28",
+        "body_text": "nothing the extractor can use",
+        "body_html": "",
+    })
+    poison_b64 = base64.b64encode(poison.encode()).decode("ascii")
+    for attempt in (1, 2, 3):
+        proc = run_process(["--b64", poison_b64, "--db", str(db)]
+                           + (["--mock"] if mock else []))
+        check(proc.returncode == 0, f"poison attempt {attempt} exits 0")
+        result = json.loads(proc.stdout)
+        check(result.get("extract_failed") is True,
+              f"poison attempt {attempt} reports extract_failed")
+        check(result.get("attempts") == attempt,
+              f"poison attempt {attempt} counts {attempt}")
+        expected_give_up = attempt >= 3
+        check(result.get("give_up") is expected_give_up,
+              f"poison attempt {attempt} give_up is {expected_give_up}")
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT attempts FROM email_attempts").fetchone()
+    check(row is not None and row["attempts"] == 3,
+          "email_attempts holds three attempts for the poison email")
+    poison_rows = conn.execute(
+        "SELECT COUNT(*) AS c FROM opportunities"
+        " WHERE company = ''").fetchone()["c"]
+    check(poison_rows == 0, "the poison email stored no junk rows")
+    conn.close()
+
     # The fixture-CV guard. With mock off and no CV in config/profile/, the
     # scorer must refuse before any network attempt. No key is needed for
     # this check, and a bogus base URL makes any accidental live call fail

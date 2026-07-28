@@ -106,7 +106,8 @@ fires until the step that arms it.
    inactive. Point each workflow's Config node at the repo path and python
    binary on that host.
 6. Connect the Gmail credential on the trigger and send nodes, and create
-   the `radar-processed` label in the aggregator inbox once.
+   the `radar-processed` and `radar-failed` labels in the aggregator inbox
+   once. Put both label ids into the two label nodes in radar-inbox.
 7. Trigger radar-inbox manually against the real inbox and sanity-check the
    scores in SQLite before activating it.
 8. Arm radar-digest as one action. Enable the Send Digest node and the Mark

@@ -204,6 +204,9 @@ def collect(conn, config: dict) -> dict:
         " COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) AS tokens"
         " FROM runs WHERE workflow IN ('inbox', 'signals') AND ts > ?",
         (last_ts,)).fetchone())
+    stats["failed_emails"] = conn.execute(
+        "SELECT COUNT(*) FROM email_attempts"
+        " WHERE attempts >= 3 AND last_attempt > ?", (last_ts,)).fetchone()[0]
 
     return {"threshold": threshold, "last_ts": last_ts, "inbound": inbound,
             "signals": signals, "ageing": ageing, "threads": threads,
@@ -218,6 +221,8 @@ def stats_line(stats: dict) -> str:
             f"{dups} {plural(dups, 'duplicate', 'duplicates')} skipped, "
             f"{stats['signal_runs']} signal {plural(stats['signal_runs'], 'check', 'checks')}, "
             f"{stats['signal_new']} scored, "
+            f"{stats['failed_emails']} "
+            f"{plural(stats['failed_emails'], 'email', 'emails')} failed extraction, "
             f"{stats['tokens']} tokens since the last digest.")
 
 
