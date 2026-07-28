@@ -31,7 +31,7 @@ import os
 import re
 import sys
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -237,6 +237,20 @@ def check_rss(source: dict, state: dict | None, config: dict, conn, notes: list)
     return items
 
 
+def fetch_article_text(url: str, config: dict) -> str:
+    """Fetch one fresh article politely and return its normalised text.
+
+    Gives the scorer a body to read instead of a sixty-character headline,
+    which is what keeps weak evidence out of the push band. Returns an empty
+    string on any failure so the caller falls back to the anchor text.
+    Small and separate so tests can stub it without any network.
+    """
+    status, _, body = rc.http_get(url, config)
+    if status != 200 or not body:
+        return ""
+    return rc.normalise_page_text(body)[:MAX_ITEM_TEXT]
+
+
 def check_diff(source: dict, state: dict | None, config: dict, conn, notes: list):
     """Fetch the listing page, hash it, and on change diff the article links."""
     status, headers, body = rc.http_get(
@@ -279,13 +293,19 @@ def check_diff(source: dict, state: dict | None, config: dict, conn, notes: list
         if not fresh:
             notes.append(f"{source['id']}: page changed but no new article links found")
         for url, text in fresh[:MAX_NEW_ITEMS_PER_SOURCE]:
+            # One polite fetch per fresh article, capped by the five-item
+            # limit above. The anchor text is the fallback body.
+            article = fetch_article_text(url, config)
+            if not article:
+                notes.append(f"{source['id']}: article fetch failed, "
+                             f"scoring from anchor text for {url}")
             items.append({
                 "source_id": source["id"],
                 "source_name": source.get("name", source["id"]),
                 "url": url,
                 "headline": text,
                 "date": None,
-                "text": text,
+                "text": article or text,
             })
 
     merged = link_urls + [u for u in previous if u not in link_urls]
@@ -426,7 +446,14 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
         f"{item['url']}"
     )
     if push_live:
-        outcome = rc.push_ntfy(config, title, message, dry_run_path=None)
+        # A failed push must not kill the rest of the run. The pushed flag
+        # only sets on success, so the catch-up sweep retries this signal on
+        # the next push-mode run inside its 24 hour window.
+        try:
+            outcome = rc.push_ntfy(config, title, message, dry_run_path=None)
+        except Exception as err:
+            result["notes"].append(f"push failed for {company}: {err}")
+            return
         conn.execute(
             "UPDATE signals SET pushed = 1, pushed_at = ? WHERE url_hash = ?",
             (rc.now_iso(), h),
@@ -440,6 +467,46 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
         "company": company, "relevance": relevance,
         "title": title, "message": message, "outcome": outcome,
     })
+
+
+def catch_up_pushes(conn, config: dict, result: dict) -> None:
+    """Push-mode only. Retry unpushed hot signals from the last 24 hours.
+
+    A transient ntfy outage then delays a push rather than losing it. The
+    24 hour window stops an old backlog blasting the phone, and the pushed
+    flag still only sets on success.
+    """
+    threshold = int(config.get("fast_signal_threshold", 75))
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = conn.execute(
+        "SELECT * FROM signals WHERE pushed = 0 AND relevance IS NOT NULL"
+        " AND relevance >= ? AND first_seen >= ? AND status = 'new'"
+        " ORDER BY first_seen", (threshold, cutoff)).fetchall()
+    for row in rows:
+        title = f"Radar signal. {row['company'] or 'Unknown company'}"
+        message = (
+            f"{row['headline'] or ''}\n"
+            f"Why it matters. {row['why'] or ''}\n"
+            f"Do today. {row['playbook_step'] or ''}\n"
+            f"{row['source_url'] or ''}"
+        )
+        try:
+            outcome = rc.push_ntfy(config, title, message, dry_run_path=None)
+        except Exception as err:
+            result["notes"].append(
+                f"catch-up push failed for {row['company']}: {err}")
+            continue
+        conn.execute(
+            "UPDATE signals SET pushed = 1, pushed_at = ? WHERE id = ?",
+            (rc.now_iso(), row["id"]))
+        conn.commit()
+        result["pushed"] += 1
+        result["payloads"].append({
+            "company": row["company"], "relevance": row["relevance"],
+            "title": title, "message": message,
+            "outcome": f"catch-up {outcome}",
+        })
 
 
 def main(argv=None) -> int:
@@ -528,6 +595,9 @@ def main(argv=None) -> int:
             for item in items:
                 process_item(item, conn, config, system_blocks, mock_fn,
                              push_live, result)
+
+    if push_live:
+        catch_up_pushes(conn, config, result)
 
     rc.log_run(
         conn, "signals",

@@ -6,12 +6,17 @@ flagged opportunity for the ageing section and one fresh row in the signals
 table, then exercises scripts/build_digest.py in dry run, commit and rebuild
 modes. Asserts:
 
-- the digest JSON honours the contract {subject, text, html, item_count},
+- the digest JSON honours the contract, including the build token and the
+  send flag,
 - the Inbound section renders with the strong role, weak roles stay out,
 - the Signals section reads the signals table,
 - the ageing section lists the seeded old row and keeps nagging after commit,
-- dry run mutates nothing, commit marks items digested and stamps
-  meta.last_digest_ts, and the next build is empty (idempotent).
+- dry run never touches statuses, the token commit marks exactly the built
+  set, a row arriving after the build stays new, a token commits once,
+  unknown tokens are rejected,
+- the send gate counts ageing and threads, an ageing-only week sends even
+  with digest_send_when_empty off, a truly empty week holds with the flag
+  off and sends a quiet-week digest with it on.
 
 With no ANTHROPIC_API_KEY the runner forces mock mode and says so loudly.
 Exits non zero on any failure.
@@ -39,8 +44,13 @@ SAMPLES_DIR = REPO_ROOT / "test" / "sample_emails"
 DEFAULT_DB = REPO_ROOT / "test" / "test_radar.sqlite"
 PROCESS = REPO_ROOT / "scripts" / "process_email.py"
 BUILD = REPO_ROOT / "scripts" / "build_digest.py"
+TOUCH = REPO_ROOT / "scripts" / "touch.py"
 
 failures: list[str] = []
+
+# Built once in main() from the decided mode. Children get exactly this
+# environment, so a stale shell export cannot flip a run's mode.
+CHILD_ENV: dict | None = None
 
 
 def check(cond: bool, label: str) -> None:
@@ -51,7 +61,8 @@ def check(cond: bool, label: str) -> None:
 
 def run_script(script: Path, cli_args: list[str]):
     return subprocess.run([sys.executable, str(script)] + cli_args,
-                          capture_output=True, text=True, encoding="utf-8")
+                          capture_output=True, text=True, encoding="utf-8",
+                          env=CHILD_ENV)
 
 
 def iso(moment: datetime) -> str:
@@ -69,11 +80,18 @@ def main() -> int:
         db.unlink()
 
     radar_common.load_env()
-    mock = not os.environ.get("ANTHROPIC_API_KEY")
+    forced = radar_common.mock_mode_active()
+    mock = forced or not os.environ.get("ANTHROPIC_API_KEY")
+    global CHILD_ENV
+    CHILD_ENV = os.environ.copy()
     if mock:
+        CHILD_ENV["RADAR_MOCK"] = "1"
         print("=" * 74)
-        print("MOCK MODE - no API key found - rerun after filling .env for live validation")
+        print("MOCK MODE - RADAR_MOCK set explicitly" if forced else
+              "MOCK MODE - no API key found - rerun after filling .env for live validation")
         print("=" * 74)
+    else:
+        CHILD_ENV.pop("RADAR_MOCK", None)
 
     # Populate through the real pipeline.
     for path in sorted(SAMPLES_DIR.glob("*.json")):
@@ -125,8 +143,11 @@ def main() -> int:
         print(f"\n{len(failures)} DIGEST CHECK(S) FAILED")
         return 1
     digest = json.loads(proc.stdout)
-    check(all(k in digest for k in ("subject", "text", "html", "item_count")),
-          "digest JSON has the contract keys")
+    check(all(k in digest for k in ("subject", "text", "html", "item_count",
+                                    "token", "send", "ageing_count",
+                                    "thread_count")),
+          "digest JSON has the contract keys including token and send")
+    check(digest["send"] is True, "send flag true with items to report")
     print(f"digest -> {json.dumps({k: digest[k] for k in ('subject', 'item_count')})}")
     text = digest["text"]
     check(digest["item_count"] >= 2,
@@ -138,6 +159,8 @@ def main() -> int:
     check("Ageing." in text, "Ageing section renders")
     check("Orvala" in text, "the seeded old row appears in the ageing section")
     check("Pipeline." in text, "pipeline stats line present")
+    check("failed extraction" in text,
+          "stats line reports the failed-email count")
     check("Caldora" not in text, "below threshold roles stay out of the digest")
     check("Meridian" not in text, "the wrong rate role stays below the bar")
 
@@ -157,9 +180,26 @@ def main() -> int:
     check(status == "new", "dry run leaves statuses untouched")
     conn.close()
 
-    # Commit pass, as n8n would run it after a successful send.
-    proc = run_script(BUILD, ["--commit", "--quiet", "--db", str(db)])
-    check(proc.returncode == 0, "build_digest --commit --quiet exits 0")
+    # A row arrives between build and send. The token commit must not touch it.
+    conn = radar_common.get_db(db.resolve())
+    conn.execute(
+        "INSERT INTO opportunities (url_hash, first_seen, source, company, title,"
+        " location, source_url, thread_type, cv_match, want_match, combined,"
+        " one_line_why, red_flags, status, status_changed_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (radar_common.url_hash("radar://seed/lateshift-fractional-director"),
+         iso(now + timedelta(seconds=5)), "linkedin-alert", "Lateshift Labs",
+         "Fractional Software Director, diagnostics",
+         "Remote (Europe)", "https://example.invalid/lateshift", "inbound",
+         86, 90, 88, "Arrived while the digest was in flight.", "[]", "new",
+         iso(now + timedelta(seconds=5))))
+    conn.commit()
+    conn.close()
+
+    # Commit pass, as n8n would run it after a confirmed send.
+    token = digest["token"]
+    proc = run_script(BUILD, ["--commit-token", token, "--quiet", "--db", str(db)])
+    check(proc.returncode == 0, "build_digest --commit-token exits 0")
     check(proc.stdout.strip() == "", "--quiet prints nothing")
 
     conn = sqlite3.connect(db)
@@ -167,6 +207,9 @@ def main() -> int:
     status = conn.execute("SELECT status FROM opportunities"
                           " WHERE company LIKE 'Veltrix%'").fetchone()["status"]
     check(status == "digested", "commit marks the sent item digested")
+    late = conn.execute("SELECT status FROM opportunities"
+                        " WHERE company = 'Lateshift Labs'").fetchone()["status"]
+    check(late == "new", "a row arriving after the build stays new")
     orvala = conn.execute("SELECT status FROM opportunities"
                           " WHERE company = 'Orvala Health'").fetchone()["status"]
     check(orvala == "new", "the ageing row keeps its status, it was not in the send")
@@ -178,14 +221,148 @@ def main() -> int:
     check(meta > iso(now - timedelta(days=1)), "last_digest_ts stamped by commit")
     conn.close()
 
-    # A rebuild after commit must be empty, and ageing must keep nagging.
+    # A token commits once. Unknown tokens are refused.
+    proc = run_script(BUILD, ["--commit-token", token, "--db", str(db)])
+    check(proc.returncode != 0, "a reused token is rejected")
+    proc = run_script(BUILD, ["--commit-token", "dg-bogus", "--db", str(db)])
+    check(proc.returncode != 0, "an unknown token is rejected")
+
+    # The late arrival lands in the next build, then the well runs dry.
     proc = run_script(BUILD, ["--db", str(db)])
     check(proc.returncode == 0, "post commit rebuild exits 0")
     digest2 = json.loads(proc.stdout)
-    check(digest2["item_count"] == 0,
-          "second digest is empty, nothing is double reported")
+    check(digest2["item_count"] == 1 and "Lateshift" in digest2["text"],
+          "the between-build arrival appears in the next digest")
     check("Orvala" in digest2["text"],
           "ageing keeps nagging until the status moves")
+    proc = run_script(BUILD, ["--commit-token", digest2["token"], "--quiet",
+                              "--db", str(db)])
+    check(proc.returncode == 0, "second token commits cleanly")
+    proc = run_script(BUILD, ["--db", str(db)])
+    digest3 = json.loads(proc.stdout)
+    check(digest3["item_count"] == 0,
+          "third digest is empty, nothing is double reported")
+
+    # Send gate. Ageing alone forces a send even with the empty-week flag off.
+    proc = run_script(BUILD, ["--no-send-when-empty", "--db", str(db)])
+    gate = json.loads(proc.stdout)
+    check(gate["item_count"] == 0 and gate["ageing_count"] > 0
+          and gate["send"] is True,
+          "an ageing-only week still sends with the flag off")
+
+    # Retirement. touch.py mark is the only way a human ends a thread.
+    proc = run_script(TOUCH, ["mark", "Nonexistent Corp", "--as", "dead",
+                              "--db", str(db)])
+    check(proc.returncode != 0, "marking an unknown company is refused")
+    proc = run_script(TOUCH, ["mark", "orvala health", "--as", "actioned",
+                              "--db", str(db)])
+    check(proc.returncode == 0 and "Orvala" in proc.stdout,
+          "mark by company flips the row and says so, case insensitive")
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    orvala_row = conn.execute("SELECT status, status_changed_at FROM"
+                              " opportunities WHERE company = 'Orvala Health'"
+                              ).fetchone()
+    check(orvala_row["status"] == "actioned"
+          and (orvala_row["status_changed_at"] or "") > iso(now - timedelta(days=1)),
+          "mark sets actioned and stamps status_changed_at")
+    late_id = conn.execute("SELECT id FROM opportunities"
+                           " WHERE company = 'Lateshift Labs'").fetchone()["id"]
+    conn.close()
+    proc = run_script(TOUCH, ["mark", "--opportunity", str(late_id),
+                              "--as", "dead", "--db", str(db)])
+    check(proc.returncode == 0, "mark by opportunity id works")
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    late_status = conn.execute("SELECT status FROM opportunities WHERE id = ?",
+                               (late_id,)).fetchone()["status"]
+    check(late_status == "dead", "the id-marked row is dead")
+    conn.close()
+    proc = run_script(BUILD, ["--db", str(db)])
+    after_mark = json.loads(proc.stdout)
+    check("Orvala" not in after_mark["text"],
+          "a marked item drops out of the ageing section")
+
+    # Retire everything, a truly empty week holds with the flag off and
+    # sends a quiet-week digest with it on.
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE opportunities SET status = 'dead'")
+    conn.execute("UPDATE signals SET status = 'dead'")
+    conn.commit()
+    conn.close()
+    proc = run_script(BUILD, ["--no-send-when-empty", "--db", str(db)])
+    empty_gate = json.loads(proc.stdout)
+    check(empty_gate["send"] is False,
+          "a truly empty week holds the email with the flag off")
+    proc = run_script(BUILD, ["--send-when-empty", "--db", str(db)])
+    quiet_week = json.loads(proc.stdout)
+    check(quiet_week["send"] is True, "the empty-week flag forces a send")
+    check("quiet week" in quiet_week["subject"].lower(),
+          "the quiet-week subject says so")
+    check("Pipeline." in quiet_week["text"],
+          "the quiet-week digest keeps the stats line")
+
+    # Needs review. Null-scored rows surface in the digest instead of
+    # vanishing, and rescore.py clears them.
+    conn = radar_common.get_db(db.resolve())
+    conn.execute(
+        "INSERT INTO opportunities (url_hash, first_seen, source, company,"
+        " title, thread_type, status, status_changed_at, notes)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        (radar_common.url_hash("radar://seed/norvik-null"),
+         iso(now + timedelta(minutes=5)),
+         "linkedin-alert", "Norvik Bio", "Head of Software, IVD",
+         "inbound", "new", iso(now + timedelta(minutes=5)),
+         "response was not valid JSON after one retry"))
+    conn.execute(
+        "INSERT INTO signals (url_hash, first_seen, source_id, company,"
+        " headline, summary, source_url, why, status)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        (radar_common.url_hash("radar://seed/aldra-null"),
+         iso(now + timedelta(minutes=5)),
+         "test-seed", "Aldra Photonics",
+         "Aldra Photonics raises seed round for optical diagnostics",
+         "Seed round for an optical diagnostics startup.",
+         "https://example.invalid/aldra",
+         "scorer returned unparseable output, review by hand", "new"))
+    conn.commit()
+    conn.close()
+    proc = run_script(BUILD, ["--no-send-when-empty", "--db", str(db)])
+    review = json.loads(proc.stdout)
+    check(review["needs_review_count"] == 2,
+          "both null rows counted as needs review")
+    check("Needs review." in review["text"]
+          and "Norvik Bio" in review["text"]
+          and "Aldra Photonics" in review["text"],
+          "the Needs review section lists the null rows")
+    check("rescore.py" in review["text"],
+          "the Needs review footer names the clearing command")
+    check(review["send"] is True,
+          "needs review items alone force a send with the flag off")
+    proc = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "rescore.py"),
+         "--db", str(db)] + (["--mock"] if mock else []),
+        capture_output=True, text=True, encoding="utf-8", env=CHILD_ENV)
+    check(proc.returncode == 0, "rescore.py exits 0")
+    proc = run_script(BUILD, ["--db", str(db)])
+    cleared = json.loads(proc.stdout)
+    check(cleared["needs_review_count"] == 0
+          and "Needs review." not in cleared["text"],
+          "rescore clears the Needs review section")
+
+    # Mode bookkeeping.
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    expected_mode = "mock" if mock else "live"
+    seed_modes = conn.execute("SELECT DISTINCT mode FROM runs"
+                              " WHERE workflow = 'inbox'").fetchall()
+    check(bool(seed_modes) and all(r[0] == expected_mode for r in seed_modes),
+          f"seeding runs logged with mode {expected_mode}")
+    digest_modes = {r[0] for r in conn.execute(
+        "SELECT DISTINCT mode FROM runs WHERE workflow = 'digest'")}
+    check(bool(digest_modes) and digest_modes <= {"dry-run", "build", "commit"},
+          "digest runs logged with build modes only")
+    conn.close()
 
     print()
     if failures:

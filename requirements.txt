@@ -1,3 +1,5 @@
 anthropic>=0.100
 PyYAML>=6.0
 feedparser>=6.0
+# pypdf is optional. Only needed when the CV is dropped in as cv.pdf rather
+# than cv.txt. Install with: pip install pypdf

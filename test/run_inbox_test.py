@@ -38,6 +38,10 @@ PROCESS = REPO_ROOT / "scripts" / "process_email.py"
 
 failures: list[str] = []
 
+# Built once in main() from the decided mode. Children get exactly this
+# environment, so a stale shell export cannot flip a run's mode.
+CHILD_ENV: dict | None = None
+
 
 def check(cond: bool, label: str) -> None:
     print(("PASS  " if cond else "FAIL  ") + label)
@@ -48,7 +52,7 @@ def check(cond: bool, label: str) -> None:
 def run_process(cli_args: list[str], stdin_text: str | None = None):
     return subprocess.run([sys.executable, str(PROCESS)] + cli_args,
                           input=stdin_text, capture_output=True,
-                          text=True, encoding="utf-8")
+                          text=True, encoding="utf-8", env=CHILD_ENV)
 
 
 def main() -> int:
@@ -62,11 +66,18 @@ def main() -> int:
         db.unlink()
 
     radar_common.load_env()
-    mock = not os.environ.get("ANTHROPIC_API_KEY")
+    forced = radar_common.mock_mode_active()
+    mock = forced or not os.environ.get("ANTHROPIC_API_KEY")
+    global CHILD_ENV
+    CHILD_ENV = os.environ.copy()
     if mock:
+        CHILD_ENV["RADAR_MOCK"] = "1"
         print("=" * 74)
-        print("MOCK MODE - no API key found - rerun after filling .env for live validation")
+        print("MOCK MODE - RADAR_MOCK set explicitly" if forced else
+              "MOCK MODE - no API key found - rerun after filling .env for live validation")
         print("=" * 74)
+    else:
+        CHILD_ENV.pop("RADAR_MOCK", None)
 
     samples = sorted(SAMPLES_DIR.glob("*.json"))
     check(len(samples) == 5, f"five sample emails found ({len(samples)})")
@@ -117,10 +128,123 @@ def main() -> int:
     veltrix = conn.execute("SELECT COUNT(*) AS c FROM opportunities"
                            " WHERE company LIKE 'Veltrix%'").fetchone()["c"]
     check(veltrix == 1, "the duplicated role is stored exactly once")
+    # Voice doctrine. No semicolons or em dashes in any free text the scorer
+    # wrote, whichever mode produced it.
+    dirty = []
+    for r in rows:
+        for field in ("one_line_why", "suggested_action", "red_flags", "act_by"):
+            value = r[field] or ""
+            if ";" in value or "—" in value:
+                dirty.append(f"{r['company']}.{field}")
+    check(not dirty,
+          "no semicolons or em dashes in scored free text"
+          + (f" (violations {dirty})" if dirty else ""))
     run_rows = conn.execute("SELECT COUNT(*) AS c FROM runs"
                             " WHERE workflow = 'inbox'").fetchone()["c"]
     check(run_rows == len(good), "every run logged to the runs table")
+    expected_mode = "mock" if mock else "live"
+    mode_rows = conn.execute("SELECT DISTINCT mode FROM runs"
+                             " WHERE workflow = 'inbox'").fetchall()
+    check(bool(mode_rows) and all(r[0] == expected_mode for r in mode_rows),
+          f"runs logged with mode {expected_mode}")
     conn.close()
+
+    # The poison-message cap. A hopeless email costs three attempts, then
+    # the script says give_up and the workflow shelves it.
+    poison = json.dumps({
+        "subject": "RADAR-POISON weekly job alert",
+        "from": "alerts@jobs.example",
+        "date": "2026-07-28",
+        "body_text": "nothing the extractor can use",
+        "body_html": "",
+    })
+    poison_b64 = base64.b64encode(poison.encode()).decode("ascii")
+    for attempt in (1, 2, 3):
+        proc = run_process(["--b64", poison_b64, "--db", str(db)]
+                           + (["--mock"] if mock else []))
+        check(proc.returncode == 0, f"poison attempt {attempt} exits 0")
+        result = json.loads(proc.stdout)
+        check(result.get("extract_failed") is True,
+              f"poison attempt {attempt} reports extract_failed")
+        check(result.get("attempts") == attempt,
+              f"poison attempt {attempt} counts {attempt}")
+        expected_give_up = attempt >= 3
+        check(result.get("give_up") is expected_give_up,
+              f"poison attempt {attempt} give_up is {expected_give_up}")
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT attempts FROM email_attempts").fetchone()
+    check(row is not None and row["attempts"] == 3,
+          "email_attempts holds three attempts for the poison email")
+    poison_rows = conn.execute(
+        "SELECT COUNT(*) AS c FROM opportunities"
+        " WHERE company = ''").fetchone()["c"]
+    check(poison_rows == 0, "the poison email stored no junk rows")
+    conn.close()
+
+    # A scoring failure must not bury the row. It lands with null scores and
+    # a note, and rescore.py clears it.
+    unscorable = json.dumps({
+        "subject": "One new role for you",
+        "from": "alerts@jobs.example",
+        "date": "2026-07-28",
+        "body_text": ("RADAR-UNSCORABLE Director of Software\n"
+                      "Nebulon Health · Ghent, Belgium\n"
+                      "€900 per day\n"
+                      "https://example.invalid/nebulon-unscorable\n"),
+        "body_html": "",
+    })
+    unscorable_b64 = base64.b64encode(unscorable.encode()).decode("ascii")
+    proc = run_process(["--b64", unscorable_b64, "--db", str(db)]
+                       + (["--mock"] if mock else []))
+    check(proc.returncode == 0, "unscorable email still exits 0")
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT combined, notes FROM opportunities"
+                       " WHERE company = 'Nebulon Health'").fetchone()
+    check(row is not None and row["combined"] is None,
+          "the unscorable row is stored with a null score")
+    check(bool(row and row["notes"]), "the failure note is stored on the row")
+    conn.close()
+    proc = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "rescore.py"),
+         "--db", str(db)] + (["--mock"] if mock else []),
+        capture_output=True, text=True, encoding="utf-8", env=CHILD_ENV)
+    check(proc.returncode == 0, "rescore.py exits 0")
+    rescored = json.loads(proc.stdout)
+    check(rescored["opportunities_rescored"] == 1,
+          "rescore.py reports one opportunity rescored")
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT combined FROM opportunities"
+                       " WHERE company = 'Nebulon Health'").fetchone()
+    check(row["combined"] is not None, "the rescored row now carries a score")
+    conn.close()
+
+    # The fixture-CV guard. With mock off and no CV in config/profile/, the
+    # scorer must refuse before any network attempt. No key is needed for
+    # this check, and a bogus base URL makes any accidental live call fail
+    # locally instead of reaching the API.
+    real_cv = ((REPO_ROOT / "config" / "profile" / "cv.txt").exists()
+               or (REPO_ROOT / "config" / "profile" / "cv.pdf").exists())
+    if real_cv:
+        print("skip  fixture-CV guard, a real CV is present in config/profile/")
+    else:
+        guard_env = dict(CHILD_ENV or os.environ)
+        guard_env.pop("RADAR_MOCK", None)
+        guard_env.pop("ANTHROPIC_API_KEY", None)
+        guard_env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:9"
+        opp = json.dumps({"company": "Guard Test", "title": "Director",
+                          "location": "Remote", "source_url": ""})
+        proc = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "score_item.py")],
+            input=opp, capture_output=True, text=True, encoding="utf-8",
+            env=guard_env)
+        check(proc.returncode != 0,
+              "live scoring without a CV refuses to run")
+        check("fixture" in (proc.stderr or "").lower()
+              and "cv" in (proc.stderr or "").lower(),
+              "the refusal names the fixture and the fix")
 
     # Idempotency and the stdin path in one pass. Re-feed the first email.
     stdin_text = samples[0].read_text(encoding="utf-8")

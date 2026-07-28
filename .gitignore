@@ -7,6 +7,9 @@ config/profile/
 Radar_Project_Instructions.md
 Radar_Project_Knowledge_Pack.md
 
+# Overnight reports are for reading, not versioning
+MORNING_REPORT.md
+
 # Runtime artefacts
 dashboard.html
 db/radar.sqlite

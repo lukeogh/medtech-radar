@@ -10,9 +10,11 @@ checks:
    carrying the company, what happened, why it matters and the playbook step
 3. re-running the same injections duplicates nothing (idempotent)
 
-Auto-detects an API key. With ANTHROPIC_API_KEY in env or .env the scoring
-runs live against the real model. Without one it runs the deterministic mock
-in test/mocks_signals.py. Exits non-zero on any failure.
+Mode selection. An explicit RADAR_MOCK=1 in the environment forces mock mode.
+Otherwise the runner goes live when ANTHROPIC_API_KEY is in env or .env and
+mock when it is not. Whatever the runner decides, it builds the child process
+environment explicitly so an inherited variable can never flip a child to the
+other mode. Exits non-zero on any failure.
 """
 
 from __future__ import annotations
@@ -47,6 +49,10 @@ SAMPLE_URLS = {
 
 failures: list[str] = []
 
+# Built once in main() from the decided mode. Children get exactly this
+# environment, so a stale shell export cannot flip a run's mode.
+CHILD_ENV: dict | None = None
+
 
 def check(condition: bool, label: str) -> None:
     print(("  ok    " if condition else "  FAIL  ") + label)
@@ -60,7 +66,7 @@ def run_inject(sample: Path, db: Path, mock: bool) -> dict:
     if mock:
         cmd.append("--mock")
     proc = subprocess.run(cmd, capture_output=True, text=True,
-                          encoding="utf-8", cwd=str(REPO_ROOT))
+                          encoding="utf-8", cwd=str(REPO_ROOT), env=CHILD_ENV)
     if proc.returncode != 0:
         print(proc.stdout)
         print(proc.stderr, file=sys.stderr)
@@ -85,13 +91,19 @@ def main() -> int:
         PAYLOAD_PATH.unlink()
 
     rc.load_env()
-    mock = not os.environ.get("ANTHROPIC_API_KEY")
+    forced = rc.mock_mode_active()
+    mock = forced or not os.environ.get("ANTHROPIC_API_KEY")
+    global CHILD_ENV
+    CHILD_ENV = os.environ.copy()
     if mock:
+        CHILD_ENV["RADAR_MOCK"] = "1"
         print("=" * 68)
-        print("MOCK MODE - no API key found - rerun after filling .env "
+        print("MOCK MODE - RADAR_MOCK set explicitly" if forced else
+              "MOCK MODE - no API key found - rerun after filling .env "
               "for live validation")
         print("=" * 68)
     else:
+        CHILD_ENV.pop("RADAR_MOCK", None)
         print("Live mode. ANTHROPIC_API_KEY found, scoring with the real model.")
 
     print("\nFirst pass. Injecting the three sample announcements.")
@@ -138,6 +150,22 @@ def main() -> int:
     check(payload.startswith("POST "),
           "payload rendered as a would-be POST, nothing sent")
 
+    print("\nDoctrine checks. First contact carries no pitch, in every mode.")
+    import re as _re
+    step = (perfect_row.get("playbook_step") or "")
+    do_line = next((line for line in payload.splitlines()
+                    if line.lower().startswith("do today.")), "")
+    banned_terms = ("gap assessment", "fixed-fee", "fixed fee", "offer", "7,500")
+    for term in banned_terms:
+        check(term not in step.lower(),
+              f"playbook_step carries no '{term}'")
+        check(term not in payload.lower(),
+              f"payload carries no '{term}'")
+    for label, textv in (("playbook_step", step), ("payload Do today line", do_line)):
+        check("£" not in textv, f"{label} carries no pound sign")
+        check(not _re.search(r"[£€$]\s?\d", textv),
+              f"{label} carries no priced amount")
+
     print("\nIdempotency checks. Injecting all three again.")
     rerun_dupes = 0
     for name in ("marginal", "irrelevant", "perfect"):
@@ -151,6 +179,116 @@ def main() -> int:
     check(all(r[0] == expected_mode for r in mode_rows),
           f"runs logged with mode {expected_mode}")
     conn.close()
+
+    print("\nArticle enrichment checks. Diff items score from article text,"
+          " stubbed, no network.")
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import check_signals as cs
+    listing = {"phase": 1}
+    L1 = '<html><body><a href="/news/a1">Alpha raises seed</a></body></html>'
+    L2 = ('<html><body><a href="/news/a2">Beta opens diagnostics lab</a>'
+          '<a href="/news/a1">Alpha raises seed</a></body></html>')
+    L3 = ('<html><body><a href="/news/a3">Gamma enters accelerator</a>'
+          '<a href="/news/a2">Beta opens diagnostics lab</a>'
+          '<a href="/news/a1">Alpha raises seed</a></body></html>')
+    ARTICLE = ('<html><body><p>Beta Diagnostics has raised money to build a '
+               'photonic IVD platform and has no software team yet.</p>'
+               '</body></html>')
+
+    real_http_get = cs.rc.http_get
+
+    def fake_http_get(url, config=None, etag=None, last_modified=None):
+        if url == "https://watch.example/news":
+            return 200, {}, {1: L1, 2: L2, 3: L3}[listing["phase"]]
+        if url == "https://watch.example/news/a2":
+            return 200, {}, ARTICLE
+        return 0, {"error": "stubbed away"}, ""
+
+    try:
+        cs.rc.http_get = fake_http_get
+        stub_conn = rc.get_db((db.parent / "test_enrich.sqlite").resolve())
+        src = {"id": "stub-src", "name": "Stub source",
+               "url": "https://watch.example/news", "method": "diff",
+               "check_interval_hours": 6, "status": "live"}
+        cfg = rc.load_config()
+        notes: list[str] = []
+
+        items = cs.check_diff(src, cs._get_state(stub_conn, "stub-src"),
+                              cfg, stub_conn, notes)
+        check(items == [], "first run baselines without scoring")
+
+        listing["phase"] = 2
+        items = cs.check_diff(src, cs._get_state(stub_conn, "stub-src"),
+                              cfg, stub_conn, notes)
+        check(len(items) == 1 and "no software team yet" in items[0]["text"],
+              "a fresh diff item carries the fetched article text")
+
+        listing["phase"] = 3
+        items = cs.check_diff(src, cs._get_state(stub_conn, "stub-src"),
+                              cfg, stub_conn, notes)
+        check(len(items) == 1
+              and items[0]["text"] == "Gamma enters accelerator",
+              "a failed article fetch falls back to the anchor text")
+        check(any("article fetch failed" in n for n in notes),
+              "the fallback is recorded in the run notes")
+        stub_conn.close()
+        (db.parent / "test_enrich.sqlite").unlink(missing_ok=True)
+    finally:
+        cs.rc.http_get = real_http_get
+
+    print("\nPush resilience checks. A failed push delays, never loses,"
+          " stubbed, nothing sent.")
+    os.environ["RADAR_MOCK"] = "1"
+    sys.path.insert(0, str(TEST_DIR))
+    import mocks_signals as ms
+    real_push = cs.rc.push_ntfy
+
+    def throwing_push(*a, **k):
+        raise OSError("stubbed ntfy outage")
+
+    push_calls = []
+
+    def working_push(config, title, message, **k):
+        push_calls.append((title, message))
+        return "sent:stub"
+
+    try:
+        push_db = (db.parent / "test_push.sqlite").resolve()
+        if push_db.exists():
+            push_db.unlink()
+        push_conn = rc.get_db(push_db)
+        cfg = rc.load_config()
+        rubric = cs.RUBRIC_PATH.read_text(encoding="utf-8")
+        blocks = [{"type": "text", "text": rubric}]
+        item = cs.parse_announcement_file(SAMPLES["perfect"])
+        push_result = {"mode": "push", "sources_checked": 0, "items_in": 0,
+                       "items_new": 0, "duplicates": 0, "pushed": 0,
+                       "payloads": [], "notes": [], "usage": {}}
+
+        cs.rc.push_ntfy = throwing_push
+        cs.process_item(item, push_conn, cfg, blocks,
+                        ms.mock_signal_scorer, True, push_result)
+        row = push_conn.execute("SELECT pushed, relevance FROM signals"
+                                ).fetchone()
+        check(row is not None and row["pushed"] == 0,
+              "a failed live push leaves pushed at zero")
+        check(push_result["pushed"] == 0
+              and any("push failed" in n for n in push_result["notes"]),
+              "the failure lands in the run notes and the run carries on")
+
+        cs.rc.push_ntfy = working_push
+        cs.catch_up_pushes(push_conn, cfg, push_result)
+        row = push_conn.execute("SELECT pushed FROM signals").fetchone()
+        check(row["pushed"] == 1 and len(push_calls) == 1,
+              "the catch-up sweep pushes the delayed signal once")
+        cs.catch_up_pushes(push_conn, cfg, push_result)
+        check(len(push_calls) == 1,
+              "a pushed signal is not pushed again by the next sweep")
+        push_conn.close()
+        push_db.unlink(missing_ok=True)
+    finally:
+        cs.rc.push_ntfy = real_push
+        os.environ.pop("RADAR_MOCK", None)
 
     print()
     if failures:

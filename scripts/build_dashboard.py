@@ -155,11 +155,28 @@ def collect(conn, config) -> dict:
            FROM runs WHERE ts >= ? GROUP BY workflow, mode
            ORDER BY workflow, mode""", (week_ago,)).fetchall()
 
+    needs_review = [
+        {"kind": "opportunity", "label": r["title"] or "Untitled role",
+         "company": r["company"] or "", "url": r["source_url"],
+         "note": r["notes"] or "scoring failed", "first_seen": r["first_seen"]}
+        for r in conn.execute(
+            "SELECT title, company, source_url, notes, first_seen"
+            " FROM opportunities WHERE combined IS NULL ORDER BY first_seen")
+    ] + [
+        {"kind": "signal", "label": r["headline"] or "Signal",
+         "company": r["company"] or "", "url": r["source_url"],
+         "note": r["why"] or "scoring failed", "first_seen": r["first_seen"]}
+        for r in conn.execute(
+            "SELECT headline, company, source_url, why, first_seen"
+            " FROM signals WHERE relevance IS NULL ORDER BY first_seen")
+    ]
+
     return {
         "threshold": threshold,
         "fast": fast,
         "opportunities": opportunities,
         "signals": signals,
+        "needs_review": needs_review,
         "threads": threads,
         "sources_state": sources_state,
         "watchlist": load_watchlist(),
@@ -214,6 +231,24 @@ def render_signals(data) -> str:
     return f"""<div class="tablewrap"><table>
 <thead><tr><th>Relevance</th><th>What happened</th><th>Company</th>
 <th>Playbook step</th><th>Push</th><th>Status</th><th class="num">First seen</th></tr></thead>
+<tbody>{''.join(rows)}</tbody></table></div>"""
+
+
+def render_needs_review(data) -> str:
+    rows = []
+    for n in data["needs_review"]:
+        rows.append(f"""<tr>
+<td>{esc(n['kind'])}</td>
+<td class="cell-main">{link(n['url'], n['label'])}</td>
+<td>{esc(n['company'])}</td>
+<td>{esc(n['note'])}</td>
+<td class="num">{fmt_when(n['first_seen'])}</td>
+</tr>""")
+    if not rows:
+        return '<p class="empty">Nothing here. The scorer parsed everything it was given.</p>'
+    return f"""<div class="tablewrap"><table>
+<thead><tr><th>Kind</th><th>Item</th><th>Company</th><th>Stored note</th>
+<th class="num">First seen</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table></div>"""
 
 
@@ -428,6 +463,11 @@ def render_page(data, config, db_label, out) -> str:
   <h2>Signals</h2>
   <p class="sub">Funding rounds and spin-off launches from the watchlist. At or above {data['fast']} the same-day push fires once the signals workflow is armed.</p>
   {render_signals(data)}
+</section>
+<section>
+  <h2>Needs review</h2>
+  <p class="sub">Rows the scorer could not score. Clear them with python scripts/rescore.py once the cause is fixed.</p>
+  {render_needs_review(data)}
 </section>
 <section>
   <h2>Threads awaiting action</h2>

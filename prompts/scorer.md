@@ -36,10 +36,15 @@ Judge only against the preferences file. Ignore how impressive the role is.
 ## Other fields.
 
 - thread_type. "inbound" for anything that arrived as an advertised role or a direct approach. "signal" only for a company event rather than a role.
-- one_line_why. Under 25 words. First person, as Luke. British English, plain words, short sentences. No em dashes, no semicolons, no exclamation marks, no colons inside a sentence. State the real reason for the score, including a wrong rate, plainly.
+- one_line_why. Under 25 words. First person, as Luke. State the real reason for the score, including a wrong rate, plainly.
 - red_flags. Short plain phrases. Empty array when there are none. Rate problems, relocation demands, vague or hidden employers, scope creep all belong here.
 - suggested_action. One concrete next step in one sentence. "No action needed." is a valid answer for weak matches.
 - act_by. A date as YYYY-MM-DD only when timing genuinely matters, otherwise an empty string.
+
+Style rules for every free-text field, one_line_why, red_flags entries,
+suggested_action and act_by alike. British English, plain words, short
+sentences. No em dashes, no semicolons, no exclamation marks, no colons inside
+a sentence.
 
 Do not compute a combined score. The calling script does that.
 

@@ -30,7 +30,8 @@ cd "$SCRIPT_DIR/.." || exit 1
 TEST_DB="test/test_radar.sqlite"
 rm -f "$TEST_DB"
 
-# Mock mode detection. Live only when ANTHROPIC_API_KEY is present in the
+# Mock mode detection, matching the runners. An explicit RADAR_MOCK forces
+# mock. Otherwise live only when ANTHROPIC_API_KEY is present in the
 # environment or set to a non-empty value in .env.
 have_key=0
 if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
@@ -39,7 +40,11 @@ elif [ -f .env ] && grep -Eq '^[[:space:]]*ANTHROPIC_API_KEY[[:space:]]*=[[:spac
     have_key=1
 fi
 
-if [ "$have_key" -eq 0 ]; then
+if [ -n "${RADAR_MOCK:-}" ]; then
+    echo "=========================================================================="
+    echo "MOCK MODE - RADAR_MOCK set explicitly, no live API calls this run."
+    echo "=========================================================================="
+elif [ "$have_key" -eq 0 ]; then
     export RADAR_MOCK=1
     echo "=========================================================================="
     echo "MOCK MODE - no API key found in env or .env"

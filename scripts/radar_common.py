@@ -72,11 +72,19 @@ def now_iso() -> str:
 # ------------------------------------------------------------------ database
 
 def get_db(db_path: Path | None = None) -> sqlite3.Connection:
-    """Open the radar database, applying the schema idempotently."""
+    """Open the radar database, applying the schema idempotently.
+
+    WAL journal mode plus a five second busy timeout, because the inbox,
+    signals and digest workflows can overlap on the same file and the
+    default locking would eventually throw a locked-database error at the
+    worst possible moment.
+    """
     path = db_path or DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=5)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
     conn.commit()
     return conn
@@ -159,6 +167,7 @@ def claude_call(model: str, system_blocks: list | str, user_content: str,
     response = client.messages.create(
         model=model,
         max_tokens=max_tokens,
+        temperature=0,  # same advert, same score, run to run
         system=system_blocks,
         messages=[{"role": "user", "content": user_content}],
     )

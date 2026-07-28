@@ -3,15 +3,18 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Radar inbox\n\nDrains the aggregator inbox, splits each alert email into individual roles, dedupes on URL hash, scores new roles against the CV and preferences, and writes them to SQLite. All logic lives in scripts/process_email.py in the repo, this workflow is only the trigger, the hand-off and the label step.\n\nArming steps.\n1. Create the Gmail label radar-processed in the aggregator account once.\n2. Attach your Gmail OAuth credential to the trigger node and both Gmail nodes at the end.\n3. Put the real label id into the label node. n8n shows it in the label picker.\n4. Set repo_path and python_bin in the Config node to match the n8n host, and make sure .env with ANTHROPIC_API_KEY sits in the repo on that host.\n5. Run once manually, then check the scores in SQLite before activating.\n\nNothing here sends email. Labelling and marking read are the only writes to the mailbox, so nothing gets scanned twice. If a run fails, or extraction returns nothing usable, the email keeps its unread state and no label, so it stays visible in the inbox for a re-run instead of being marked processed.",
+        "content": "## Radar inbox\n\nDrains the aggregator inbox, splits each alert email into individual roles, dedupes on URL hash, scores new roles against the CV and preferences, and writes them to SQLite. All logic lives in scripts/process_email.py, this workflow is only the trigger, the hand-off and the label steps.\n\nThe trigger keys on labels alone, not read state, so opening an email on the phone cannot hide it from the pipeline. An email that fails extraction stays unlabelled and is retried. After three failed attempts the script reports give_up and the workflow shelves the email under radar-failed, so a poison message costs at most three attempts. The digest stats line counts shelved emails since the last digest.\n\nArming steps.\n1. Create the Gmail labels radar-processed and radar-failed in the aggregator account once.\n2. Attach your Gmail OAuth credential to the trigger node and all three Gmail nodes.\n3. Put the real label ids into Label Processed and Label Failed. n8n shows them in the label picker.\n4. Set repo_path and python_bin in the Config node to match the n8n host, and make sure .env with ANTHROPIC_API_KEY and the CV in config/profile/ sit in the repo on that host.\n5. Run once manually, then check the scores in SQLite before activating.\n\nNothing here sends email. Labelling and marking read are the only writes to the mailbox.",
         "width": 460,
-        "height": 400
+        "height": 480
       },
       "id": "9c1f7a10-4a01-4f6e-8b0e-000000000101",
       "name": "How this works",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-560, -120]
+      "position": [
+        -560,
+        -120
+      ]
     },
     {
       "parameters": {
@@ -24,7 +27,7 @@
         },
         "simple": false,
         "filters": {
-          "q": "is:unread -label:radar-processed"
+          "q": "-label:radar-processed -label:radar-failed"
         },
         "options": {}
       },
@@ -32,7 +35,10 @@
       "name": "Gmail Trigger",
       "type": "n8n-nodes-base.gmailTrigger",
       "typeVersion": 1.2,
-      "position": [-40, 40],
+      "position": [
+        -40,
+        40
+      ],
       "credentials": {
         "gmailOAuth2": {
           "id": "REPLACE_AFTER_IMPORT",
@@ -65,7 +71,10 @@
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [180, 40]
+      "position": [
+        180,
+        40
+      ]
     },
     {
       "parameters": {
@@ -76,7 +85,10 @@
       "name": "Pack Email",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [400, 40]
+      "position": [
+        400,
+        40
+      ]
     },
     {
       "parameters": {
@@ -86,18 +98,24 @@
       "name": "Process Email",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [620, 40]
+      "position": [
+        620,
+        40
+      ]
     },
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// Turn the script stdout into a clean result item for the IF gate.\nlet out = { ok: false, processed: 0, new: 0, duplicates: 0 };\ntry {\n  const raw = ($json.stdout || '').trim();\n  const parsed = JSON.parse(raw.slice(raw.indexOf('{')));\n  out = { ok: true, extract_failed: false, ...parsed };\n} catch (err) {\n  out.error = String(err);\n  out.stderr = $json.stderr || '';\n}\nreturn { json: out };"
+        "jsCode": "// Turn the script stdout into a clean result item for the gates.\nlet out = { ok: false, processed: 0, new: 0, duplicates: 0,\n            extract_failed: false, give_up: false, attempts: 0 };\ntry {\n  const raw = ($json.stdout || '').trim();\n  const parsed = JSON.parse(raw.slice(raw.indexOf('{')));\n  out = { ...out, ok: true, ...parsed };\n} catch (err) {\n  out.error = String(err);\n  out.stderr = $json.stderr || '';\n}\nreturn { json: out };"
       },
       "id": "9c1f7a10-4a01-4f6e-8b0e-000000000106",
       "name": "Parse Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [840, 40]
+      "position": [
+        840,
+        40
+      ]
     },
     {
       "parameters": {
@@ -138,7 +156,10 @@
       "name": "Processed OK?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [1060, 40]
+      "position": [
+        1060,
+        40
+      ]
     },
     {
       "parameters": {
@@ -153,7 +174,10 @@
       "name": "Label Processed",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
-      "position": [1280, 20],
+      "position": [
+        1280,
+        20
+      ],
       "credentials": {
         "gmailOAuth2": {
           "id": "REPLACE_AFTER_IMPORT",
@@ -171,7 +195,67 @@
       "name": "Mark Read",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
-      "position": [1500, 20],
+      "position": [
+        1500,
+        20
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_AFTER_IMPORT",
+          "name": "Gmail - Radar Aggregator"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-give-up",
+              "leftValue": "={{ $json.give_up }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9c1f7a10-4a01-4f6e-8b0e-000000000110",
+      "name": "Give Up?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1280,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": [
+          "REPLACE_WITH_LABEL_ID_radar-failed"
+        ]
+      },
+      "id": "9c1f7a10-4a01-4f6e-8b0e-000000000111",
+      "name": "Label Failed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1500,
+        200
+      ],
       "credentials": {
         "gmailOAuth2": {
           "id": "REPLACE_AFTER_IMPORT",
@@ -245,7 +329,13 @@
             "index": 0
           }
         ],
-        []
+        [
+          {
+            "node": "Give Up?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Label Processed": {
@@ -257,6 +347,18 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "Give Up?": {
+      "main": [
+        [
+          {
+            "node": "Label Failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },
