@@ -159,6 +159,7 @@ def claude_call(model: str, system_blocks: list | str, user_content: str,
     response = client.messages.create(
         model=model,
         max_tokens=max_tokens,
+        temperature=0,  # same advert, same score, run to run
         system=system_blocks,
         messages=[{"role": "user", "content": user_content}],
     )
