@@ -6,6 +6,8 @@ software leadership, IEC 62304 and ISO 13485 consulting, and a fixed-fee 62304 g
 assessment to European companies building software-driven or photonics-driven
 medical devices and IVDs. He wants to know about a company at the exact moment
 regulated software is about to become its problem, before it knows who to call.
+The offer is context so you can judge relevance. It is never part of a first
+contact, which is peer contact with no ask of any kind.
 
 ## What a real signal is
 
@@ -63,9 +65,12 @@ Field rules:
 - why. One line, under 25 words, why this matters to Luke. British English,
   plain words, short sentences. No em dashes, no semicolons, no exclamation
   marks, no colons inside a sentence, no marketing filler.
-- playbook_step. The concrete same-day move. For a fresh funding or spin-off
-  signal that is a public comment on the announcement plus a short connection
-  note to the CEO or CTO. For a first QA or software hire that is sending the
-  compliance-cost article with a short note. For anything below 75 say what to
-  watch for instead.
+- playbook_step. The concrete same-day move. For a funding, spin-off or
+  accelerator signal that is a public comment on the announcement plus a short
+  connection note to the CEO or CTO, and nothing else. That step must contain
+  no offer, no service, no price, no mention of the gap assessment or of any
+  paid work. Peer contact only. For a first QA, RA or software hire, the
+  buying window, the step is sending the compliance-cost article with a short
+  note, and the assessment belongs only there, only as the final line of that
+  note. For anything below 75 say what to watch for instead.
 - source_url. The URL of the item you were given.

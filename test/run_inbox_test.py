@@ -128,6 +128,17 @@ def main() -> int:
     veltrix = conn.execute("SELECT COUNT(*) AS c FROM opportunities"
                            " WHERE company LIKE 'Veltrix%'").fetchone()["c"]
     check(veltrix == 1, "the duplicated role is stored exactly once")
+    # Voice doctrine. No semicolons or em dashes in any free text the scorer
+    # wrote, whichever mode produced it.
+    dirty = []
+    for r in rows:
+        for field in ("one_line_why", "suggested_action", "red_flags", "act_by"):
+            value = r[field] or ""
+            if ";" in value or "—" in value:
+                dirty.append(f"{r['company']}.{field}")
+    check(not dirty,
+          "no semicolons or em dashes in scored free text"
+          + (f" (violations {dirty})" if dirty else ""))
     run_rows = conn.execute("SELECT COUNT(*) AS c FROM runs"
                             " WHERE workflow = 'inbox'").fetchone()["c"]
     check(run_rows == len(good), "every run logged to the runs table")

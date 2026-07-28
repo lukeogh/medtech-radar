@@ -150,6 +150,22 @@ def main() -> int:
     check(payload.startswith("POST "),
           "payload rendered as a would-be POST, nothing sent")
 
+    print("\nDoctrine checks. First contact carries no pitch, in every mode.")
+    import re as _re
+    step = (perfect_row.get("playbook_step") or "")
+    do_line = next((line for line in payload.splitlines()
+                    if line.lower().startswith("do today.")), "")
+    banned_terms = ("gap assessment", "fixed-fee", "fixed fee", "offer", "7,500")
+    for term in banned_terms:
+        check(term not in step.lower(),
+              f"playbook_step carries no '{term}'")
+        check(term not in payload.lower(),
+              f"payload carries no '{term}'")
+    for label, textv in (("playbook_step", step), ("payload Do today line", do_line)):
+        check("£" not in textv, f"{label} carries no pound sign")
+        check(not _re.search(r"[£€$]\s?\d", textv),
+              f"{label} carries no priced amount")
+
     print("\nIdempotency checks. Injecting all three again.")
     rerun_dupes = 0
     for name in ("marginal", "irrelevant", "perfect"):
