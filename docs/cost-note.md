@@ -17,7 +17,11 @@ Assume 30 to 60 new adverts a week survive deduplication.
 
 **Scoring, Sonnet.** Roughly 3,000 tokens in per advert, most of it the system prompt carrying the rubric, CV and preferences, plus about 400 out. Uncached that is about $0.015 each, or $0.45 to $0.90 a week. The system prompt is marked for prompt caching, and batch scoring means repeat calls read it at about a tenth of the price. That cuts the effective cost to roughly $0.008 per advert, so $0.25 to $0.50 a week.
 
-**Signal scoring, Sonnet.** A handful a day, call it 20 to 50 a week, at similar per-call cost. Add $0.20 to $0.50 a week.
+**Signal scoring, Sonnet.** A handful a day, call it 20 to 50 a week. Diff
+sources now fetch the article page and score up to 4,000 characters of its
+text rather than a bare headline, so a signal call carries roughly 1,000 to
+1,500 extra input tokens. Better judgement for about half a cent more per
+item. Add $0.30 to $0.70 a week.
 
 ## The numbers
 

@@ -180,6 +180,62 @@ def main() -> int:
           f"runs logged with mode {expected_mode}")
     conn.close()
 
+    print("\nArticle enrichment checks. Diff items score from article text,"
+          " stubbed, no network.")
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import check_signals as cs
+    listing = {"phase": 1}
+    L1 = '<html><body><a href="/news/a1">Alpha raises seed</a></body></html>'
+    L2 = ('<html><body><a href="/news/a2">Beta opens diagnostics lab</a>'
+          '<a href="/news/a1">Alpha raises seed</a></body></html>')
+    L3 = ('<html><body><a href="/news/a3">Gamma enters accelerator</a>'
+          '<a href="/news/a2">Beta opens diagnostics lab</a>'
+          '<a href="/news/a1">Alpha raises seed</a></body></html>')
+    ARTICLE = ('<html><body><p>Beta Diagnostics has raised money to build a '
+               'photonic IVD platform and has no software team yet.</p>'
+               '</body></html>')
+
+    real_http_get = cs.rc.http_get
+
+    def fake_http_get(url, config=None, etag=None, last_modified=None):
+        if url == "https://watch.example/news":
+            return 200, {}, {1: L1, 2: L2, 3: L3}[listing["phase"]]
+        if url == "https://watch.example/news/a2":
+            return 200, {}, ARTICLE
+        return 0, {"error": "stubbed away"}, ""
+
+    try:
+        cs.rc.http_get = fake_http_get
+        stub_conn = rc.get_db((db.parent / "test_enrich.sqlite").resolve())
+        src = {"id": "stub-src", "name": "Stub source",
+               "url": "https://watch.example/news", "method": "diff",
+               "check_interval_hours": 6, "status": "live"}
+        cfg = rc.load_config()
+        notes: list[str] = []
+
+        items = cs.check_diff(src, cs._get_state(stub_conn, "stub-src"),
+                              cfg, stub_conn, notes)
+        check(items == [], "first run baselines without scoring")
+
+        listing["phase"] = 2
+        items = cs.check_diff(src, cs._get_state(stub_conn, "stub-src"),
+                              cfg, stub_conn, notes)
+        check(len(items) == 1 and "no software team yet" in items[0]["text"],
+              "a fresh diff item carries the fetched article text")
+
+        listing["phase"] = 3
+        items = cs.check_diff(src, cs._get_state(stub_conn, "stub-src"),
+                              cfg, stub_conn, notes)
+        check(len(items) == 1
+              and items[0]["text"] == "Gamma enters accelerator",
+              "a failed article fetch falls back to the anchor text")
+        check(any("article fetch failed" in n for n in notes),
+              "the fallback is recorded in the run notes")
+        stub_conn.close()
+        (db.parent / "test_enrich.sqlite").unlink(missing_ok=True)
+    finally:
+        cs.rc.http_get = real_http_get
+
     print()
     if failures:
         print(f"FAIL. {len(failures)} check(s) failed.")
