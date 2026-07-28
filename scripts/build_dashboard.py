@@ -98,6 +98,29 @@ def hot_row(score, threshold, status) -> bool:
     return (score or 0) >= threshold and status in ("new", "digested")
 
 
+# Dollars per million tokens (input, output), matching docs/cost-note.md.
+# Unknown or missing models price at the dearest rate so the tile can only
+# ever overstate, never flatter. Cache reads bill at a tenth of input.
+PRICES_PER_MTOK = {
+    "claude-haiku-4-5": (1.00, 5.00),
+    "claude-sonnet-4-6": (3.00, 15.00),
+}
+PRICE_FALLBACK = (3.00, 15.00)
+
+
+def week_cost_usd(conn, since_iso) -> float:
+    total = 0.0
+    for r in conn.execute(
+            """SELECT model, SUM(input_tokens) AS tin, SUM(output_tokens) AS tout,
+                      SUM(cache_read_tokens) AS tcache
+               FROM runs WHERE ts >= ? GROUP BY model""", (since_iso,)):
+        p_in, p_out = PRICES_PER_MTOK.get(r["model"] or "", PRICE_FALLBACK)
+        total += ((r["tin"] or 0) * p_in
+                  + (r["tout"] or 0) * p_out
+                  + (r["tcache"] or 0) * p_in * 0.1) / 1_000_000
+    return total
+
+
 # ------------------------------------------------------------------ sections
 
 def collect(conn, config) -> dict:
@@ -145,7 +168,7 @@ def collect(conn, config) -> dict:
             o["combined"], threshold, o["status"])),
         "hot_signals": sum(1 for s in signals if hot_row(
             s["relevance"], fast, s["status"])),
-        "week_tokens": sum((r["tin"] or 0) + (r["tout"] or 0) for r in runs),
+        "week_cost": week_cost_usd(conn, week_ago),
     }
 
 
@@ -378,8 +401,8 @@ def render_page(data, config, db_label, out) -> str:
     <div class="l">signals at or above {data['fast']}</div></div>
   <div class="tile"><div class="v">{len(data['threads'])}</div>
     <div class="l">threads awaiting action</div></div>
-  <div class="tile"><div class="v">{data['week_tokens']:,}</div>
-    <div class="l">uncached tokens, last seven days</div></div>
+  <div class="tile"><div class="v">${data['week_cost']:,.2f}</div>
+    <div class="l">api spend, last seven days</div></div>
 </div>"""
 
     return f"""<!doctype html>
