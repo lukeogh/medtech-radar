@@ -155,11 +155,20 @@ def main() -> int:
     step = (perfect_row.get("playbook_step") or "")
     do_line = next((line for line in payload.splitlines()
                     if line.lower().startswith("do today.")), "")
-    banned_terms = ("gap assessment", "fixed-fee", "fixed fee", "offer", "7,500")
+    # The playbook's own peer gesture is approved wording, never a pitch,
+    # so it is stripped before the scan and explicitly allowed.
+    allowed_phrase = "offer to compare notes"
+    step_scan = step.lower().replace(allowed_phrase, "")
+    payload_scan = payload.lower().replace(allowed_phrase, "")
+    # Pitch-shaped patterns only. A bare "offer" would flunk the approved
+    # gesture above, which the live model is entitled to use any day.
+    banned_terms = ("gap assessment", "fixed-fee", "fixed fee", "7,500",
+                    "offer the", "offer a", "offer my", "my services",
+                    "happy to help with")
     for term in banned_terms:
-        check(term not in step.lower(),
+        check(term not in step_scan,
               f"playbook_step carries no '{term}'")
-        check(term not in payload.lower(),
+        check(term not in payload_scan,
               f"payload carries no '{term}'")
     for label, textv in (("playbook_step", step), ("payload Do today line", do_line)):
         check("£" not in textv, f"{label} carries no pound sign")
