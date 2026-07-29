@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -40,6 +41,14 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
+
+
+class RadarServer(ThreadingHTTPServer):
+    # On Windows, address reuse lets a second instance silently bind the
+    # same port and steal connections unpredictably. Fail loudly instead.
+    # On other systems reuse only covers TIME_WAIT, so it stays on for
+    # painless restarts.
+    allow_reuse_address = os.name != "nt"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -169,7 +178,13 @@ def main(argv=None) -> int:
     ARGS = parser.parse_args(argv)
 
     radar_common.load_env()
-    server = ThreadingHTTPServer((ARGS.host, ARGS.port), Handler)
+    try:
+        server = RadarServer((ARGS.host, ARGS.port), Handler)
+    except OSError:
+        print(f"Port {ARGS.port} is already taken, probably by another copy "
+              "of this server. Use the one that's running, or pick another "
+              "port with --port.", file=sys.stderr)
+        return 2
     mode = "push" if ARGS.push else "dry run"
     print(f"Radar dashboard at http://{ARGS.host}:{ARGS.port}/ "
           f"(watcher button runs in {mode} mode, Ctrl+C to stop)")
