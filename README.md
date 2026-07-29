@@ -65,9 +65,15 @@ medtech-radar/
    and edit it. It ships with working defaults.
 5. Check `config/radar.yaml`. Lines marked TODO were inferred during the
    build and need confirming.
-6. For a browsable view of everything in the database, run
-   `python scripts/build_dashboard.py` and open `dashboard.html`. It is read
-   only, regenerates in a second, and every row links back to its source.
+6. To view the dashboard in a browser, run
+   `python scripts/serve_dashboard.py` and open http://127.0.0.1:8787. The
+   page re-renders from the database on every load, the Refresh button
+   reloads it, Check now runs the signals watcher on demand, and it reloads
+   itself every fifteen minutes while n8n keeps feeding the database on its
+   own schedule. `python scripts/build_dashboard.py` still writes the plain
+   static file. Both are read only against the database. If you serve it
+   beyond this machine, put it behind the reverse proxy with authentication,
+   the page carries scored opportunities and names.
 7. When a thread is handled or has gone nowhere, retire it so the ageing
    section stops nagging, for example
    `python scripts/touch.py mark "Cantilex Dx" --as actioned`. Use
@@ -296,3 +302,9 @@ system's kit. Standing line, soft-tinted section papers, one row grammar
 with detail on expand, watchlist grouped by tier, the heartbeat at footer
 weight, and an honest as-delivered state for a database that has never
 run. The meters, tiles and pipeline table are gone, as the kit specifies.
+
+29 July 2026, later still. The dashboard is servable. serve_dashboard.py
+re-renders the page from the database on every browser load, adds Refresh
+and Check now buttons in the masthead, and reloads itself every fifteen
+minutes. Check now runs the watcher through its own politeness gate. The
+static file generator is unchanged and both stay read only.

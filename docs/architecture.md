@@ -55,6 +55,18 @@ RUN apk add --no-cache python3 py3-pip && pip3 install --break-system-packages a
 USER node
 ```
 
+## Viewing the dashboard
+
+`scripts/serve_dashboard.py` serves the dashboard over HTTP, re-rendering
+from the database on every load, with a Refresh button and a Check now
+button that runs the signals watcher on demand through its normal
+politeness gate. Standard library only, read-only against the database,
+bound to 127.0.0.1 unless told otherwise. Run it on the n8n host next to
+the live database, keep it on the LAN or the tailnet, and if it goes behind
+the reverse proxy give it authentication, the page carries scored
+opportunities and names. Start it with `--push` only once the system is
+armed, so the button matches what the schedule does.
+
 ## The fallback
 
 If putting Python next to n8n ever becomes a nuisance, the scripts do not need n8n at all. Run `process_email.py`, `check_signals.py` and `build_digest.py` by cron on any box that has the repo and the key. In that setup n8n keeps only the jobs that genuinely need its credentials, reading Gmail and sending the digest email. Everything else is just Python, SQLite and a schedule.

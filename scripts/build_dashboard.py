@@ -628,6 +628,8 @@ a{color:var(--accent);text-decoration:underline;text-decoration-color:var(--acce
 a:hover{text-decoration-color:var(--accent)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--radius-sm)}
 .masthead{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:var(--space-12);padding-bottom:var(--space-16)}
+.controls{display:flex;flex-wrap:wrap;gap:var(--space-8)}
+.segmented button:disabled{color:var(--ink-3);cursor:wait}
 .masthead h1{font:400 var(--text-2xl)/1.2 var(--font-serif);letter-spacing:-.01em;margin:0}
 .mark{flex:0 0 auto;display:block}
 .brand{display:flex;align-items:baseline;gap:var(--space-12)}
@@ -777,6 +779,23 @@ SCRIPT = """
 """
 
 
+SERVE_SCRIPT = """
+(function () {
+  var refresh = document.getElementById('btn-refresh');
+  if (refresh) refresh.addEventListener('click', function () { location.reload(); });
+  var watch = document.getElementById('btn-watch');
+  if (watch) watch.addEventListener('click', function () {
+    watch.disabled = true;
+    watch.textContent = 'Checking';
+    fetch('/watch', { method: 'POST' })
+      .then(function () { location.reload(); })
+      .catch(function () { location.reload(); });
+  });
+  setTimeout(function () { location.reload(); }, 900000);
+})();
+"""
+
+
 def section(title: str, count, note: str, panel_class: str, body: str) -> str:
     return f"""<section class="section">
 <div class="section-head"><h2>{esc(title)}</h2>
@@ -786,7 +805,8 @@ def section(title: str, count, note: str, panel_class: str, body: str) -> str:
 </section>"""
 
 
-def render_page(data: dict, config: dict, db_label: str, out: Path) -> str:
+def render_page(data: dict, config: dict, db_label: str, out: Path,
+                serve: bool = False) -> str:
     now = radar_common.now_iso()
     today = now[:10]
     fresh = data["fresh"]
@@ -868,13 +888,19 @@ def render_page(data: dict, config: dict, db_label: str, out: Path) -> str:
 <header class="masthead">
 <div>
 <div class="brand">{MARK_SVG}<h1>MedTech Radar</h1></div>
-<p class="masthead-sub">Everything on file. Read only, generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
+<p class="masthead-sub">Everything on file. Read only, generated {esc(fmt_long(now))} from {esc(db_label)}.{" The page re-renders on every load and reloads itself every fifteen minutes." if serve else ""}</p>
 </div>
+<div class="controls">
+{'''<span class="segmented" role="group" aria-label="Data">
+<button type="button" id="btn-refresh">Refresh</button>
+<button type="button" id="btn-watch">Check now</button>
+</span>''' if serve else ""}
 <span class="segmented" role="group" aria-label="Appearance">
 <button type="button" data-appearance-set="light" aria-pressed="false">Light</button>
 <button type="button" data-appearance-set="auto" aria-pressed="true">Auto</button>
 <button type="button" data-appearance-set="dark" aria-pressed="false">Dark</button>
 </span>
+</div>
 </header>
 <section class="standing">{standing_line(data)}</section>
 {section("Inbound", 0 if fresh else len(data["opportunities"]),
@@ -903,7 +929,7 @@ def render_page(data: dict, config: dict, db_label: str, out: Path) -> str:
 <p class="end">Read only. Nothing on this page changes the database. Regenerate with <code>python scripts/build_dashboard.py</code>.</p>
 </footer>
 </main>
-<script>{SCRIPT}</script>
+<script>{SCRIPT}{SERVE_SCRIPT if serve else ""}</script>
 </body>
 </html>"""
 
