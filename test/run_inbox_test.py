@@ -55,6 +55,32 @@ def run_process(cli_args: list[str], stdin_text: str | None = None, env=None):
                           text=True, encoding="utf-8", env=env or CHILD_ENV)
 
 
+class StepFailure(Exception):
+    """A child step broke. Raised after a readable FAIL, never a traceback."""
+
+
+def parse_step(proc, label: str) -> dict:
+    """Returncode-checked JSON parse of a step's stdout.
+
+    A non-zero exit or unparseable stdout prints the captured stderr,
+    records a FAIL and aborts the runner cleanly.
+    """
+    if proc.returncode != 0:
+        check(False, f"{label} exited {proc.returncode}, stderr follows")
+        print((proc.stderr or "").strip() or "(no stderr captured)")
+        raise StepFailure(label)
+    raw = (proc.stdout or "").strip()
+    start = raw.find("{")
+    if start >= 0:
+        try:
+            return json.loads(raw[start:])
+        except json.JSONDecodeError:
+            pass
+    check(False, f"{label} printed no parseable JSON, stderr follows")
+    print((proc.stderr or "").strip() or "(no stderr captured)")
+    raise StepFailure(label)
+
+
 def mock_env() -> dict:
     """Environment for failure-injection steps, mock whatever the suite mode.
 
@@ -223,8 +249,9 @@ def main() -> int:
         [sys.executable, str(REPO_ROOT / "scripts" / "rescore.py"),
          "--db", str(db), "--mock"],
         capture_output=True, text=True, encoding="utf-8", env=mock_env())
-    check(proc.returncode == 0, "rescore.py exits 0")
-    rescored = json.loads(proc.stdout)
+    rescored = parse_step(proc, "rescore step")
+    check("opportunities_rescored" in rescored,
+          "rescore.py prints its JSON contract on stdout")
     check(rescored["opportunities_rescored"] == 1,
           "rescore.py reports one opportunity rescored")
     conn = sqlite3.connect(db)
@@ -263,12 +290,9 @@ def main() -> int:
     stdin_text = samples[0].read_text(encoding="utf-8")
     proc = run_process(["--db", str(db)] + (["--mock"] if mock else []),
                        stdin_text=stdin_text)
-    ok = proc.returncode == 0
-    check(ok, "stdin path exits 0")
-    if ok:
-        rerun = json.loads(proc.stdout)
-        check(rerun["new"] == 0 and rerun["duplicates"] == rerun["processed"],
-              "re-run is idempotent, every item reported as a duplicate")
+    rerun = parse_step(proc, "stdin re-run")
+    check(rerun["new"] == 0 and rerun["duplicates"] == rerun["processed"],
+          "re-run is idempotent, every item reported as a duplicate")
 
     print()
     if failures:
@@ -279,4 +303,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except StepFailure:
+        print("\nFAIL. A step broke, its stderr is above.")
+        sys.exit(1)
+    except Exception as err:  # noqa: BLE001  readable FAIL, never a traceback
+        print(f"\nFAIL. Unexpected {type(err).__name__}. {err}")
+        sys.exit(1)

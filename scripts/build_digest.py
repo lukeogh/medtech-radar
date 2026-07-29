@@ -138,6 +138,16 @@ def sentence(text: str) -> str:
     return text
 
 
+def nz(value) -> str:
+    """None-safe text. Seeded or partially extracted rows can carry NULL in
+    any text column, and a renderer must shrug, not crash the build."""
+    return "" if value is None else str(value)
+
+
+def esc(value) -> str:
+    return html_mod.escape(nz(value))
+
+
 def plural(count: int, singular: str, plural_form: str) -> str:
     return singular if count == 1 else plural_form
 
@@ -252,7 +262,7 @@ def render_text(data: dict, today_label: str) -> str:
         lines.append("Inbound. Nothing cleared the bar since the last digest.")
     for i, o in enumerate(inbound, 1):
         lines.append("")
-        lines.append(f"{i}. {o['title']}. {o['company']}. {o['location']}.")
+        lines.append(f"{i}. {nz(o['title'])}. {nz(o['company'])}. {nz(o['location'])}.")
         lines.append(f"   Scores. Combined {o['combined']}. CV {o['cv_match']}. "
                      f"Want {o['want_match']}.")
         if o["one_line_why"]:
@@ -275,13 +285,13 @@ def render_text(data: dict, today_label: str) -> str:
         lines.append("")
         if s["kind"] == "signal":
             lines.append(f"{i}. {sentence(s['headline'] or s['company'])}")
-            lines.append(f"   Relevance {s['score']}. {s['company']}.")
+            lines.append(f"   Relevance {s['score']}. {nz(s['company'])}.")
             if s.get("why"):
                 lines.append(f"   {sentence(s['why'])}")
             if s.get("playbook_step"):
                 lines.append(f"   Playbook step. {sentence(s['playbook_step'])}")
         else:
-            lines.append(f"{i}. {s['title']}. {s['company']}. {s['location']}.")
+            lines.append(f"{i}. {nz(s['title'])}. {nz(s['company'])}. {nz(s['location'])}.")
             lines.append(f"   Scores. Combined {s['combined']}. CV {s['cv_match']}. "
                          f"Want {s['want_match']}.")
             if s["one_line_why"]:
@@ -326,7 +336,6 @@ def render_text(data: dict, today_label: str) -> str:
 
 
 def render_html(data: dict, today_label: str) -> str:
-    esc = html_mod.escape
     inbound, signals, ageing = data["inbound"], data["signals"], data["ageing"]
     parts = ["<div style=\"font-family:Georgia,serif;max-width:640px\">",
              f"<h1 style=\"font-size:20px\">MedTech Radar. Weekly digest for {esc(today_label)}.</h1>"]

@@ -65,6 +65,32 @@ def run_script(script: Path, cli_args: list[str]):
                           env=CHILD_ENV)
 
 
+class StepFailure(Exception):
+    """A child step broke. Raised after a readable FAIL, never a traceback."""
+
+
+def parse_step(proc, label: str) -> dict:
+    """Returncode-checked JSON parse of a step's stdout.
+
+    A non-zero exit or unparseable stdout prints the captured stderr,
+    records a FAIL and aborts the runner cleanly.
+    """
+    if proc.returncode != 0:
+        check(False, f"{label} exited {proc.returncode}, stderr follows")
+        print((proc.stderr or "").strip() or "(no stderr captured)")
+        raise StepFailure(label)
+    raw = (proc.stdout or "").strip()
+    start = raw.find("{")
+    if start >= 0:
+        try:
+            return json.loads(raw[start:])
+        except json.JSONDecodeError:
+            pass
+    check(False, f"{label} printed no parseable JSON, stderr follows")
+    print((proc.stderr or "").strip() or "(no stderr captured)")
+    raise StepFailure(label)
+
+
 def iso(moment: datetime) -> str:
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -142,7 +168,7 @@ def main() -> int:
         sys.stderr.write(proc.stderr or "")
         print(f"\n{len(failures)} DIGEST CHECK(S) FAILED")
         return 1
-    digest = json.loads(proc.stdout)
+    digest = parse_step(proc, "dry-run build")
     check(all(k in digest for k in ("subject", "text", "html", "item_count",
                                     "token", "send", "ageing_count",
                                     "thread_count")),
@@ -230,7 +256,7 @@ def main() -> int:
     # The late arrival lands in the next build, then the well runs dry.
     proc = run_script(BUILD, ["--db", str(db)])
     check(proc.returncode == 0, "post commit rebuild exits 0")
-    digest2 = json.loads(proc.stdout)
+    digest2 = parse_step(proc, "post-commit rebuild")
     check(digest2["item_count"] == 1 and "Lateshift" in digest2["text"],
           "the between-build arrival appears in the next digest")
     check("Orvala" in digest2["text"],
@@ -239,13 +265,13 @@ def main() -> int:
                               "--db", str(db)])
     check(proc.returncode == 0, "second token commits cleanly")
     proc = run_script(BUILD, ["--db", str(db)])
-    digest3 = json.loads(proc.stdout)
+    digest3 = parse_step(proc, "third build")
     check(digest3["item_count"] == 0,
           "third digest is empty, nothing is double reported")
 
     # Send gate. Ageing alone forces a send even with the empty-week flag off.
     proc = run_script(BUILD, ["--no-send-when-empty", "--db", str(db)])
-    gate = json.loads(proc.stdout)
+    gate = parse_step(proc, "ageing-only gate build")
     check(gate["item_count"] == 0 and gate["ageing_count"] > 0
           and gate["send"] is True,
           "an ageing-only week still sends with the flag off")
@@ -279,7 +305,7 @@ def main() -> int:
     check(late_status == "dead", "the id-marked row is dead")
     conn.close()
     proc = run_script(BUILD, ["--db", str(db)])
-    after_mark = json.loads(proc.stdout)
+    after_mark = parse_step(proc, "post-mark build")
     check("Orvala" not in after_mark["text"],
           "a marked item drops out of the ageing section")
 
@@ -291,11 +317,11 @@ def main() -> int:
     conn.commit()
     conn.close()
     proc = run_script(BUILD, ["--no-send-when-empty", "--db", str(db)])
-    empty_gate = json.loads(proc.stdout)
+    empty_gate = parse_step(proc, "empty-week gate build")
     check(empty_gate["send"] is False,
           "a truly empty week holds the email with the flag off")
     proc = run_script(BUILD, ["--send-when-empty", "--db", str(db)])
-    quiet_week = json.loads(proc.stdout)
+    quiet_week = parse_step(proc, "quiet-week build")
     check(quiet_week["send"] is True, "the empty-week flag forces a send")
     check("quiet week" in quiet_week["subject"].lower(),
           "the quiet-week subject says so")
@@ -328,7 +354,7 @@ def main() -> int:
     conn.commit()
     conn.close()
     proc = run_script(BUILD, ["--no-send-when-empty", "--db", str(db)])
-    review = json.loads(proc.stdout)
+    review = parse_step(proc, "needs-review build")
     check(review["needs_review_count"] == 2,
           "both null rows counted as needs review")
     check("Needs review." in review["text"]
@@ -343,9 +369,12 @@ def main() -> int:
         [sys.executable, str(REPO_ROOT / "scripts" / "rescore.py"),
          "--db", str(db)] + (["--mock"] if mock else []),
         capture_output=True, text=True, encoding="utf-8", env=CHILD_ENV)
-    check(proc.returncode == 0, "rescore.py exits 0")
+    rescore_out = parse_step(proc, "rescore step")
+    check("opportunities_rescored" in rescore_out
+          and "signals_rescored" in rescore_out,
+          "rescore.py prints its JSON contract on stdout")
     proc = run_script(BUILD, ["--db", str(db)])
-    cleared = json.loads(proc.stdout)
+    cleared = parse_step(proc, "post-rescore rebuild")
     check(cleared["needs_review_count"] == 0
           and "Needs review." not in cleared["text"],
           "rescore clears the Needs review section")
@@ -373,4 +402,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except StepFailure:
+        print("\nFAIL. A step broke, its stderr is above.")
+        sys.exit(1)
+    except Exception as err:  # noqa: BLE001  readable FAIL, never a traceback
+        print(f"\nFAIL. Unexpected {type(err).__name__}. {err}")
+        sys.exit(1)
