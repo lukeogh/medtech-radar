@@ -1,4 +1,5 @@
 {
+  "id": "radarsignals0001",
   "name": "Radar Signals",
   "nodes": [
     {
@@ -11,7 +12,10 @@
       "name": "How to arm this",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-240, 140]
+      "position": [
+        -240,
+        140
+      ]
     },
     {
       "parameters": {
@@ -28,7 +32,10 @@
       "name": "Every two hours",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [240, 300]
+      "position": [
+        240,
+        300
+      ]
     },
     {
       "parameters": {
@@ -55,7 +62,10 @@
       "name": "Config",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [460, 300]
+      "position": [
+        460,
+        300
+      ]
     },
     {
       "parameters": {
@@ -65,7 +75,10 @@
       "name": "Check signals",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [680, 300]
+      "position": [
+        680,
+        300
+      ]
     },
     {
       "parameters": {
@@ -75,7 +88,10 @@
       "name": "Summarise run",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [
+        900,
+        300
+      ]
     }
   ],
   "connections": {

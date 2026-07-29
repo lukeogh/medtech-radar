@@ -47,13 +47,26 @@ services:
 ```
 
 The official n8n image is Alpine and ships without Python, so extend it.
+Newer n8n images, 2.x onwards, are hardened and ship without `apk` as well,
+so the package manager has to be borrowed from a build stage and removed
+again afterwards. Pin the n8n version you are already running, which means
+n8n upgrades need an image rebuild rather than a pull.
 
 ```dockerfile
-FROM n8nio/n8n
+FROM alpine:3.22 AS tools
+RUN apk add --no-cache apk-tools-static
+
+FROM n8nio/n8n:2.14.2
 USER root
-RUN apk add --no-cache python3 py3-pip && pip3 install --break-system-packages anthropic PyYAML feedparser
+COPY --from=tools /sbin/apk.static /tmp/apk.static
+RUN /tmp/apk.static add --no-cache python3 py3-pip \
+ && pip3 install --break-system-packages anthropic PyYAML feedparser \
+ && rm /tmp/apk.static
 USER node
 ```
+
+On older images that still carry `apk`, the plain
+`apk add --no-cache python3 py3-pip` route works without the build stage.
 
 ## Viewing the dashboard
 
