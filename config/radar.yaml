@@ -9,9 +9,9 @@ project_dir: "."                        # repo root, scripts resolve relative to
 # Self-hosted n8n. Confirmed responding on the morning of 21 July 2026.
 n8n_url: "https://n8n.keogh.cloud"
 
-# Self-hosted ntfy. TODO this guess does not answer from this machine.
-# Put the real ntfy base URL here before arming radar-signals. If the server
-# is LAN-only it may still be right from the n8n host, test from there.
+# Self-hosted ntfy, confirmed live on 29 July 2026. Proxied by NPM to the
+# finance ntfy server, the one that reaches the iPhone. The server is
+# deny-all, so publishing needs NTFY_TOKEN in .env with rw on this topic.
 ntfy_url: "https://ntfy.keogh.cloud"
 ntfy_topic_radar: "radar-signals"
 
