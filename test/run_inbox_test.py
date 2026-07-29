@@ -49,10 +49,23 @@ def check(cond: bool, label: str) -> None:
         failures.append(label)
 
 
-def run_process(cli_args: list[str], stdin_text: str | None = None):
+def run_process(cli_args: list[str], stdin_text: str | None = None, env=None):
     return subprocess.run([sys.executable, str(PROCESS)] + cli_args,
                           input=stdin_text, capture_output=True,
-                          text=True, encoding="utf-8", env=CHILD_ENV)
+                          text=True, encoding="utf-8", env=env or CHILD_ENV)
+
+
+def mock_env() -> dict:
+    """Environment for failure-injection steps, mock whatever the suite mode.
+
+    The injected failures are deterministic mock behaviours. The live model
+    rightly refuses to reproduce them, Haiku handles a malformed email
+    gracefully, so these steps always run mocked. The plumbing they test,
+    give_up counting and null-row surfacing, is mode independent.
+    """
+    env = dict(CHILD_ENV or os.environ)
+    env["RADAR_MOCK"] = "1"
+    return env
 
 
 def main() -> int:
@@ -160,8 +173,8 @@ def main() -> int:
     })
     poison_b64 = base64.b64encode(poison.encode()).decode("ascii")
     for attempt in (1, 2, 3):
-        proc = run_process(["--b64", poison_b64, "--db", str(db)]
-                           + (["--mock"] if mock else []))
+        proc = run_process(["--b64", poison_b64, "--db", str(db), "--mock"],
+                           env=mock_env())
         check(proc.returncode == 0, f"poison attempt {attempt} exits 0")
         result = json.loads(proc.stdout)
         check(result.get("extract_failed") is True,
@@ -195,8 +208,8 @@ def main() -> int:
         "body_html": "",
     })
     unscorable_b64 = base64.b64encode(unscorable.encode()).decode("ascii")
-    proc = run_process(["--b64", unscorable_b64, "--db", str(db)]
-                       + (["--mock"] if mock else []))
+    proc = run_process(["--b64", unscorable_b64, "--db", str(db), "--mock"],
+                       env=mock_env())
     check(proc.returncode == 0, "unscorable email still exits 0")
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
@@ -208,8 +221,8 @@ def main() -> int:
     conn.close()
     proc = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "rescore.py"),
-         "--db", str(db)] + (["--mock"] if mock else []),
-        capture_output=True, text=True, encoding="utf-8", env=CHILD_ENV)
+         "--db", str(db), "--mock"],
+        capture_output=True, text=True, encoding="utf-8", env=mock_env())
     check(proc.returncode == 0, "rescore.py exits 0")
     rescored = json.loads(proc.stdout)
     check(rescored["opportunities_rescored"] == 1,
