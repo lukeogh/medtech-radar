@@ -290,3 +290,9 @@ a shared sanitiser in radar_common cleans every free-text field in both
 pipelines, em dashes to commas, semicolons to full stops with the next
 letter capitalised. The voice tests enforce a guarantee rather than a
 hope. Suite green twice, mock and live.
+
+30 July 2026, later. The dashboard now implements the First Light design
+system's kit. Standing line, soft-tinted section papers, one row grammar
+with detail on expand, watchlist grouped by tier, the heartbeat at footer
+weight, and an honest as-delivered state for a database that has never
+run. The meters, tiles and pipeline table are gone, as the kit specifies.
