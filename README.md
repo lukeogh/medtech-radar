@@ -308,3 +308,16 @@ re-renders the page from the database on every browser load, adds Refresh
 and Check now buttons in the masthead, and reloads itself every fifteen
 minutes. Check now runs the watcher through its own politeness gate. The
 static file generator is unchanged and both stay read only.
+
+29 July 2026, evening. The system went live. All three workflows are armed
+on the homelab, inbox hourly, digest Monday 07:30, signals every two hours
+with a real push, and the test push travelled the production path to the
+phone. The email plumbing is real too. Personal Gmail was found forwarding
+everything to the aggregator, that is off, replaced by one precise filter,
+jobalerts-noreply@linkedin.com forwards and nothing else does. The old
+LinkedIn filter had matched zero emails ever. Six Google Alerts stand under
+the aggregator account, the README's set with tighter phrasing, one
+duplicate deleted. The first real roles arrive with the next LinkedIn
+alert. Deployment learning folded into docs/architecture.md, n8n 2.x
+disables Execute Command in code and the fix is a one-line NODES_EXCLUDE
+that keeps localFileTrigger dark.

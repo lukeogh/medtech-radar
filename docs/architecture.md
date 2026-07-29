@@ -68,6 +68,25 @@ USER node
 On older images that still carry `apk`, the plain
 `apk add --no-cache python3 py3-pip` route works without the build stage.
 
+n8n 2.x also disables the Execute Command node in code, not in the
+environment. The default in `@n8n/config` excludes both
+`n8n-nodes-base.executeCommand` and `n8n-nodes-base.localFileTrigger`, so a
+freshly deployed instance rejects the Radar workflows with "Unrecognized
+node type" even though nothing set `NODES_EXCLUDE`. The fix is to set it
+explicitly on the n8n service, keeping the half of the default Radar does
+not need:
+
+```yaml
+NODES_EXCLUDE: '["n8n-nodes-base.localFileTrigger"]'
+```
+
+Worth remembering that this is instance-wide. Any workflow in that n8n, and
+anyone with access to its UI, can then run shell commands inside the
+container, which has the repo, `.env` and the API key mounted. On a
+single-user homelab that is the bargain the thin-shell architecture is
+built on, and excluding only `localFileTrigger` is the smallest version of
+that bargain.
+
 ## Viewing the dashboard
 
 `scripts/serve_dashboard.py` serves the dashboard over HTTP, re-rendering
