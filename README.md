@@ -283,3 +283,10 @@ now force mock, the digest renders NULL fields instead of crashing, the
 runners fail readably, and the doctrine test allows the playbook's own
 peer gesture while catching pitch shapes. Suite green twice, mock and
 live.
+
+30 July 2026. The free-text style rules are mechanical now. The prompt
+repeats the punctuation rules inside the suggested_action field spec, and
+a shared sanitiser in radar_common cleans every free-text field in both
+pipelines, em dashes to commas, semicolons to full stops with the next
+letter capitalised. The voice tests enforce a guarantee rather than a
+hope. Suite green twice, mock and live.

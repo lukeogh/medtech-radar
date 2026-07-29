@@ -416,8 +416,9 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
 
     company = str(parsed.get("company") or "").strip() or "Unknown company"
     headline = str(parsed.get("headline") or item["headline"]).strip()
-    why = str(parsed.get("why") or "").strip()
-    playbook_step = str(parsed.get("playbook_step") or "").strip()
+    why = rc.sanitise_free_text(str(parsed.get("why") or "").strip())
+    playbook_step = rc.sanitise_free_text(
+        str(parsed.get("playbook_step") or "").strip())
     try:
         relevance = max(0, min(100, int(parsed.get("relevance", 0))))
     except (TypeError, ValueError):

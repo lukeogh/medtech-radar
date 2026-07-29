@@ -167,6 +167,17 @@ def main() -> int:
     veltrix = conn.execute("SELECT COUNT(*) AS c FROM opportunities"
                            " WHERE company LIKE 'Veltrix%'").fetchone()["c"]
     check(veltrix == 1, "the duplicated role is stored exactly once")
+    # The sanitiser guarantee, unit style. A deliberately offending string,
+    # built from today's live Meridian line, comes out clean and natural.
+    offending = ("No action needed — the rate is less than half the floor; "
+                 "renegotiation to £650 a day would change that.")
+    cleaned = radar_common.sanitise_free_text(offending)
+    check(cleaned == ("No action needed, the rate is less than half the "
+                      "floor. Renegotiation to £650 a day would change that."),
+          f"sanitiser cleans the Meridian worked case (got {cleaned!r})")
+    check(radar_common.sanitise_free_text(cleaned) == cleaned,
+          "the sanitiser is idempotent on clean text")
+
     # Voice doctrine. No semicolons or em dashes in any free text the scorer
     # wrote, whichever mode produced it.
     dirty = []

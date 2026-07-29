@@ -221,6 +221,7 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
     if thread_type not in ("inbound", "signal"):
         thread_type = "inbound"
 
+    sanitise = radar_common.sanitise_free_text
     scored = {
         "company": parsed.get("company") or opp.get("company", ""),
         "role_title": parsed.get("role_title") or opp.get("title", ""),
@@ -230,10 +231,10 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
         "cv_match": cv,
         "want_match": want,
         "combined": combined,
-        "one_line_why": str(parsed.get("one_line_why", "")).strip(),
-        "red_flags": [str(flag) for flag in red_flags],
-        "suggested_action": str(parsed.get("suggested_action", "")).strip(),
-        "act_by": str(parsed.get("act_by", "")).strip(),
+        "one_line_why": sanitise(str(parsed.get("one_line_why", "")).strip()),
+        "red_flags": [sanitise(str(flag)) for flag in red_flags],
+        "suggested_action": sanitise(str(parsed.get("suggested_action", "")).strip()),
+        "act_by": sanitise(str(parsed.get("act_by", "")).strip()),
     }
     if combined is None:
         return scored, usage, "scorer returned non numeric percentages"

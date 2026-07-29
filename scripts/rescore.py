@@ -111,8 +111,12 @@ def rescore_signals(conn, config, usage_total) -> tuple[int, int]:
             " why = ?, playbook_step = ? WHERE id = ?",
             (str(parsed.get("company") or row["company"] or "Unknown company"),
              str(parsed.get("headline") or row["headline"] or ""),
-             relevance, str(parsed.get("why") or "").strip(),
-             str(parsed.get("playbook_step") or "").strip(), row["id"]))
+             relevance,
+             radar_common.sanitise_free_text(
+                 str(parsed.get("why") or "").strip()),
+             radar_common.sanitise_free_text(
+                 str(parsed.get("playbook_step") or "").strip()),
+             row["id"]))
         fixed += 1
     conn.commit()
     return fixed, failed

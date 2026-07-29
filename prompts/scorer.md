@@ -38,7 +38,7 @@ Judge only against the preferences file. Ignore how impressive the role is.
 - thread_type. "inbound" for anything that arrived as an advertised role or a direct approach. "signal" only for a company event rather than a role.
 - one_line_why. Under 25 words. First person, as Luke. State the real reason for the score, including a wrong rate, plainly.
 - red_flags. Short plain phrases. Empty array when there are none. Rate problems, relocation demands, vague or hidden employers, scope creep all belong here.
-- suggested_action. One concrete next step in one sentence. "No action needed." is a valid answer for weak matches.
+- suggested_action. One concrete next step in one sentence. "No action needed." is a valid answer for weak matches. The punctuation rules apply inside this field word for word. No semicolons, no em dashes, no colons inside the sentence, no exclamation marks. Where a semicolon or dash tempts you, end the sentence and start another. Write "No action needed. The rate is less than half the floor." never "No action needed; the rate is less than half the floor."
 - act_by. A date as YYYY-MM-DD only when timing genuinely matters, otherwise an empty string.
 
 Style rules for every free-text field, one_line_why, red_flags entries,
