@@ -277,3 +277,9 @@ preferences into config/profile/ on the n8n host. Create both Gmail
 labels. Confirm the ntfy URL and the n8n timezone. Then run the suite live
 with the fresh key and read the previews before arming anything. The full
 ordered list is in MORNING_REPORT.md.
+
+29 July 2026. Three fixes from the first live run. Failure-injection tests
+now force mock, the digest renders NULL fields instead of crashing, the
+runners fail readably, and the doctrine test allows the playbook's own
+peer gesture while catching pitch shapes. Suite green twice, mock and
+live.
