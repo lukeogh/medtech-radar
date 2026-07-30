@@ -735,6 +735,33 @@ a:hover{text-decoration-color:var(--accent)}
 .rate-close{color:var(--ink-2)}
 .panel-head .h-rate{grid-column:6;text-align:center}
 .legend{font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);margin:var(--space-8) 0 0;max-width:none;text-wrap:pretty}
+.tabs{display:inline-flex;gap:var(--space-16);align-items:baseline;margin-right:var(--space-16)}
+.tabs a{font:var(--weight-strong) var(--text-sm)/1.35 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;text-decoration:none;color:var(--ink-3);padding-bottom:2px;border-bottom:2px solid transparent}
+.tabs a:hover{color:var(--ink-2)}
+.tabs a[aria-current="page"]{color:var(--ink-1);border-bottom-color:var(--accent)}
+.front{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1fr);gap:var(--space-24);margin-top:var(--space-24)}
+.lead{background:var(--tint-sand);border:1px solid var(--panel-rule);border-radius:var(--radius);padding:var(--space-24)}
+.lead .kicker,.story .kicker{font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--accent);margin:0 0 var(--space-8)}
+.lead h3{font:400 var(--text-2xl)/1.15 var(--font-serif);letter-spacing:-.01em;margin:0 0 var(--space-12);text-wrap:balance}
+.lead .standfirst{font:400 var(--text-lg)/1.45 var(--font-serif);color:var(--ink-2);margin:0 0 var(--space-12);text-wrap:pretty}
+.story-meta{font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);font-variant-numeric:tabular-nums}
+.playbook{background:var(--accent-wash);border-left:2px solid var(--accent-quiet);border-radius:var(--radius-sm);padding:var(--space-10) var(--space-12);font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2);margin:var(--space-12) 0 0}
+.playbook b{font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:2px}
+.widgets{display:grid;gap:var(--space-16);align-content:start}
+.widget{background:var(--tint-stone);border:1px solid var(--panel-rule);border-radius:var(--radius);padding:var(--space-16)}
+.widget h4{font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3);margin:0 0 var(--space-10)}
+.widget ul{list-style:none;margin:0;padding:0;font:400 var(--text-sm)/1.7 var(--font-sans);color:var(--ink-2)}
+.widget .num{font:var(--weight-strong) var(--text-lg)/1.2 var(--font-sans);color:var(--ink-1);font-variant-numeric:tabular-nums;margin-right:6px}
+.stories{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:var(--space-16);margin-top:var(--space-24)}
+.story{background:var(--surface);border:1px solid var(--panel-rule);border-radius:var(--radius);padding:var(--space-16)}
+.story h3{font:400 var(--text-lg)/1.3 var(--font-serif);margin:0 0 var(--space-8);text-wrap:balance}
+.story p{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2);margin:0 0 var(--space-8);text-wrap:pretty}
+.section-rule{font:var(--weight-strong) var(--text-sm)/1.35 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;margin:var(--space-40) 0 0;padding-bottom:var(--space-8);border-bottom:1px solid var(--hairline-strong)}
+.sources-fold{margin-top:var(--space-56)}
+.sources-fold summary{font:var(--weight-strong) var(--text-sm)/1.35 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3);cursor:pointer;padding-bottom:var(--space-8);border-bottom:1px solid var(--hairline-strong)}
+.sources-fold summary:hover{color:var(--ink-1)}
+.sources-fold .panel{margin-top:var(--space-12)}
+@media (max-width:900px){.front{grid-template-columns:minmax(0,1fr)}}
 .row-acked{display:none;opacity:.6}
 .panel.show-acked .row-acked{display:block}
 .ack-toggle{font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;white-space:nowrap;border:1px solid var(--hairline);border-radius:var(--radius-pill);padding:3px 10px;margin-left:auto;cursor:pointer;background:var(--surface);color:var(--ink-3);transition:color var(--dur-instant) var(--ease)}
@@ -1021,6 +1048,7 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
 <p class="masthead-sub">Everything on file. Read only, generated {esc(fmt_long(now))} from {esc(db_label)}.{" The page re-renders on every load and reloads itself every fifteen minutes." if serve else ""}</p>
 </div>
 <div class="controls">
+{'''<nav class="tabs" aria-label="Pages"><a href="/" aria-current="page">Archive</a><a href="/insights">Insights</a></nav>''' if serve else ""}
 {'''<span class="segmented" role="group" aria-label="Data">
 <button type="button" id="btn-refresh">Refresh</button>
 <button type="button" id="btn-watch">Check now</button>
@@ -1051,7 +1079,7 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
 {section("Ageing", 0 if fresh else len(data["ageing"]),
          "Above the bar, older than two weeks, hasn't moved. Not a problem, "
          "just unfinished.", "panel-clay", age_body)}
-{section("Watchlist health", len(data["watchlist"]),
+{"" if serve else section("Watchlist health", len(data["watchlist"]),
          "Every fetched source and what came back. Email-borne alerts "
          "arrive through the inbox workflow instead and are not listed "
          "here.", "", render_watchlist(data))}
@@ -1063,6 +1091,163 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
 </footer>
 </main>
 <script>{SCRIPT}{SERVE_SCRIPT if serve else ""}</script>
+</body>
+</html>"""
+
+
+def _story_card(s: dict, lead: bool = False) -> str:
+    """One signal as a newspaper story. The lead gets the big type."""
+    kicker_bits = [b for b in (s.get("company"),) if b]
+    if s.get("source_id"):
+        kicker_bits.append(f"via {s['source_id']}")
+    kicker = " &middot; ".join(esc(b) for b in kicker_bits)
+    relevance = s.get("relevance")
+    meta_bits = [f"Relevance {relevance}" if relevance is not None
+                 else "Awaiting a score"]
+    if s.get("pushed"):
+        meta_bits.append(f"pushed to the phone {fmt_day(s.get('pushed_at'))}")
+    meta_bits.append(f"seen {fmt_day(s.get('first_seen'))}")
+    meta = " &middot; ".join(meta_bits)
+    link = source_link(s.get("source_url"), "Read the announcement")
+    playbook = ""
+    if s.get("playbook_step"):
+        playbook = (f'<div class="playbook"><b>Do today</b>'
+                    f'{esc(sentence(s["playbook_step"]))}</div>')
+    why = esc(sentence(s.get("why") or ""))
+    headline = esc(s.get("headline") or s.get("company") or "Signal")
+    if lead:
+        return (f'<article class="lead"><p class="kicker">{kicker}</p>'
+                f"<h3>{headline}</h3>"
+                + (f'<p class="standfirst">{why}</p>' if why else "")
+                + playbook
+                + f'<p class="story-meta" style="margin-top:12px">{meta}.'
+                + (f" {link}" if link else "") + "</p></article>")
+    return (f'<article class="story"><p class="kicker">{kicker}</p>'
+            f"<h3>{headline}</h3>"
+            + (f"<p>{why}</p>" if why else "")
+            + playbook
+            + f'<p class="story-meta" style="margin-top:10px">{meta}.'
+            + (f" {link}" if link else "") + "</p></article>")
+
+
+def render_insights_page(data: dict, config: dict, db_label: str) -> str:
+    """The Insights front page. Signals as news, sources folded below.
+
+    The archive page is for working the pipeline. This page is for
+    reading what the watcher found, the way a front page reads, lead
+    story first, the rest in columns, the machinery in widgets, and the
+    provenance behind a fold for the day it is wanted.
+    """
+    now = radar_common.now_iso()
+    week_ago = (datetime.now(timezone.utc)
+                - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    live = [s for s in data["signals"] if s.get("status") != "dead"]
+    scored = [s for s in live if s.get("relevance") is not None]
+    unscored = [s for s in live if s.get("relevance") is None]
+    fresh = [s for s in scored if (s.get("first_seen") or "") >= week_ago]
+    earlier = [s for s in scored if (s.get("first_seen") or "") < week_ago]
+    lead = fresh[0] if fresh else (scored[0] if scored else None)
+    fresh_rest = [s for s in fresh if s is not lead]
+    earlier_rest = [s for s in earlier if s is not lead]
+
+    pushed = [s for s in scored if s.get("pushed")]
+    answering = data["answering"]
+    watched = len(data["watchlist"])
+    quiet = []
+    for src in data["watchlist"]:
+        state = data["sources_state"].get(src.get("id"))
+        status = str(state.get("last_status")) if state else None
+        if status and RESULT_WORDS.get(status, ("", True))[1]:
+            word = RESULT_WORDS.get(status, (f"error {status}", True))[0]
+            quiet.append(f"{src.get('name', src.get('id'))}, {word}")
+
+    widgets = ['<div class="widgets">']
+    widgets.append(
+        '<div class="widget"><h4>The week in numbers</h4><ul>'
+        f'<li><span class="num">{len(fresh)}</span>fresh '
+        f'{"insight" if len(fresh) == 1 else "insights"}</li>'
+        f'<li><span class="num">{data["week_new"]}</span>new items through '
+        'the pipeline</li>'
+        f'<li><span class="num">{len(pushed)}</span>pushed to the phone'
+        '</li>'
+        + (f'<li><span class="num">{len(unscored)}</span>awaiting a score, '
+           'rescore.py clears them</li>' if unscored else "")
+        + "</ul></div>")
+    if pushed:
+        items = "".join(
+            f"<li>{esc(s.get('headline') or s.get('company'))} "
+            f"({fmt_day(s.get('pushed_at'))})</li>" for s in pushed[:5])
+        widgets.append(f'<div class="widget"><h4>Reached the phone</h4>'
+                       f"<ul>{items}</ul></div>")
+    coverage_note = (f'<li><span class="num">{answering}</span>of {watched} '
+                     "sources answering</li>")
+    quiet_items = "".join(f"<li>{esc(q)}</li>" for q in quiet[:5])
+    widgets.append(
+        '<div class="widget"><h4>Coverage</h4><ul>' + coverage_note
+        + (quiet_items or "<li>Nothing has gone dark.</li>") + "</ul></div>")
+    widgets.append("</div>")
+
+    if lead:
+        front = (f'<div class="front">{_story_card(lead, lead=True)}'
+                 + "".join(widgets) + "</div>")
+        body = front
+        if fresh_rest:
+            body += ('<p class="section-rule">Also fresh this week</p>'
+                     '<div class="stories">'
+                     + "".join(_story_card(s) for s in fresh_rest)
+                     + "</div>")
+        if earlier_rest:
+            body += ('<p class="section-rule">Earlier, still on file</p>'
+                     '<div class="stories">'
+                     + "".join(_story_card(s) for s in earlier_rest)
+                     + "</div>")
+    else:
+        body = ('<div class="front"><div class="lead"><h3>Nothing checked '
+                "and relevant yet.</h3><p class=\"standfirst\">The watcher "
+                "fills this page as the watchlist turns up funding rounds, "
+                "spin-offs and first hires. The sources below say whether "
+                "it is looking.</p></div>" + "".join(widgets) + "</div>")
+
+    sources_fold = (
+        f'<details class="sources-fold"><summary>Sources. {watched} '
+        f"watched, {answering} answering. Where this page's information "
+        "comes from.</summary>"
+        f'<div class="panel">{render_watchlist(data)}</div>'
+        '<p class="legend">Email-borne job alerts arrive through the inbox '
+        "workflow and are not fetched sources, so they are not listed "
+        "here.</p></details>")
+
+    return f"""<!doctype html>
+<html lang="en-GB" data-appearance="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MedTech Radar. Insights.</title>
+<link rel="icon" href="{FAVICON}">
+<style>{CSS}</style>
+</head>
+<body>
+<main class="page">
+<header class="masthead">
+<div>
+<div class="brand">{MARK_SVG}<h1>Insights</h1></div>
+<p class="masthead-sub">What the watcher found, checked and relevant, read
+like a front page. Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
+</div>
+<div class="controls">
+<nav class="tabs" aria-label="Pages"><a href="/">Archive</a><a href="/insights" aria-current="page">Insights</a></nav>
+<span class="segmented" role="group" aria-label="Appearance">
+<button type="button" data-appearance-set="light" aria-pressed="false">Light</button>
+<button type="button" data-appearance-set="auto" aria-pressed="true">Auto</button>
+<button type="button" data-appearance-set="dark" aria-pressed="false">Dark</button>
+</span>
+</div>
+</header>
+{body}
+{sources_fold}
+</main>
+<script>{SCRIPT}</script>
 </body>
 </html>"""
 

@@ -81,7 +81,7 @@ ARGS = None
 WATCH_LOCK = threading.Lock()
 
 
-def render() -> bytes:
+def render(page_name: str = "archive") -> bytes:
     config = radar_common.load_config()
     db_path = Path(ARGS.db).resolve() if ARGS.db else radar_common.DB_PATH
     if not db_path.exists():
@@ -94,8 +94,12 @@ def render() -> bytes:
         db_label = db_path.relative_to(REPO_ROOT).as_posix()
     except ValueError:
         db_label = str(db_path)
-    page = build_dashboard.render_page(data, config, db_label,
-                                       REPO_ROOT / "dashboard.html", serve=True)
+    if page_name == "insights":
+        page = build_dashboard.render_insights_page(data, config, db_label)
+    else:
+        page = build_dashboard.render_page(data, config, db_label,
+                                           REPO_ROOT / "dashboard.html",
+                                           serve=True)
     return page.encode("utf-8")
 
 
@@ -388,6 +392,13 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self._send(200, render(), "text/html; charset=utf-8")
             except Exception as err:  # noqa: BLE001  a broken render is a 500, not a crash
+                self._send(500, f"Render failed. {type(err).__name__}: {err}"
+                           .encode(), "text/plain; charset=utf-8")
+            return
+        if path == "/insights":
+            try:
+                self._send(200, render("insights"), "text/html; charset=utf-8")
+            except Exception as err:  # noqa: BLE001
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")
             return

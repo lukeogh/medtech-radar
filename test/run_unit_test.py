@@ -252,6 +252,17 @@ def main() -> int:
                 " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (h, now, company, title, "inbound", "new", 90, 90, 90,
                  "Exactly the target.", "above"))
+        conn.execute(
+            "INSERT INTO signals (url_hash, first_seen, source_id, company,"
+            " headline, summary, source_url, relevance, why, playbook_step,"
+            " pushed, pushed_at, status)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("sig-front", now, "imec-news", "Frontpage Dx",
+             "Frontpage Dx raises seed for photonic IVD reader",
+             "Funding note.", "https://example.invalid/frontpage", 88,
+             "An imec spin-off entering the buying window.",
+             "Congratulate the CTO on the round in a comment today.",
+             1, now, "new"))
         conn.commit()
         ids = {r["company"]: r["id"] for r in
                conn.execute("SELECT id, company FROM opportunities")}
@@ -293,6 +304,32 @@ def main() -> int:
               "the dashboard renders the rate legend under the table")
         check('<span class="chip chip-new">' not in html_page,
               "the status chip has left the visible inbound table")
+
+        # The Insights front page. Signals read as news, a tab reaches it,
+        # and the source-health table sits behind the fold at the bottom.
+        insights = build_dashboard.render_insights_page(
+            data, config, "ack test")
+        check("Frontpage Dx raises seed" in insights
+              and 'class="lead"' in insights,
+              "the top signal leads the Insights front page")
+        check("Do today" in insights
+              and "Congratulate the CTO" in insights,
+              "the playbook step renders as the lead's do-today box")
+        check('<details class="sources-fold">' in insights
+              and "Where this page" in insights,
+              "sources sit collapsed at the bottom of Insights")
+        check('href="/insights" aria-current="page"' in insights,
+              "the Insights tab marks itself current")
+        check("The week in numbers" in insights and "Coverage" in insights,
+              "the widgets render")
+        check('href="/insights"' in html_page,
+              "the archive page carries the Insights tab")
+        check('class="src-head"' not in html_page,
+              "watchlist health has left the served archive page")
+        static_page = build_dashboard.render_page(
+            data, config, "ack test", Path(tmp) / "static.html", serve=False)
+        check('class="src-head"' in static_page,
+              "the static single-page fallback keeps the watchlist table")
 
         digest_data = build_digest.collect(read, config)
         digest_text = build_digest.render_text(digest_data, "unit day")
@@ -365,6 +402,11 @@ def main() -> int:
             check(resp.status == 200
                   and f'data-unack="{ids["Seenit Ltd"]}"' in page,
                   "the served page re-renders with the row acknowledged")
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/insights", timeout=10) as resp:
+                ins_page = resp.read().decode("utf-8")
+            check(resp.status == 200 and "Frontpage Dx" in ins_page,
+                  "GET /insights serves the front page over HTTP")
 
             # The CV endpoints over real HTTP, against a throwaway
             # profile dir so the real config/profile is never touched.

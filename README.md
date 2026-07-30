@@ -353,3 +353,14 @@ reconnect silently reverted, a write lock held across live model calls,
 a zip bomb path, a same-second upload race, and each catch now has a
 fix and a test. Suite green twice after all of it, mock and live, four
 runners including the new unit fixtures.
+
+30 July 2026, later. Signals earned a front page. An Insights tab sits at
+the top of the served pages and reads like a newspaper, the highest fresh
+signal as the lead with its do-today step boxed, the rest as story cards
+under Also fresh and Earlier, widgets carrying the week in numbers, what
+reached the phone and coverage. The Watchlist health table left the served
+archive page and now sits collapsed at the bottom of Insights as Sources,
+open it when you want provenance, ignore it when you want news. The static
+single-page fallback keeps everything as it was, and the design project
+gained the insights page alongside the regenerated dashboard so the
+reference has both.
