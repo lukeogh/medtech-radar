@@ -376,3 +376,16 @@ the letter, acknowledged_at on the signal, out of the page, the digest,
 the ageing nag and the catch-up pushes, never out of the database, so
 the URL-hash dedupe keeps a dismissed insight from ever resurfacing.
 Undo lives behind the Dismissed fold. Suite green with the loop pinned.
+
+30 July 2026, evening. Jobs earned a tab and the archive became Home.
+Three tabs now, Home, Jobs, Insights. The Jobs page opens on a trust
+strip, the machine's last run, the week's flow, and each board's
+freshness, then Top prospects, then every board in its own section,
+LinkedIn, Reed, Indeed, CV-Library and Other email alerts, an empty
+board saying subscribe rather than hiding. Job sources are configurable
+now. The built-in four live in code, customs live in
+config/job_sources.yaml, written by the page's own add-a-source form and
+read by detect_source, so a new board's emails file under its own name
+the moment they start arriving. The form says the honest second half out
+loud, subscribing the aggregator inbox on the board is still yours to
+do. Suite green, the registry, the tagging and the endpoints pinned.

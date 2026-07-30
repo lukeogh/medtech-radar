@@ -36,3 +36,6 @@ db/backups/
 
 # Review-probe and scratch databases must never ride along
 /*.sqlite
+
+# Custom job sources, written by the Jobs page, personal config
+config/job_sources.yaml

@@ -96,6 +96,8 @@ def render(page_name: str = "archive") -> bytes:
         db_label = str(db_path)
     if page_name == "insights":
         page = build_dashboard.render_insights_page(data, config, db_label)
+    elif page_name == "jobs":
+        page = build_dashboard.render_jobs_page(data, config, db_label)
     else:
         page = build_dashboard.render_page(data, config, db_label,
                                            REPO_ROOT / "dashboard.html",
@@ -461,9 +463,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")
             return
-        if path == "/insights":
+        if path in ("/insights", "/jobs"):
             try:
-                self._send(200, render("insights"), "text/html; charset=utf-8")
+                self._send(200, render(path.lstrip("/")),
+                           "text/html; charset=utf-8")
             except Exception as err:  # noqa: BLE001
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")
@@ -532,6 +535,20 @@ class Handler(BaseHTTPRequestHandler):
             result = set_acknowledged(item_id, path == "/ack")
             self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
+            return
+        if path == "/jobs/source":
+            body = self._read_json_body()
+            name = body.get("name") if isinstance(body, dict) else None
+            sender = body.get("sender") if isinstance(body, dict) else None
+            try:
+                added = radar_common.add_job_source(str(name or ""),
+                                                    str(sender or ""))
+                self._send(200, json.dumps({"ok": True, **added}).encode(),
+                           "application/json")
+            except ValueError as err:
+                self._send(422, json.dumps(
+                    {"ok": False, "note": str(err)}).encode(),
+                    "application/json")
             return
         if path in ("/sig/done", "/sig/ack", "/sig/unack"):
             body = self._read_json_body()

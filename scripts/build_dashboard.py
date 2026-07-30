@@ -775,6 +775,11 @@ a:hover{text-decoration-color:var(--accent)}
 .sources-fold .panel{margin-top:var(--space-12)}
 .story-actions{display:flex;gap:var(--space-10);margin:var(--space-12) 0 0}
 .touch-note{font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--settled);margin:var(--space-8) 0 0}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:var(--space-16);margin-top:var(--space-24)}
+.board-note{font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);margin:var(--space-6) 0 0}
+.add-source{display:flex;flex-wrap:wrap;gap:var(--space-10);align-items:center;padding:var(--space-16) var(--space-8)}
+.add-source input{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-1);background:var(--surface);border:1px solid var(--hairline-strong);border-radius:var(--radius-sm);padding:6px 10px;min-width:200px}
+.add-source input::placeholder{color:var(--ink-3)}
 @media (max-width:900px){.front{grid-template-columns:minmax(0,1fr)}}
 .row-acked{display:none;opacity:.6}
 .panel.show-acked .row-acked{display:block}
@@ -1094,7 +1099,7 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
 <p class="masthead-sub">Everything on file. Read only, generated {esc(fmt_long(now))} from {esc(db_label)}.{" The page re-renders on every load and reloads itself every fifteen minutes." if serve else ""}</p>
 </div>
 <div class="controls">
-{'''<nav class="tabs" aria-label="Pages"><a href="/" aria-current="page">Archive</a><a href="/insights">Insights</a></nav>''' if serve else ""}
+{'''<nav class="tabs" aria-label="Pages"><a href="/" aria-current="page">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav>''' if serve else ""}
 {'''<span class="segmented" role="group" aria-label="Data">
 <button type="button" id="btn-refresh">Refresh</button>
 <button type="button" id="btn-watch">Check now</button>
@@ -1341,7 +1346,7 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
 like a front page. Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
 </div>
 <div class="controls">
-<nav class="tabs" aria-label="Pages"><a href="/">Archive</a><a href="/insights" aria-current="page">Insights</a></nav>
+<nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights" aria-current="page">Insights</a></nav>
 <span class="segmented" role="group" aria-label="Appearance">
 <button type="button" data-appearance-set="light" aria-pressed="false">Light</button>
 <button type="button" data-appearance-set="auto" aria-pressed="true">Auto</button>
@@ -1355,6 +1360,212 @@ like a front page. Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
 <script>{SCRIPT}{INSIGHTS_SCRIPT}</script>
 </body>
 </html>"""
+
+
+JOBS_SCRIPT = """
+(function () {
+  var addBtn = document.getElementById('src-add');
+  var nameIn = document.getElementById('src-name');
+  var senderIn = document.getElementById('src-sender');
+  var note = document.getElementById('src-note');
+  if (!addBtn) return;
+  addBtn.addEventListener('click', function () {
+    addBtn.disabled = true;
+    fetch('/jobs/source', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nameIn.value, sender: senderIn.value })
+    }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok === false) {
+          addBtn.disabled = false;
+          note.textContent = j.note || 'That did not stick. Try again.';
+          return;
+        }
+        location.reload();
+      })
+      .catch(function () { addBtn.disabled = false;
+                           note.textContent = 'The server did not answer.'; });
+  });
+})();
+"""
+
+
+def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
+    """The Jobs page. Top prospects first, then one section per board.
+
+    Every board gets its section whether or not it has sent anything,
+    because an empty section under a board's own name says "subscribe the
+    inbox there" louder than absence ever could. The metrics strip at the
+    top exists to build trust that the machinery is alive, last run, this
+    week's flow, and the freshness of each board's most recent email.
+    """
+    data["serve"] = True
+    now = radar_common.now_iso()
+    active = data["opportunities"]
+    everything = active + (data.get("acknowledged") or [])
+
+    last_by_source: dict[str, str] = {}
+    for o in everything:
+        src = o.get("source") or "email-other"
+        seen = o.get("first_seen") or ""
+        if seen > last_by_source.get(src, ""):
+            last_by_source[src] = seen
+
+    registry = [dict(s) for s in radar_common.load_job_sources()]
+    known_ids = {s["id"] for s in registry}
+    extras = sorted({(o.get("source") or "email-other") for o in everything
+                     if (o.get("source") or "email-other") not in known_ids})
+    for extra in extras:
+        registry.append({"id": extra,
+                         "name": ("Other email alerts" if extra == "email-other"
+                                  else extra),
+                         "sender_contains": None})
+
+    builtin_ids = {s["id"] for s in radar_common.BUILTIN_JOB_SOURCES}
+    customs = [s for s in registry
+               if s["id"] not in builtin_ids and s.get("sender_contains")]
+
+    dups = max(0, data["week_seen"] - data["week_new"])
+    metrics = ['<div class="metrics">']
+    metrics.append(
+        '<div class="widget"><h4>The machine</h4><ul>'
+        + ("<li>Inbox last ran "
+           f"{fmt_day_time(data['inbox_ts'])}</li>" if data["inbox_ts"]
+           else "<li>Inbox has never run</li>")
+        + f'<li><span class="num">{data["week_runs"]}</span>inbox '
+        f'{"run" if data["week_runs"] == 1 else "runs"} this week</li>'
+        + ("<li>No failed emails</li>" if not data["failed_emails"]
+           else f'<li><span class="num">{data["failed_emails"]}</span>'
+                'failed emails, see the digest</li>')
+        + "</ul></div>")
+    metrics.append(
+        '<div class="widget"><h4>This week</h4><ul>'
+        f'<li><span class="num">{data["week_seen"]}</span>roles seen</li>'
+        f'<li><span class="num">{data["week_new"]}</span>new after dedupe</li>'
+        f'<li><span class="num">{dups}</span>duplicates skipped</li>'
+        "</ul></div>")
+    fresh_items = []
+    for s in registry:
+        seen = last_by_source.get(s["id"])
+        fresh_items.append(
+            f"<li>{esc(s['name'])}, "
+            + (f"last email {fmt_day(seen)}" if seen else "nothing yet")
+            + "</li>")
+    metrics.append('<div class="widget"><h4>Board freshness</h4><ul>'
+                   + "".join(fresh_items) + "</ul></div>")
+    metrics.append("</div>")
+
+    counter = 0
+    scored = [o for o in active if o.get("combined") is not None]
+    prospects = sorted(scored, key=lambda o: -(o["combined"] or 0))[:5]
+    if prospects:
+        rows = [opp_head_html()]
+        for o in prospects:
+            counter += 1
+            rows.append(render_opportunity(o, data, counter))
+        prospects_body = "".join(rows)
+    else:
+        prospects_body = ('<p class="empty">Nothing scored yet. The top of '
+                          'the pile appears here as roles land.</p>')
+    body = "".join(metrics)
+    body += section(
+        "Top prospects", len(prospects),
+        "The highest combined scores still in play, whatever the board. "
+        "Acknowledged roles live behind the toggle on Home.",
+        "panel-blue", prospects_body, legend=rate_legend(data["floor"]))
+
+    for s in registry:
+        rows_for = [o for o in active
+                    if (o.get("source") or "email-other") == s["id"]]
+        rows_for.sort(key=lambda o: (o.get("combined") is None,
+                                     -(o.get("combined") or 0)))
+        seen = last_by_source.get(s["id"])
+        note = (f"Last email {fmt_day_time(seen)}." if seen else
+                (f"No roles yet from {esc(s['name'])}. Subscribe "
+                 f"{esc(config.get('aggregator_email', 'the aggregator inbox'))} "
+                 "to its alerts and they land here."
+                 if s.get("sender_contains")
+                 else "Alerts from senders no board claims land here, "
+                      "still extracted, still scored."))
+        if rows_for:
+            rows = [opp_head_html()]
+            for o in rows_for:
+                counter += 1
+                rows.append(render_opportunity(o, data, counter))
+            body_html = "".join(rows)
+        else:
+            body_html = f'<p class="empty">{note}</p>'
+        body += section(s["name"], len(rows_for), note if rows_for else "",
+                        "panel-stone", body_html)
+
+    customs_list = ("".join(
+        f"<li>{esc(s['name'])}, matches senders containing "
+        f"<code>{esc(s['sender_contains'])}</code></li>" for s in customs)
+        or "<li>None yet. The four boards above are built in.</li>")
+    body += f"""<section class="section">
+<div class="section-head"><h2>Add a job source</h2></div>
+<p class="section-note">Two steps, honestly. Adding a source here teaches
+the radar to file that board's emails under its own name. You still
+subscribe {esc(config.get('aggregator_email', 'the aggregator inbox'))} to
+the board's alerts on the board itself, nothing here can do that for you.
+Emails from unrecognised senders are scored anyway, under Other email
+alerts, so a missing source loses a label, never a role.</p>
+<div class="panel panel-sage">
+<div class="add-source">
+<input type="text" id="src-name" placeholder="Board name, e.g. Technojobs">
+<input type="text" id="src-sender" placeholder="Sender contains, e.g. technojobs">
+<button type="button" class="act-btn" id="src-add">Add the source</button>
+</div>
+<p class="board-note" id="src-note" style="padding:0 8px 12px"></p>
+</div>
+<p class="legend">Configured custom sources, editable by hand in
+config/job_sources.yaml.</p>
+<div class="panel" style="padding:8px 16px"><ul class="cv-history"
+style="font:400 13px/1.9 var(--font-sans)">{customs_list}</ul></div>
+</section>"""
+
+    return f"""<!doctype html>
+<html lang="en-GB" data-appearance="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MedTech Radar. Jobs.</title>
+<link rel="icon" href="{FAVICON}">
+<style>{CSS}</style>
+</head>
+<body>
+<main class="page">
+<header class="masthead">
+<div>
+<div class="brand">{MARK_SVG}<h1>Jobs</h1></div>
+<p class="masthead-sub">Every board in its own section, best prospects
+first. Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
+</div>
+<div class="controls">
+<nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs" aria-current="page">Jobs</a><a href="/insights">Insights</a></nav>
+<span class="segmented" role="group" aria-label="Appearance">
+<button type="button" data-appearance-set="light" aria-pressed="false">Light</button>
+<button type="button" data-appearance-set="auto" aria-pressed="true">Auto</button>
+<button type="button" data-appearance-set="dark" aria-pressed="false">Dark</button>
+</span>
+</div>
+</header>
+{body}
+</main>
+<script>{SCRIPT}{SERVE_SCRIPT}{JOBS_SCRIPT}</script>
+</body>
+</html>"""
+
+
+def opp_head_html() -> str:
+    return ('<div class="panel-head"><span></span><span>Role</span>'
+            '<span class="h-cv">Capability</span>'
+            '<span class="h-want">Desire</span>'
+            '<span class="h-score">Combined</span>'
+            '<span class="h-rate">Rate</span>'
+            '<span class="h-chip"></span>'
+            '<span class="h-when">Seen</span></div>')
 
 
 def main(argv=None) -> int:

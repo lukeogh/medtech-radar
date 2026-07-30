@@ -41,14 +41,18 @@ import score_item
 
 
 def detect_source(from_field: str) -> str:
+    """Tag the email by its board, built-ins and configured customs alike.
+
+    The registry lives in radar_common, extended through the Jobs page.
+    cvlibrary keeps its historical spelling tolerance, and anything
+    unrecognised still gets extracted and scored under email-other, the
+    tag is routing, never a gate.
+    """
     sender = (from_field or "").lower()
-    if "linkedin" in sender:
-        return "linkedin-alert"
-    if "reed" in sender:
-        return "reed-alert"
-    if "indeed" in sender:
-        return "indeed-alert"
-    if "cv-library" in sender or "cvlibrary" in sender:
+    for source in radar_common.load_job_sources():
+        if source["sender_contains"] in sender:
+            return source["id"]
+    if "cvlibrary" in sender:
         return "cvlibrary-alert"
     return "email-other"
 

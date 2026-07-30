@@ -396,6 +396,66 @@ def main() -> int:
         check('class="src-head"' in static_page,
               "the static single-page fallback keeps the watchlist table")
 
+        # The Jobs page. Boards as sections, prospects on top, a registry
+        # the page itself can extend.
+        sources = radar_common.load_job_sources(Path(tmp) / "nope.yaml")
+        check([s["id"] for s in sources] == ["linkedin-alert", "reed-alert",
+                                             "indeed-alert", "cvlibrary-alert"],
+              "the four boards ship built in")
+        reg_path = Path(tmp) / "job_sources.yaml"
+        added = radar_common.add_job_source("Technojobs", "technojobs",
+                                            reg_path)
+        check(added["id"] == "technojobs-alert",
+              "a custom source slugs into the built-in id shape")
+        loaded = radar_common.load_job_sources(reg_path)
+        check(any(s["id"] == "technojobs-alert" for s in loaded),
+              "the custom source loads alongside the built-ins")
+        try:
+            radar_common.add_job_source("Technojobs", "other", reg_path)
+            check(False, "a duplicate source name is refused")
+        except ValueError:
+            check(True, "a duplicate source name is refused")
+        try:
+            radar_common.add_job_source("Other Board", "technojobs", reg_path)
+            check(False, "a duplicate sender match is refused")
+        except ValueError:
+            check(True, "a duplicate sender match is refused")
+        try:
+            radar_common.add_job_source("X", "ab", reg_path)
+            check(False, "too-short inputs are refused")
+        except ValueError:
+            check(True, "too-short inputs are refused")
+
+        import process_email as pe_mod
+        saved_reg = radar_common.JOB_SOURCES_PATH
+        try:
+            radar_common.JOB_SOURCES_PATH = reg_path
+            got = pe_mod.detect_source("Technojobs <alerts@technojobs.co.uk>")
+            check(got == "technojobs-alert",
+                  f"detect_source tags a configured custom board (got {got})")
+            got = pe_mod.detect_source("noreply@nowhere.example")
+            check(got == "email-other",
+                  "an unrecognised sender still files under email-other")
+        finally:
+            radar_common.JOB_SOURCES_PATH = saved_reg
+
+        jobs_page = build_dashboard.render_jobs_page(data, config, "t")
+        check("Top prospects" in jobs_page,
+              "the Jobs page leads with top prospects")
+        for board in ("LinkedIn", "Reed", "Indeed", "CV-Library"):
+            check(f"<h2>{board}</h2>" in jobs_page,
+                  f"{board} gets a section of its own")
+        check("The machine" in jobs_page and "Board freshness" in jobs_page,
+              "the trust metrics render at the top")
+        check('id="src-add"' in jobs_page and "Add a job source" in jobs_page,
+              "the add-a-source form renders")
+        check('href="/jobs" aria-current="page"' in jobs_page,
+              "the Jobs tab marks itself current")
+        check(f'data-ack="{ids["Keepit Ltd"]}"' in jobs_page,
+              "job rows carry the acknowledge action here too")
+        check('>Home</a>' in html_page and 'href="/jobs"' in html_page,
+              "the Home page tab bar names Home and reaches Jobs")
+
         digest_data = build_digest.collect(read, config)
         digest_text = build_digest.render_text(digest_data, "unit day")
         check("Rate Above." in digest_text,
@@ -472,6 +532,34 @@ def main() -> int:
                 ins_page = resp.read().decode("utf-8")
             check(resp.status == 200 and "Frontpage Dx" in ins_page,
                   "GET /insights serves the front page over HTTP")
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/jobs", timeout=10) as resp:
+                jobs_http = resp.read().decode("utf-8")
+            check(resp.status == 200 and "Top prospects" in jobs_http,
+                  "GET /jobs serves the boards page over HTTP")
+            saved_reg2 = radar_common.JOB_SOURCES_PATH
+            try:
+                radar_common.JOB_SOURCES_PATH = Path(tmp) / "http_sources.yaml"
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/jobs/source",
+                    data=json_mod.dumps({"name": "Escape Hatch",
+                                         "sender": "escapehatch"}).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST")
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    body = json_mod.loads(resp.read())
+                check(resp.status == 200
+                      and body.get("id") == "escape-hatch-alert"
+                      and radar_common.JOB_SOURCES_PATH.exists(),
+                      "POST /jobs/source writes the registry over HTTP")
+                try:
+                    urllib.request.urlopen(req, timeout=10)
+                    check(False, "a duplicate source over HTTP is refused")
+                except urllib.error.HTTPError as err:
+                    check(err.code == 422,
+                          "a duplicate source over HTTP is refused")
+            finally:
+                radar_common.JOB_SOURCES_PATH = saved_reg2
 
             # The CV endpoints over real HTTP, against a throwaway
             # profile dir so the real config/profile is never touched.

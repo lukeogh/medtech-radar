@@ -282,6 +282,89 @@ def sanitise_free_text(text):
     return s.strip()
 
 
+# ---------------------------------------------------------------- job sources
+
+# The boards the radar was born knowing. Custom ones live in
+# config/job_sources.yaml, personal config like the profile, written by
+# the Jobs page and readable by hand, gitignored so it travels by hand.
+JOB_SOURCES_PATH = REPO_ROOT / "config" / "job_sources.yaml"
+BUILTIN_JOB_SOURCES = (
+    {"id": "linkedin-alert", "name": "LinkedIn", "sender_contains": "linkedin"},
+    {"id": "reed-alert", "name": "Reed", "sender_contains": "reed"},
+    {"id": "indeed-alert", "name": "Indeed", "sender_contains": "indeed"},
+    {"id": "cvlibrary-alert", "name": "CV-Library",
+     "sender_contains": "cv-library"},
+)
+
+
+def load_job_sources(path: Path | None = None) -> list[dict]:
+    """Built-in boards first, then whatever the Jobs page has added."""
+    sources = [dict(s) for s in BUILTIN_JOB_SOURCES]
+    path = path or JOB_SOURCES_PATH
+    if path.exists():
+        import yaml
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError:
+            print(f"WARNING. {path} would not parse, custom job sources "
+                  "skipped this run.", file=sys.stderr)
+            return sources
+        for entry in data.get("sources") or []:
+            if (isinstance(entry, dict) and entry.get("id")
+                    and entry.get("sender_contains")):
+                sources.append({
+                    "id": str(entry["id"]),
+                    "name": str(entry.get("name") or entry["id"]),
+                    "sender_contains": str(entry["sender_contains"]).lower(),
+                })
+    return sources
+
+
+def add_job_source(name: str, sender_contains: str,
+                   path: Path | None = None) -> dict:
+    """Append one custom source to the registry. Refuses duplicates.
+
+    The id is the slugged name plus -alert, matching the built-in shape,
+    so detect_source and the dashboard treat customs exactly like the
+    boards the radar shipped with.
+    """
+    path = path or JOB_SOURCES_PATH
+    name = " ".join((name or "").split())[:60]
+    sender = (sender_contains or "").strip().lower()[:120]
+    if not name or len(name) < 2:
+        raise ValueError("The source needs a name, two characters or more.")
+    if not sender or len(sender) < 3:
+        raise ValueError("The sender match needs three characters or more, "
+                         "part of the board's From address, for example "
+                         "jobs@theboard.com or theboard.")
+    slug = re.sub(r"-{2,}", "-",
+                  re.sub(r"[^a-z0-9]+", "-", name.lower())).strip("-")
+    if not slug:
+        raise ValueError("The name needs at least one letter or digit.")
+    source_id = f"{slug}-alert"
+    existing = load_job_sources(path)
+    for s in existing:
+        if s["id"] == source_id:
+            raise ValueError(f"A source called {name} already exists.")
+        if s["sender_contains"] == sender:
+            raise ValueError(f"{s['name']} already matches that sender.")
+
+    customs = [s for s in existing
+               if s["id"] not in {b["id"] for b in BUILTIN_JOB_SOURCES}]
+    customs.append({"id": source_id, "name": name,
+                    "sender_contains": sender})
+    import yaml
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "# Custom job alert sources, written by the Jobs page and read by\n"
+        "# the inbox pipeline. Edit or delete lines freely, the built-in\n"
+        "# boards live in code and are not listed here.\n"
+        + yaml.safe_dump({"sources": customs}, sort_keys=False,
+                         allow_unicode=True),
+        encoding="utf-8")
+    return {"id": source_id, "name": name, "sender_contains": sender}
+
+
 # ----------------------------------------------------------------- rate bands
 
 # Salaried pay converts to a day rate at this many working days a year, per
