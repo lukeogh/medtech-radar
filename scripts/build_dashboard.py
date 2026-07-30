@@ -868,7 +868,16 @@ SERVE_SCRIPT = """
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: Number(btn.dataset.ack || btn.dataset.unack) })
-    }).then(function () { location.reload(); })
+    }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok === false) {
+          btn.disabled = false;
+          btn.textContent = (ack ? 'Acknowledge, seen it' : 'Undo, back to the list');
+          window.alert(j.note || 'That did not stick. Try again.');
+          return;
+        }
+        location.reload();
+      })
       .catch(function () { location.reload(); });
   });
   var watch = document.getElementById('btn-watch');

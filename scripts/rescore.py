@@ -65,8 +65,12 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
              scored["one_line_why"], json.dumps(scored["red_flags"]),
              scored["suggested_action"], scored["act_by"],
              scored["thread_type"], cv_version, row["id"]))
+        # Commit per row. Python's sqlite3 opens an implicit write
+        # transaction at the first UPDATE, and holding it across the next
+        # live model call would starve every other writer past the busy
+        # timeout. One row, one commit, the lock is held for microseconds.
+        conn.commit()
         fixed += 1
-    conn.commit()
     return fixed, failed
 
 
@@ -163,7 +167,15 @@ def main(argv=None) -> int:
     parser.add_argument("--stale-cv", action="store_true",
                         help="instead re-score scored rows whose stamp "
                              "predates the active CV, capped")
-    parser.add_argument("--cap", type=int, default=25,
+    def positive_cap(value: str) -> int:
+        cap = int(value)
+        if cap < 1:
+            # SQLite reads a negative LIMIT as no limit at all, which
+            # would turn the cost cap inside out.
+            raise argparse.ArgumentTypeError("--cap must be at least 1")
+        return cap
+
+    parser.add_argument("--cap", type=positive_cap, default=25,
                         help="most rows per --stale-cv run, default 25")
     parser.add_argument("--mock", action="store_true",
                         help="force RADAR_MOCK, deterministic offline mocks")

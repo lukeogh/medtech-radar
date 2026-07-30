@@ -347,5 +347,9 @@ every score, plus a capped re-score for rows a CV change left stale. The
 sanitiser closed its last two gaps, loose colons and exclamation marks.
 The First Light prototype regenerated from the real renderer with demo
 data, a deliberate divergence from the original kit, the Rate column,
-legend and acknowledge grammar are design now. Suite green twice, mock
-and live, four runners including the new unit fixtures.
+legend and acknowledge grammar are design now. A two-round adversarial
+review of the branch caught what the suite had not, an undo that a
+reconnect silently reverted, a write lock held across live model calls,
+a zip bomb path, a same-second upload race, and each catch now has a
+fix and a test. Suite green twice after all of it, mock and live, four
+runners including the new unit fixtures.

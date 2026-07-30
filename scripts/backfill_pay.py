@@ -62,7 +62,16 @@ def main(argv=None) -> int:
 
     parser = argparse.ArgumentParser(
         description="Band stored rows that predate the pay columns.")
-    parser.add_argument("--cap", type=int, default=100,
+
+    def positive_cap(value: str) -> int:
+        cap = int(value)
+        if cap < 1:
+            # SQLite reads a negative LIMIT as no limit at all, which
+            # would turn the cost cap inside out.
+            raise argparse.ArgumentTypeError("--cap must be at least 1")
+        return cap
+
+    parser.add_argument("--cap", type=positive_cap, default=100,
                         help="most rows examined in one run, default 100")
     parser.add_argument("--mock", action="store_true",
                         help="force RADAR_MOCK, deterministic offline mocks")
@@ -115,12 +124,13 @@ def main(argv=None) -> int:
             " WHERE id = ?",
             (pay["pay_currency"], pay["pay_period"], pay["pay_min"],
              pay["pay_max"], pay["day_rate"], pay["rate_band"], row["id"]))
+        # Commit per row, never holding the write lock across the next
+        # model call. The other writers share this file on a schedule.
+        conn.commit()
         if pay["rate_band"] == "unstated":
             unstated += 1
         else:
             banded += 1
-
-    conn.commit()
     mode = "mock" if radar_common.mock_mode_active() else "live"
     radar_common.log_run(conn, "backfill", mode=mode, items_in=len(rows),
                          items_new=banded + unstated,

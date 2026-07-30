@@ -203,17 +203,29 @@ def main() -> int:
         flag = conn.execute("SELECT value FROM meta WHERE"
                             " key = 'migrated_retirement'").fetchone()
         check(flag is not None, "the mapping sets its once-only flag")
-        # The undo-survival regression. Clear the stamp the way /unack
-        # does, reopen through get_db, and the undo must hold.
-        conn.execute("UPDATE opportunities SET acknowledged_at = NULL"
-                     " WHERE url_hash = 'lg1'")
-        conn.commit()
+        # The undo-survival regression, through the real /unack write.
+        # Undo must clear the stamp, return the legacy status to
+        # machine-owned 'new' so the digest, ageing and backfill can see
+        # the row again, and hold across the next connection.
+        import argparse as argparse_mod0
+        import serve_dashboard as serve_mod
+        lg1_id = conn.execute("SELECT id FROM opportunities"
+                              " WHERE url_hash = 'lg1'").fetchone()["id"]
         conn.close()
+        saved_args = getattr(serve_mod, "ARGS", None)
+        serve_mod.ARGS = argparse_mod0.Namespace(
+            db=str(legacy), push=False, host="127.0.0.1", port=0)
+        result = serve_mod.set_acknowledged(lg1_id, False)
+        serve_mod.ARGS = saved_args
+        check(result.get("ok") is True, "undo on the legacy row reports ok")
         conn = radar_common.get_db(legacy)
-        row = conn.execute("SELECT acknowledged_at FROM opportunities"
+        row = conn.execute("SELECT acknowledged_at, status FROM opportunities"
                            " WHERE url_hash = 'lg1'").fetchone()
         check(row["acknowledged_at"] is None,
               "an undo on a legacy-retired row survives the next connection")
+        check(row["status"] == "new",
+              "undo returns the legacy status to machine-owned new, the row"
+              " is fully alive again, not stranded half-visible")
         conn.close()
 
     # ----- acknowledge and dismiss, the full loop against a throwaway db
@@ -398,6 +410,19 @@ def main() -> int:
             finally:
                 cv_store.PROFILE_DIR = saved_profile
 
+            # The stale-rescore endpoint refuses to spend without the
+            # explicit confirm, the guard the button's dialog satisfies.
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/cv/rescore",
+                data=b"{}", headers={"Content-Type": "application/json"},
+                method="POST")
+            try:
+                urllib.request.urlopen(req, timeout=10)
+                check(False, "POST /cv/rescore without confirm is refused")
+            except urllib.error.HTTPError as err:
+                check(err.code == 400,
+                      "POST /cv/rescore without confirm is refused")
+
             # A hostile Content-Length must get a fast clean refusal, not
             # a handler thread pinned on read-to-EOF.
             import http.client
@@ -454,6 +479,30 @@ def main() -> int:
         check(False, "an unsupported upload type is refused")
     except cv_store.UploadError as err:
         check("Unsupported" in str(err), "an unsupported upload type is refused")
+
+    # The pdf path, both branches reachable without a real CV. With pypdf
+    # installed a textless page hits the scan refusal, without it the
+    # missing-dependency refusal, either way a clean UploadError.
+    try:
+        import pypdf
+
+        pdf_buf = io.BytesIO()
+        writer = pypdf.PdfWriter()
+        writer.add_blank_page(width=200, height=200)
+        writer.write(pdf_buf)
+        try:
+            cv_store.extract_markdown("cv.pdf", pdf_buf.getvalue())
+            check(False, "a textless pdf is refused as a probable scan")
+        except cv_store.UploadError as err:
+            check("no text" in str(err),
+                  "a textless pdf is refused as a probable scan")
+    except ImportError:
+        try:
+            cv_store.extract_markdown("cv.pdf", b"%PDF-1.4 junk")
+            check(False, "pdf without pypdf is refused with the fix named")
+        except cv_store.UploadError as err:
+            check("pypdf" in str(err),
+                  "pdf without pypdf is refused with the fix named")
 
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp)
@@ -620,6 +669,19 @@ def main() -> int:
     cleaned_mixed = radar_common.sanitise_free_text(mixed)
     check(radar_common.sanitise_free_text(cleaned_mixed) == cleaned_mixed,
           "the extended sanitiser stays idempotent on mixed input")
+    # The colon exemption is digit-colon-digit only, both sides. A colon
+    # merely touching one digit is still punctuation and still converts.
+    got = radar_common.sanitise_free_text(
+        "The rate floor is 650: a hard number.")
+    check(got == "The rate floor is 650, a hard number.",
+          f"a colon after a number still converts (got {got!r})")
+    got = radar_common.sanitise_free_text("Note the company and revisit:")
+    check(got == "Note the company and revisit.",
+          f"a trailing colon ends the sentence as a stop (got {got!r})")
+    for probe in ("The rate floor is 650, a hard number.",
+                  "Note the company and revisit."):
+        check(radar_common.sanitise_free_text(probe) == probe,
+              f"idempotent on {probe[:24]!r}")
 
     print()
     if failures:

@@ -33,3 +33,6 @@ venv/
 
 # Timestamped database backups taken before schema changes
 db/backups/
+
+# Review-probe and scratch databases must never ride along
+/*.sqlite

@@ -182,12 +182,18 @@ def main() -> int:
     # Voice doctrine. No semicolons or em dashes in any free text the scorer
     # wrote, whichever mode produced it.
     dirty = []
-    non_time_colon = re.compile(r"(?<!\d):(?!\d)")
+
+    def loose_colon(value: str) -> bool:
+        # Legal colons are digit:digit times and :// only. Anything else
+        # is a voice violation, including a colon that touches one digit.
+        stripped = re.sub(r"(?<=\d):(?=\d)", "", value).replace("://", "")
+        return ":" in stripped
+
     for r in rows:
         for field in ("one_line_why", "suggested_action", "red_flags", "act_by"):
             value = r[field] or ""
             if (";" in value or "—" in value or "!" in value
-                    or non_time_colon.search(value)):
+                    or loose_colon(value)):
                 dirty.append(f"{r['company']}.{field}")
     check(not dirty,
           "no semicolons, em dashes, exclamations or loose colons in scored"
@@ -332,7 +338,8 @@ def main() -> int:
     # this check, and a bogus base URL makes any accidental live call fail
     # locally instead of reaching the API.
     real_cv = ((REPO_ROOT / "config" / "profile" / "cv.txt").exists()
-               or (REPO_ROOT / "config" / "profile" / "cv.pdf").exists())
+               or (REPO_ROOT / "config" / "profile" / "cv.pdf").exists()
+               or (REPO_ROOT / "config" / "profile" / "cv.active").exists())
     if real_cv:
         print("skip  fixture-CV guard, a real CV is present in config/profile/")
     else:

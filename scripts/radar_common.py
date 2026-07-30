@@ -108,7 +108,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
             " COALESCE(status_changed_at, ?)"
             " WHERE status IN ('actioned','dead') AND acknowledged_at IS NULL",
             (now_iso(),))
-        conn.execute("INSERT INTO meta (key, value)"
+        # OR IGNORE because two workflows can first-open the upgraded
+        # database in the same moment. The loser of that race must shrug,
+        # not die on the primary key.
+        conn.execute("INSERT OR IGNORE INTO meta (key, value)"
                      " VALUES ('migrated_retirement', '1')")
 
 
@@ -258,13 +261,22 @@ def sanitise_free_text(text):
     # An exclamation mark ends its sentence as a plain full stop.
     s = re.sub(r"\s*!+\s*(\w)", lambda m: ". " + m.group(1).upper(), s)
     s = re.sub(r"\s*!+", ".", s)
-    # A mid-sentence colon reads as a comma. Digit-colon-digit stays,
-    # 07:30 is a time not punctuation, and :// is left for the collapse
-    # rules to expose rather than silently mangling a stray URL.
-    s = re.sub(r"(?<!\d)\s*:(?!\d|/)\s*", ", ", s)
+    # A mid-sentence colon reads as a comma, a trailing one as a stop.
+    # Only digit-colon-digit survives, 07:30 is a time not punctuation,
+    # so the exemption needs digits on BOTH sides. A one-sided check
+    # would leave "floor is 650: a hard number" untouched. Times hide
+    # behind a placeholder while everything else converts, and :// is
+    # left alone rather than silently mangling a stray URL.
+    s = re.sub(r"(?<=\d):(?=\d)", "\x00", s)
+    s = re.sub(r"\s*:(?!/)\s*$", ".", s)
+    s = re.sub(r"\s*:(?!/)\s*", ", ", s)
+    s = s.replace("\x00", ":")
     # Tidy the seams the substitutions can leave.
     s = re.sub(r"\.(\s*\.)+", ".", s)
+    s = re.sub(r"\.\s*,", ".", s)
+    s = re.sub(r",\s*\.", ".", s)
     s = re.sub(r",\s*,", ",", s)
+    s = re.sub(r",\s*$", ".", s)
     s = re.sub(r" {2,}", " ", s)
     return s.strip()
 

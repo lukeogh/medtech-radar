@@ -108,10 +108,21 @@ def set_acknowledged(item_id: int, on: bool) -> dict:
 
     The one human write this page makes. A short-lived writable
     connection, WAL and the busy timeout make it safe next to the n8n
-    writers. The row never leaves the database, so the URL-hash dedupe
-    keeps rejecting the same advert forever.
+    writers, and a database that stays locked past the timeout comes
+    back as a polite failure rather than a dead handler thread. The row
+    never leaves the database, so the URL-hash dedupe keeps rejecting
+    the same advert forever.
+
+    Undo also returns a legacy-retired status to machine-owned 'new'.
+    Without that, a row mapped from the old actioned/dead retirement
+    would look active on the page after Undo while the digest, the
+    ageing nag and the backfill all still excluded it on status,
+    half-alive forever.
     """
-    conn = radar_common.get_db(db_path())
+    try:
+        conn = radar_common.get_db(db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
     try:
         if on:
             cur = conn.execute(
@@ -120,9 +131,13 @@ def set_acknowledged(item_id: int, on: bool) -> dict:
                 (radar_common.now_iso(), item_id))
         else:
             cur = conn.execute(
-                "UPDATE opportunities SET acknowledged_at = NULL"
+                "UPDATE opportunities SET acknowledged_at = NULL,"
+                " status = CASE WHEN status IN ('actioned','dead')"
+                "              THEN 'new' ELSE status END,"
+                " status_changed_at = CASE WHEN status IN ('actioned','dead')"
+                "              THEN ? ELSE status_changed_at END"
                 " WHERE id = ? AND acknowledged_at IS NOT NULL",
-                (item_id,))
+                (radar_common.now_iso(), item_id))
         conn.commit()
         if cur.rowcount == 0:
             return {"ok": False,
@@ -130,6 +145,8 @@ def set_acknowledged(item_id: int, on: bool) -> dict:
                             "action expects, maybe already handled"}
         return {"ok": True, "id": item_id,
                 "acknowledged": bool(on)}
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
     finally:
         conn.close()
 
@@ -429,7 +446,9 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/ack", "/unack"):
             body = self._read_json_body()
             item_id = body.get("id") if isinstance(body, dict) else None
-            if not isinstance(item_id, int):
+            # bool is a subclass of int in Python, and JSON true would
+            # otherwise acknowledge row 1. Integers only, genuinely.
+            if not isinstance(item_id, int) or isinstance(item_id, bool):
                 self._send(400, b'{"ok": false, "note": "id must be an integer"}',
                            "application/json")
                 return

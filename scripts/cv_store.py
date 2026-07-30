@@ -52,10 +52,21 @@ class UploadError(RuntimeError):
 
 # -------------------------------------------------------------- extraction
 
+MAX_DOCX_XML_BYTES = 20_000_000  # decompressed cap, a zip bomb stops here
+
+
 def _docx_to_markdown(data: bytes) -> str:
     """word/document.xml paragraphs to markdown, headings and bullets kept."""
     try:
         with zipfile.ZipFile(BytesIO(data)) as zf:
+            info = zf.getinfo("word/document.xml")
+            # The upload cap bounds the compressed size only. A crafted
+            # zip can declare gigabytes behind a 5 MB face, so the
+            # decompressed size is checked before a byte is inflated.
+            if info.file_size > MAX_DOCX_XML_BYTES:
+                raise UploadError(
+                    "The docx declares an implausibly large document "
+                    "inside, refusing to inflate it.")
             xml = zf.read("word/document.xml")
     except (zipfile.BadZipFile, KeyError) as err:
         raise UploadError(f"Not a readable docx file. {err}") from err
