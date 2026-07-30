@@ -777,7 +777,8 @@ a:hover{text-decoration-color:var(--accent)}
 .touch-note{font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--settled);margin:var(--space-8) 0 0}
 .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:var(--space-16);margin-top:var(--space-24)}
 .board-note{font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);margin:var(--space-6) 0 0}
-.add-source{display:flex;flex-wrap:wrap;gap:var(--space-10);align-items:center;padding:var(--space-16) var(--space-8)}
+.add-source{display:flex;flex-wrap:wrap;gap:var(--space-10);align-items:center;padding:var(--space-12) 0 var(--space-4)}
+.add-source-strip{margin-top:var(--space-40)}
 .add-source input{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-1);background:var(--surface);border:1px solid var(--hairline-strong);border-radius:var(--radius-sm);padding:6px 10px;min-width:200px}
 .add-source input::placeholder{color:var(--ink-3)}
 @media (max-width:900px){.front{grid-template-columns:minmax(0,1fr)}}
@@ -1475,7 +1476,8 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
         "Acknowledged roles live behind the toggle on Home.",
         "panel-blue", prospects_body, legend=rate_legend(data["floor"]))
 
-    for s in registry:
+    def board_section(s) -> str:
+        nonlocal counter
         rows_for = [o for o in active
                     if (o.get("source") or "email-other") == s["id"]]
         rows_for.sort(key=lambda o: (o.get("combined") is None,
@@ -1496,12 +1498,18 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
             body_html = "".join(rows)
         else:
             body_html = f'<p class="empty">{note}</p>'
-        body += section(s["name"], len(rows_for), note if rows_for else "",
-                        "panel-stone", body_html)
+        return section(s["name"], len(rows_for), note if rows_for else "",
+                       "panel-stone", body_html)
 
-    # The receipt for the form. Only worth ink once a custom source
-    # exists, and then one quiet line naming the match rule and where to
-    # edit or remove it by hand, there is no delete button on purpose.
+    known = [s for s in registry if s["id"] in known_ids]
+    catch_all = [s for s in registry if s["id"] not in known_ids]
+    for s in known:
+        body += board_section(s)
+
+    # The add-source strip. It sits where the next board's section would
+    # appear, quiet, footer weight, no tinted panel. The receipt line only
+    # earns ink once a custom source exists, there is no delete button on
+    # purpose, removal is a hand-edit of config/job_sources.yaml.
     customs_line = ""
     if customs:
         named = ", ".join(
@@ -1509,24 +1517,23 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
             for s in customs)
         customs_line = (f'<p class="legend">Added so far: {named}. Edit or '
                         "remove them by hand in config/job_sources.yaml.</p>")
-    body += f"""<section class="section">
-<div class="section-head"><h2>Add a job source</h2></div>
-<p class="section-note">Two steps, honestly. Adding a source here teaches
-the radar to file that board's emails under its own name. You still
-subscribe {esc(config.get('aggregator_email', 'the aggregator inbox'))} to
-the board's alerts on the board itself, nothing here can do that for you.
-Emails from unrecognised senders are scored anyway, under Other email
-alerts, so a missing source loses a label, never a role.</p>
-<div class="panel panel-sage">
+    body += f"""<div class="add-source-strip">
+<p class="section-rule">Add a job source</p>
 <div class="add-source">
 <input type="text" id="src-name" placeholder="Board name, e.g. Technojobs">
 <input type="text" id="src-sender" placeholder="Sender contains, e.g. technojobs">
 <button type="button" class="act-btn" id="src-add">Add the source</button>
+<span class="board-note" id="src-note"></span>
 </div>
-<p class="board-note" id="src-note" style="padding:0 8px 12px"></p>
-</div>
+<p class="legend">A new board files its emails under its own name here.
+Subscribing {esc(config.get('aggregator_email', 'the aggregator inbox'))}
+to its alerts on the board itself is still yours to do, and unrecognised
+senders are scored anyway under Other email alerts.</p>
 {customs_line}
-</section>"""
+</div>
+"""
+    for s in catch_all:
+        body += board_section(s)
 
     return f"""<!doctype html>
 <html lang="en-GB" data-appearance="auto">

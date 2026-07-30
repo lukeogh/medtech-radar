@@ -452,6 +452,12 @@ def main() -> int:
         check("None yet" not in jobs_page
               and "job_sources.yaml" not in jobs_page,
               "no custom-source receipt renders while there are none")
+        i_cv = jobs_page.index("<h2>CV-Library</h2>")
+        i_add = jobs_page.index("Add a job source")
+        i_other = jobs_page.index("<h2>Other email alerts</h2>")
+        check(i_cv < i_add < i_other,
+              "the add-source strip sits after the boards, before the "
+              "catch-all")
         saved_reg3 = radar_common.JOB_SOURCES_PATH
         try:
             radar_common.JOB_SOURCES_PATH = reg_path
@@ -465,6 +471,9 @@ def main() -> int:
               "an added source earns its one-line receipt, with the edit path")
         check("<h2>Technojobs</h2>" in jobs_with_custom,
               "an added source gets its own board section")
+        check(jobs_with_custom.index("<h2>Technojobs</h2>")
+              < jobs_with_custom.index("Add a job source"),
+              "a custom board's section sits above the add-source strip")
         check('href="/jobs" aria-current="page"' in jobs_page,
               "the Jobs tab marks itself current")
         check(f'data-ack="{ids["Keepit Ltd"]}"' in jobs_page,
