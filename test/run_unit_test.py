@@ -462,6 +462,31 @@ def main() -> int:
     check(radar_common.sanitise_free_text(None) is None,
           "None passes through the sanitiser untouched")
 
+    # The rainy-day extension. Mid-sentence colons and exclamation marks,
+    # which the voice rules also ban, are mechanical now.
+    got = radar_common.sanitise_free_text(
+        "The plan: comment on the round today.")
+    check(got == "The plan, comment on the round today.",
+          f"a mid-sentence colon reads as a comma (got {got!r})")
+    got = radar_common.sanitise_free_text("Digest lands 07:30 on Monday.")
+    check(got == "Digest lands 07:30 on Monday.",
+          f"a digit colon is a time and survives (got {got!r})")
+    got = radar_common.sanitise_free_text(
+        "Do it now! The window is short.")
+    check(got == "Do it now. The window is short.",
+          f"an exclamation ends its sentence as a full stop (got {got!r})")
+    got = radar_common.sanitise_free_text("Congratulations on the raise!")
+    check(got == "Congratulations on the raise.",
+          f"a trailing exclamation becomes a full stop (got {got!r})")
+    got = radar_common.sanitise_free_text("Astonishing!! Twice over: really.")
+    check(got == "Astonishing. Twice over, really.",
+          f"stacked marks collapse cleanly (got {got!r})")
+    mixed = ("Right fit — strong 62304 angle: reply today; the window "
+             "closes fast!")
+    cleaned_mixed = radar_common.sanitise_free_text(mixed)
+    check(radar_common.sanitise_free_text(cleaned_mixed) == cleaned_mixed,
+          "the extended sanitiser stays idempotent on mixed input")
+
     print()
     if failures:
         print(f"{len(failures)} UNIT CHECK(S) FAILED")

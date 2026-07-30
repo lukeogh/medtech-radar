@@ -182,14 +182,16 @@ def main() -> int:
     # Voice doctrine. No semicolons or em dashes in any free text the scorer
     # wrote, whichever mode produced it.
     dirty = []
+    non_time_colon = re.compile(r"(?<!\d):(?!\d)")
     for r in rows:
         for field in ("one_line_why", "suggested_action", "red_flags", "act_by"):
             value = r[field] or ""
-            if ";" in value or "—" in value:
+            if (";" in value or "—" in value or "!" in value
+                    or non_time_colon.search(value)):
                 dirty.append(f"{r['company']}.{field}")
     check(not dirty,
-          "no semicolons or em dashes in scored free text"
-          + (f" (violations {dirty})" if dirty else ""))
+          "no semicolons, em dashes, exclamations or loose colons in scored"
+          " free text" + (f" (violations {dirty})" if dirty else ""))
 
     # Pay doctrine. The rate band column carries pay, so free text never
     # mentions it. Currency symbols and pay phrasing are both violations.

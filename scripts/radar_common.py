@@ -228,8 +228,10 @@ def sanitise_free_text(text):
     Prompt compliance narrows variance, it cannot remove it, so every
     free-text field passes through here on its way to the database. Em
     dashes become commas. Semicolons become full stops with the following
-    letter capitalised. Doubled spaces and stray double stops collapse.
-    The worked case is the Meridian wrong-rate line:
+    letter capitalised. Exclamation marks end their sentence as full
+    stops. Mid-sentence colons become commas, except between digits, a
+    time like 07:30 is not punctuation. Doubled spaces and stray double
+    stops collapse. The worked case is the Meridian wrong-rate line:
 
       in.  "No action needed — the rate is less than half the floor;
             renegotiation to £650 a day would change that."
@@ -246,6 +248,13 @@ def sanitise_free_text(text):
     # A semicolon ends a sentence, so the next letter starts one.
     s = re.sub(r"\s*;\s*(\w)", lambda m: ". " + m.group(1).upper(), s)
     s = re.sub(r"\s*;\s*", ".", s)
+    # An exclamation mark ends its sentence as a plain full stop.
+    s = re.sub(r"\s*!+\s*(\w)", lambda m: ". " + m.group(1).upper(), s)
+    s = re.sub(r"\s*!+", ".", s)
+    # A mid-sentence colon reads as a comma. Digit-colon-digit stays,
+    # 07:30 is a time not punctuation, and :// is left for the collapse
+    # rules to expose rather than silently mangling a stray URL.
+    s = re.sub(r"(?<!\d)\s*:(?!\d|/)\s*", ", ", s)
     # Tidy the seams the substitutions can leave.
     s = re.sub(r"\.(\s*\.)+", ".", s)
     s = re.sub(r",\s*,", ",", s)
