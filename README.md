@@ -145,6 +145,14 @@ holds the CV and preferences, both gitignored, both copied across by hand.
 The history was scanned for secret material before the first push and is
 clean. Keep it that way, secrets go in `.env` and nowhere else.
 
+The dashboard server is part of the deployment now, not a viewer bolted
+on. It takes the acknowledge clicks and CV uploads, so wherever it runs
+it needs write access to `db/` and `config/profile/`, and its bind
+address lives in radar.yaml as `dashboard_host` and `dashboard_port`.
+After pulling a version with new columns, run
+`python scripts/backfill_pay.py` until it reports nothing remaining, one
+fast-model pass per stored row, capped at a hundred per run.
+
 ## Playbook and drafts.
 
 `playbook/announcement-day.md` is the exact sequence for the day a signal
@@ -321,3 +329,23 @@ duplicate deleted. The first real roles arrive with the next LinkedIn
 alert. Deployment learning folded into docs/architecture.md, n8n 2.x
 disables Execute Command in code and the fix is a one-line NODES_EXCLUDE
 that keeps localFileTrigger dark.
+
+30 July 2026. Pay left the prose and became a column. The fast model
+extracts currency, period and amounts, code converts and bands them
+against the one machine-readable floor line in the preferences file, and
+the scorer stopped talking about money, which took two prompt rounds
+because its own worked example was a pay sentence. Above, Close, Below or
+Unstated on every dashboard row and digest item, one legend each, the page
+widened to use its width. Acknowledge arrived with it. One click and a row
+leaves the view, the digest and the ageing nag, never the database, so
+dedupe keeps rejecting what has been seen. touch.py mark folded into the
+same stamp and old actioned and dead rows were mapped across in an
+idempotent migration. The CV became versioned, uploaded through the served
+page as md, txt, docx or pdf, previewed, confirmed, dated, never
+overwritten, with an active marker the scorer reads and a version stamp on
+every score, plus a capped re-score for rows a CV change left stale. The
+sanitiser closed its last two gaps, loose colons and exclamation marks.
+The First Light prototype regenerated from the real renderer with demo
+data, a deliberate divergence from the original kit, the Rate column,
+legend and acknowledge grammar are design now. Suite green twice, mock
+and live, four runners including the new unit fixtures.

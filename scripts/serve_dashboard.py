@@ -393,10 +393,28 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, b"Nothing here. The dashboard lives at /.",
                    "text/plain; charset=utf-8")
 
-    def _read_json_body(self) -> dict | None:
+    def _body_length(self, cap: int) -> int | None:
+        """Content-Length as a safe int, None when the header is hostile.
+
+        The header is client input. Negative values would turn
+        rfile.read into read-to-EOF and pin a handler thread forever on a
+        keep-alive connection, and a non-numeric value would raise. Both
+        get a clean refusal instead.
+        """
+        raw = self.headers.get("Content-Length") or "0"
         try:
-            length = min(int(self.headers.get("Content-Length") or 0),
-                         1_000_000)
+            length = int(raw)
+        except (ValueError, TypeError):
+            return None
+        if length < 0 or length > cap:
+            return None
+        return length
+
+    def _read_json_body(self) -> dict | None:
+        length = self._body_length(1_000_000)
+        if length is None:
+            return None
+        try:
             return json.loads(self.rfile.read(length) or b"{}")
         except (ValueError, TypeError):
             return None
@@ -421,10 +439,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/cv/preview":
             try:
-                length = int(self.headers.get("Content-Length") or 0)
-                if length > cv_store.MAX_UPLOAD_BYTES:
+                length = self._body_length(cv_store.MAX_UPLOAD_BYTES)
+                if length is None:
                     raise cv_store.UploadError(
-                        "The file is bigger than any CV needs to be.")
+                        "The upload's Content-Length is missing, negative "
+                        "or bigger than any CV needs to be.")
                 data = self.rfile.read(length)
                 filename = self.headers.get("X-Filename") or ""
                 markdown = cv_store.extract_markdown(filename, data)

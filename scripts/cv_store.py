@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 import secrets
 import sys
+import threading
 import time
 import zipfile
 from datetime import datetime, timezone
@@ -162,24 +163,40 @@ def discard(token: str, base: Path | None = None) -> None:
     _pending_path(token, base or PROFILE_DIR).unlink()
 
 
+# One confirm at a time. The dated filename plus exclusive create below
+# already refuse to reuse a name, the lock keeps two same-second confirms
+# from racing the exists-check at all under the threading server.
+_CONFIRM_LOCK = threading.Lock()
+
+
 def confirm(token: str, base: Path | None = None) -> dict:
     """Promote a pending upload to the active CV. History stays whole.
 
     The dated filename is unique by construction and never reused. The
-    previous version file is not touched, only the marker moves.
+    file is created with exclusive open, so even a race that slipped the
+    lock would raise rather than overwrite, history is append-only at the
+    filesystem's own insistence. The previous version file is not
+    touched, only the marker moves.
     """
     base = base or PROFILE_DIR
-    pending = _pending_path(token, base)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    dest = base / f"cv-{stamp}.md"
-    counter = 2
-    while dest.exists():
-        dest = base / f"cv-{stamp}-{counter}.md"
-        counter += 1
-    dest.write_text(pending.read_text(encoding="utf-8"), encoding="utf-8")
-    (base / MARKER_NAME).write_text(dest.name + "\n", encoding="utf-8")
-    pending.unlink()
-    return {"file": dest.name, "version": dest.name}
+    with _CONFIRM_LOCK:
+        pending = _pending_path(token, base)
+        text = pending.read_text(encoding="utf-8")
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        counter = 1
+        while True:
+            name = (f"cv-{stamp}.md" if counter == 1
+                    else f"cv-{stamp}-{counter}.md")
+            dest = base / name
+            try:
+                with open(dest, "x", encoding="utf-8") as fh:
+                    fh.write(text)
+                break
+            except FileExistsError:
+                counter += 1
+        (base / MARKER_NAME).write_text(dest.name + "\n", encoding="utf-8")
+        pending.unlink()
+        return {"file": dest.name, "version": dest.name}
 
 
 def active_cv_name(base: Path | None = None) -> str | None:

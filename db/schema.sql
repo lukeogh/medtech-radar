@@ -52,7 +52,9 @@ CREATE TABLE IF NOT EXISTS signals (
   pushed_at    TEXT,
   status       TEXT NOT NULL DEFAULT 'new'
                CHECK (status IN ('new','digested','actioned','dead')),
-  cv_version   TEXT                    -- CV file label the score was made against
+  cv_version   TEXT                    -- reserved, unused. Signal scoring is
+                                       -- rubric-only today and never reads
+                                       -- the CV, so nothing writes this.
 );
 
 -- Page-diff and RSS state per watched source. One row per watchlist entry.

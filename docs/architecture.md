@@ -87,17 +87,40 @@ single-user homelab that is the bargain the thin-shell architecture is
 built on, and excluding only `localFileTrigger` is the smallest version of
 that bargain.
 
-## Viewing the dashboard
+## Viewing the dashboard, and writing back through it
 
 `scripts/serve_dashboard.py` serves the dashboard over HTTP, re-rendering
 from the database on every load, with a Refresh button and a Check now
 button that runs the signals watcher on demand through its normal
-politeness gate. Standard library only, read-only against the database,
-bound to 127.0.0.1 unless told otherwise. Run it on the n8n host next to
-the live database, keep it on the LAN or the tailnet, and if it goes behind
-the reverse proxy give it authentication, the page carries scored
-opportunities and names. Start it with `--push` only once the system is
-armed, so the button matches what the schedule does.
+politeness gate. Since the 29 July brief it is also the write path for
+human actions, which changes the deploy by one step: the process needs
+write access to `db/` and to `config/profile/`, where before it could run
+read-only.
+
+The writes it takes. Acknowledge and its undo (POST /ack and /unack)
+stamp or clear `acknowledged_at` on one opportunity row. The /cv page
+accepts a CV as md, txt, docx or pdf, extracts it to markdown, shows the
+extracted text, and on an explicit confirm saves it as a dated version
+under `config/profile/` with the `cv.active` marker pointing at it. Every
+accepted version stays, history is append-only. A capped stale re-score
+button re-scores up to 25 unacknowledged rows against the active CV after
+a change, behind a confirm, spending real tokens.
+
+Bind address and port come from `dashboard_host` and `dashboard_port` in
+radar.yaml, 127.0.0.1 by default, `--host` and `--port` override. The
+LAN-trust assumption, stated plainly: anyone who can reach the port can
+read scored opportunities and acknowledge rows or change the active CV.
+Keep it on the LAN or the tailnet, and if it ever goes behind the reverse
+proxy, give it authentication. Start it with `--push` only once the
+system is armed, so the button matches what the schedule does.
+
+Upgrading an existing deployment to the rate-band version: pull, restart
+the dashboard server, then run `python scripts/backfill_pay.py` once per
+hundred stored rows until it reports `"remaining": 0`. The backfill uses
+the fast model only, skips acknowledged and retired rows, and leaves
+stored why text alone. Database columns migrate automatically the first
+time any writer opens the file, and a timestamped copy under
+`db/backups/` before the first run of the new version is cheap insurance.
 
 ## The fallback
 

@@ -167,6 +167,55 @@ def main() -> int:
               "a completed backfill examines nothing, idempotent")
         conn.close()
 
+    # ----- the retirement migration, once per database ever
+    import sqlite3 as sqlite3_mod
+    with tempfile.TemporaryDirectory() as tmp:
+        legacy = Path(tmp) / "legacy.sqlite"
+        raw = sqlite3_mod.connect(legacy)
+        raw.execute(
+            "CREATE TABLE opportunities ("
+            " id INTEGER PRIMARY KEY AUTOINCREMENT, url_hash TEXT NOT NULL"
+            " UNIQUE, first_seen TEXT NOT NULL, source TEXT, company TEXT,"
+            " title TEXT, location TEXT, salary_rate TEXT, source_url TEXT,"
+            " thread_type TEXT, cv_match INTEGER, want_match INTEGER,"
+            " combined INTEGER, one_line_why TEXT, red_flags TEXT,"
+            " suggested_action TEXT, act_by TEXT, status TEXT NOT NULL"
+            " DEFAULT 'new', status_changed_at TEXT, notes TEXT)")
+        raw.execute(
+            "INSERT INTO opportunities (url_hash, first_seen, company, title,"
+            " status, status_changed_at) VALUES"
+            " ('lg1', '2026-07-01T00:00:00Z', 'Legacy Dead', 'Old role',"
+            "  'dead', '2026-07-10T00:00:00Z'),"
+            " ('lg2', '2026-07-01T00:00:00Z', 'Legacy New', 'Newer role',"
+            "  'new', NULL)")
+        raw.commit()
+        raw.close()
+
+        conn = radar_common.get_db(legacy)
+        row = conn.execute("SELECT acknowledged_at FROM opportunities"
+                           " WHERE url_hash = 'lg1'").fetchone()
+        check(row["acknowledged_at"] == "2026-07-10T00:00:00Z",
+              "the migration maps a legacy dead row from its status change")
+        row = conn.execute("SELECT acknowledged_at FROM opportunities"
+                           " WHERE url_hash = 'lg2'").fetchone()
+        check(row["acknowledged_at"] is None,
+              "the migration leaves machine-owned rows alone")
+        flag = conn.execute("SELECT value FROM meta WHERE"
+                            " key = 'migrated_retirement'").fetchone()
+        check(flag is not None, "the mapping sets its once-only flag")
+        # The undo-survival regression. Clear the stamp the way /unack
+        # does, reopen through get_db, and the undo must hold.
+        conn.execute("UPDATE opportunities SET acknowledged_at = NULL"
+                     " WHERE url_hash = 'lg1'")
+        conn.commit()
+        conn.close()
+        conn = radar_common.get_db(legacy)
+        row = conn.execute("SELECT acknowledged_at FROM opportunities"
+                           " WHERE url_hash = 'lg1'").fetchone()
+        check(row["acknowledged_at"] is None,
+              "an undo on a legacy-retired row survives the next connection")
+        conn.close()
+
     # ----- acknowledge and dismiss, the full loop against a throwaway db
     import argparse as argparse_mod
     import sqlite3
@@ -221,8 +270,36 @@ def main() -> int:
               "the hidden row carries an undo, per row")
         check(f'data-ack="{ids["Keepit Ltd"]}"' in html_page,
               "the visible row carries an acknowledge action")
+        # The rendered rate surface, pinned. Column header, band word on
+        # the row, legend under the panel, and the status chip is gone
+        # from the inbound table.
+        check('class="h-rate"' in html_page,
+              "the dashboard renders the Rate column header")
+        check("rate-above" in html_page,
+              "the dashboard renders the band word on the row")
+        check("Rate bands sit against the" in html_page,
+              "the dashboard renders the rate legend under the table")
+        check('<span class="chip chip-new">' not in html_page,
+              "the status chip has left the visible inbound table")
 
         digest_data = build_digest.collect(read, config)
+        digest_text = build_digest.render_text(digest_data, "unit day")
+        check("Rate Above." in digest_text,
+              "the digest renders the band word on the item line")
+        check("Rate bands. Above meets the" in digest_text,
+              "the digest renders the rate legend under the inbound table")
+        # A week with no inbound but a scored signal-kind role still gets
+        # the legend next to its rate words.
+        sig_only = dict(digest_data)
+        sig_only["inbound"] = []
+        sig_only["signals"] = [{
+            "kind": "opportunity", "id": 999, "title": "Signal Role",
+            "company": "Sig Ltd", "location": "Ghent", "combined": 80,
+            "cv_match": 80, "want_match": 80, "one_line_why": "Fits.",
+            "source_url": "", "rate_band": "above"}]
+        sig_text = build_digest.render_text(sig_only, "unit day")
+        check("Rate bands. Above meets the" in sig_text,
+              "a signals-only digest still carries the legend")
         digest_ids = [o["id"] for o in digest_data["inbound"]]
         check(ids["Seenit Ltd"] not in digest_ids
               and ids["Keepit Ltd"] in digest_ids,
@@ -276,6 +353,63 @@ def main() -> int:
             check(resp.status == 200
                   and f'data-unack="{ids["Seenit Ltd"]}"' in page,
                   "the served page re-renders with the row acknowledged")
+
+            # The CV endpoints over real HTTP, against a throwaway
+            # profile dir so the real config/profile is never touched.
+            import cv_store
+            saved_profile = cv_store.PROFILE_DIR
+            try:
+                cv_store.PROFILE_DIR = Path(tmp) / "profile"
+                with urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/cv", timeout=10) as resp:
+                    cv_page = resp.read().decode("utf-8")
+                check(resp.status == 200 and "Upload a new CV" in cv_page,
+                      "GET /cv serves the update section")
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/cv/preview",
+                    data="A CV as plain text.\n".encode("utf-8"),
+                    headers={"X-Filename": "cv.txt"}, method="POST")
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    body = json_mod.loads(resp.read())
+                check(resp.status == 200
+                      and "A CV as plain text." in body.get("markdown", ""),
+                      "POST /cv/preview extracts and stages over HTTP")
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/cv/discard",
+                    data=json_mod.dumps(
+                        {"token": body["token"]}).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST")
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    check(resp.status == 200,
+                          "POST /cv/discard forgets the staged upload")
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/cv/confirm",
+                    data=json_mod.dumps(
+                        {"token": "0" * 16}).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST")
+                try:
+                    urllib.request.urlopen(req, timeout=10)
+                    check(False, "POST /cv/confirm refuses an unknown token")
+                except urllib.error.HTTPError as err:
+                    check(err.code == 409,
+                          "POST /cv/confirm refuses an unknown token")
+            finally:
+                cv_store.PROFILE_DIR = saved_profile
+
+            # A hostile Content-Length must get a fast clean refusal, not
+            # a handler thread pinned on read-to-EOF.
+            import http.client
+            hc = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            hc.putrequest("POST", "/ack")
+            hc.putheader("Content-Length", "-1")
+            hc.endheaders()
+            resp = hc.getresponse()
+            check(resp.status == 400,
+                  f"a negative Content-Length is refused with 400 "
+                  f"(got {resp.status})")
+            hc.close()
         finally:
             server.shutdown()
             server.server_close()

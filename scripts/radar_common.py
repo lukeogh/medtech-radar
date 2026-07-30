@@ -95,14 +95,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
     # Retirement is absorbed into acknowledgement for opportunities. Rows a
     # human already marked actioned or dead get the acknowledged stamp from
-    # their status change, once, so they stay out of the new default view
-    # exactly as they stayed out of the ageing nag. Statuses are left in
-    # place as history.
-    conn.execute(
-        "UPDATE opportunities SET acknowledged_at ="
-        " COALESCE(status_changed_at, ?)"
-        " WHERE status IN ('actioned','dead') AND acknowledged_at IS NULL",
-        (now_iso(),))
+    # their status change, once per database ever, behind a meta flag.
+    # Without the flag this mapping would re-run on every connection and
+    # silently revert an Undo on a legacy-retired row, the acknowledged
+    # stamp coming back the moment the next writer opened the file.
+    # Statuses are left in place as history.
+    done = conn.execute(
+        "SELECT value FROM meta WHERE key = 'migrated_retirement'").fetchone()
+    if not done:
+        conn.execute(
+            "UPDATE opportunities SET acknowledged_at ="
+            " COALESCE(status_changed_at, ?)"
+            " WHERE status IN ('actioned','dead') AND acknowledged_at IS NULL",
+            (now_iso(),))
+        conn.execute("INSERT INTO meta (key, value)"
+                     " VALUES ('migrated_retirement', '1')")
 
 
 def get_db(db_path: Path | None = None) -> sqlite3.Connection:

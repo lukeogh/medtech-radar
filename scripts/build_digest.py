@@ -331,6 +331,11 @@ def render_text(data: dict, today_label: str) -> str:
                 lines.append(f"   {sentence(s['one_line_why'])}")
         if s.get("source_url"):
             lines.append(f"   {s['source_url']}")
+    # Rate words appear on opportunity-kind signal entries too, so a week
+    # with no inbound but a scored role in Signals still gets its legend.
+    if not inbound and any(s["kind"] == "opportunity" for s in signals):
+        lines.append("")
+        lines.append(rate_legend(data["floor"]))
 
     lines.append("")
     lines.append("Ageing. Flagged items older than two weeks with no movement.")
@@ -418,6 +423,9 @@ def render_html(data: dict, today_label: str) -> str:
                     f"Want {s['want_match']}. Rate {esc(rate_word(s))}.<br>"
                     f"<em>{esc(sentence(s['one_line_why']))}</em>{link}</li>")
         parts.append("</ol>")
+        if not inbound and any(s["kind"] == "opportunity" for s in signals):
+            parts.append(f"<p style=\"color:#666;font-size:12px\">"
+                         f"{esc(rate_legend(data['floor']))}</p>")
     else:
         parts.append("<p>Quiet since the last digest.</p>")
 
