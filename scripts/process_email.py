@@ -53,8 +53,32 @@ def detect_source(from_field: str) -> str:
     return "email-other"
 
 
+def pay_columns(opp: dict, config: dict, floor: float) -> dict:
+    """Structured pay for one extracted opportunity, judged in code.
+
+    The extractor reports what the advert said, currency, period and the
+    stated amounts. Conversion and banding happen here, deterministically,
+    so the same advert always lands in the same band.
+    """
+    def num(value):
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    currency = str(opp.get("pay_currency") or "").strip().upper()
+    period = str(opp.get("pay_period") or "").strip().lower()
+    pay_min, pay_max = num(opp.get("pay_min")), num(opp.get("pay_max"))
+    day_rate = radar_common.convert_to_day_rate(
+        currency, period, pay_min, pay_max, config)
+    return {"pay_currency": currency, "pay_period": period,
+            "pay_min": pay_min, "pay_max": pay_max, "day_rate": day_rate,
+            "rate_band": radar_common.band_for(day_rate, floor)}
+
+
 def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
-                       scored: dict | None, note: str | None) -> None:
+                       scored: dict | None, note: str | None,
+                       pay: dict, cv_version: str | None = None) -> None:
     if scored is None:
         scored = {
             "company": opp.get("company", ""),
@@ -70,8 +94,10 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
         "INSERT OR IGNORE INTO opportunities"
         " (url_hash, first_seen, source, company, title, location, salary_rate,"
         "  source_url, thread_type, cv_match, want_match, combined, one_line_why,"
-        "  red_flags, suggested_action, act_by, status, status_changed_at, notes)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "  red_flags, suggested_action, act_by, status, status_changed_at, notes,"
+        "  pay_currency, pay_period, pay_min, pay_max, day_rate, rate_band,"
+        "  cv_version)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (h, now, source,
          scored["company"] or opp.get("company", ""),
          scored["role_title"] or opp.get("title", ""),
@@ -82,7 +108,9 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
          scored["cv_match"], scored["want_match"], scored["combined"],
          scored["one_line_why"], json.dumps(scored["red_flags"]),
          scored["suggested_action"], scored["act_by"],
-         "new", now, note))
+         "new", now, note,
+         pay["pay_currency"], pay["pay_period"], pay["pay_min"],
+         pay["pay_max"], pay["day_rate"], pay["rate_band"], cv_version))
 
 
 def main(argv=None) -> int:
@@ -105,6 +133,9 @@ def main(argv=None) -> int:
     # Refuse to run a live pipeline that would score against the fixture CV.
     # This fires before the extraction call, so no tokens are spent either.
     score_item.assert_profile_ready(config)
+    # The rate floor fails loudly here, before any token is spent, when the
+    # preferences file has lost its machine-readable line.
+    floor = radar_common.read_rate_floor(config)
 
     # utf-8-sig and lstrip cope with a BOM from Windows shells and editors.
     raw = (base64.b64decode(args.b64).decode("utf-8-sig") if args.b64
@@ -166,7 +197,8 @@ def main(argv=None) -> int:
             opp, system_blocks, config, mock_fn=score_fn)
         radar_common.add_usage(usage_total, s_usage)
 
-        insert_opportunity(conn, h, now, source, opp, scored, s_note)
+        insert_opportunity(conn, h, now, source, opp, scored, s_note,
+                           pay_columns(opp, config, floor))
         new_count += 1
         item = {"company": opp.get("company", ""),
                 "title": opp.get("title", ""),

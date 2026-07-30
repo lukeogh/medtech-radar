@@ -21,6 +21,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -189,6 +190,56 @@ def main() -> int:
     check(not dirty,
           "no semicolons or em dashes in scored free text"
           + (f" (violations {dirty})" if dirty else ""))
+
+    # Pay doctrine. The rate band column carries pay, so free text never
+    # mentions it. Currency symbols and pay phrasing are both violations.
+    pay_words = re.compile(
+        r"[£€$]|\b(day rate|per day|per annum|per hour|salary|salaried|"
+        r"a year|an hour)\b", re.IGNORECASE)
+    pay_dirty = []
+    for r in rows:
+        for field in ("one_line_why", "suggested_action", "red_flags"):
+            value = r[field] or ""
+            if pay_words.search(value):
+                pay_dirty.append(f"{r['company']}.{field}")
+    check(not pay_dirty,
+          "no pay commentary in scored free text, the rate column owns it"
+          + (f" (violations {pay_dirty})" if pay_dirty else ""))
+
+    # Rate banding on stored rows, judged in code from the extractor's
+    # structured pay. The fixtures span euro conversion, annual conversion
+    # and a plain day rate.
+    def band_of(company_like: str):
+        row = conn.execute(
+            "SELECT pay_currency, pay_period, pay_max, day_rate, rate_band"
+            " FROM opportunities WHERE company LIKE ?",
+            (company_like,)).fetchone()
+        return row
+
+    veltrix_row = band_of("Veltrix%")
+    check(veltrix_row is not None
+          and veltrix_row["pay_currency"] == "EUR"
+          and veltrix_row["pay_period"] == "day"
+          and veltrix_row["pay_max"] == 1100
+          and round(veltrix_row["day_rate"]) == 935
+          and veltrix_row["rate_band"] == "above",
+          "Veltrix bands above, top of the euro range converted at 0.85"
+          + (f" (got {dict(veltrix_row) if veltrix_row else None})"))
+    caldora_row = band_of("Caldora%")
+    check(caldora_row is not None
+          and caldora_row["pay_period"] == "year"
+          and round(caldora_row["day_rate"]) == 432
+          and caldora_row["rate_band"] == "below",
+          "Caldora's salary converts by 220 working days and bands below"
+          + (f" (got {dict(caldora_row) if caldora_row else None})"))
+    meridian_row = band_of("Meridian%")
+    check(meridian_row is not None
+          and meridian_row["rate_band"] == "below",
+          "Meridian's day rate bands below")
+    banded = conn.execute(
+        "SELECT COUNT(*) AS c FROM opportunities WHERE rate_band IS NOT NULL"
+    ).fetchone()["c"]
+    check(banded == len(rows), "every stored row carries a rate band")
     run_rows = conn.execute("SELECT COUNT(*) AS c FROM runs"
                             " WHERE workflow = 'inbox'").fetchone()["c"]
     check(run_rows == len(good), "every run logged to the runs table")

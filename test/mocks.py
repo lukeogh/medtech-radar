@@ -100,10 +100,47 @@ def mock_extractor(user_content: str) -> str:
             "title": block[0],
             "location": location.strip(),
             "salary_rate": salary,
+            **_pay_fields(salary),
             "source_url": url,
             "posted_date": "",
         })
     return json.dumps({"opportunities": opportunities})
+
+
+_PERIOD_HINTS = (
+    (re.compile(r"(per annum|a year|/year|per year|annually)", re.IGNORECASE), "year"),
+    (re.compile(r"(per day|a day|/day|day rate|daily)", re.IGNORECASE), "day"),
+    (re.compile(r"(per hour|an hour|/hour|hourly|p/h)", re.IGNORECASE), "hour"),
+)
+_CURRENCY_HINTS = (("£", "GBP"), ("€", "EUR"), ("$", "USD"))
+_PAY_AMOUNT_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _pay_fields(salary_text: str) -> dict:
+    """Structured pay off the verbatim text, mirroring the extractor prompt.
+
+    Extraction only, exactly like the real prompt demands. No conversion,
+    no judgement, nulls when nothing usable is stated.
+    """
+    out = {"pay_currency": "", "pay_period": "",
+           "pay_min": None, "pay_max": None}
+    text = salary_text or ""
+    for symbol, code in _CURRENCY_HINTS:
+        if symbol in text:
+            out["pay_currency"] = code
+            break
+    for pattern, period in _PERIOD_HINTS:
+        if pattern.search(text):
+            out["pay_period"] = period
+            break
+    amounts = [float(m.group(0).replace(",", ""))
+               for m in _PAY_AMOUNT_RE.finditer(text)]
+    # "6 month contract" style trailing numbers are not pay. Keep amounts
+    # that look like money, meaning two digits or more.
+    amounts = [a for a in amounts if a >= 10]
+    if amounts:
+        out["pay_min"], out["pay_max"] = min(amounts), max(amounts)
+    return out
 
 
 # --------------------------------------------------------------------- scorer
@@ -160,9 +197,11 @@ def mock_scorer(user_content: str) -> str:
         if amount >= DAY_RATE_FLOOR:
             want += 7
         else:
+            # The judgement is unchanged, a wrong rate still collapses want.
+            # The words about it are gone, the rate band column carries pay,
+            # so the flag list stays empty when pay is the only problem.
             want = min(want, 30)
             rate_flag = True
-            red_flags.append("Day rate well below director level")
     elif ONSITE.search(text) and not FLEXIBLE.search(text):
         want -= 10
         red_flags.append("Permanent on site role, relocation risk")
@@ -171,11 +210,11 @@ def mock_scorer(user_content: str) -> str:
     combined = round((cv + want) / 2)
 
     if rate_flag:
-        why = ("Right work, wrong money. The day rate sits far below director "
-               "level, so the want score collapses.")
+        why = ("Right work, wrong terms. The offer fails the preferences, "
+               "so the want score collapses.")
     elif combined >= 85:
         why = ("Exactly the target. Senior IVD software leadership on "
-               "fractional terms at a proper rate.")
+               "fractional terms.")
     elif cv >= 70 and want < 50:
         why = ("Good CV fit but a permanent on site post, not the engagement "
                "model I want.")
@@ -188,7 +227,7 @@ def mock_scorer(user_content: str) -> str:
         action = "Read the full advert and reply within two working days."
         act_by = (date.today() + timedelta(days=2)).isoformat()
     elif rate_flag:
-        action = "Park it. Note the company and revisit if the rate moves."
+        action = "Park it. Note the company and revisit if the terms move."
         act_by = ""
     else:
         action = "No action needed."
