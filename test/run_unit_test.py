@@ -101,6 +101,72 @@ def main() -> int:
             check("day_rate_floor_gbp" in str(err),
                   "the loud failure names the missing line and the fix")
 
+    # ----- the pay backfill, rehearsed in mock against a throwaway db
+    import json as json_mod
+    import subprocess
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "backfill.sqlite"
+        conn = radar_common.get_db(db)
+        now = radar_common.now_iso()
+        seed = [
+            ("bf1", "Old Role A", "Alpha Ltd", "£800 per day", None, None),
+            ("bf2", "Old Role B", "Beta Ltd", "£95,000 per annum",
+             "Kept prose about the fit.", None),
+            ("bf3", "Old Role C", "Gamma Ltd", "", None, None),
+            ("bf4", "Old Role D", "Delta Ltd", "£700 per day", None, now),
+        ]
+        for h, title, company, salary, why, ack in seed:
+            conn.execute(
+                "INSERT INTO opportunities (url_hash, first_seen, company,"
+                " title, salary_rate, one_line_why, thread_type, status,"
+                " acknowledged_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (h, now, company, title, salary, why, "inbound", "new", ack))
+        conn.commit()
+        conn.close()
+
+        env = dict(**__import__("os").environ)
+        env["RADAR_MOCK"] = "1"
+        proc = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "backfill_pay.py"),
+             "--mock", "--db", str(db), "--cap", "2"],
+            capture_output=True, text=True, encoding="utf-8", env=env)
+        check(proc.returncode == 0, "backfill exits 0 in mock rehearsal")
+        result = json_mod.loads((proc.stdout or "{}").strip() or "{}")
+        check(result.get("examined") == 2,
+              f"backfill honours the cap of 2 (examined {result.get('examined')})")
+
+        proc = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "backfill_pay.py"),
+             "--mock", "--db", str(db)],
+            capture_output=True, text=True, encoding="utf-8", env=env)
+        check(proc.returncode == 0, "second backfill pass exits 0")
+
+        import sqlite3
+        conn = sqlite3.connect(db)
+        conn.row_factory = sqlite3.Row
+        rows = {r["url_hash"]: dict(r) for r in
+                conn.execute("SELECT * FROM opportunities")}
+        check(rows["bf1"]["rate_band"] == "above",
+              f"backfill bands the £800 day rate above (got {rows['bf1']['rate_band']})")
+        check(rows["bf2"]["rate_band"] == "below"
+              and round(rows["bf2"]["day_rate"]) == 432,
+              "backfill converts the £95k salary and bands it below")
+        check(rows["bf2"]["one_line_why"] == "Kept prose about the fit.",
+              "backfill leaves stored why text alone")
+        check(rows["bf3"]["rate_band"] == "unstated",
+              "backfill bands empty pay text unstated without a model call")
+        check(rows["bf4"]["rate_band"] is None,
+              "backfill never touches an acknowledged row")
+        proc = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "backfill_pay.py"),
+             "--mock", "--db", str(db)],
+            capture_output=True, text=True, encoding="utf-8", env=env)
+        result = json_mod.loads((proc.stdout or "{}").strip() or "{}")
+        check(result.get("examined") == 0,
+              "a completed backfill examines nothing, idempotent")
+        conn.close()
+
     # ----- sanitiser worked cases
     offending = ("No action needed — the rate is less than half the floor; "
                  "renegotiation to £650 a day would change that.")

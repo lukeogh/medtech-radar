@@ -152,8 +152,34 @@ def plural(count: int, singular: str, plural_form: str) -> str:
     return singular if count == 1 else plural_form
 
 
+RATE_WORDS = {"above": "Above", "close": "Close", "below": "Below",
+              "unstated": "Unstated"}
+
+
+def rate_word(row: dict) -> str:
+    return RATE_WORDS.get((row.get("rate_band") or "unstated").lower(),
+                          "Unstated")
+
+
+def rate_legend(floor) -> str:
+    if floor is None:
+        return ("Rate bands need the day_rate_floor_gbp line in the "
+                "preferences file, and it is missing.")
+    f = f"£{round(floor):,}"
+    return (f"Rate bands. Above meets the {f} a day floor, Close is under "
+            "by up to £50, Below is under by more, ranges band on their "
+            "top, the best case.")
+
+
 def collect(conn, config: dict) -> dict:
     threshold = int(config.get("score_threshold", 70))
+    # The floor feeds the rate legend. The digest is a reader, so a missing
+    # floor line degrades to an honest legend note while the write path
+    # fails loudly at the same gap.
+    try:
+        floor = radar_common.read_rate_floor(config)
+    except RuntimeError:
+        floor = None
     last_ts = get_meta(conn, "last_digest_ts") or EPOCH
     age_cutoff = (datetime.now(timezone.utc)
                   - timedelta(days=AGEING_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -234,9 +260,9 @@ def collect(conn, config: dict) -> dict:
         "SELECT COUNT(*) FROM email_attempts"
         " WHERE attempts >= 3 AND last_attempt > ?", (last_ts,)).fetchone()[0]
 
-    return {"threshold": threshold, "last_ts": last_ts, "inbound": inbound,
-            "signals": signals, "ageing": ageing, "threads": threads,
-            "needs_review": needs_review, "stats": stats}
+    return {"threshold": threshold, "floor": floor, "last_ts": last_ts,
+            "inbound": inbound, "signals": signals, "ageing": ageing,
+            "threads": threads, "needs_review": needs_review, "stats": stats}
 
 
 def stats_line(stats: dict) -> str:
@@ -264,7 +290,7 @@ def render_text(data: dict, today_label: str) -> str:
         lines.append("")
         lines.append(f"{i}. {nz(o['title'])}. {nz(o['company'])}. {nz(o['location'])}.")
         lines.append(f"   Scores. Combined {o['combined']}. CV {o['cv_match']}. "
-                     f"Want {o['want_match']}.")
+                     f"Want {o['want_match']}. Rate {rate_word(o)}.")
         if o["one_line_why"]:
             lines.append(f"   {sentence(o['one_line_why'])}")
         flags = parse_flags(o["red_flags"])
@@ -275,6 +301,9 @@ def render_text(data: dict, today_label: str) -> str:
         lines.append(f"   Next step. {action}{act_by}")
         if o["source_url"]:
             lines.append(f"   {o['source_url']}")
+    if inbound:
+        lines.append("")
+        lines.append(rate_legend(data["floor"]))
 
     lines.append("")
     if signals:
@@ -293,7 +322,7 @@ def render_text(data: dict, today_label: str) -> str:
         else:
             lines.append(f"{i}. {nz(s['title'])}. {nz(s['company'])}. {nz(s['location'])}.")
             lines.append(f"   Scores. Combined {s['combined']}. CV {s['cv_match']}. "
-                         f"Want {s['want_match']}.")
+                         f"Want {s['want_match']}. Rate {rate_word(s)}.")
             if s["one_line_why"]:
                 lines.append(f"   {sentence(s['one_line_why'])}")
         if s.get("source_url"):
@@ -353,11 +382,14 @@ def render_html(data: dict, today_label: str) -> str:
             parts.append(
                 f"<li><strong>{esc(o['title'])}</strong>. {esc(o['company'])}. "
                 f"{esc(o['location'])}.<br>"
-                f"Scores. Combined {o['combined']}. CV {o['cv_match']}. Want {o['want_match']}.<br>"
+                f"Scores. Combined {o['combined']}. CV {o['cv_match']}. Want {o['want_match']}. "
+                f"Rate {esc(rate_word(o))}.<br>"
                 f"<em>{esc(sentence(o['one_line_why']))}</em><br>"
                 f"Red flags. {esc(flag_text)}<br>"
                 f"Next step. {esc(action)}{act_by}{link}</li>")
         parts.append("</ol>")
+        parts.append(f"<p style=\"color:#666;font-size:12px\">"
+                     f"{esc(rate_legend(data['floor']))}</p>")
     else:
         parts.append("<p>Nothing cleared the bar since the last digest.</p>")
 
@@ -379,7 +411,7 @@ def render_html(data: dict, today_label: str) -> str:
                     f"<li><strong>{esc(s['title'])}</strong>. {esc(s['company'])}. "
                     f"{esc(s['location'])}.<br>"
                     f"Scores. Combined {s['combined']}. CV {s['cv_match']}. "
-                    f"Want {s['want_match']}.<br>"
+                    f"Want {s['want_match']}. Rate {esc(rate_word(s))}.<br>"
                     f"<em>{esc(sentence(s['one_line_why']))}</em>{link}</li>")
         parts.append("</ol>")
     else:

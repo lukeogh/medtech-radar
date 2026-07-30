@@ -152,6 +152,13 @@ def week_usage(conn, since_iso) -> tuple[int, float]:
 def collect(conn, config) -> dict:
     threshold = int(config.get("score_threshold", 70))
     fast = int(config.get("fast_signal_threshold", 75))
+    # The floor drives the rate legend. A dashboard is a reader, so a
+    # missing floor line degrades to an honest legend note here while the
+    # pipeline itself fails loudly at the same gap.
+    try:
+        floor = radar_common.read_rate_floor(config)
+    except RuntimeError:
+        floor = None
     now = datetime.now(timezone.utc)
     week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     age_cutoff = (now - timedelta(days=AGEING_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -224,7 +231,7 @@ def collect(conn, config) -> dict:
              and not threads)
 
     return {
-        "threshold": threshold, "fast": fast, "fresh": fresh,
+        "threshold": threshold, "fast": fast, "floor": floor, "fresh": fresh,
         "opportunities": opportunities, "signals": signals,
         "threads": threads, "ageing": ageing,
         "ageing_opp_ids": {a["id"] for a in ageing if a["kind"] == "opportunity"},
@@ -269,6 +276,31 @@ def source_link(url, text: str) -> str:
             f'{esc(text)}</a>')
 
 
+RATE_WORDS = {"above": "Above", "close": "Close", "below": "Below",
+              "unstated": "Unstated"}
+
+
+def rate_cell(o: dict) -> str:
+    band = (o.get("rate_band") or "unstated").lower()
+    word = RATE_WORDS.get(band, "Unstated")
+    return f'<span class="col-rate rate-{esc(band)}">{esc(word)}</span>'
+
+
+def rate_detail(o: dict) -> str:
+    """The arithmetic behind the band, spelled out in the row detail.
+
+    Code-computed pay display lives here on purpose. The ban on pay words
+    covers model-written free text, the column and this line are exactly
+    where pay now belongs.
+    """
+    verbatim = (o.get("salary_rate") or "").strip()
+    rate = o.get("day_rate")
+    if rate is not None:
+        converted = f"About £{round(rate):,} a day converted."
+        return f"{verbatim} {converted}".strip() if verbatim else converted
+    return verbatim or "No usable figure stated."
+
+
 def render_opportunity(o: dict, data: dict, i: int) -> str:
     did = f"d-o{i}"
     review = o["combined"] is None
@@ -289,16 +321,17 @@ def render_opportunity(o: dict, data: dict, i: int) -> str:
 
     if review:
         out.append('<span class="col-score">&ndash;</span>')
+        out.append(rate_cell(o))
         out.append('<span class="chip chip-fail">review</span>')
     else:
         hot = " col-score-hot" if (o["combined"] or 0) >= data["threshold"] else ""
         out.append(f'<span class="col-cv">{o["cv_match"]}</span>'
                    f'<span class="col-want">{o["want_match"]}</span>'
                    f'<span class="col-score{hot}">{o["combined"]}</span>')
-        out.append(status_chip(o["status"]))
+        out.append(rate_cell(o))
     out.append(f'<span class="col-when">{fmt_day(o.get("first_seen"))}</span>')
 
-    parts = []
+    parts = [labelled("Rate", rate_detail(o))]
     flags = []
     try:
         flags = [str(f) for f in json.loads(o.get("red_flags") or "[]")]
@@ -582,7 +615,7 @@ CSS = """
   --space-4:4px; --space-6:6px; --space-8:8px; --space-10:10px;
   --space-12:12px; --space-16:16px; --space-20:20px; --space-24:24px;
   --space-32:32px; --space-40:40px; --space-56:56px; --space-72:72px;
-  --page-max:1040px; --measure-why:52ch; --measure-read:66ch;
+  --page-max:1400px; --measure-why:74ch; --measure-read:66ch;
   --radius-sm:4px; --radius:10px; --radius-pill:999px;
   --ease:cubic-bezier(.2,0,.1,1); --dur-instant:90ms; --dur-fast:140ms; --dur:200ms;
 }
@@ -653,8 +686,8 @@ a:hover{text-decoration-color:var(--accent)}
 .panel-clay{background:var(--tint-clay)}
 .row{border-top:1px solid var(--panel-rule);border-left:2px solid transparent}
 .panel-head + .row{border-top:none}
-.panel-head{display:grid;grid-template-columns:12px minmax(0,1fr) repeat(5, 88px);column-gap:var(--space-10);align-items:baseline;padding:var(--space-12) var(--space-4) var(--space-8) var(--space-8);border-bottom:1px solid var(--panel-rule);font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3)}
-.row-summary{display:grid;grid-template-columns:12px minmax(0,1fr) repeat(5, 88px);column-gap:var(--space-10);align-items:baseline;width:100%;background:none;border:none;border-radius:var(--radius-sm);padding:var(--space-12) var(--space-4) var(--space-12) var(--space-8);margin:0;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.panel-head{display:grid;grid-template-columns:12px minmax(0,1fr) repeat(6, 88px);column-gap:var(--space-10);align-items:baseline;padding:var(--space-12) var(--space-4) var(--space-8) var(--space-8);border-bottom:1px solid var(--panel-rule);font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3)}
+.row-summary{display:grid;grid-template-columns:12px minmax(0,1fr) repeat(6, 88px);column-gap:var(--space-10);align-items:baseline;width:100%;background:none;border:none;border-radius:var(--radius-sm);padding:var(--space-12) var(--space-4) var(--space-12) var(--space-8);margin:0;text-align:left;font:inherit;color:inherit;cursor:pointer}
 .row-summary[aria-expanded]:hover .row-title{color:var(--accent)}
 .row-summary:not([aria-expanded]){cursor:default}
 .caret{width:6px;height:6px;border-right:1.5px solid var(--ink-3);border-bottom:1.5px solid var(--ink-3);transform:rotate(-45deg) translateX(-1px);transform-origin:60% 60%;transition:transform var(--dur-fast) var(--ease)}
@@ -668,18 +701,23 @@ a:hover{text-decoration-color:var(--accent)}
 .row-sub{display:block;font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);margin-top:var(--space-4)}
 .row-detail{display:grid;gap:var(--space-12);padding:0 var(--space-8) var(--space-20) var(--space-32);max-width:var(--measure-read)}
 .row-detail[hidden]{display:none}
-.col-when{grid-column:7;font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:center}
+.col-when{grid-column:8;font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:center}
 .col-cv,.col-want,.col-score{font:var(--weight-medium) var(--text-sm)/1.55 var(--font-sans);font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:nowrap;text-align:center}
 .col-cv{grid-column:3}
 .col-want{grid-column:4}
 .col-score{grid-column:5}
 .col-score-hot{color:var(--ink-1);font-weight:var(--weight-strong)}
-.row-summary > .chip{grid-column:6;justify-self:center}
+.col-rate{grid-column:6;font:var(--weight-medium) var(--text-xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;white-space:nowrap;text-align:center;color:var(--ink-3)}
+.rate-above{color:var(--settled);font-weight:var(--weight-strong)}
+.rate-close{color:var(--ink-2)}
+.panel-head .h-rate{grid-column:6;text-align:center}
+.legend{font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);margin:var(--space-8) 0 0;max-width:none;text-wrap:pretty}
+.row-summary > .chip{grid-column:7;justify-self:center}
 .panel-head .h-cv{grid-column:3;text-align:center}
 .panel-head .h-want{grid-column:4;text-align:center}
 .panel-head .h-score{grid-column:5;text-align:center}
-.panel-head .h-chip{grid-column:6;text-align:center}
-.panel-head .h-when{grid-column:7;text-align:center}
+.panel-head .h-chip{grid-column:7;text-align:center}
+.panel-head .h-when{grid-column:8;text-align:center}
 .chip{display:inline-block;font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);border-radius:var(--radius-pill);padding:1px 8px;border:1px solid var(--hairline-strong);color:var(--ink-3);white-space:nowrap}
 .chip-new{color:var(--accent);border-color:var(--accent-quiet)}
 .chip-actioned{color:var(--settled);border-color:var(--settled)}
@@ -714,7 +752,7 @@ code{font:400 var(--text-xs)/1.55 var(--font-mono);background:var(--surface);bor
 @media (max-width:820px){
   .panel-head{display:none}
   .row-summary{grid-template-columns:12px minmax(0,1fr) auto;column-gap:var(--space-12);row-gap:var(--space-6)}
-  .col-cv,.col-want{display:none}
+  .col-cv,.col-want,.col-rate{display:none}
   .col-score{grid-column:3;text-align:right}
   .col-score::before{content:"combined ";font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3)}
   .row-summary > .chip{grid-column:2;justify-self:start}
@@ -796,13 +834,30 @@ SERVE_SCRIPT = """
 """
 
 
-def section(title: str, count, note: str, panel_class: str, body: str) -> str:
+def section(title: str, count, note: str, panel_class: str, body: str,
+            legend: str = "", head_extra: str = "") -> str:
+    legend_html = f'\n<p class="legend">{esc(legend)}</p>' if legend else ""
     return f"""<section class="section">
-<div class="section-head"><h2>{esc(title)}</h2>
+<div class="section-head"><h2>{esc(title)}</h2>{head_extra}
 <span class="section-count">{count}</span></div>
 <p class="section-note">{esc(note)}</p>
-<div class="panel {panel_class}">{body}</div>
+<div class="panel {panel_class}">{body}</div>{legend_html}
 </section>"""
+
+
+def rate_legend(floor) -> str:
+    if floor is None:
+        return ("Rate bands need the day_rate_floor_gbp line in the "
+                "preferences file, and it is missing, so everything reads "
+                "Unstated until it returns.")
+    f = f"£{round(floor):,}"
+    lo = f"£{round(floor) - 50:,}"
+    return (f"Rate bands sit against the {f} a day floor from the "
+            f"preferences file. Above meets it, Close is under by up to "
+            f"£50, so {lo} and up, Below is under by more, and a stated "
+            "range is banded on its top, the best case. Salaries convert "
+            "at 220 working days a year, hours at eight a day, euros at "
+            "the static rate in radar.yaml.")
 
 
 def render_page(data: dict, config: dict, db_label: str, out: Path,
@@ -815,7 +870,8 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
                 '<span class="h-cv">Capability</span>'
                 '<span class="h-want">Desire</span>'
                 '<span class="h-score">Combined</span>'
-                '<span class="h-chip">Status</span>'
+                '<span class="h-rate">Rate</span>'
+                '<span class="h-chip"></span>'
                 '<span class="h-when">Seen</span></div>')
     sig_head = ('<div class="panel-head"><span></span><span>What happened</span>'
                 '<span class="h-score">Relevance</span>'
@@ -907,7 +963,8 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
          "Job adverts and approaches. Capability is judged on the CV alone, "
          "desire on the preferences file alone, and the two are never "
          f"blurred. The combined figure decides the digest, and the bar is "
-         f"{data['threshold']}.", "panel-blue", opp_body)}
+         f"{data['threshold']}.", "panel-blue", opp_body,
+         legend=rate_legend(data["floor"]))}
 {section("Signals", 0 if fresh else len(data["signals"]),
          "Funding, spin-offs, accelerator entries and first quality hires. "
          f"At {data['fast']} the phone gets a push once the workflow is "
