@@ -22,7 +22,18 @@ CREATE TABLE IF NOT EXISTS opportunities (
   status            TEXT NOT NULL DEFAULT 'new'
                     CHECK (status IN ('new','digested','actioned','dead')),
   status_changed_at TEXT,              -- feeds the ageing section of the digest
-  notes             TEXT
+  notes             TEXT,
+  -- Structured pay, extracted by the fast model, judged by code.
+  pay_currency      TEXT,              -- GBP | EUR | USD | '' as extracted
+  pay_period        TEXT,              -- year | day | hour | '' as extracted
+  pay_min           REAL,              -- lower bound where a range is stated
+  pay_max           REAL,              -- upper bound, equals pay_min when single
+  day_rate          REAL,              -- converted GBP day rate, code-computed
+  rate_band         TEXT,              -- above | close | below | unstated
+  -- A human said "seen it". The row leaves the default view, the digest and
+  -- the ageing section, but never the database, so dedupe keeps rejecting it.
+  acknowledged_at   TEXT,
+  cv_version        TEXT               -- CV file label the score was made against
 );
 
 CREATE TABLE IF NOT EXISTS signals (
@@ -40,7 +51,8 @@ CREATE TABLE IF NOT EXISTS signals (
   pushed       INTEGER NOT NULL DEFAULT 0,   -- 1 once a ntfy push has fired
   pushed_at    TEXT,
   status       TEXT NOT NULL DEFAULT 'new'
-               CHECK (status IN ('new','digested','actioned','dead'))
+               CHECK (status IN ('new','digested','actioned','dead')),
+  cv_version   TEXT                    -- CV file label the score was made against
 );
 
 -- Page-diff and RSS state per watched source. One row per watchlist entry.

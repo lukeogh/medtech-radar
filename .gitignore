@@ -30,3 +30,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Timestamped database backups taken before schema changes
+db/backups/

@@ -77,6 +77,7 @@ FAIL  $name (exit $status)"
     fi
 }
 
+run_one "unit checks      (test/run_unit_test.py)"    "test/run_unit_test.py"
 run_one "inbox pipeline   (test/run_inbox_test.py)"   "test/run_inbox_test.py"
 run_one "monday digest    (test/run_digest_test.py)"  "test/run_digest_test.py"
 run_one "signals pipeline (test/run_signals_test.py)" "test/run_signals_test.py"
@@ -88,6 +89,6 @@ echo "==========================================================================
 if [ "$overall" -ne 0 ]; then
     echo "RESULT: FAIL"
 else
-    echo "RESULT: PASS. All three runners green."
+    echo "RESULT: PASS. All runners green."
 fi
 exit "$overall"

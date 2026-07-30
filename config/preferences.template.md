@@ -17,10 +17,15 @@ Generic testing roles and generic software roles score low regardless of pay.
 
 ## Rates.
 
-Director level day rates in line with the current engagement. Anything
-materially below that is a want problem even when the CV match is high, and the
-score should say so plainly. TODO Luke, put a floor figure here so the scorer
-has a hard number to judge against.
+Director level day rates in line with the current engagement. The floor is
+the machine-readable line below, which the scorer and the rate banding code
+both read, so changing the number here changes it everywhere at once.
+
+day_rate_floor_gbp: 650
+
+Anything under the floor scores want_match low whatever the other merits,
+even when the CV match is high. Salaried roles convert at roughly 220
+working days a year for comparison.
 
 ## Location and travel.
 

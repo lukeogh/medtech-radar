@@ -31,6 +31,18 @@ allow_fixture_profile: false
 score_threshold: 70                     # combined score needed to appear in digest
 fast_signal_threshold: 75               # relevance needed for an immediate ntfy push
 
+# Euro day rates convert to GBP at this rate for banding. Deliberately
+# static and roughly right. Banding needs a stable yardstick, not a live FX
+# feed, and a band that flickers with the market would be worse than one
+# that is a few percent out.
+eur_to_gbp: 0.85
+
+# Where serve_dashboard.py binds. LAN only by design, never expose it
+# beyond the LAN or the tailnet, the page carries scored opportunities,
+# names and now accepts writes. Flags --host and --port override.
+dashboard_host: "127.0.0.1"
+dashboard_port: 8787
+
 # Send the Monday email even when there is nothing to report. A quiet week
 # then sends a short digest saying so, because silence should mean breakage
 # and nothing else. Set false to hold the email on genuinely empty weeks.

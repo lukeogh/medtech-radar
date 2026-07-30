@@ -71,8 +71,42 @@ def now_iso() -> str:
 
 # ------------------------------------------------------------------ database
 
+# Columns added after the first schema shipped. CREATE TABLE IF NOT EXISTS
+# cannot add columns to an existing table, so every writer migrates here,
+# idempotently, before touching a row. Order never matters, each ALTER is
+# guarded by a look at what the table already has.
+_MIGRATIONS = (
+    ("opportunities", "pay_currency", "TEXT"),
+    ("opportunities", "pay_period", "TEXT"),
+    ("opportunities", "pay_min", "REAL"),
+    ("opportunities", "pay_max", "REAL"),
+    ("opportunities", "day_rate", "REAL"),
+    ("opportunities", "rate_band", "TEXT"),
+    ("opportunities", "acknowledged_at", "TEXT"),
+    ("opportunities", "cv_version", "TEXT"),
+    ("signals", "cv_version", "TEXT"),
+)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, column, decl in _MIGRATIONS:
+        have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in have:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    # Retirement is absorbed into acknowledgement for opportunities. Rows a
+    # human already marked actioned or dead get the acknowledged stamp from
+    # their status change, once, so they stay out of the new default view
+    # exactly as they stayed out of the ageing nag. Statuses are left in
+    # place as history.
+    conn.execute(
+        "UPDATE opportunities SET acknowledged_at ="
+        " COALESCE(status_changed_at, ?)"
+        " WHERE status IN ('actioned','dead') AND acknowledged_at IS NULL",
+        (now_iso(),))
+
+
 def get_db(db_path: Path | None = None) -> sqlite3.Connection:
-    """Open the radar database, applying the schema idempotently.
+    """Open the radar database, applying schema and migrations idempotently.
 
     WAL journal mode plus a five second busy timeout, because the inbox,
     signals and digest workflows can overlap on the same file and the
@@ -86,6 +120,7 @@ def get_db(db_path: Path | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+    _migrate(conn)
     conn.commit()
     return conn
 
@@ -216,6 +251,90 @@ def sanitise_free_text(text):
     s = re.sub(r",\s*,", ",", s)
     s = re.sub(r" {2,}", " ", s)
     return s.strip()
+
+
+# ----------------------------------------------------------------- rate bands
+
+# Salaried pay converts to a day rate at this many working days a year, per
+# the preferences file's own comparison rule.
+WORKING_DAYS_PER_YEAR = 220
+HOURS_PER_DAY = 8
+CLOSE_BAND_GBP = 50  # under the floor by up to this much reads as close
+
+_FLOOR_LINE = re.compile(r"^day_rate_floor_gbp:\s*([0-9]+(?:\.[0-9]+)?)\s*$",
+                         re.IGNORECASE | re.MULTILINE)
+
+
+def read_rate_floor(config: dict | None = None) -> float:
+    """The day-rate floor in GBP, from the one machine-readable line.
+
+    The preferences file is the single home of desire, so the floor lives
+    there as a clearly labelled line, day_rate_floor_gbp: 650, read by both
+    the scorer prompt (the model sees the whole file) and this code. Live
+    copy first, tracked template second, loud failure when neither carries
+    the line, because banding against a guessed floor would be worse than
+    no banding at all.
+    """
+    config = config or load_config()
+    prefs_rel = config.get("prefs_file", "config/profile/preferences.md")
+    candidates = [REPO_ROOT / prefs_rel,
+                  REPO_ROOT / "config" / "preferences.template.md"]
+    for path in candidates:
+        if path.exists():
+            match = _FLOOR_LINE.search(path.read_text(encoding="utf-8"))
+            if match:
+                return float(match.group(1))
+            raise RuntimeError(
+                f"No day_rate_floor_gbp line in {path}. Add one to the Rates "
+                "section, for example 'day_rate_floor_gbp: 650', so banding "
+                "and the scorer read the same floor.")
+    raise RuntimeError(
+        "No preferences file found for the rate floor. Expected "
+        f"{candidates[0]} or {candidates[1]}.")
+
+
+def convert_to_day_rate(currency, period, pay_min, pay_max,
+                        config: dict | None = None) -> float | None:
+    """Deterministic conversion to a GBP day rate, or None when unusable.
+
+    Annual divides by 220 working days. Hourly multiplies by 8. Daily
+    passes through. Euro amounts convert at eur_to_gbp from radar.yaml.
+    Where a range is stated the band sits on the top of it, the best case,
+    and the dashboard legend says so. Currencies without a configured
+    conversion return None rather than a guessed figure.
+    """
+    amounts = [a for a in (pay_min, pay_max)
+               if isinstance(a, (int, float)) and a > 0]
+    if not amounts:
+        return None
+    amount = float(max(amounts))
+
+    period = (period or "").strip().lower()
+    if period == "year":
+        amount /= WORKING_DAYS_PER_YEAR
+    elif period == "hour":
+        amount *= HOURS_PER_DAY
+    elif period != "day":
+        return None
+
+    currency = (currency or "").strip().upper()
+    if currency == "EUR":
+        config = config or load_config()
+        amount *= float(config.get("eur_to_gbp", 0.85))
+    elif currency != "GBP":
+        return None
+    return amount
+
+
+def band_for(day_rate: float | None, floor: float) -> str:
+    """above | close | below | unstated, judged in code, never by the model."""
+    if day_rate is None:
+        return "unstated"
+    if day_rate >= floor:
+        return "above"
+    if day_rate >= floor - CLOSE_BAND_GBP:
+        return "close"
+    return "below"
 
 
 def extract_json(text: str) -> dict:
