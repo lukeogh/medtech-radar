@@ -449,6 +449,22 @@ def main() -> int:
               "the trust metrics render at the top")
         check('id="src-add"' in jobs_page and "Add a job source" in jobs_page,
               "the add-a-source form renders")
+        check("None yet" not in jobs_page
+              and "job_sources.yaml" not in jobs_page,
+              "no custom-source receipt renders while there are none")
+        saved_reg3 = radar_common.JOB_SOURCES_PATH
+        try:
+            radar_common.JOB_SOURCES_PATH = reg_path
+            jobs_with_custom = build_dashboard.render_jobs_page(
+                data, config, "t")
+        finally:
+            radar_common.JOB_SOURCES_PATH = saved_reg3
+        check("Added so far: Technojobs (matches technojobs)"
+              in jobs_with_custom
+              and "job_sources.yaml" in jobs_with_custom,
+              "an added source earns its one-line receipt, with the edit path")
+        check("<h2>Technojobs</h2>" in jobs_with_custom,
+              "an added source gets its own board section")
         check('href="/jobs" aria-current="page"' in jobs_page,
               "the Jobs tab marks itself current")
         check(f'data-ack="{ids["Keepit Ltd"]}"' in jobs_page,

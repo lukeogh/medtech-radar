@@ -1499,10 +1499,16 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
         body += section(s["name"], len(rows_for), note if rows_for else "",
                         "panel-stone", body_html)
 
-    customs_list = ("".join(
-        f"<li>{esc(s['name'])}, matches senders containing "
-        f"<code>{esc(s['sender_contains'])}</code></li>" for s in customs)
-        or "<li>None yet. The four boards above are built in.</li>")
+    # The receipt for the form. Only worth ink once a custom source
+    # exists, and then one quiet line naming the match rule and where to
+    # edit or remove it by hand, there is no delete button on purpose.
+    customs_line = ""
+    if customs:
+        named = ", ".join(
+            f"{esc(s['name'])} (matches {esc(s['sender_contains'])})"
+            for s in customs)
+        customs_line = (f'<p class="legend">Added so far: {named}. Edit or '
+                        "remove them by hand in config/job_sources.yaml.</p>")
     body += f"""<section class="section">
 <div class="section-head"><h2>Add a job source</h2></div>
 <p class="section-note">Two steps, honestly. Adding a source here teaches
@@ -1519,10 +1525,7 @@ alerts, so a missing source loses a label, never a role.</p>
 </div>
 <p class="board-note" id="src-note" style="padding:0 8px 12px"></p>
 </div>
-<p class="legend">Configured custom sources, editable by hand in
-config/job_sources.yaml.</p>
-<div class="panel" style="padding:8px 16px"><ul class="cv-history"
-style="font:400 13px/1.9 var(--font-sans)">{customs_list}</ul></div>
+{customs_line}
 </section>"""
 
     return f"""<!doctype html>
