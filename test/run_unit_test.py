@@ -167,6 +167,119 @@ def main() -> int:
               "a completed backfill examines nothing, idempotent")
         conn.close()
 
+    # ----- acknowledge and dismiss, the full loop against a throwaway db
+    import argparse as argparse_mod
+    import sqlite3
+    import threading
+    import urllib.request
+
+    import build_dashboard
+    import build_digest
+    import serve_dashboard
+
+    config = radar_common.load_config()
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "ack.sqlite"
+        conn = radar_common.get_db(db)
+        now = radar_common.now_iso()
+        for h, company, title in (("ack1", "Seenit Ltd", "Director One"),
+                                  ("ack2", "Keepit Ltd", "Director Two")):
+            conn.execute(
+                "INSERT INTO opportunities (url_hash, first_seen, company,"
+                " title, thread_type, status, cv_match, want_match, combined,"
+                " one_line_why, rate_band)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (h, now, company, title, "inbound", "new", 90, 90, 90,
+                 "Exactly the target.", "above"))
+        conn.commit()
+        ids = {r["company"]: r["id"] for r in
+               conn.execute("SELECT id, company FROM opportunities")}
+        conn.close()
+
+        serve_dashboard.ARGS = argparse_mod.Namespace(
+            db=str(db), push=False, host="127.0.0.1", port=0)
+
+        result = serve_dashboard.set_acknowledged(ids["Seenit Ltd"], True)
+        check(result.get("ok") is True, "acknowledging a row reports ok")
+        result = serve_dashboard.set_acknowledged(ids["Seenit Ltd"], True)
+        check(result.get("ok") is False,
+              "acknowledging the same row twice is refused, not repeated")
+
+        read = sqlite3.connect(db)
+        read.row_factory = sqlite3.Row
+        data = build_dashboard.collect(read, config)
+        check([o["id"] for o in data["opportunities"]] == [ids["Keepit Ltd"]],
+              "the acknowledged row leaves the default view immediately")
+        check([o["id"] for o in data["acknowledged"]] == [ids["Seenit Ltd"]],
+              "the acknowledged row sits behind the toggle instead")
+        html_page = build_dashboard.render_page(
+            data, config, "ack test", Path(tmp) / "dash.html", serve=True)
+        check("Show acknowledged (1)" in html_page,
+              "the toggle names the acknowledged count")
+        check(f'data-unack="{ids["Seenit Ltd"]}"' in html_page
+              and "row-acked" in html_page,
+              "the hidden row carries an undo, per row")
+        check(f'data-ack="{ids["Keepit Ltd"]}"' in html_page,
+              "the visible row carries an acknowledge action")
+
+        digest_data = build_digest.collect(read, config)
+        digest_ids = [o["id"] for o in digest_data["inbound"]]
+        check(ids["Seenit Ltd"] not in digest_ids
+              and ids["Keepit Ltd"] in digest_ids,
+              "a digest render excludes the acknowledged row and keeps the rest")
+        check(not digest_data["ageing"],
+              "nothing acknowledged reaches the ageing section")
+        read.close()
+
+        # Dedupe survives acknowledgement. The URL hash is still on file,
+        # so the same advert presented again is rejected, not resurfaced.
+        w = radar_common.get_db(db)
+        before = w.execute("SELECT COUNT(*) FROM opportunities").fetchone()[0]
+        cur = w.execute(
+            "INSERT OR IGNORE INTO opportunities (url_hash, first_seen,"
+            " company, title, thread_type, status)"
+            " VALUES ('ack1', ?, 'Seenit Ltd', 'Director One', 'inbound', 'new')",
+            (now,))
+        w.commit()
+        after = w.execute("SELECT COUNT(*) FROM opportunities").fetchone()[0]
+        check(cur.rowcount == 0 and before == after,
+              "the same URL hash presented again is still rejected by dedupe")
+        w.close()
+
+        result = serve_dashboard.set_acknowledged(ids["Seenit Ltd"], False)
+        check(result.get("ok") is True, "undo reports ok")
+        read = sqlite3.connect(db)
+        read.row_factory = sqlite3.Row
+        data = build_dashboard.collect(read, config)
+        read.close()
+        check(len(data["opportunities"]) == 2 and not data["acknowledged"],
+              "undo restores the row to the default view")
+
+        # One real HTTP pass, so the endpoint wiring is proven, not assumed.
+        server = serve_dashboard.RadarServer(("127.0.0.1", 0),
+                                             serve_dashboard.Handler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/ack",
+                data=json_mod.dumps({"id": ids["Seenit Ltd"]}).encode(),
+                headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = json_mod.loads(resp.read())
+            check(resp.status == 200 and body.get("ok") is True,
+                  "POST /ack acknowledges over real HTTP")
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/", timeout=10) as resp:
+                page = resp.read().decode("utf-8")
+            check(resp.status == 200
+                  and f'data-unack="{ids["Seenit Ltd"]}"' in page,
+                  "the served page re-renders with the row acknowledged")
+        finally:
+            server.shutdown()
+            server.server_close()
+
     # ----- sanitiser worked cases
     offending = ("No action needed — the rate is less than half the floor; "
                  "renegotiation to £650 a day would change that.")

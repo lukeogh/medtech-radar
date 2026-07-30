@@ -163,9 +163,15 @@ def collect(conn, config) -> dict:
     week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     age_cutoff = (now - timedelta(days=AGEING_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    opportunities = [dict(r) for r in conn.execute(
+    all_opportunities = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities"
         " ORDER BY (combined IS NULL), combined DESC, first_seen DESC")]
+    # A human said "seen it". Acknowledged rows leave the default view but
+    # stay on the page behind the toggle, with an undo, and stay in the
+    # database so dedupe keeps rejecting their URLs forever.
+    opportunities = [o for o in all_opportunities
+                     if not o.get("acknowledged_at")]
+    acknowledged = [o for o in all_opportunities if o.get("acknowledged_at")]
     signals = [dict(r) for r in conn.execute(
         "SELECT * FROM signals"
         " ORDER BY (relevance IS NULL), relevance DESC, first_seen DESC")]
@@ -181,7 +187,8 @@ def collect(conn, config) -> dict:
            ORDER BY (t.next_action_date IS NULL), t.next_action_date""")]
 
     def is_ageing_opp(o) -> bool:
-        return (o["status"] in ("new", "digested")
+        return (not o.get("acknowledged_at")
+                and o["status"] in ("new", "digested")
                 and (o["combined"] or 0) >= threshold
                 and (o["status_changed_at"] or o["first_seen"] or "9999") <= age_cutoff)
 
@@ -227,12 +234,13 @@ def collect(conn, config) -> dict:
                  if (sources_state[s["id"]].get("last_status") or "")
                  in ("200", "304")]
 
-    fresh = (run_row["any_runs"] == 0 and not opportunities and not signals
-             and not threads)
+    fresh = (run_row["any_runs"] == 0 and not all_opportunities
+             and not signals and not threads)
 
     return {
         "threshold": threshold, "fast": fast, "floor": floor, "fresh": fresh,
-        "opportunities": opportunities, "signals": signals,
+        "opportunities": opportunities, "acknowledged": acknowledged,
+        "signals": signals,
         "threads": threads, "ageing": ageing,
         "ageing_opp_ids": {a["id"] for a in ageing if a["kind"] == "opportunity"},
         "watchlist": watchlist, "sources_state": sources_state,
@@ -252,8 +260,9 @@ def status_chip(status) -> str:
     return f'<span class="chip{cls}">{esc(status or "new")}</span>'
 
 
-def row_open(detail_id: str) -> str:
-    return (f'<div class="row"><button type="button" class="row-summary"'
+def row_open(detail_id: str, extra_class: str = "") -> str:
+    cls = f"row{' ' + extra_class if extra_class else ''}"
+    return (f'<div class="{cls}"><button type="button" class="row-summary"'
             f' aria-expanded="false" aria-controls="{detail_id}">'
             f'<span class="caret" aria-hidden="true"></span>')
 
@@ -301,7 +310,7 @@ def rate_detail(o: dict) -> str:
     return verbatim or "No usable figure stated."
 
 
-def render_opportunity(o: dict, data: dict, i: int) -> str:
+def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
     did = f"d-o{i}"
     review = o["combined"] is None
     meta_bits = [b for b in (o.get("company"), o.get("location"),
@@ -310,7 +319,8 @@ def render_opportunity(o: dict, data: dict, i: int) -> str:
     why = o.get("one_line_why") or (
         "The scorer could not score this one, so a human look is due."
         if review else "")
-    out = [row_open(did), '<span class="row-main"><span class="row-head">',
+    out = [row_open(did, "row-acked" if acked else ""),
+           '<span class="row-main"><span class="row-head">',
            f'<span class="row-title">{esc(o.get("title") or "Untitled role")}</span>']
     if meta:
         out.append(f'<span class="row-meta">{esc(meta)}</span>')
@@ -322,13 +332,16 @@ def render_opportunity(o: dict, data: dict, i: int) -> str:
     if review:
         out.append('<span class="col-score">&ndash;</span>')
         out.append(rate_cell(o))
-        out.append('<span class="chip chip-fail">review</span>')
+        if not acked:
+            out.append('<span class="chip chip-fail">review</span>')
     else:
         hot = " col-score-hot" if (o["combined"] or 0) >= data["threshold"] else ""
         out.append(f'<span class="col-cv">{o["cv_match"]}</span>'
                    f'<span class="col-want">{o["want_match"]}</span>'
                    f'<span class="col-score{hot}">{o["combined"]}</span>')
         out.append(rate_cell(o))
+    if acked:
+        out.append(f'<span class="chip">seen {fmt_day(o.get("acknowledged_at"))}</span>')
     out.append(f'<span class="col-when">{fmt_day(o.get("first_seen"))}</span>')
 
     parts = [labelled("Rate", rate_detail(o))]
@@ -352,13 +365,23 @@ def render_opportunity(o: dict, data: dict, i: int) -> str:
         if o.get("act_by"):
             action += f" Act by {fmt_day(o['act_by'])}."
         parts.append(labelled("Next step", action))
-        if o["id"] in data["ageing_opp_ids"] and o.get("company"):
-            parts.append('<code>python scripts/touch.py mark '
-                         f'"{esc(o["company"])}" --as dead</code>')
+    if o.get("cv_version"):
+        parts.append(f'<div class="row-sub">Scored against {esc(o["cv_version"])}.</div>')
     parts.append(f'<div class="row-sub">Via {esc(via(o.get("source")))}.</div>')
     link = source_link(o.get("source_url"), "View the advert")
     if link:
         parts.append(link)
+    if data.get("serve"):
+        if acked:
+            parts.append(f'<button type="button" class="act-btn" '
+                         f'data-unack="{o["id"]}">Undo, back to the list</button>')
+        else:
+            parts.append(f'<button type="button" class="act-btn" '
+                         f'data-ack="{o["id"]}">Acknowledge, seen it</button>')
+    elif not acked:
+        parts.append('<div class="row-sub">Acknowledge it from the served '
+                     'page, or with <code>python scripts/touch.py mark '
+                     f'"{esc(o.get("company") or "")}" --as actioned</code></div>')
     out.append(detail(parts, did))
     return "".join(out)
 
@@ -712,6 +735,14 @@ a:hover{text-decoration-color:var(--accent)}
 .rate-close{color:var(--ink-2)}
 .panel-head .h-rate{grid-column:6;text-align:center}
 .legend{font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);margin:var(--space-8) 0 0;max-width:none;text-wrap:pretty}
+.row-acked{display:none;opacity:.6}
+.panel.show-acked .row-acked{display:block}
+.ack-toggle{font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;white-space:nowrap;border:1px solid var(--hairline);border-radius:var(--radius-pill);padding:3px 10px;margin-left:auto;cursor:pointer;background:var(--surface);color:var(--ink-3);transition:color var(--dur-instant) var(--ease)}
+.ack-toggle:hover{color:var(--ink-2)}
+.ack-toggle[aria-pressed="true"]{background:var(--surface-sunk);color:var(--ink-1)}
+.act-btn{font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;white-space:nowrap;border:1px solid var(--hairline-strong);border-radius:var(--radius-pill);padding:4px 12px;cursor:pointer;background:var(--surface);color:var(--ink-2);justify-self:start;transition:color var(--dur-instant) var(--ease),border-color var(--dur-instant) var(--ease)}
+.act-btn:hover{color:var(--accent);border-color:var(--accent-quiet)}
+.act-btn:disabled{color:var(--ink-3);cursor:wait}
 .row-summary > .chip{grid-column:7;justify-self:center}
 .panel-head .h-cv{grid-column:3;text-align:center}
 .panel-head .h-want{grid-column:4;text-align:center}
@@ -795,6 +826,12 @@ SCRIPT = """
     var panel = document.getElementById(btn.getAttribute('aria-controls'));
     if (panel) panel.hidden = open;
   });
+  var ackToggle = document.getElementById('ack-toggle');
+  if (ackToggle) ackToggle.addEventListener('click', function () {
+    var panel = ackToggle.closest('.section').querySelector('.panel');
+    var on = panel.classList.toggle('show-acked');
+    ackToggle.setAttribute('aria-pressed', String(on));
+  });
   var appearance = document.querySelectorAll('[data-appearance-set]');
   appearance.forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -821,6 +858,19 @@ SERVE_SCRIPT = """
 (function () {
   var refresh = document.getElementById('btn-refresh');
   if (refresh) refresh.addEventListener('click', function () { location.reload(); });
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-ack],[data-unack]');
+    if (!btn) return;
+    var ack = btn.hasAttribute('data-ack');
+    btn.disabled = true;
+    btn.textContent = ack ? 'Acknowledging' : 'Restoring';
+    fetch(ack ? '/ack' : '/unack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: Number(btn.dataset.ack || btn.dataset.unack) })
+    }).then(function () { location.reload(); })
+      .catch(function () { location.reload(); });
+  });
   var watch = document.getElementById('btn-watch');
   if (watch) watch.addEventListener('click', function () {
     watch.disabled = true;
@@ -865,6 +915,7 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
     now = radar_common.now_iso()
     today = now[:10]
     fresh = data["fresh"]
+    data["serve"] = serve
 
     opp_head = ('<div class="panel-head"><span></span><span>Role</span>'
                 '<span class="h-cv">Capability</span>'
@@ -884,13 +935,25 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
                 '<span class="h-chip">Status</span>'
                 '<span class="h-when">Seen</span></div>')
 
-    if fresh or not data["opportunities"]:
+    acked = data.get("acknowledged") or []
+    if fresh or (not data["opportunities"] and not acked):
         opp_body = ('<p class="empty">Nothing scored yet. The inbox workflow '
                     'fills this section once radar-inbox is armed.</p>')
     else:
         opp_body = opp_head + "".join(
             render_opportunity(o, data, i)
             for i, o in enumerate(data["opportunities"], 1))
+        if not data["opportunities"]:
+            opp_body += ('<p class="empty">Everything in sight is '
+                         'acknowledged. The toggle above shows the pile.</p>')
+        opp_body += "".join(
+            render_opportunity(o, data, i, acked=True)
+            for i, o in enumerate(acked, 1 + len(data["opportunities"])))
+    ack_toggle = ""
+    if acked and not fresh:
+        ack_toggle = (f'<button type="button" class="ack-toggle" '
+                      f'id="ack-toggle" aria-pressed="false">Show '
+                      f'acknowledged ({len(acked)})</button>')
     if fresh or not data["signals"]:
         sig_body = ('<p class="empty">No signals yet. The watcher fills this '
                     'section once radar-signals is armed and switched from '
@@ -963,8 +1026,10 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
          "Job adverts and approaches. Capability is judged on the CV alone, "
          "desire on the preferences file alone, and the two are never "
          f"blurred. The combined figure decides the digest, and the bar is "
-         f"{data['threshold']}.", "panel-blue", opp_body,
-         legend=rate_legend(data["floor"]))}
+         f"{data['threshold']}. Acknowledged rows leave this view and the "
+         "digest but never the database, so a seen advert can never "
+         "resurface.", "panel-blue", opp_body,
+         legend=rate_legend(data["floor"]), head_extra=ack_toggle)}
 {section("Signals", 0 if fresh else len(data["signals"]),
          "Funding, spin-offs, accelerator entries and first quality hires. "
          f"At {data['fast']} the phone gets a push once the workflow is "

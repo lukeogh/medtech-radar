@@ -187,10 +187,12 @@ def collect(conn, config: dict) -> dict:
     inbound = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
         " AND combined IS NOT NULL AND combined >= ? AND thread_type = 'inbound'"
+        " AND acknowledged_at IS NULL"
         " ORDER BY combined DESC, first_seen", (last_ts, threshold))]
     opp_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
         " AND combined IS NOT NULL AND combined >= ? AND thread_type = 'signal'"
+        " AND acknowledged_at IS NULL"
         " ORDER BY combined DESC, first_seen", (last_ts, threshold))]
     table_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM signals WHERE status = 'new' AND first_seen > ?"
@@ -208,6 +210,7 @@ def collect(conn, config: dict) -> dict:
     ageing = []
     for row in conn.execute(
             "SELECT * FROM opportunities WHERE status IN ('new','digested')"
+            " AND acknowledged_at IS NULL"
             " AND combined IS NOT NULL AND combined >= ?"
             " AND COALESCE(status_changed_at, first_seen) <= ?"
             " ORDER BY COALESCE(status_changed_at, first_seen)",
@@ -227,6 +230,7 @@ def collect(conn, config: dict) -> dict:
         for r in conn.execute(
             "SELECT title, company, notes FROM opportunities"
             " WHERE combined IS NULL AND status = 'new' AND first_seen > ?"
+            " AND acknowledged_at IS NULL"
             " ORDER BY first_seen", (last_ts,))
     ] + [
         {"label": r["headline"] or "Signal", "company": r["company"] or "",

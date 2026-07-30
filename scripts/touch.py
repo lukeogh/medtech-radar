@@ -21,10 +21,14 @@ Logging a newer touch for the same company supersedes its pending entry, so
 finishing an action means doing it and logging it.
 
 mark retires a thread so the digest's ageing section stops nagging about it.
-It flips matching opportunities and signals to actioned or dead, the only two
-statuses a human may set. new and digested stay machine-owned. Match by exact
-company name, case does not matter, or by a single row with --opportunity ID
-or --signal ID. It refuses when nothing matches.
+Since the 29 July brief, retirement for opportunities is acknowledgement.
+mark stamps acknowledged_at on matching opportunity rows, the same mark the
+dashboard's Acknowledge button makes, so the two mechanisms are one. The
+--as word is kept for signals, which still flip to actioned or dead, the
+only two statuses a human may set there. new and digested stay
+machine-owned everywhere. Match by exact company name, case does not
+matter, or by a single row with --opportunity ID or --signal ID. It
+refuses when nothing matches.
 
 --db PATH points at another database file. Tests use a throwaway one so the
 live db/radar.sqlite is never polluted.
@@ -185,14 +189,18 @@ def cmd_mark(args, conn) -> int:
 
     def flip_opportunity(where: str, params: tuple) -> None:
         rows = conn.execute(
-            f"SELECT id, company, title, status FROM opportunities WHERE {where}",
-            params).fetchall()
+            f"SELECT id, company, title, acknowledged_at FROM opportunities"
+            f" WHERE {where}", params).fetchall()
         for r in rows:
-            conn.execute("UPDATE opportunities SET status = ?,"
-                         " status_changed_at = ? WHERE id = ?",
-                         (status, now, r["id"]))
+            if r["acknowledged_at"]:
+                changed.append(f"opportunity {r['id']}. {r['company']}. "
+                               f"{r['title']}. Already acknowledged.")
+                continue
+            conn.execute("UPDATE opportunities SET acknowledged_at = ?"
+                         " WHERE id = ?", (now, r["id"]))
             changed.append(f"opportunity {r['id']}. {r['company']}. "
-                           f"{r['title']}. {r['status']} to {status}.")
+                           f"{r['title']}. Acknowledged, out of sight, "
+                           "still deduped.")
 
     def flip_signal(where: str, params: tuple) -> None:
         rows = conn.execute(

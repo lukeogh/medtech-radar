@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Serve the Radar dashboard in a browser, always fresh.
+"""Serve the Radar dashboard in a browser, always fresh, and take writes.
 
     python scripts/serve_dashboard.py
 
@@ -14,16 +14,25 @@ way. The inbox drains through n8n only, it needs the Gmail credential,
 so Check now covers the watchlist and the database re-render covers the
 rest.
 
-Standard library only, no new dependencies. The database is opened read
-only on every render, the same guarantee as build_dashboard.py. The
-watcher subprocess runs dry by default and only ever pushes to ntfy when
-the server is started with --push, mirroring check_signals.py itself.
+Since the 29 July brief this server is also the write path for human
+actions. Acknowledge and its undo land on POST /ack and /unack, and the
+CV update section lives at /cv. Page renders stay read only, the same
+guarantee as build_dashboard.py. Writes open their own short-lived
+connection through radar_common.get_db, which also applies migrations.
+
+The LAN-trust assumption, stated plainly. Anyone who can reach this port
+can read scored opportunities and acknowledge rows. Binding defaults to
+dashboard_host and dashboard_port in radar.yaml, 127.0.0.1 unless
+changed there. Open it to the LAN or tailnet only behind that trust, and
+if it ever goes behind the reverse proxy, give it authentication.
+
+Standard library only, no new dependencies. The watcher subprocess runs
+dry by default and only ever pushes to ntfy when the server is started
+with --push, mirroring check_signals.py itself.
 
 Flags:
-    --host ADDR   bind address, default 127.0.0.1. If you open this up,
-                  put it behind your reverse proxy with authentication,
-                  the page carries scored opportunities and names.
-    --port N      default 8787
+    --host ADDR   bind address, overrides dashboard_host in radar.yaml
+    --port N      overrides dashboard_port in radar.yaml
     --db PATH     database override, tests use this
     --push        Check now runs the watcher in push mode. Only after
                   the system is armed.
@@ -86,6 +95,41 @@ def render() -> bytes:
     page = build_dashboard.render_page(data, config, db_label,
                                        REPO_ROOT / "dashboard.html", serve=True)
     return page.encode("utf-8")
+
+
+def db_path() -> Path:
+    return Path(ARGS.db).resolve() if ARGS.db else radar_common.DB_PATH
+
+
+def set_acknowledged(item_id: int, on: bool) -> dict:
+    """Stamp or clear acknowledged_at on one opportunity row.
+
+    The one human write this page makes. A short-lived writable
+    connection, WAL and the busy timeout make it safe next to the n8n
+    writers. The row never leaves the database, so the URL-hash dedupe
+    keeps rejecting the same advert forever.
+    """
+    conn = radar_common.get_db(db_path())
+    try:
+        if on:
+            cur = conn.execute(
+                "UPDATE opportunities SET acknowledged_at = ?"
+                " WHERE id = ? AND acknowledged_at IS NULL",
+                (radar_common.now_iso(), item_id))
+        else:
+            cur = conn.execute(
+                "UPDATE opportunities SET acknowledged_at = NULL"
+                " WHERE id = ? AND acknowledged_at IS NOT NULL",
+                (item_id,))
+        conn.commit()
+        if cur.rowcount == 0:
+            return {"ok": False,
+                    "note": f"no opportunity {item_id} in the state that "
+                            "action expects, maybe already handled"}
+        return {"ok": True, "id": item_id,
+                "acknowledged": bool(on)}
+    finally:
+        conn.close()
 
 
 def run_watcher() -> dict:
@@ -152,11 +196,30 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, b"Nothing here. The dashboard lives at /.",
                    "text/plain; charset=utf-8")
 
+    def _read_json_body(self) -> dict | None:
+        try:
+            length = min(int(self.headers.get("Content-Length") or 0),
+                         1_000_000)
+            return json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, TypeError):
+            return None
+
     def do_POST(self):
         path = urlsplit(self.path).path
         if path == "/watch":
             result = run_watcher()
             self._send(200 if result["ok"] else 502,
+                       json.dumps(result).encode(), "application/json")
+            return
+        if path in ("/ack", "/unack"):
+            body = self._read_json_body()
+            item_id = body.get("id") if isinstance(body, dict) else None
+            if not isinstance(item_id, int):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            result = set_acknowledged(item_id, path == "/ack")
+            self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
             return
         self._send(404, b"Nothing here.", "text/plain; charset=utf-8")
@@ -169,15 +232,24 @@ def main(argv=None) -> int:
     global ARGS
     parser = argparse.ArgumentParser(
         description="Serve the Radar dashboard, re-rendered on every load.")
-    parser.add_argument("--host", default="127.0.0.1",
-                        help="bind address, default 127.0.0.1")
-    parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument("--host", default=None,
+                        help="bind address, overrides dashboard_host in radar.yaml")
+    parser.add_argument("--port", type=int, default=None,
+                        help="port, overrides dashboard_port in radar.yaml")
     parser.add_argument("--db", help="database path override")
     parser.add_argument("--push", action="store_true",
                         help="Check now runs the watcher in push mode")
     ARGS = parser.parse_args(argv)
 
     radar_common.load_env()
+    config = radar_common.load_config()
+    if ARGS.host is None:
+        ARGS.host = str(config.get("dashboard_host", "127.0.0.1"))
+    if ARGS.port is None:
+        ARGS.port = int(config.get("dashboard_port", 8787))
+    # Apply schema and migrations once up front, so read-only renders of an
+    # older database see every column the page expects.
+    radar_common.get_db(db_path()).close()
     try:
         server = RadarServer((ARGS.host, ARGS.port), Handler)
     except OSError:

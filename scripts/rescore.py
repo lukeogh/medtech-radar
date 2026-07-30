@@ -34,8 +34,11 @@ import check_signals
 
 
 def rescore_opportunities(conn, config, usage_total) -> tuple[int, int]:
+    # Acknowledged rows are dismissed, re-scoring them would spend tokens
+    # on something a human already waved past.
     rows = conn.execute(
-        "SELECT * FROM opportunities WHERE combined IS NULL").fetchall()
+        "SELECT * FROM opportunities WHERE combined IS NULL"
+        " AND acknowledged_at IS NULL").fetchall()
     if not rows:
         return 0, 0
     _, score_fn = scoring.get_mock_fns()

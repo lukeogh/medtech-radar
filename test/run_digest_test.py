@@ -276,22 +276,24 @@ def main() -> int:
           and gate["send"] is True,
           "an ageing-only week still sends with the flag off")
 
-    # Retirement. touch.py mark is the only way a human ends a thread.
+    # Retirement, which since the 29 July brief is acknowledgement for
+    # opportunities. touch.py mark stamps acknowledged_at, the same mark
+    # the dashboard button makes, and statuses stay machine-owned.
     proc = run_script(TOUCH, ["mark", "Nonexistent Corp", "--as", "dead",
                               "--db", str(db)])
     check(proc.returncode != 0, "marking an unknown company is refused")
     proc = run_script(TOUCH, ["mark", "orvala health", "--as", "actioned",
                               "--db", str(db)])
     check(proc.returncode == 0 and "Orvala" in proc.stdout,
-          "mark by company flips the row and says so, case insensitive")
+          "mark by company acknowledges the row and says so, case insensitive")
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
-    orvala_row = conn.execute("SELECT status, status_changed_at FROM"
+    orvala_row = conn.execute("SELECT status, acknowledged_at FROM"
                               " opportunities WHERE company = 'Orvala Health'"
                               ).fetchone()
-    check(orvala_row["status"] == "actioned"
-          and (orvala_row["status_changed_at"] or "") > iso(now - timedelta(days=1)),
-          "mark sets actioned and stamps status_changed_at")
+    check(bool(orvala_row["acknowledged_at"])
+          and orvala_row["status"] in ("new", "digested"),
+          "mark stamps acknowledged_at and leaves the status machine-owned")
     late_id = conn.execute("SELECT id FROM opportunities"
                            " WHERE company = 'Lateshift Labs'").fetchone()["id"]
     conn.close()
@@ -300,19 +302,20 @@ def main() -> int:
     check(proc.returncode == 0, "mark by opportunity id works")
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
-    late_status = conn.execute("SELECT status FROM opportunities WHERE id = ?",
-                               (late_id,)).fetchone()["status"]
-    check(late_status == "dead", "the id-marked row is dead")
+    late_ack = conn.execute("SELECT acknowledged_at FROM opportunities"
+                            " WHERE id = ?", (late_id,)).fetchone()[0]
+    check(bool(late_ack), "the id-marked row is acknowledged")
     conn.close()
     proc = run_script(BUILD, ["--db", str(db)])
     after_mark = parse_step(proc, "post-mark build")
     check("Orvala" not in after_mark["text"],
           "a marked item drops out of the ageing section")
 
-    # Retire everything, a truly empty week holds with the flag off and
-    # sends a quiet-week digest with it on.
+    # Acknowledge everything, a truly empty week holds with the flag off
+    # and sends a quiet-week digest with it on.
     conn = sqlite3.connect(db)
-    conn.execute("UPDATE opportunities SET status = 'dead'")
+    conn.execute("UPDATE opportunities SET acknowledged_at = ?"
+                 " WHERE acknowledged_at IS NULL", (iso(now),))
     conn.execute("UPDATE signals SET status = 'dead'")
     conn.commit()
     conn.close()
