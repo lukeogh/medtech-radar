@@ -30,9 +30,11 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import radar_common
+import cv_store
 
 REPO_ROOT = radar_common.REPO_ROOT
 PROMPTS_DIR = REPO_ROOT / "prompts"
+PROFILE_DIR = REPO_ROOT / "config" / "profile"
 
 MAX_BODY_CHARS = 12000  # cost guardrail on extraction input
 MAX_TOKENS = 1024       # per the build conventions, extraction and scoring
@@ -64,21 +66,48 @@ def assert_profile_ready(config: dict) -> None:
     """
     if _fixture_allowed(config):
         return
-    cv_txt = REPO_ROOT / "config" / "profile" / "cv.txt"
+    if cv_store.active_cv_name(PROFILE_DIR):
+        return
+    cv_txt = PROFILE_DIR / "cv.txt"
     cv_pdf = REPO_ROOT / config.get("cv_file", "config/profile/cv.pdf")
     if not cv_txt.exists() and not cv_pdf.exists():
         raise SystemExit(FIXTURE_REFUSAL)
 
 
+def get_cv_version(config: dict) -> str:
+    """The label of the CV a score would be made against, for stamping.
+
+    Resolution order matches load_cv_text exactly. Uploaded versions via
+    the active marker first, then the legacy cv.txt and cv.pdf, then the
+    fixture, so the stamp on a row always names the document that shaped
+    its score.
+    """
+    active = cv_store.active_cv_name(PROFILE_DIR)
+    if active:
+        return active
+    if (PROFILE_DIR / "cv.txt").exists():
+        return "cv.txt"
+    cv_pdf = REPO_ROOT / config.get("cv_file", "config/profile/cv.pdf")
+    if cv_pdf.exists():
+        return cv_pdf.name
+    return "fixture profile_snapshot.md"
+
+
 def load_cv_text(config: dict) -> tuple[str, str]:
     """CV text plus a label saying where it came from.
 
-    Order: config/profile/cv.txt, then cv.pdf via pypdf if installed, then
-    the test fixture. The fixture is for mock mode and deliberate
-    experiments only. A live run that would fall through to it stops with a
-    clear error instead, before any API call.
+    Order: the version the cv.active marker points at, then
+    config/profile/cv.txt, then cv.pdf via pypdf if installed, then the
+    test fixture. The fixture is for mock mode and deliberate experiments
+    only. A live run that would fall through to it stops with a clear
+    error instead, before any API call.
     """
-    cv_txt = REPO_ROOT / "config" / "profile" / "cv.txt"
+    active = cv_store.active_cv_name(PROFILE_DIR)
+    if active:
+        return ((PROFILE_DIR / active).read_text(encoding="utf-8"),
+                f"config/profile/{active}")
+
+    cv_txt = PROFILE_DIR / "cv.txt"
     if cv_txt.exists():
         return cv_txt.read_text(encoding="utf-8"), "config/profile/cv.txt"
 

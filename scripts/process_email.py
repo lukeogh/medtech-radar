@@ -136,6 +136,9 @@ def main(argv=None) -> int:
     # The rate floor fails loudly here, before any token is spent, when the
     # preferences file has lost its machine-readable line.
     floor = radar_common.read_rate_floor(config)
+    # Every stored score is stamped with the CV version that shaped it, so
+    # a score that predates a CV change is obvious at a glance.
+    cv_version = score_item.get_cv_version(config)
 
     # utf-8-sig and lstrip cope with a BOM from Windows shells and editors.
     raw = (base64.b64decode(args.b64).decode("utf-8-sig") if args.b64
@@ -198,7 +201,7 @@ def main(argv=None) -> int:
         radar_common.add_usage(usage_total, s_usage)
 
         insert_opportunity(conn, h, now, source, opp, scored, s_note,
-                           pay_columns(opp, config, floor))
+                           pay_columns(opp, config, floor), cv_version)
         new_count += 1
         item = {"company": opp.get("company", ""),
                 "title": opp.get("title", ""),

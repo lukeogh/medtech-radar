@@ -280,6 +280,176 @@ def main() -> int:
             server.shutdown()
             server.server_close()
 
+    # ----- CV store. Extraction, staged confirm, append-only history.
+    import base64
+    import io
+    import os as os_mod
+    import zipfile
+
+    import cv_store
+    import process_email
+    import score_item
+
+    doc_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+        'wordprocessingml/2006/main"><w:body>'
+        '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>'
+        '<w:r><w:t>Luke Keogh</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>Software director, medical devices and IVD.</w:t>'
+        '</w:r></w:p>'
+        '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/></w:numPr></w:pPr>'
+        '<w:r><w:t>IEC 62304 audits end to end.</w:t></w:r></w:p>'
+        '</w:body></w:document>')
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("[Content_Types].xml",
+                    '<?xml version="1.0"?><Types xmlns="http://schemas.'
+                    'openxmlformats.org/package/2006/content-types"/>')
+        zf.writestr("word/document.xml", doc_xml)
+    docx_bytes = buf.getvalue()
+
+    md = cv_store.extract_markdown("cv_sample.docx", docx_bytes)
+    check("# Luke Keogh" in md, "docx heading extracts as a markdown heading")
+    check("Software director, medical devices and IVD." in md,
+          "docx body text extracts intact")
+    check("- IEC 62304 audits end to end." in md,
+          "docx list items extract as markdown bullets")
+    try:
+        cv_store.extract_markdown("cv.exe", b"MZ junk")
+        check(False, "an unsupported upload type is refused")
+    except cv_store.UploadError as err:
+        check("Unsupported" in str(err), "an unsupported upload type is refused")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        old = base / "cv-20250101-000000.md"
+        old.write_text("The old CV text.\n", encoding="utf-8")
+        (base / cv_store.MARKER_NAME).write_text(old.name, encoding="utf-8")
+
+        token = cv_store.stage(md, base)
+        check(cv_store.read_pending(token, base) == md,
+              "a staged upload reads back exactly as extracted")
+        result = cv_store.confirm(token, base)
+        new_name = result["file"]
+        check(new_name.startswith("cv-") and new_name.endswith(".md"),
+              f"confirm writes a dated version ({new_name})")
+        check(cv_store.active_cv_name(base) == new_name,
+              "confirm points the active marker at the new version")
+        check(old.exists()
+              and old.read_text(encoding="utf-8") == "The old CV text.\n",
+              "the previous version file still exists untouched")
+        check(set(cv_store.history(base)) >= {old.name, new_name},
+              "history lists both versions, append only")
+        check(not list(base.glob("pending-cv-*.md")),
+              "confirm consumes the pending file")
+
+        token2 = cv_store.stage("Discard me.\n", base)
+        cv_store.discard(token2, base)
+        check(not list(base.glob("pending-cv-*.md")),
+              "discard forgets the staged upload")
+        try:
+            cv_store.confirm(token2, base)
+            check(False, "a spent token is refused")
+        except cv_store.UploadError:
+            check(True, "a spent token is refused")
+
+        # A fresh score carries the version stamp of the CV the marker
+        # names. In-process run with the profile dir pointed at this
+        # temp store, mock mode, throwaway database.
+        db2 = base / "stamp.sqlite"
+        email = {"subject": "One new role", "from": "alerts@jobs.example",
+                 "date": "2026-07-29",
+                 "body_text": ("Fractional Software Director, IVD\n"
+                               "Stampcheck Dx · Ghent, Belgium (Hybrid)\n"
+                               "€900 per day\n"
+                               "https://example.invalid/stampcheck-role\n"),
+                 "body_html": ""}
+        b64 = base64.b64encode(
+            json_mod.dumps(email).encode("utf-8")).decode("ascii")
+        saved_dir = score_item.PROFILE_DIR
+        saved_mock = os_mod.environ.get("RADAR_MOCK")
+        try:
+            score_item.PROFILE_DIR = base
+            os_mod.environ["RADAR_MOCK"] = "1"
+            code = process_email.main(["--b64", b64, "--db", str(db2),
+                                       "--mock"])
+        finally:
+            score_item.PROFILE_DIR = saved_dir
+            if saved_mock is None:
+                os_mod.environ.pop("RADAR_MOCK", None)
+            else:
+                os_mod.environ["RADAR_MOCK"] = saved_mock
+        check(code == 0, "the stamping pipeline run exits 0")
+        conn = sqlite3.connect(db2)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT cv_version, rate_band FROM opportunities"
+                           " WHERE company = 'Stampcheck Dx'").fetchone()
+        conn.close()
+        check(row is not None and row["cv_version"] == new_name,
+              f"a fresh score is stamped with the uploaded CV version "
+              f"(got {row['cv_version'] if row else None})")
+        check(row is not None and row["rate_band"] == "above",
+              "the stamped row also banded its euro day rate")
+
+        # The stretch goal. A capped re-score of rows whose stamp
+        # predates the active CV, skipping acknowledged rows.
+        import contextlib
+        import rescore as rescore_mod
+
+        conn = radar_common.get_db(db2)
+        stale_rows = [
+            ("st1", "Stale One", None),
+            ("st2", "Stale Two", None),
+            ("st3", "Stale Three", None),
+            ("st4", "Stale Acked", radar_common.now_iso()),
+        ]
+        for h, company, ack in stale_rows:
+            conn.execute(
+                "INSERT INTO opportunities (url_hash, first_seen, company,"
+                " title, thread_type, status, cv_match, want_match,"
+                " combined, cv_version, acknowledged_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (h, radar_common.now_iso(), company,
+                 "Fractional IVD Software Director", "inbound", "new",
+                 80, 80, 80, "cv-ancient.md", ack))
+        conn.commit()
+        conn.close()
+
+        saved_dir = score_item.PROFILE_DIR
+        saved_mock = os_mod.environ.get("RADAR_MOCK")
+        out_buf = io.StringIO()
+        try:
+            score_item.PROFILE_DIR = base
+            os_mod.environ["RADAR_MOCK"] = "1"
+            with contextlib.redirect_stdout(out_buf):
+                code = rescore_mod.main(["--stale-cv", "--cap", "2",
+                                         "--db", str(db2), "--mock"])
+        finally:
+            score_item.PROFILE_DIR = saved_dir
+            if saved_mock is None:
+                os_mod.environ.pop("RADAR_MOCK", None)
+            else:
+                os_mod.environ["RADAR_MOCK"] = saved_mock
+        result = json_mod.loads(out_buf.getvalue().strip() or "{}")
+        check(code == 0 and result.get("stale_rescored") == 2,
+              f"the stale-cv pass re-scores exactly the cap "
+              f"(got {result.get('stale_rescored')})")
+        check(result.get("remaining_stale") == 1,
+              f"the pass reports the one unacknowledged row still stale "
+              f"(got {result.get('remaining_stale')})")
+        conn = sqlite3.connect(db2)
+        conn.row_factory = sqlite3.Row
+        acked_ver = conn.execute("SELECT cv_version FROM opportunities"
+                                 " WHERE url_hash = 'st4'").fetchone()[0]
+        restamped = conn.execute(
+            "SELECT COUNT(*) FROM opportunities WHERE cv_version = ?"
+            " AND url_hash LIKE 'st%'", (new_name,)).fetchone()[0]
+        conn.close()
+        check(acked_ver == "cv-ancient.md",
+              "the acknowledged row keeps its old stamp, never re-scored")
+        check(restamped == 2, "re-scored rows carry the new version stamp")
+
     # ----- sanitiser worked cases
     offending = ("No action needed — the rate is less than half the floor; "
                  "renegotiation to £650 a day would change that.")

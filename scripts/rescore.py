@@ -33,16 +33,12 @@ import score_item as scoring
 import check_signals
 
 
-def rescore_opportunities(conn, config, usage_total) -> tuple[int, int]:
-    # Acknowledged rows are dismissed, re-scoring them would spend tokens
-    # on something a human already waved past.
-    rows = conn.execute(
-        "SELECT * FROM opportunities WHERE combined IS NULL"
-        " AND acknowledged_at IS NULL").fetchall()
+def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
     if not rows:
         return 0, 0
     _, score_fn = scoring.get_mock_fns()
     system_blocks = scoring.build_scorer_system(config)
+    cv_version = scoring.get_cv_version(config)
     fixed = failed = 0
     for row in rows:
         opp = {
@@ -62,15 +58,47 @@ def rescore_opportunities(conn, config, usage_total) -> tuple[int, int]:
         conn.execute(
             "UPDATE opportunities SET cv_match = ?, want_match = ?,"
             " combined = ?, one_line_why = ?, red_flags = ?,"
-            " suggested_action = ?, act_by = ?, thread_type = ?, notes = NULL"
+            " suggested_action = ?, act_by = ?, thread_type = ?, notes = NULL,"
+            " cv_version = ?"
             " WHERE id = ?",
             (scored["cv_match"], scored["want_match"], scored["combined"],
              scored["one_line_why"], json.dumps(scored["red_flags"]),
              scored["suggested_action"], scored["act_by"],
-             scored["thread_type"], row["id"]))
+             scored["thread_type"], cv_version, row["id"]))
         fixed += 1
     conn.commit()
     return fixed, failed
+
+
+def rescore_opportunities(conn, config, usage_total) -> tuple[int, int]:
+    # Acknowledged rows are dismissed, re-scoring them would spend tokens
+    # on something a human already waved past.
+    rows = conn.execute(
+        "SELECT * FROM opportunities WHERE combined IS NULL"
+        " AND acknowledged_at IS NULL").fetchall()
+    return _rescore_rows(conn, config, usage_total, rows)
+
+
+def rescore_stale_cv(conn, config, usage_total, cap: int) -> tuple[int, int, int]:
+    """Re-score scored rows whose stamp predates the active CV.
+
+    The stretch goal from the 29 July brief. Unacknowledged rows only,
+    capped per run, so a CV change never triggers an unbounded spend. The
+    caller confirms before invoking, and the cap plus the runs-table
+    logging are the cost guardrails.
+    """
+    current = scoring.get_cv_version(config)
+    rows = conn.execute(
+        "SELECT * FROM opportunities WHERE combined IS NOT NULL"
+        " AND acknowledged_at IS NULL"
+        " AND COALESCE(cv_version, '') <> ?"
+        " ORDER BY combined DESC LIMIT ?", (current, cap)).fetchall()
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM opportunities WHERE combined IS NOT NULL"
+        " AND acknowledged_at IS NULL AND COALESCE(cv_version, '') <> ?",
+        (current,)).fetchone()[0] - len(rows)
+    fixed, failed = _rescore_rows(conn, config, usage_total, rows)
+    return fixed, failed, max(0, remaining)
 
 
 def rescore_signals(conn, config, usage_total) -> tuple[int, int]:
@@ -132,6 +160,11 @@ def main(argv=None) -> int:
 
     parser = argparse.ArgumentParser(
         description="Re-score rows with null scores, in place.")
+    parser.add_argument("--stale-cv", action="store_true",
+                        help="instead re-score scored rows whose stamp "
+                             "predates the active CV, capped")
+    parser.add_argument("--cap", type=int, default=25,
+                        help="most rows per --stale-cv run, default 25")
     parser.add_argument("--mock", action="store_true",
                         help="force RADAR_MOCK, deterministic offline mocks")
     parser.add_argument("--quiet", action="store_true", help="no stdout JSON")
@@ -145,11 +178,28 @@ def main(argv=None) -> int:
     conn = radar_common.get_db(Path(args.db).resolve() if args.db else None)
 
     usage_total: dict = {}
+    mode = "mock" if radar_common.mock_mode_active() else "live"
+
+    if args.stale_cv:
+        fixed, failed, remaining = rescore_stale_cv(conn, config, usage_total,
+                                                    args.cap)
+        radar_common.log_run(conn, "rescore", mode=mode,
+                             items_in=fixed + failed, items_new=fixed,
+                             model=config.get("claude_model_score"),
+                             usage=usage_total,
+                             note=f"stale-cv pass, {remaining} still stale")
+        conn.close()
+        if not args.quiet:
+            print(json.dumps({"stale_rescored": fixed,
+                              "still_failing": failed,
+                              "remaining_stale": remaining,
+                              "cv_version": scoring.get_cv_version(config)}))
+        return 0
+
     opp_fixed, opp_failed = rescore_opportunities(conn, config, usage_total)
     sig_fixed, sig_failed = rescore_signals(conn, config, usage_total)
     still = opp_failed + sig_failed
 
-    mode = "mock" if radar_common.mock_mode_active() else "live"
     radar_common.log_run(conn, "rescore", mode=mode,
                          items_in=opp_fixed + sig_fixed + still,
                          items_new=opp_fixed + sig_fixed,

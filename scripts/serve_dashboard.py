@@ -65,6 +65,8 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import radar_common
 import build_dashboard
+import cv_store
+import score_item
 
 REPO_ROOT = radar_common.REPO_ROOT
 
@@ -132,6 +134,194 @@ def set_acknowledged(item_id: int, on: bool) -> dict:
         conn.close()
 
 
+CV_SCRIPT = """
+(function () {
+  var input = document.getElementById('cv-file');
+  var preview = document.getElementById('cv-preview');
+  var stagePane = document.getElementById('cv-stage');
+  var note = document.getElementById('cv-note');
+  var token = null;
+  function say (text, bad) {
+    note.textContent = text;
+    note.className = 'cv-note' + (bad ? ' bad' : '');
+  }
+  function post (url, body, headers) {
+    return fetch(url, { method: 'POST', body: body, headers: headers || {} })
+      .then(function (r) { return r.json().then(function (j) {
+        if (!r.ok) throw new Error(j.note || ('HTTP ' + r.status));
+        return j;
+      }); });
+  }
+  if (input) input.addEventListener('change', function () {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    say('Extracting ' + file.name + '\\u2026');
+    post('/cv/preview', file, { 'X-Filename': file.name })
+      .then(function (j) {
+        token = j.token;
+        preview.textContent = j.markdown;
+        stagePane.hidden = false;
+        say('Read it. Confirm makes this the active CV, Discard forgets it.');
+      })
+      .catch(function (err) { say(err.message, true); });
+  });
+  var confirmBtn = document.getElementById('cv-confirm');
+  if (confirmBtn) confirmBtn.addEventListener('click', function () {
+    if (!token) return;
+    confirmBtn.disabled = true;
+    post('/cv/confirm', JSON.stringify({ token: token }),
+         { 'Content-Type': 'application/json' })
+      .then(function () { location.reload(); })
+      .catch(function (err) { confirmBtn.disabled = false; say(err.message, true); });
+  });
+  var discardBtn = document.getElementById('cv-discard');
+  if (discardBtn) discardBtn.addEventListener('click', function () {
+    if (!token) return;
+    post('/cv/discard', JSON.stringify({ token: token }),
+         { 'Content-Type': 'application/json' })
+      .then(function () { location.reload(); })
+      .catch(function (err) { say(err.message, true); });
+  });
+  var rescoreBtn = document.getElementById('cv-rescore');
+  var rescoreNote = document.getElementById('cv-rescore-note');
+  if (rescoreBtn) rescoreBtn.addEventListener('click', function () {
+    if (!window.confirm('Re-score up to 25 unacknowledged items against '
+        + 'the active CV? This spends real tokens.')) return;
+    rescoreBtn.disabled = true;
+    rescoreBtn.textContent = 'Re-scoring';
+    post('/cv/rescore', JSON.stringify({ confirm: true }),
+         { 'Content-Type': 'application/json' })
+      .then(function (j) {
+        rescoreBtn.disabled = false;
+        rescoreBtn.textContent = 'Re-score stale items';
+        rescoreNote.textContent = 'Re-scored ' + (j.stale_rescored || 0)
+          + ', still stale ' + (j.remaining_stale || 0) + '.';
+      })
+      .catch(function (err) {
+        rescoreBtn.disabled = false;
+        rescoreBtn.textContent = 'Re-score stale items';
+        rescoreNote.textContent = err.message;
+      });
+  });
+})();
+"""
+
+CV_CSS = """
+.cv-wrap{max-width:72ch}
+.cv-note{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2);margin:var(--space-12) 0}
+.cv-note.bad{color:var(--fail)}
+.cv-preview{font:400 var(--text-xs)/1.6 var(--font-mono);background:var(--surface);border:1px solid var(--panel-rule);border-radius:var(--radius);padding:var(--space-16);white-space:pre-wrap;max-height:420px;overflow:auto}
+.cv-history{font:400 var(--text-sm)/1.9 var(--font-sans);color:var(--ink-2);margin:0;padding-left:1.2em}
+input[type=file]{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2)}
+"""
+
+
+def render_cv_page() -> bytes:
+    """The CV update section. Upload, preview, explicit confirm."""
+    config = radar_common.load_config()
+    active = cv_store.active_cv_name() or score_item.get_cv_version(config)
+    versions = cv_store.history()
+    history_html = ("".join(
+        f"<li>{build_dashboard.esc(v)}"
+        + (" &mdash; active" if v == active else "") + "</li>"
+        for v in versions) or "<li>No uploaded versions yet. The scorer is "
+        f"reading {build_dashboard.esc(active)}.</li>")
+    page = f"""<!doctype html>
+<html lang="en-GB" data-appearance="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MedTech Radar. CV update.</title>
+<link rel="icon" href="{build_dashboard.FAVICON}">
+<style>{build_dashboard.CSS}{CV_CSS}</style>
+</head>
+<body>
+<main class="page cv-wrap">
+<header class="masthead"><div>
+<div class="brand">{build_dashboard.MARK_SVG}<h1>CV update</h1></div>
+<p class="masthead-sub">The scorer reads whichever version the marker
+points at. Confirming below moves the marker, every accepted version
+stays on disk, and nothing is ever overwritten.</p>
+</div>
+<div class="controls"><a href="/">Back to the dashboard</a></div>
+</header>
+<section class="section">
+<div class="section-head"><h2>Active version</h2></div>
+<p class="section-note">Scores are stamped with the version that shaped
+them, visible in each row's detail, so a score that predates a CV change
+is obvious.</p>
+<div class="panel panel-sage"><p class="empty">The scorer currently reads
+<strong>{build_dashboard.esc(active)}</strong>.</p></div>
+</section>
+<section class="section">
+<div class="section-head"><h2>Upload a new CV</h2></div>
+<p class="section-note">md, txt, docx or pdf. Anything not already
+markdown is extracted to markdown, and nothing becomes active until you
+confirm the extracted text below.</p>
+<div class="panel panel-sand" style="padding:16px">
+<input type="file" id="cv-file" accept=".md,.markdown,.txt,.docx,.pdf">
+<p class="cv-note" id="cv-note">Pick a file to see its extracted text.</p>
+<div id="cv-stage" hidden>
+<pre class="cv-preview" id="cv-preview"></pre>
+<p style="display:flex;gap:12px;margin:16px 0 4px">
+<button type="button" class="act-btn" id="cv-confirm">Confirm, make it active</button>
+<button type="button" class="act-btn" id="cv-discard">Discard</button>
+</p>
+</div>
+</div>
+</section>
+<section class="section">
+<div class="section-head"><h2>History</h2></div>
+<p class="section-note">Append only. Old versions stay for the day a
+score needs explaining.</p>
+<div class="panel" style="padding:12px 16px">
+<ul class="cv-history">{history_html}</ul>
+</div>
+</section>
+<section class="section">
+<div class="section-head"><h2>After a change</h2></div>
+<p class="section-note">Scores made against an older CV stay stamped with
+it. This re-scores up to 25 unacknowledged items against the active
+version, with a confirm step, and can be run again for the rest.</p>
+<div class="panel panel-clay" style="padding:16px">
+<button type="button" class="act-btn" id="cv-rescore">Re-score stale items</button>
+<p class="cv-note" id="cv-rescore-note"></p>
+</div>
+</section>
+</main>
+<script>{build_dashboard.SCRIPT}{CV_SCRIPT}</script>
+</body>
+</html>"""
+    return page.encode("utf-8")
+
+
+def run_stale_rescore() -> dict:
+    """One capped stale-CV re-score pass. Serialised like the watcher."""
+    if not WATCH_LOCK.acquire(blocking=False):
+        return {"ok": False, "note": "another background run is in progress"}
+    try:
+        cmd = [sys.executable, str(SCRIPT_DIR / "rescore.py"),
+               "--stale-cv", "--cap", "25"]
+        if ARGS.db:
+            cmd += ["--db", ARGS.db]
+        proc = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", timeout=600,
+                              cwd=str(REPO_ROOT))
+        if proc.returncode != 0:
+            return {"ok": False,
+                    "note": (proc.stderr or "").strip()[-400:]}
+        raw = (proc.stdout or "").strip()
+        start = raw.find("{")
+        summary = json.loads(raw[start:]) if start >= 0 else {}
+        return {"ok": True, **summary}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "note": "the re-score run timed out"}
+    except json.JSONDecodeError:
+        return {"ok": False, "note": "the re-score run printed no JSON"}
+    finally:
+        WATCH_LOCK.release()
+
+
 def run_watcher() -> dict:
     """One watcher pass. Serialised, so two clicks cannot overlap."""
     if not WATCH_LOCK.acquire(blocking=False):
@@ -184,6 +374,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")
             return
+        if path == "/cv":
+            try:
+                self._send(200, render_cv_page(), "text/html; charset=utf-8")
+            except Exception as err:  # noqa: BLE001
+                self._send(500, f"Render failed. {type(err).__name__}: {err}"
+                           .encode(), "text/plain; charset=utf-8")
+            return
         if path in STATIC:
             rel, ctype = STATIC[path]
             target = REPO_ROOT / rel
@@ -221,6 +418,52 @@ class Handler(BaseHTTPRequestHandler):
             result = set_acknowledged(item_id, path == "/ack")
             self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
+            return
+        if path == "/cv/preview":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > cv_store.MAX_UPLOAD_BYTES:
+                    raise cv_store.UploadError(
+                        "The file is bigger than any CV needs to be.")
+                data = self.rfile.read(length)
+                filename = self.headers.get("X-Filename") or ""
+                markdown = cv_store.extract_markdown(filename, data)
+                token = cv_store.stage(markdown)
+                self._send(200, json.dumps(
+                    {"ok": True, "token": token, "markdown": markdown,
+                     "filename": filename}).encode(), "application/json")
+            except cv_store.UploadError as err:
+                self._send(422, json.dumps(
+                    {"ok": False, "note": str(err)}).encode(),
+                    "application/json")
+            return
+        if path == "/cv/rescore":
+            body = self._read_json_body()
+            if not (isinstance(body, dict) and body.get("confirm") is True):
+                self._send(400, json.dumps(
+                    {"ok": False, "note": "re-scoring spends real tokens, "
+                     "send {\"confirm\": true} to mean it"}).encode(),
+                    "application/json")
+                return
+            result = run_stale_rescore()
+            self._send(200 if result.get("ok") else 502,
+                       json.dumps(result).encode(), "application/json")
+            return
+        if path in ("/cv/confirm", "/cv/discard"):
+            body = self._read_json_body()
+            token = body.get("token") if isinstance(body, dict) else None
+            try:
+                if path == "/cv/confirm":
+                    result = cv_store.confirm(str(token or ""))
+                    self._send(200, json.dumps(
+                        {"ok": True, **result}).encode(), "application/json")
+                else:
+                    cv_store.discard(str(token or ""))
+                    self._send(200, b'{"ok": true}', "application/json")
+            except cv_store.UploadError as err:
+                self._send(409, json.dumps(
+                    {"ok": False, "note": str(err)}).encode(),
+                    "application/json")
             return
         self._send(404, b"Nothing here.", "text/plain; charset=utf-8")
 

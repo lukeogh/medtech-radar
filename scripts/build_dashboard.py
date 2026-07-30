@@ -978,6 +978,8 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
             render_ageing_row(a, i) for i, a in enumerate(data["ageing"], 1))
 
     outlinks = []
+    if serve:
+        outlinks.append('<li><a href="/cv">Update the CV the scorer reads</a></li>')
     n8n = safe_url(config.get("n8n_url"))
     if n8n:
         outlinks.append(f'<li><a href="{esc(n8n)}" target="_blank" '
