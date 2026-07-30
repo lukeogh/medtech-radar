@@ -194,10 +194,12 @@ def main() -> int:
           " free text" + (f" (violations {dirty})" if dirty else ""))
 
     # Pay doctrine. The rate band column carries pay, so free text never
-    # mentions it. Currency symbols and pay phrasing are both violations.
+    # mentions amounts, currencies or rate comparisons. Engagement-type
+    # words like "salaried" or "permanent" are fit commentary and stay
+    # legal, the ban is on money talk, not on naming the wrong contract.
     pay_words = re.compile(
-        r"[£€$]|\b(day rate|per day|per annum|per hour|salary|salaried|"
-        r"a year|an hour)\b", re.IGNORECASE)
+        r"[£€$]|\b(day rate|per day|per annum|per hour|salary|"
+        r"remuneration|compensation|underpaid|the floor)\b", re.IGNORECASE)
     pay_dirty = []
     for r in rows:
         for field in ("one_line_why", "suggested_action", "red_flags"):
