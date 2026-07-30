@@ -1263,9 +1263,18 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
     coverage_note = (f'<li><span class="num">{answering}</span>of {watched} '
                      "sources answering</li>")
     quiet_items = "".join(f"<li>{esc(q)}</li>" for q in quiet[:5])
+    if not quiet_items:
+        # Honest wording either way. A source that has never been checked
+        # is not "responsive", it is simply still in the queue.
+        if data["checked"] >= watched:
+            quiet_items = "<li>Every source is answering.</li>"
+        else:
+            quiet_items = ("<li>Every checked source is answering, "
+                           f"{watched - data['checked']} await their first "
+                           "check.</li>")
     widgets.append(
         '<div class="widget"><h4>Coverage</h4><ul>' + coverage_note
-        + (quiet_items or "<li>Nothing has gone dark.</li>") + "</ul></div>")
+        + quiet_items + "</ul></div>")
     widgets.append("</div>")
 
     if lead:
