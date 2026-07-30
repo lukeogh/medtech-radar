@@ -312,9 +312,11 @@ def main() -> int:
         check("Frontpage Dx raises seed" in insights
               and 'class="lead"' in insights,
               "the top signal leads the Insights front page")
-        check("Do today" in insights
+        check("Suggestion" in insights
               and "Congratulate the CTO" in insights,
-              "the playbook step renders as the lead's do-today box")
+              "the playbook step renders as the lead's suggestion box")
+        check("Do today" not in insights,
+              "the box is called Suggestion now, nowhere Do today")
         check('<details class="sources-fold">' in insights
               and "Where this page" in insights,
               "sources sit collapsed at the bottom of Insights")
@@ -322,6 +324,69 @@ def main() -> int:
               "the Insights tab marks itself current")
         check("The week in numbers" in insights and "Coverage" in insights,
               "the widgets render")
+
+        # The insight actions. Dismiss follows the jobs rule, done logs
+        # the touch and the touch feeds context back onto the page.
+        sig_id = read.execute("SELECT id FROM signals WHERE url_hash ="
+                              " 'sig-front'").fetchone()["id"]
+        check(f'data-sig-done="{sig_id}"' in insights
+              and f'data-sig-ack="{sig_id}"' in insights,
+              "an active story carries I did it and Dismiss")
+
+        result = serve_dashboard.set_signal_state(sig_id, "ack")
+        check(result.get("ok") is True, "dismissing an insight reports ok")
+        read2 = sqlite3.connect(db)
+        read2.row_factory = sqlite3.Row
+        data2 = build_dashboard.collect(read2, config)
+        ins2 = build_dashboard.render_insights_page(data2, config, "t")
+        check(not any(s["id"] == sig_id for s in data2["signals"]),
+              "a dismissed insight leaves the active signals")
+        check(f'data-sig-unack="{sig_id}"' in ins2
+              and "Dismissed (1)" in ins2,
+              "the dismissed insight sits behind its fold with an undo")
+        d2 = build_digest.collect(read2, config)
+        check(not any(s.get("url_hash") == "sig-front" for s in d2["signals"]),
+              "a digest render excludes the dismissed insight")
+        read2.close()
+        w2 = radar_common.get_db(db)
+        cur = w2.execute(
+            "INSERT OR IGNORE INTO signals (url_hash, first_seen, company,"
+            " headline, status) VALUES ('sig-front', ?, 'Frontpage Dx',"
+            " 'dupe', 'new')", (now,))
+        w2.commit()
+        check(cur.rowcount == 0,
+              "a dismissed insight's URL hash is still rejected by dedupe")
+        w2.close()
+
+        result = serve_dashboard.set_signal_state(sig_id, "unack")
+        check(result.get("ok") is True, "undo brings the insight back")
+        result = serve_dashboard.set_signal_state(sig_id, "done")
+        check(result.get("ok") is True
+              and result.get("channel") == "comment",
+              "I did it reports ok and reads the channel off the suggestion")
+        read2 = sqlite3.connect(db)
+        read2.row_factory = sqlite3.Row
+        touch_row = read2.execute(
+            "SELECT company, channel, note FROM touches"
+            " WHERE company = 'Frontpage Dx'").fetchone()
+        check(touch_row is not None
+              and touch_row["channel"] == "comment"
+              and "Did the suggestion" in touch_row["note"],
+              "I did it logs the touch against the company")
+        sig_status = read2.execute("SELECT status FROM signals WHERE id = ?",
+                                   (sig_id,)).fetchone()["status"]
+        check(sig_status == "actioned",
+              "I did it marks the signal actioned, out of the fresh flow")
+        data3 = build_dashboard.collect(read2, config)
+        ins3 = build_dashboard.render_insights_page(data3, config, "t")
+        check("Followed up" in ins3,
+              "a done insight moves to the followed-up section")
+        check("You last touched this company" in ins3,
+              "the touch feeds relationship context back onto the page")
+        d3 = build_digest.collect(read2, config)
+        check(not any(s.get("url_hash") == "sig-front" for s in d3["signals"]),
+              "a done insight stays out of the digest")
+        read2.close()
         check('href="/insights"' in html_page,
               "the archive page carries the Insights tab")
         check('class="src-head"' not in html_page,

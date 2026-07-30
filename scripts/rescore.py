@@ -107,7 +107,8 @@ def rescore_stale_cv(conn, config, usage_total, cap: int) -> tuple[int, int, int
 
 def rescore_signals(conn, config, usage_total) -> tuple[int, int]:
     rows = conn.execute(
-        "SELECT * FROM signals WHERE relevance IS NULL").fetchall()
+        "SELECT * FROM signals WHERE relevance IS NULL"
+        " AND acknowledged_at IS NULL").fetchall()
     if not rows:
         return 0, 0
     mock_fn = None

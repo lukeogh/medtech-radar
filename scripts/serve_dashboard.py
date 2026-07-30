@@ -316,6 +316,72 @@ version, with a confirm step, and can be run again for the rest.</p>
     return page.encode("utf-8")
 
 
+def _infer_channel(step: str) -> str:
+    """The playbook step usually names its own channel. Read it off."""
+    text = (step or "").lower()
+    if "comment" in text:
+        return "comment"
+    if "connect" in text or "connection" in text:
+        return "connection-note"
+    if "article" in text or "post" in text or "write" in text:
+        return "artefact"
+    return "engagement"
+
+
+def set_signal_state(item_id: int, action: str) -> dict:
+    """done, ack or unack on one signal row.
+
+    done marks the suggestion carried out. The signal flips to actioned,
+    the only status a human sets here, and the touch is logged against
+    the company so the tracker, the threads section and the digest all
+    know the first contact happened. ack and unack are the jobs rule
+    applied to insights, out of sight, never out of the database.
+    """
+    try:
+        conn = radar_common.get_db(db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    try:
+        now = radar_common.now_iso()
+        if action == "done":
+            row = conn.execute(
+                "SELECT company, headline, playbook_step FROM signals"
+                " WHERE id = ? AND status = 'new'"
+                " AND acknowledged_at IS NULL", (item_id,)).fetchone()
+            if row is None:
+                return {"ok": False,
+                        "note": f"no live signal {item_id} to mark done, "
+                                "maybe already handled"}
+            conn.execute("UPDATE signals SET status = 'actioned'"
+                         " WHERE id = ?", (item_id,))
+            channel = _infer_channel(row["playbook_step"])
+            note = f"Did the suggestion. {row['headline'] or 'Signal'}."
+            conn.execute(
+                "INSERT INTO touches (company, touched_at, channel, note)"
+                " VALUES (?,?,?,?)",
+                (row["company"] or "Unknown company", now, channel, note))
+            conn.commit()
+            return {"ok": True, "id": item_id, "channel": channel}
+        if action == "ack":
+            cur = conn.execute(
+                "UPDATE signals SET acknowledged_at = ? WHERE id = ?"
+                " AND acknowledged_at IS NULL", (now, item_id))
+        else:
+            cur = conn.execute(
+                "UPDATE signals SET acknowledged_at = NULL WHERE id = ?"
+                " AND acknowledged_at IS NOT NULL", (item_id,))
+        conn.commit()
+        if cur.rowcount == 0:
+            return {"ok": False,
+                    "note": f"no signal {item_id} in the state that action "
+                            "expects, maybe already handled"}
+        return {"ok": True, "id": item_id}
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    finally:
+        conn.close()
+
+
 def run_stale_rescore() -> dict:
     """One capped stale-CV re-score pass. Serialised like the watcher."""
     if not WATCH_LOCK.acquire(blocking=False):
@@ -464,6 +530,17 @@ class Handler(BaseHTTPRequestHandler):
                            "application/json")
                 return
             result = set_acknowledged(item_id, path == "/ack")
+            self._send(200 if result["ok"] else 409,
+                       json.dumps(result).encode(), "application/json")
+            return
+        if path in ("/sig/done", "/sig/ack", "/sig/unack"):
+            body = self._read_json_body()
+            item_id = body.get("id") if isinstance(body, dict) else None
+            if not isinstance(item_id, int) or isinstance(item_id, bool):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            result = set_signal_state(item_id, path.rsplit("/", 1)[1])
             self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
             return

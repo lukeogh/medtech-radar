@@ -85,6 +85,7 @@ _MIGRATIONS = (
     ("opportunities", "acknowledged_at", "TEXT"),
     ("opportunities", "cv_version", "TEXT"),
     ("signals", "cv_version", "TEXT"),
+    ("signals", "acknowledged_at", "TEXT"),
 )
 
 

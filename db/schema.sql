@@ -52,9 +52,13 @@ CREATE TABLE IF NOT EXISTS signals (
   pushed_at    TEXT,
   status       TEXT NOT NULL DEFAULT 'new'
                CHECK (status IN ('new','digested','actioned','dead')),
-  cv_version   TEXT                    -- reserved, unused. Signal scoring is
+  cv_version   TEXT,                   -- reserved, unused. Signal scoring is
                                        -- rubric-only today and never reads
                                        -- the CV, so nothing writes this.
+  -- A human said "not interested". The insight leaves the Insights page,
+  -- the digest and the catch-up pushes, but never the database, so the
+  -- URL-hash dedupe keeps rejecting it forever, same rule as the jobs.
+  acknowledged_at TEXT
 );
 
 -- Page-diff and RSS state per watched source. One row per watchlist entry.

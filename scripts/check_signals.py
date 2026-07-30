@@ -483,6 +483,7 @@ def catch_up_pushes(conn, config: dict, result: dict) -> None:
     rows = conn.execute(
         "SELECT * FROM signals WHERE pushed = 0 AND relevance IS NOT NULL"
         " AND relevance >= ? AND first_seen >= ? AND status = 'new'"
+        " AND acknowledged_at IS NULL"
         " ORDER BY first_seen", (threshold, cutoff)).fetchall()
     for row in rows:
         title = f"Radar signal. {row['company'] or 'Unknown company'}"

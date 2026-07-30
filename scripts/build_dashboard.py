@@ -172,9 +172,19 @@ def collect(conn, config) -> dict:
     opportunities = [o for o in all_opportunities
                      if not o.get("acknowledged_at")]
     acknowledged = [o for o in all_opportunities if o.get("acknowledged_at")]
-    signals = [dict(r) for r in conn.execute(
+    all_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM signals"
         " ORDER BY (relevance IS NULL), relevance DESC, first_seen DESC")]
+    # Dismissed insights follow the jobs rule. Out of sight, never out of
+    # the database, so the URL-hash dedupe keeps rejecting them.
+    signals = [s for s in all_signals if not s.get("acknowledged_at")]
+    dismissed_signals = [s for s in all_signals if s.get("acknowledged_at")]
+    # The latest touch per company, whatever the channel, so a story about
+    # a company Luke already spoke to says so on its card.
+    touch_map = {r["company"].lower(): dict(r) for r in conn.execute(
+        """SELECT t.company, t.touched_at, t.channel FROM touches t
+           JOIN (SELECT company, MAX(id) AS mid FROM touches
+                 GROUP BY company) l ON t.id = l.mid""")}
     threads = [dict(r) for r in conn.execute(
         """SELECT t.* FROM touches t
            JOIN (SELECT company, MAX(touched_at) AS mt FROM touches
@@ -193,7 +203,8 @@ def collect(conn, config) -> dict:
                 and (o["status_changed_at"] or o["first_seen"] or "9999") <= age_cutoff)
 
     def is_ageing_sig(s) -> bool:
-        return (s["status"] in ("new", "digested")
+        return (not s.get("acknowledged_at")
+                and s["status"] in ("new", "digested")
                 and (s["relevance"] or 0) >= threshold
                 and (s["first_seen"] or "9999") <= age_cutoff)
 
@@ -240,7 +251,8 @@ def collect(conn, config) -> dict:
     return {
         "threshold": threshold, "fast": fast, "floor": floor, "fresh": fresh,
         "opportunities": opportunities, "acknowledged": acknowledged,
-        "signals": signals,
+        "signals": signals, "dismissed_signals": dismissed_signals,
+        "touch_map": touch_map,
         "threads": threads, "ageing": ageing,
         "ageing_opp_ids": {a["id"] for a in ageing if a["kind"] == "opportunity"},
         "watchlist": watchlist, "sources_state": sources_state,
@@ -761,6 +773,8 @@ a:hover{text-decoration-color:var(--accent)}
 .sources-fold summary{font:var(--weight-strong) var(--text-sm)/1.35 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3);cursor:pointer;padding-bottom:var(--space-8);border-bottom:1px solid var(--hairline-strong)}
 .sources-fold summary:hover{color:var(--ink-1)}
 .sources-fold .panel{margin-top:var(--space-12)}
+.story-actions{display:flex;gap:var(--space-10);margin:var(--space-12) 0 0}
+.touch-note{font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--settled);margin:var(--space-8) 0 0}
 @media (max-width:900px){.front{grid-template-columns:minmax(0,1fr)}}
 .row-acked{display:none;opacity:.6}
 .panel.show-acked .row-acked{display:block}
@@ -877,6 +891,38 @@ SCRIPT = """
       });
     }
   } catch (err) {}
+})();
+"""
+
+
+INSIGHTS_SCRIPT = """
+(function () {
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-sig-done],[data-sig-ack],[data-sig-unack]');
+    if (!btn) return;
+    var url, id;
+    if (btn.hasAttribute('data-sig-done')) { url = '/sig/done'; id = btn.dataset.sigDone; }
+    else if (btn.hasAttribute('data-sig-ack')) { url = '/sig/ack'; id = btn.dataset.sigAck; }
+    else { url = '/sig/unack'; id = btn.dataset.sigUnack; }
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Working';
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: Number(id) })
+    }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok === false) {
+          btn.disabled = false;
+          btn.textContent = label;
+          window.alert(j.note || 'That did not stick. Try again.');
+          return;
+        }
+        location.reload();
+      })
+      .catch(function () { location.reload(); });
+  });
 })();
 """
 
@@ -1095,8 +1141,13 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
 </html>"""
 
 
-def _story_card(s: dict, lead: bool = False) -> str:
-    """One signal as a newspaper story. The lead gets the big type."""
+def _story_card(s: dict, data: dict, lead: bool = False,
+                state: str = "active") -> str:
+    """One signal as a newspaper story. The lead gets the big type.
+
+    state chooses the action row. "active" offers I did it and Dismiss,
+    "followed" shows when it was done, "dismissed" offers the undo.
+    """
     kicker_bits = [b for b in (s.get("company"),) if b]
     if s.get("source_id"):
         kicker_bits.append(f"via {s['source_id']}")
@@ -1111,23 +1162,46 @@ def _story_card(s: dict, lead: bool = False) -> str:
     link = source_link(s.get("source_url"), "Read the announcement")
     playbook = ""
     if s.get("playbook_step"):
-        playbook = (f'<div class="playbook"><b>Do today</b>'
+        playbook = (f'<div class="playbook"><b>Suggestion</b>'
                     f'{esc(sentence(s["playbook_step"]))}</div>')
+    # Relationship context. A story about a company already touched says
+    # so, because the second contact should know about the first.
+    touch = (data.get("touch_map") or {}).get(
+        (s.get("company") or "").lower())
+    touch_line = ""
+    if touch:
+        touch_line = (f'<p class="touch-note">You last touched this company '
+                      f'{esc(fmt_day(touch.get("touched_at")))} via '
+                      f'{esc(touch.get("channel") or "other")}.</p>')
+    actions = ""
+    if state == "active":
+        actions = (f'<p class="story-actions">'
+                   f'<button type="button" class="act-btn" '
+                   f'data-sig-done="{s["id"]}">I did it</button>'
+                   f'<button type="button" class="act-btn" '
+                   f'data-sig-ack="{s["id"]}">Dismiss</button></p>')
+    elif state == "dismissed":
+        actions = (f'<p class="story-actions">'
+                   f'<button type="button" class="act-btn" '
+                   f'data-sig-unack="{s["id"]}">Undo, back on the page'
+                   f'</button></p>')
     why = esc(sentence(s.get("why") or ""))
     headline = esc(s.get("headline") or s.get("company") or "Signal")
     if lead:
         return (f'<article class="lead"><p class="kicker">{kicker}</p>'
                 f"<h3>{headline}</h3>"
                 + (f'<p class="standfirst">{why}</p>' if why else "")
-                + playbook
+                + playbook + touch_line
                 + f'<p class="story-meta" style="margin-top:12px">{meta}.'
-                + (f" {link}" if link else "") + "</p></article>")
+                + (f" {link}" if link else "") + "</p>" + actions
+                + "</article>")
     return (f'<article class="story"><p class="kicker">{kicker}</p>'
             f"<h3>{headline}</h3>"
             + (f"<p>{why}</p>" if why else "")
-            + playbook
+            + playbook + touch_line
             + f'<p class="story-meta" style="margin-top:10px">{meta}.'
-            + (f" {link}" if link else "") + "</p></article>")
+            + (f" {link}" if link else "") + "</p>" + actions
+            + "</article>")
 
 
 def render_insights_page(data: dict, config: dict, db_label: str) -> str:
@@ -1143,15 +1217,18 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
                 - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     live = [s for s in data["signals"] if s.get("status") != "dead"]
-    scored = [s for s in live if s.get("relevance") is not None]
-    unscored = [s for s in live if s.get("relevance") is None]
+    followed = [s for s in live if s.get("status") == "actioned"]
+    active = [s for s in live if s.get("status") != "actioned"]
+    dismissed = data.get("dismissed_signals") or []
+    scored = [s for s in active if s.get("relevance") is not None]
+    unscored = [s for s in active if s.get("relevance") is None]
     fresh = [s for s in scored if (s.get("first_seen") or "") >= week_ago]
     earlier = [s for s in scored if (s.get("first_seen") or "") < week_ago]
     lead = fresh[0] if fresh else (scored[0] if scored else None)
     fresh_rest = [s for s in fresh if s is not lead]
     earlier_rest = [s for s in earlier if s is not lead]
 
-    pushed = [s for s in scored if s.get("pushed")]
+    pushed = [s for s in scored + followed if s.get("pushed")]
     answering = data["answering"]
     watched = len(data["watchlist"])
     quiet = []
@@ -1171,6 +1248,9 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
         'the pipeline</li>'
         f'<li><span class="num">{len(pushed)}</span>pushed to the phone'
         '</li>'
+        + (f'<li><span class="num">{len(followed)}</span>'
+           f'{"suggestion" if len(followed) == 1 else "suggestions"} done'
+           '</li>' if followed else "")
         + (f'<li><span class="num">{len(unscored)}</span>awaiting a score, '
            'rescore.py clears them</li>' if unscored else "")
         + "</ul></div>")
@@ -1189,18 +1269,18 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
     widgets.append("</div>")
 
     if lead:
-        front = (f'<div class="front">{_story_card(lead, lead=True)}'
+        front = (f'<div class="front">{_story_card(lead, data, lead=True)}'
                  + "".join(widgets) + "</div>")
         body = front
         if fresh_rest:
             body += ('<p class="section-rule">Also fresh this week</p>'
                      '<div class="stories">'
-                     + "".join(_story_card(s) for s in fresh_rest)
+                     + "".join(_story_card(s, data) for s in fresh_rest)
                      + "</div>")
         if earlier_rest:
             body += ('<p class="section-rule">Earlier, still on file</p>'
                      '<div class="stories">'
-                     + "".join(_story_card(s) for s in earlier_rest)
+                     + "".join(_story_card(s, data) for s in earlier_rest)
                      + "</div>")
     else:
         body = ('<div class="front"><div class="lead"><h3>Nothing checked '
@@ -1208,6 +1288,22 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
                 "fills this page as the watchlist turns up funding rounds, "
                 "spin-offs and first hires. The sources below say whether "
                 "it is looking.</p></div>" + "".join(widgets) + "</div>")
+
+    if followed:
+        body += ('<p class="section-rule">Followed up. The suggestion is '
+                 'done and the touch is logged.</p>'
+                 '<div class="stories">'
+                 + "".join(_story_card(s, data, state="followed")
+                           for s in followed)
+                 + "</div>")
+    if dismissed:
+        body += (f'<details class="sources-fold"><summary>Dismissed '
+                 f'({len(dismissed)}). Out of sight, still deduped, undo '
+                 'lives here.</summary><div class="stories" '
+                 'style="margin-top:16px">'
+                 + "".join(_story_card(s, data, state="dismissed")
+                           for s in dismissed)
+                 + "</div></details>")
 
     sources_fold = (
         f'<details class="sources-fold"><summary>Sources. {watched} '
@@ -1247,7 +1343,7 @@ like a front page. Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
 {body}
 {sources_fold}
 </main>
-<script>{SCRIPT}</script>
+<script>{SCRIPT}{INSIGHTS_SCRIPT}</script>
 </body>
 </html>"""
 

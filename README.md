@@ -364,3 +364,15 @@ open it when you want provenance, ignore it when you want news. The static
 single-page fallback keeps everything as it was, and the design project
 gained the insights page alongside the regenerated dashboard so the
 reference has both.
+
+30 July 2026, later still. The insights act now. The playbook box reads
+Suggestion, and each story carries I did it and Dismiss. I did it flips
+the signal to actioned and logs the touch against the company, channel
+read off the suggestion's own words, so the tracker, the threads section
+and the digest all know the first contact happened, and any later story
+about a touched company says so on its card, you last touched this
+company on the date via the channel. Dismiss follows the jobs rule to
+the letter, acknowledged_at on the signal, out of the page, the digest,
+the ageing nag and the catch-up pushes, never out of the database, so
+the URL-hash dedupe keeps a dismissed insight from ever resurfacing.
+Undo lives behind the Dismissed fold. Suite green with the loop pinned.

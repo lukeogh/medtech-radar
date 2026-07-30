@@ -197,6 +197,7 @@ def collect(conn, config: dict) -> dict:
     table_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM signals WHERE status = 'new' AND first_seen > ?"
         " AND relevance IS NOT NULL AND relevance >= ?"
+        " AND acknowledged_at IS NULL"
         " ORDER BY relevance DESC, first_seen", (last_ts, threshold))]
 
     signals = sorted(
@@ -219,6 +220,7 @@ def collect(conn, config: dict) -> dict:
             ageing.append({**dict(row), "kind": "opportunity"})
     for row in conn.execute(
             "SELECT * FROM signals WHERE status IN ('new','digested')"
+            " AND acknowledged_at IS NULL"
             " AND relevance IS NOT NULL AND relevance >= ? AND first_seen <= ?"
             " ORDER BY first_seen", (threshold, age_cutoff)):
         if row["id"] not in used_sig_ids:
