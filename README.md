@@ -444,3 +444,12 @@ prose never touched. A Needs-you section appears only when something
 needs him. The old archive page kept every row and moved to /archive,
 linked from the footer. The working tables live where the work lives,
 Home just tells the truth quickly.
+
+31 July 2026, later. The insight line stretched to a rolling year, months
+as buckets, and learned two kinds of honesty. Only signals at or above
+the digest bar count now, the rubric's own judgement of a medtech event
+that could need input, so the trend charts the market that matters
+rather than ecosystem chatter. And months before the earliest signal on
+file draw nothing at all, with a note naming when recording began,
+because a gap in the radar's life must never read as a quiet market. The
+annual shape earns itself month by month from here.

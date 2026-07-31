@@ -259,21 +259,40 @@ def collect(conn, config) -> dict:
             wk = week_bucket(o.get("first_seen"))
             if wk:
                 prospects_by_week[wk] = prospects_by_week.get(wk, 0) + 1
-    signals_by_week: dict[str, int] = {}
+    # A rolling year of insight activity, months as buckets, and only the
+    # signals that cleared the digest bar. Relevance is the rubric's own
+    # judgement of "a medtech event that could need Luke's input", so the
+    # trend charts the market that matters, not ecosystem noise. Months
+    # before the earliest signal on file are None, not zero, the radar was
+    # not listening yet and a gap must never read as a quiet market.
+    signals_by_month: dict[str, int] = {}
+    earliest_signal = None
     for s in all_signals:
-        wk = week_bucket(s.get("first_seen"))
-        if wk:
-            signals_by_week[wk] = signals_by_week.get(wk, 0) + 1
+        seen = (s.get("first_seen") or "")[:7]
+        if not seen:
+            continue
+        if earliest_signal is None or seen < earliest_signal:
+            earliest_signal = seen
+        if (s.get("relevance") or 0) >= threshold:
+            signals_by_month[seen] = signals_by_month.get(seen, 0) + 1
+
+    monthly_signals: list[tuple[str, int | None]] = []
+    cursor = now.replace(day=1)
+    months = []
+    for _ in range(12):
+        months.append(cursor.strftime("%Y-%m"))
+        cursor = (cursor - timedelta(days=1)).replace(day=1)
+    for month in reversed(months):
+        if earliest_signal is None or month < earliest_signal:
+            monthly_signals.append((month, None))
+        else:
+            monthly_signals.append((month, signals_by_month.get(month, 0)))
 
     this_monday = now - timedelta(days=now.weekday())
     weekly_prospects = []
     for back in range(7, -1, -1):
         wk = (this_monday - timedelta(weeks=back)).strftime("%Y-%m-%d")
         weekly_prospects.append((wk, prospects_by_week.get(wk, 0)))
-    weekly_signals = []
-    for back in range(11, -1, -1):
-        wk = (this_monday - timedelta(weeks=back)).strftime("%Y-%m-%d")
-        weekly_signals.append((wk, signals_by_week.get(wk, 0)))
 
     month_now = now.strftime("%Y-%m")
     month_prev = (now.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
@@ -317,7 +336,7 @@ def collect(conn, config) -> dict:
         "week_new": week["new"], "failed_emails": failed_emails,
         "daily_arrivals": daily_arrivals,
         "weekly_prospects": weekly_prospects,
-        "weekly_signals": weekly_signals,
+        "monthly_signals": monthly_signals,
         "month_prospects": month_prospects,
         "tokens": tokens, "cost": cost, "spark": spark,
         "checked": len(checked), "answering": len(answering),
@@ -1501,36 +1520,58 @@ ICON_CV = ('<svg viewBox="0 0 24 24" width="26" height="26" fill="none" '
            '<path d="M7 17.5c.6-1.8 1.8-2.7 3-2.7s2.4.9 3 2.7"/></svg>')
 
 
-def _line_chart(series: list[tuple[str, int]], label: str) -> str:
-    """A quiet SVG line across week buckets, peaks and troughs visible."""
+def _month_label(month: str) -> str:
+    try:
+        return datetime.strptime(month, "%Y-%m").strftime("%b %y")
+    except (ValueError, TypeError):
+        return month
+
+
+def _line_chart(series: list[tuple[str, int | None]], label: str) -> str:
+    """A quiet SVG line across month buckets, peaks and troughs visible.
+
+    A None count means the radar was not listening that month, so the
+    line simply does not exist there. Zero is drawn, silence is not.
+    """
     if not series:
         return ""
-    counts = [c for _, c in series]
-    top = max(counts) or 1
+    counted = [c for _, c in series if c is not None]
+    if not counted:
+        return ('<p class="board-note">The year starts this month. The '
+                "line draws itself as the radar listens.</p>")
+    top = max(counted) or 1
     w, h, pad = 560, 96, 8
     step = (w - 2 * pad) / max(1, len(series) - 1)
     points = []
-    for i, (_, c) in enumerate(series):
+    dots = []
+    for i, (month, c) in enumerate(series):
+        if c is None:
+            continue
         x = pad + i * step
         y = h - pad - (h - 2 * pad) * c / top
         points.append(f"{x:.1f},{y:.1f}")
-    first_label = fmt_day(series[0][0])
-    last_label = fmt_day(series[-1][0])
-    dots = "".join(
-        f'<circle cx="{p.split(",")[0]}" cy="{p.split(",")[1]}" r="2.4" '
-        f'fill="var(--accent)"><title>{c} in the week of '
-        f'{esc(fmt_day(wk))}</title></circle>'
-        for p, (wk, c) in zip(points, series) if c)
+        dots.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.4" '
+                    f'fill="var(--accent)"><title>{c} in '
+                    f'{esc(_month_label(month))}</title></circle>')
+    first_label = _month_label(series[0][0])
+    last_label = _month_label(series[-1][0])
+    data_start = next(m for m, c in series if c is not None)
+    started_late = any(c is None for _, c in series)
+    poly = (f'<polyline points="{" ".join(points)}" fill="none" '
+            'stroke="var(--accent)" stroke-width="1.8" '
+            'stroke-linejoin="round" stroke-linecap="round"/>'
+            if len(points) > 1 else "")
+    note = (f'<p class="board-note">Recording began {esc(_month_label(data_start))}. '
+            "The empty months are the radar's age, not a quiet market.</p>"
+            if started_late else "")
     return (f'<svg class="trend-line" viewBox="0 0 {w} {h}" '
             f'preserveAspectRatio="none" role="img" aria-label="{esc(label)}">'
             f'<line x1="{pad}" y1="{h - pad}" x2="{w - pad}" y2="{h - pad}" '
             'stroke="var(--hairline-strong)" stroke-width="1"/>'
-            f'<polyline points="{" ".join(points)}" fill="none" '
-            'stroke="var(--accent)" stroke-width="1.8" '
-            'stroke-linejoin="round" stroke-linecap="round"/>'
-            + dots + "</svg>"
+            + poly + "".join(dots) + "</svg>"
             f'<p class="bars-label"><span>{esc(first_label)}</span>'
-            f'<span>peak {top}</span><span>{esc(last_label)}</span></p>')
+            f'<span>peak {top}</span><span>{esc(last_label)}</span></p>'
+            + note)
 
 
 HOME_SCRIPT = """
@@ -1652,9 +1693,9 @@ def render_home_page(data: dict, config: dict, db_label: str) -> str:
 <li><span class="num">{this_wk}</span>this week, {last_wk} last week, {esc(wk_verdict)}</li>
 <li><span class="num">{mp["this"]}</span>this month, {mp["last"]} last month</li>
 </ul></div>
-<div class="widget"><h4>Insight activity, twelve weeks</h4>
-{_line_chart(data["weekly_signals"], "Signals per week over twelve weeks")}
-<ul style="margin-top:6px"><li>Peaks say the ecosystem is announcing, troughs say go quiet and build.</li></ul>
+<div class="widget"><h4>Insight activity, the year</h4>
+{_line_chart(data["monthly_signals"], "Relevant medtech signals per month over twelve months")}
+<ul style="margin-top:6px"><li>Only medtech events scoring {data["threshold"]} or higher count, the ones that could need your input. Peaks say the ecosystem is announcing, troughs say go quiet and build.</li></ul>
 </div>
 </div>"""
 

@@ -546,9 +546,38 @@ def main() -> int:
         check("Top prospects, week on week" in home
               and 'class="bars"' in home,
               "the week-on-week prospects chart renders")
-        check("Insight activity, twelve weeks" in home
+        check("Insight activity, the year" in home
               and 'class="trend-line"' in home,
-              "the twelve-week insight line chart renders")
+              "the annual insight line chart renders")
+        check("Recording began" in home,
+              "months before the radar existed are named, never faked as "
+              "quiet")
+        check("scoring 70 or higher" in home,
+              "the chart says it only counts signals that could need input")
+        # The relevance filter. A sub-threshold signal is activity noise
+        # and must not move the annual line.
+        low = dict(data)
+        low_sig = {**data["signals"][0], "id": 9999, "relevance": 20,
+                   "first_seen": radar_common.now_iso()}
+        low["signals"] = data["signals"] + [low_sig]
+        # collect() owns the bucketing, so recompute through it: seed a
+        # low-relevance signal in the db and re-collect.
+        w3 = radar_common.get_db(db)
+        w3.execute(
+            "INSERT INTO signals (url_hash, first_seen, source_id, company,"
+            " headline, relevance, status) VALUES ('low-noise', ?,"
+            " 'imec-news', 'Noise Co', 'Low relevance chatter', 20, 'new')",
+            (radar_common.now_iso(),))
+        w3.commit()
+        w3.close()
+        read3 = sqlite3.connect(db)
+        read3.row_factory = sqlite3.Row
+        data3b = build_dashboard.collect(read3, config)
+        read3.close()
+        this_month_count = data3b["monthly_signals"][-1][1]
+        check(this_month_count == 1,
+              f"a relevance-20 signal does not move the annual line "
+              f"(this month counts {this_month_count})")
         check('id="pref-day_rate_floor_gbp"' in home
               and 'value="650"' in home,
               "the scoring panel shows the live floor")
