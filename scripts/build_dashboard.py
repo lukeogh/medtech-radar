@@ -230,6 +230,18 @@ def collect(conn, config) -> dict:
         " AND last_attempt >= ?", (week_ago,)).fetchone()[0]
     tokens, cost = week_usage(conn, week_ago)
 
+    # Arrivals per day across a fortnight, the Jobs page's flow chart.
+    # Acknowledged rows still count, an arrival is an arrival.
+    per_day = {}
+    for o in all_opportunities:
+        day = (o.get("first_seen") or "")[:10]
+        if day:
+            per_day[day] = per_day.get(day, 0) + 1
+    daily_arrivals = []
+    for back in range(13, -1, -1):
+        day = (now - timedelta(days=back)).strftime("%Y-%m-%d")
+        daily_arrivals.append((day, per_day.get(day, 0)))
+
     spark = []
     for back in (3, 2, 1, 0):
         start = (now - timedelta(days=7 * (back + 1))).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -259,6 +271,7 @@ def collect(conn, config) -> dict:
         "inbox_ts": run_row["inbox_ts"], "signals_ts": run_row["signals_ts"],
         "week_runs": week["runs"], "week_seen": week["seen"],
         "week_new": week["new"], "failed_emails": failed_emails,
+        "daily_arrivals": daily_arrivals,
         "tokens": tokens, "cost": cost, "spark": spark,
         "checked": len(checked), "answering": len(answering),
     }
@@ -782,6 +795,20 @@ a:hover{text-decoration-color:var(--accent)}
 .add-source input{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-1);background:var(--surface);border:1px solid var(--hairline-strong);border-radius:var(--radius-sm);padding:6px 10px;min-width:200px}
 .add-source input::placeholder{color:var(--ink-3)}
 .board-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;margin-right:10px;color:#fff;font:650 10px/1 var(--font-sans);letter-spacing:0;text-transform:none;vertical-align:-4px;flex:none}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:9px;flex:none;vertical-align:baseline}
+.dot-green{background:var(--settled);animation:dot-pulse 2.4s ease-in-out infinite}
+.dot-amber{background:#C08A1D}
+.dot-red{background:var(--fail)}
+.dot-grey{background:transparent;border:1.5px solid var(--hairline-strong)}
+@keyframes dot-pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb, var(--settled) 40%, transparent)}55%{box-shadow:0 0 0 5px transparent}}
+@media (prefers-reduced-motion:reduce){.dot-green{animation:none}}
+.widget li{display:flex;align-items:baseline;gap:2px}
+.widget .li-age{margin-left:auto;color:var(--ink-3);font-variant-numeric:tabular-nums;font-size:var(--text-xs);padding-left:10px;white-space:nowrap}
+.bars{display:flex;align-items:flex-end;gap:3px;height:46px;margin:var(--space-8) 0 var(--space-6)}
+.bars i{display:block;flex:1;min-width:4px;background:var(--accent-quiet);border-radius:1px 1px 0 0}
+.bars i.today{background:var(--accent)}
+.bars i.none{height:2px !important;background:var(--hairline)}
+.bars-label{font:400 var(--text-2xs)/1.55 var(--font-sans);color:var(--ink-3);display:flex;justify-content:space-between}
 .section-head h2{display:inline-flex;align-items:center}
 .ext{display:inline-flex;color:var(--ink-3);margin-left:8px;vertical-align:-1px;transition:color var(--dur-instant) var(--ease)}
 .ext:hover{color:var(--accent)}
@@ -1458,32 +1485,104 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
     customs = [s for s in registry
                if s["id"] not in builtin_ids and s.get("sender_contains")]
 
+    def hours_since(iso) -> float | None:
+        try:
+            then = datetime.strptime(str(iso)[:16], "%Y-%m-%dT%H:%M")
+        except (ValueError, TypeError):
+            return None
+        return max(0.0, (datetime.now(timezone.utc)
+                         - then.replace(tzinfo=timezone.utc)
+                         ).total_seconds() / 3600)
+
+    def ago(hours: float | None) -> str:
+        if hours is None:
+            return ""
+        if hours < 1:
+            return "under an hour ago"
+        if hours < 48:
+            n = round(hours)
+            return f"{n} {'hour' if n == 1 else 'hours'} ago"
+        days = round(hours / 24)
+        return f"{days} days ago"
+
+    def dot(cls: str, word: str) -> str:
+        return f'<span class="dot dot-{cls}" title="{esc(word)}"></span>'
+
+    # Traffic lights. Boards send daily-ish, so two days is flowing,
+    # a week is quiet, longer means a subscription died. Never-heard-from
+    # is a hollow waiting dot, not an alarm, subscribing is a human step.
+    def board_light(hours: float | None) -> tuple[str, str]:
+        if hours is None:
+            return "grey", "waiting for the first email"
+        if hours <= 48:
+            return "green", "flowing"
+        if hours <= 24 * 7:
+            return "amber", "quiet lately"
+        return "red", "gone silent"
+
+    # The inbox runs hourly when armed, so its light judges the schedule.
+    inbox_hours = hours_since(data["inbox_ts"])
+    if inbox_hours is None:
+        inbox_light, inbox_word = "red", "never run"
+    elif inbox_hours <= 2:
+        inbox_light, inbox_word = "green", "on schedule"
+    elif inbox_hours <= 6:
+        inbox_light, inbox_word = "amber", "running late"
+    else:
+        inbox_light, inbox_word = "red", "stalled"
+
     dups = max(0, data["week_seen"] - data["week_new"])
     metrics = ['<div class="metrics">']
     metrics.append(
         '<div class="widget"><h4>The machine</h4><ul>'
-        + ("<li>Inbox last ran "
-           f"{fmt_day_time(data['inbox_ts'])}</li>" if data["inbox_ts"]
-           else "<li>Inbox has never run</li>")
+        + f"<li>{dot(inbox_light, inbox_word)}Inbox {inbox_word}"
+        + (f'<span class="li-age">{ago(inbox_hours)}</span>'
+           if inbox_hours is not None else "")
+        + "</li>"
         + f'<li><span class="num">{data["week_runs"]}</span>inbox '
         f'{"run" if data["week_runs"] == 1 else "runs"} this week</li>'
-        + ("<li>No failed emails</li>" if not data["failed_emails"]
-           else f'<li><span class="num">{data["failed_emails"]}</span>'
+        + (f"<li>{dot('green', 'no failed emails')}No failed emails</li>"
+           if not data["failed_emails"]
+           else f"<li>{dot('red', 'failed emails')}"
+                f'<span class="num">{data["failed_emails"]}</span>'
                 'failed emails, see the digest</li>')
         + "</ul></div>")
+
+    counts = [c for _, c in data["daily_arrivals"]]
+    top = max(counts) if any(counts) else 0
+    bars = []
+    for i, (day, c) in enumerate(data["daily_arrivals"]):
+        label = datetime.strptime(day, "%Y-%m-%d").strftime("%d %b").lstrip("0")
+        if c == 0:
+            bars.append(f'<i class="none" title="none on {esc(label)}"></i>')
+        else:
+            h = max(4, round(46 * c / top))
+            today_cls = " today" if i == len(data["daily_arrivals"]) - 1 else ""
+            bars.append(f'<i class="{today_cls.strip()}" '
+                        f'style="height:{h}px" '
+                        f'title="{c} on {esc(label)}"></i>')
+    fortnight_total = sum(counts)
     metrics.append(
-        '<div class="widget"><h4>This week</h4><ul>'
-        f'<li><span class="num">{data["week_seen"]}</span>roles seen</li>'
-        f'<li><span class="num">{data["week_new"]}</span>new after dedupe</li>'
-        f'<li><span class="num">{dups}</span>duplicates skipped</li>'
+        '<div class="widget"><h4>The flow, last fourteen days</h4>'
+        f'<div class="bars">{"".join(bars)}</div>'
+        '<p class="bars-label"><span>two weeks ago</span><span>today</span></p>'
+        '<ul style="margin-top:8px">'
+        f'<li><span class="num">{fortnight_total}</span>'
+        f'{"role" if fortnight_total == 1 else "roles"} arrived</li>'
+        f'<li><span class="num">{data["week_new"]}</span>new this week, '
+        f'{dups} {"duplicate" if dups == 1 else "duplicates"} skipped</li>'
         "</ul></div>")
+
     fresh_items = []
     for s in registry:
         seen = last_by_source.get(s["id"])
+        h = hours_since(seen)
+        light, word = board_light(h)
         fresh_items.append(
-            f"<li>{esc(s['name'])}, "
-            + (f"last email {fmt_day(seen)}" if seen else "nothing yet")
-            + "</li>")
+            f"<li>{dot(light, word)}{esc(s['name'])}"
+            f'<span class="li-age">'
+            + (esc(ago(h)) if h is not None else "waiting")
+            + "</span></li>")
     metrics.append('<div class="widget"><h4>Board freshness</h4><ul>'
                    + "".join(fresh_items) + "</ul></div>")
     metrics.append("</div>")

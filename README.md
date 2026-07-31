@@ -395,3 +395,9 @@ carries a small brand-coloured badge tile, the board's name, and the
 box-with-arrow glyph opening the board's site in a new tab, inline SVG
 throughout because the page stays self-contained. The add-a-source form
 gained an optional site field so a custom board earns the same arrow.
+The metrics went visual the same evening. Traffic lights on the machine
+and on every board, green pulsing when the flow is alive, amber for quiet,
+red for stalled or silent, a hollow waiting dot for boards not yet
+subscribed, judged against honest thresholds, two days for a board, the
+hourly schedule for the inbox. A fourteen-day arrival chart sits between
+them so the flow is seen, not asserted. Trust by instrumentation.

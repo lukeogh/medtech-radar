@@ -453,6 +453,15 @@ def main() -> int:
               "the open-the-site arrow links out from the heading")
         check("The machine" in jobs_page and "Board freshness" in jobs_page,
               "the trust metrics render at the top")
+        check("The flow, last fourteen days" in jobs_page
+              and 'class="bars"' in jobs_page,
+              "the fortnight flow chart renders")
+        check("dot-green" in jobs_page,
+              "a board that heard from its sender today shows a green light")
+        check("dot-grey" in jobs_page,
+              "a board never heard from shows the hollow waiting light")
+        check("dot-red" in jobs_page and "Inbox never run" in jobs_page,
+              "an inbox that has never run wears the red light honestly")
         check('id="src-add"' in jobs_page and "Add a job source" in jobs_page,
               "the add-a-source form renders")
         check("None yet" not in jobs_page
