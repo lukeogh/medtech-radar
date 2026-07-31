@@ -134,6 +134,35 @@ fires until the step that arms it.
 10. Read `playbook/announcement-day.md` once, so the first real signal is
     executed rather than improvised.
 
+## The traffic lights, and the flow when one goes red.
+
+The Jobs page's metrics are instruments with four states. Green with a
+pulse means flowing, the inbox ran within two hours or the board emailed
+within two days. Amber means late or quiet, two to six hours for the
+inbox, up to a week for a board, watch it, don't chase it. Red means
+stalled or silent, over six hours for the inbox, over a week for a board
+that used to send. A hollow dot is a board never heard from, waiting on a
+subscription, not broken.
+
+Inbox red, the flow. Open n8n, Executions, Radar Inbox. Three findings,
+three fixes. Deactivated, reactivate it. Failing, open the execution and
+read the failing node, Gmail auth errors mean the OAuth credential needs
+re-signing, Execute Command errors mean the mount or the checkout. No
+executions at all with the workflow active, the trigger itself, check the
+n8n instance is up and its logs. If executions look green but the light
+stays red, the dashboard is reading a different database file than n8n
+writes, check the container mount.
+
+Board red, the flow. The radar is fine, the supply died. Check the alert
+settings under the medtechradar account on the board itself, then the
+aggregator's spam folder. LinkedIn has one extra link, it arrives through
+the filter-forward from the personal Gmail, so confirm that filter still
+exists and forwarding is still verified there.
+
+Failed emails red. Poison messages hit the three-strike cap and were
+shelved under radar-failed. The digest names them, read one in the
+aggregator inbox to see why extraction hates it.
+
 ## Hosting.
 
 The repo lives in a private GitHub repository at

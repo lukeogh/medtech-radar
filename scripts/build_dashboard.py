@@ -1546,6 +1546,10 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
            else f"<li>{dot('red', 'failed emails')}"
                 f'<span class="num">{data["failed_emails"]}</span>'
                 'failed emails, see the digest</li>')
+        + ('<li class="board-note">First move. Open n8n and read Radar '
+           "Inbox's last execution. Active, failed, or absent tells you "
+           "which fix it is.</li>"
+           if inbox_light in ("amber", "red") else "")
         + "</ul></div>")
 
     counts = [c for _, c in data["daily_arrivals"]]
@@ -1583,8 +1587,17 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
             f'<span class="li-age">'
             + (esc(ago(h)) if h is not None else "waiting")
             + "</span></li>")
+    any_red_board = any(
+        board_light(hours_since(last_by_source.get(s["id"])))[0] == "red"
+        for s in registry)
     metrics.append('<div class="widget"><h4>Board freshness</h4><ul>'
-                   + "".join(fresh_items) + "</ul></div>")
+                   + "".join(fresh_items)
+                   + ('<li class="board-note">A silent board stopped '
+                      "sending email. Check its alert settings on the "
+                      "board, then the aggregator's spam folder. LinkedIn "
+                      "also rides the personal-Gmail forward filter.</li>"
+                      if any_red_board else "")
+                   + "</ul></div>")
     metrics.append("</div>")
 
     counter = 0
