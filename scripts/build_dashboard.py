@@ -889,6 +889,10 @@ a:hover{text-decoration-color:var(--accent)}
 .pref-grid label{display:flex;flex-direction:column;gap:6px;font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3)}
 .pref-grid input{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-1);background:var(--surface);border:1px solid var(--hairline-strong);border-radius:var(--radius-sm);padding:7px 10px}
 .pref-grid .act-btn{align-self:flex-start}
+.info{position:relative;display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border:1px solid var(--hairline-strong);border-radius:50%;color:var(--ink-3);font:650 9px/1 var(--font-serif);font-style:italic;cursor:help;margin-left:7px;vertical-align:-2px;text-transform:none;letter-spacing:0}
+.info:hover,.info:focus-visible{color:var(--ink-1);border-color:var(--accent-quiet)}
+.info::after{content:attr(data-tip);position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);width:250px;background:var(--surface);color:var(--ink-2);border:1px solid var(--hairline-strong);border-radius:var(--radius);padding:10px 12px;font:400 var(--text-xs)/1.55 var(--font-sans);letter-spacing:0;text-transform:none;text-align:left;white-space:normal;box-shadow:0 4px 14px rgba(0,0,0,.08);opacity:0;pointer-events:none;transition:opacity var(--dur-fast) var(--ease);z-index:5}
+.info:hover::after,.info:focus-visible::after{opacity:1}
 .section-head h2{display:inline-flex;align-items:center}
 .ext{display:inline-flex;color:var(--ink-3);margin-left:8px;vertical-align:-1px;transition:color var(--dur-instant) var(--ease)}
 .ext:hover{color:var(--accent)}
@@ -1693,9 +1697,8 @@ def render_home_page(data: dict, config: dict, db_label: str) -> str:
 <li><span class="num">{this_wk}</span>this week, {last_wk} last week, {esc(wk_verdict)}</li>
 <li><span class="num">{mp["this"]}</span>this month, {mp["last"]} last month</li>
 </ul></div>
-<div class="widget"><h4>Insight activity, the year</h4>
+<div class="widget"><h4>Insight activity, the year<span class="info" tabindex="0" data-tip="Only medtech events scoring {data["threshold"]} or higher count, the ones that could need your input. Peaks say the ecosystem is announcing, troughs say go quiet and build.">i</span></h4>
 {_line_chart(data["monthly_signals"], "Relevant medtech signals per month over twelve months")}
-<ul style="margin-top:6px"><li>Only medtech events scoring {data["threshold"]} or higher count, the ones that could need your input. Peaks say the ecosystem is announcing, troughs say go quiet and build.</li></ul>
 </div>
 </div>"""
 

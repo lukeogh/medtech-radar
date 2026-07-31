@@ -552,8 +552,8 @@ def main() -> int:
         check("Recording began" in home,
               "months before the radar existed are named, never faked as "
               "quiet")
-        check("scoring 70 or higher" in home,
-              "the chart says it only counts signals that could need input")
+        check('class="info"' in home and "scoring 70 or higher" in home,
+              "the counting rule lives behind the info icon's tooltip")
         # The relevance filter. A sub-threshold signal is activity noise
         # and must not move the annual line.
         low = dict(data)
