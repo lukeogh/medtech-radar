@@ -430,3 +430,17 @@ red for stalled or silent, a hollow waiting dot for boards not yet
 subscribed, judged against honest thresholds, two days for a board, the
 hourly schedule for the inbox. A fourteen-day arrival chart sits between
 them so the flow is seen, not asserted. Trust by instrumentation.
+
+31 July 2026. Home became the entrance. Three cards carry their icons and
+their live counts, Jobs, Insights, CV, each the door to its page. Under
+them the walking-past answers, the sync light, the week's new jobs, top
+prospects charted week on week with a month-on-month line beneath, the
+market's give and take readable at a glance, and a twelve-week line of
+insight activity for the year's rhythm, peaks announce, troughs say
+build. The scoring panel puts the machine-readable preference lines on
+the page, title, day-rate floor and keywords, edited surgically in the
+preferences file itself so the scorer's next system prompt carries them,
+prose never touched. A Needs-you section appears only when something
+needs him. The old archive page kept every row and moved to /archive,
+linked from the footer. The working tables live where the work lives,
+Home just tells the truth quickly.

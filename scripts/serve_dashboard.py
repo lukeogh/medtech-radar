@@ -98,10 +98,12 @@ def render(page_name: str = "archive") -> bytes:
         page = build_dashboard.render_insights_page(data, config, db_label)
     elif page_name == "jobs":
         page = build_dashboard.render_jobs_page(data, config, db_label)
-    else:
+    elif page_name == "archive":
         page = build_dashboard.render_page(data, config, db_label,
                                            REPO_ROOT / "dashboard.html",
                                            serve=True)
+    else:
+        page = build_dashboard.render_home_page(data, config, db_label)
     return page.encode("utf-8")
 
 
@@ -458,12 +460,12 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path in ("/", "/index.html", "/dashboard.html"):
             try:
-                self._send(200, render(), "text/html; charset=utf-8")
+                self._send(200, render("home"), "text/html; charset=utf-8")
             except Exception as err:  # noqa: BLE001  a broken render is a 500, not a crash
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")
             return
-        if path in ("/insights", "/jobs"):
+        if path in ("/insights", "/jobs", "/archive"):
             try:
                 self._send(200, render(path.lstrip("/")),
                            "text/html; charset=utf-8")
@@ -535,6 +537,21 @@ class Handler(BaseHTTPRequestHandler):
             result = set_acknowledged(item_id, path == "/ack")
             self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
+            return
+        if path == "/profile/setting":
+            body = self._read_json_body()
+            key = body.get("key") if isinstance(body, dict) else None
+            value = body.get("value") if isinstance(body, dict) else None
+            try:
+                stored = radar_common.update_pref_line(str(key or ""),
+                                                       str(value or ""))
+                self._send(200, json.dumps(
+                    {"ok": True, "key": key, "value": stored}).encode(),
+                    "application/json")
+            except ValueError as err:
+                self._send(422, json.dumps(
+                    {"ok": False, "note": str(err)}).encode(),
+                    "application/json")
             return
         if path == "/jobs/source":
             body = self._read_json_body()

@@ -242,6 +242,50 @@ def collect(conn, config) -> dict:
         day = (now - timedelta(days=back)).strftime("%Y-%m-%d")
         daily_arrivals.append((day, per_day.get(day, 0)))
 
+    # Week buckets for the Home trends. Top prospects meet the digest bar,
+    # the market metric Luke reads week to week. Signal activity charts the
+    # year's rhythm, dismissed included, activity is activity.
+    def week_bucket(iso: str) -> str | None:
+        try:
+            d = datetime.strptime(str(iso)[:10], "%Y-%m-%d")
+        except (ValueError, TypeError):
+            return None
+        monday = d - timedelta(days=d.weekday())
+        return monday.strftime("%Y-%m-%d")
+
+    prospects_by_week: dict[str, int] = {}
+    for o in all_opportunities:
+        if (o.get("combined") or 0) >= threshold:
+            wk = week_bucket(o.get("first_seen"))
+            if wk:
+                prospects_by_week[wk] = prospects_by_week.get(wk, 0) + 1
+    signals_by_week: dict[str, int] = {}
+    for s in all_signals:
+        wk = week_bucket(s.get("first_seen"))
+        if wk:
+            signals_by_week[wk] = signals_by_week.get(wk, 0) + 1
+
+    this_monday = now - timedelta(days=now.weekday())
+    weekly_prospects = []
+    for back in range(7, -1, -1):
+        wk = (this_monday - timedelta(weeks=back)).strftime("%Y-%m-%d")
+        weekly_prospects.append((wk, prospects_by_week.get(wk, 0)))
+    weekly_signals = []
+    for back in range(11, -1, -1):
+        wk = (this_monday - timedelta(weeks=back)).strftime("%Y-%m-%d")
+        weekly_signals.append((wk, signals_by_week.get(wk, 0)))
+
+    month_now = now.strftime("%Y-%m")
+    month_prev = (now.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    month_prospects = {"this": 0, "last": 0}
+    for o in all_opportunities:
+        if (o.get("combined") or 0) >= threshold:
+            month = (o.get("first_seen") or "")[:7]
+            if month == month_now:
+                month_prospects["this"] += 1
+            elif month == month_prev:
+                month_prospects["last"] += 1
+
     spark = []
     for back in (3, 2, 1, 0):
         start = (now - timedelta(days=7 * (back + 1))).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -272,6 +316,9 @@ def collect(conn, config) -> dict:
         "week_runs": week["runs"], "week_seen": week["seen"],
         "week_new": week["new"], "failed_emails": failed_emails,
         "daily_arrivals": daily_arrivals,
+        "weekly_prospects": weekly_prospects,
+        "weekly_signals": weekly_signals,
+        "month_prospects": month_prospects,
         "tokens": tokens, "cost": cost, "spark": spark,
         "checked": len(checked), "answering": len(answering),
     }
@@ -809,6 +856,20 @@ a:hover{text-decoration-color:var(--accent)}
 .bars i.today{background:var(--accent)}
 .bars i.none{height:2px !important;background:var(--hairline)}
 .bars-label{font:400 var(--text-2xs)/1.55 var(--font-sans);color:var(--ink-3);display:flex;justify-content:space-between}
+.entrance{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--space-16);margin-top:var(--space-24)}
+.card{display:flex;flex-direction:column;gap:var(--space-8);border:1px solid var(--panel-rule);border-radius:var(--radius);padding:var(--space-24);text-decoration:none;color:var(--ink-1);transition:border-color var(--dur-fast) var(--ease),transform var(--dur-fast) var(--ease)}
+.card:hover{border-color:var(--accent-quiet);transform:translateY(-1px)}
+.card svg{color:var(--accent)}
+.card-jobs{background:var(--tint-blue)}
+.card-insights{background:var(--tint-sand)}
+.card-cv{background:var(--tint-sage)}
+.card-title{font:400 var(--text-xl)/1.2 var(--font-serif)}
+.card-sub{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2)}
+.trend-line{display:block;width:100%;height:96px;margin:var(--space-8) 0 var(--space-4)}
+.pref-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--space-16)}
+.pref-grid label{display:flex;flex-direction:column;gap:6px;font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3)}
+.pref-grid input{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-1);background:var(--surface);border:1px solid var(--hairline-strong);border-radius:var(--radius-sm);padding:7px 10px}
+.pref-grid .act-btn{align-self:flex-start}
 .section-head h2{display:inline-flex;align-items:center}
 .ext{display:inline-flex;color:var(--ink-3);margin-left:8px;vertical-align:-1px;transition:color var(--dur-instant) var(--ease)}
 .ext:hover{color:var(--accent)}
@@ -1415,6 +1476,286 @@ like a front page. Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
 {sources_fold}
 </main>
 <script>{SCRIPT}{INSIGHTS_SCRIPT}</script>
+</body>
+</html>"""
+
+
+ICON_JOBS = ('<svg viewBox="0 0 24 24" width="26" height="26" fill="none" '
+             'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" '
+             'stroke-linejoin="round" aria-hidden="true">'
+             '<rect x="3" y="7.5" width="18" height="12" rx="2"/>'
+             '<path d="M9 7.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5"/>'
+             '<path d="M3 12.5h18"/></svg>')
+ICON_INSIGHTS = ('<svg viewBox="0 0 24 24" width="26" height="26" fill="none" '
+                 'stroke="currentColor" stroke-width="1.5" '
+                 'stroke-linecap="round" stroke-linejoin="round" '
+                 'aria-hidden="true">'
+                 '<path d="M4 5h13a0 0 0 0 1 0 0v13a2 2 0 0 1-2 2H6a2 2 0 0 '
+                 '1-2-2Z"/><path d="M17 8h2a1 1 0 0 1 1 1v9a2 2 0 0 1-2 2"/>'
+                 '<path d="M7 9h7M7 12.5h7M7 16h4"/></svg>')
+ICON_CV = ('<svg viewBox="0 0 24 24" width="26" height="26" fill="none" '
+           'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" '
+           'stroke-linejoin="round" aria-hidden="true">'
+           '<path d="M6 3h8l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 '
+           '1 2-2Z"/><path d="M14 3v4h4"/><circle cx="10" cy="11" r="1.8"/>'
+           '<path d="M7 17.5c.6-1.8 1.8-2.7 3-2.7s2.4.9 3 2.7"/></svg>')
+
+
+def _line_chart(series: list[tuple[str, int]], label: str) -> str:
+    """A quiet SVG line across week buckets, peaks and troughs visible."""
+    if not series:
+        return ""
+    counts = [c for _, c in series]
+    top = max(counts) or 1
+    w, h, pad = 560, 96, 8
+    step = (w - 2 * pad) / max(1, len(series) - 1)
+    points = []
+    for i, (_, c) in enumerate(series):
+        x = pad + i * step
+        y = h - pad - (h - 2 * pad) * c / top
+        points.append(f"{x:.1f},{y:.1f}")
+    first_label = fmt_day(series[0][0])
+    last_label = fmt_day(series[-1][0])
+    dots = "".join(
+        f'<circle cx="{p.split(",")[0]}" cy="{p.split(",")[1]}" r="2.4" '
+        f'fill="var(--accent)"><title>{c} in the week of '
+        f'{esc(fmt_day(wk))}</title></circle>'
+        for p, (wk, c) in zip(points, series) if c)
+    return (f'<svg class="trend-line" viewBox="0 0 {w} {h}" '
+            f'preserveAspectRatio="none" role="img" aria-label="{esc(label)}">'
+            f'<line x1="{pad}" y1="{h - pad}" x2="{w - pad}" y2="{h - pad}" '
+            'stroke="var(--hairline-strong)" stroke-width="1"/>'
+            f'<polyline points="{" ".join(points)}" fill="none" '
+            'stroke="var(--accent)" stroke-width="1.8" '
+            'stroke-linejoin="round" stroke-linecap="round"/>'
+            + dots + "</svg>"
+            f'<p class="bars-label"><span>{esc(first_label)}</span>'
+            f'<span>peak {top}</span><span>{esc(last_label)}</span></p>')
+
+
+HOME_SCRIPT = """
+(function () {
+  document.querySelectorAll('[data-pref-save]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var key = btn.dataset.prefSave;
+      var input = document.getElementById('pref-' + key);
+      var note = document.getElementById('pref-note');
+      btn.disabled = true;
+      fetch('/profile/setting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: key, value: input.value })
+      }).then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (j && j.ok === false) {
+            btn.disabled = false;
+            note.textContent = j.note || 'That did not stick.';
+            return;
+          }
+          location.reload();
+        })
+        .catch(function () { btn.disabled = false;
+                             note.textContent = 'The server did not answer.'; });
+    });
+  });
+})();
+"""
+
+
+def render_home_page(data: dict, config: dict, db_label: str) -> str:
+    """Home as the entrance. Cards to the pages, trends, the scoring panel.
+
+    The working tables live on their own pages now, Jobs, Insights and
+    the full archive at /archive. Home answers the walking-past
+    questions: is it running, what came in, how is the market moving,
+    and what is the scorer actually judging me against.
+    """
+    data["serve"] = True
+    now = radar_common.now_iso()
+
+    active = data["opportunities"]
+    week_ago = (datetime.now(timezone.utc)
+                - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new_this_week = [o for o in active
+                     if (o.get("first_seen") or "") >= week_ago]
+    live_signals = [s for s in data["signals"] if s.get("status") == "new"
+                    and s.get("relevance") is not None]
+    fresh_signals = [s for s in live_signals
+                     if (s.get("first_seen") or "") >= week_ago]
+    cv_label = "the built-in cv.txt"
+    try:
+        import cv_store
+        import score_item
+        cv_label = score_item.get_cv_version(config)
+    except Exception:  # noqa: BLE001  the card degrades, never breaks Home
+        pass
+
+    cards = f"""<div class="entrance">
+<a class="card card-jobs" href="/jobs">{ICON_JOBS}<span class="card-title">Jobs</span>
+<span class="card-sub">{len(active)} {"role" if len(active) == 1 else "roles"} in play, {len(new_this_week)} new this week</span></a>
+<a class="card card-insights" href="/insights">{ICON_INSIGHTS}<span class="card-title">Insights</span>
+<span class="card-sub">{len(live_signals)} live, {len(fresh_signals)} fresh this week</span></a>
+<a class="card card-cv" href="/cv">{ICON_CV}<span class="card-title">CV</span>
+<span class="card-sub">Scoring against {esc(cv_label)}</span></a>
+</div>"""
+
+    def hours_since(iso):
+        try:
+            then = datetime.strptime(str(iso)[:16], "%Y-%m-%dT%H:%M")
+        except (ValueError, TypeError):
+            return None
+        return max(0.0, (datetime.now(timezone.utc)
+                         - then.replace(tzinfo=timezone.utc)
+                         ).total_seconds() / 3600)
+
+    inbox_hours = hours_since(data["inbox_ts"])
+    if inbox_hours is None:
+        sync_dot, sync_word = "red", "never run"
+    elif inbox_hours <= 2:
+        sync_dot, sync_word = "green", "on schedule"
+    elif inbox_hours <= 6:
+        sync_dot, sync_word = "amber", "running late"
+    else:
+        sync_dot, sync_word = "red", "stalled"
+    sync_when = (f", last sync {fmt_day_time(data['inbox_ts'])}"
+                 if data["inbox_ts"] else "")
+
+    wp = data["weekly_prospects"]
+    this_wk = wp[-1][1] if wp else 0
+    last_wk = wp[-2][1] if len(wp) > 1 else 0
+    if this_wk > last_wk:
+        wk_verdict = "more than last week, the market is giving"
+    elif this_wk < last_wk:
+        wk_verdict = "down on last week"
+    else:
+        wk_verdict = "level with last week"
+    top_w = max((c for _, c in wp), default=0) or 1
+    wp_bars = "".join(
+        ('<i class="none" title="none in the week of '
+         f'{esc(fmt_day(wk))}"></i>') if c == 0 else
+        (f'<i class="{"today" if i == len(wp) - 1 else ""}" '
+         f'style="height:{max(4, round(46 * c / top_w))}px" '
+         f'title="{c} in the week of {esc(fmt_day(wk))}"></i>')
+        for i, (wk, c) in enumerate(wp))
+    mp = data["month_prospects"]
+
+    overview = f"""<div class="metrics">
+<div class="widget"><h4>Right now</h4><ul>
+<li><span class="dot dot-{sync_dot}" title="{esc(sync_word)}"></span>Inbox {esc(sync_word)}{esc(sync_when)}</li>
+<li><span class="num">{len(new_this_week)}</span>new {"job" if len(new_this_week) == 1 else "jobs"} this week</li>
+<li><span class="num">{data["week_new"]}</span>through the pipeline, {max(0, data["week_seen"] - data["week_new"])} duplicates skipped</li>
+</ul></div>
+<div class="widget"><h4>Top prospects, week on week</h4>
+<div class="bars">{wp_bars}</div>
+<p class="bars-label"><span>eight weeks ago</span><span>this week</span></p>
+<ul style="margin-top:8px">
+<li><span class="num">{this_wk}</span>this week, {last_wk} last week, {esc(wk_verdict)}</li>
+<li><span class="num">{mp["this"]}</span>this month, {mp["last"]} last month</li>
+</ul></div>
+<div class="widget"><h4>Insight activity, twelve weeks</h4>
+{_line_chart(data["weekly_signals"], "Signals per week over twelve weeks")}
+<ul style="margin-top:6px"><li>Peaks say the ecosystem is announcing, troughs say go quiet and build.</li></ul>
+</div>
+</div>"""
+
+    floor_val = data["floor"]
+    title_val = radar_common.read_pref_line("target_title", config) or ""
+    keywords_val = radar_common.read_pref_line("keywords", config) or ""
+    keyword_chips = "".join(
+        f'<span class="chip">{esc(k.strip())}</span>'
+        for k in keywords_val.split(",") if k.strip())
+    profile = f"""<section class="section">
+<div class="section-head"><h2>What the scorer judges against</h2></div>
+<p class="section-note">Capability comes from the CV, desire from the
+preferences file, and these are the file's machine-readable lines, edited
+in place. Everything saved here is in the scorer's next system prompt.</p>
+<div class="panel panel-sage" style="padding:16px">
+<div class="pref-grid">
+<label>Title<input type="text" id="pref-target_title"
+ value="{esc(title_val)}" placeholder="e.g. Fractional software director, medtech and IVD">
+<button type="button" class="act-btn" data-pref-save="target_title">Save</button></label>
+<label>Day-rate floor, GBP<input type="text" id="pref-day_rate_floor_gbp"
+ value="{esc('' if floor_val is None else f'{floor_val:g}')}" placeholder="650">
+<button type="button" class="act-btn" data-pref-save="day_rate_floor_gbp">Save</button></label>
+<label>Keywords, comma separated<input type="text" id="pref-keywords"
+ value="{esc(keywords_val)}" placeholder="IEC 62304, ISO 13485, IVD, fractional">
+<button type="button" class="act-btn" data-pref-save="keywords">Save</button></label>
+</div>
+<p class="board-note" id="pref-note"></p>
+<div style="margin-top:10px">{keyword_chips}</div>
+<p class="legend">Also in the judging set. The active CV,
+{esc(cv_label)}, changed at <a href="/cv">the CV page</a>. The engagement
+types, location and sector rules live as prose in
+config/profile/preferences.md, edited by hand, this panel never touches
+them. The rate floor drives the Rate bands everywhere at once.</p>
+</div>
+</section>"""
+
+    n_threads = len(data["threads"])
+    n_age = len(data["ageing"])
+    n_review = sum(1 for o in active if o.get("combined") is None)
+    attention_bits = []
+    if n_threads:
+        attention_bits.append(
+            f'<li><span class="num">{n_threads}</span>'
+            f'{"thread" if n_threads == 1 else "threads"} awaiting your '
+            'next move</li>')
+    if n_age:
+        attention_bits.append(
+            f'<li><span class="num">{n_age}</span>above the bar and '
+            'sitting still over a fortnight</li>')
+    if n_review:
+        attention_bits.append(
+            f'<li><span class="num">{n_review}</span>awaiting a score, '
+            'rescore.py clears them</li>')
+    attention = ""
+    if attention_bits:
+        attention = ('<section class="section">'
+                     '<div class="section-head"><h2>Needs you</h2></div>'
+                     '<div class="widget" style="margin-top:12px"><ul>'
+                     + "".join(attention_bits)
+                     + '</ul><p class="board-note">The detail lives in '
+                     '<a href="/archive">the full archive</a>.</p>'
+                     "</div></section>")
+
+    return f"""<!doctype html>
+<html lang="en-GB" data-appearance="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MedTech Radar</title>
+<link rel="icon" href="{FAVICON}">
+<style>{CSS}</style>
+</head>
+<body>
+<main class="page">
+<header class="masthead">
+<div>
+<div class="brand">{MARK_SVG}<h1>MedTech Radar</h1></div>
+<p class="masthead-sub">Generated {esc(fmt_long(now))} from {esc(db_label)}. The page re-renders on every load.</p>
+</div>
+<div class="controls">
+<nav class="tabs" aria-label="Pages"><a href="/" aria-current="page">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav>
+<span class="segmented" role="group" aria-label="Appearance">
+<button type="button" data-appearance-set="light" aria-pressed="false">Light</button>
+<button type="button" data-appearance-set="auto" aria-pressed="true">Auto</button>
+<button type="button" data-appearance-set="dark" aria-pressed="false">Dark</button>
+</span>
+</div>
+</header>
+<section class="standing">{standing_line(data)}</section>
+{cards}
+{overview}
+{profile}
+{attention}
+<footer class="heartbeat">
+<ul class="heartbeat-facts">{heartbeat_facts(data)}</ul>
+{sparkline(data)}
+<ul class="outlinks"><li><a href="/archive">The full archive, every row on file</a></li><li><a href="/cv">Update the CV the scorer reads</a></li></ul>
+<p class="end">Buttons write, everything else reads. Regenerate the static fallback with <code>python scripts/build_dashboard.py</code>.</p>
+</footer>
+</main>
+<script>{SCRIPT}{HOME_SCRIPT}</script>
 </body>
 </html>"""
 

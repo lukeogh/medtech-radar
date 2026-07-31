@@ -101,6 +101,42 @@ def main() -> int:
             check("day_rate_floor_gbp" in str(err),
                   "the loud failure names the missing line and the fix")
 
+    # ----- the dashboard-editable preference lines, surgical and loud
+    with tempfile.TemporaryDirectory() as tmp:
+        prefs = Path(tmp) / "prefs.md"
+        prefs.write_text(
+            "# Preferences.\n\n## Rates.\n\nProse stays untouched.\n\n"
+            "day_rate_floor_gbp: 650\n\nMore prose after.\n",
+            encoding="utf-8")
+        cfg2 = {"prefs_file": str(prefs)}
+        check(radar_common.read_pref_line("day_rate_floor_gbp", cfg2) == "650",
+              "a labelled line reads back")
+        stored = radar_common.update_pref_line("day_rate_floor_gbp", "£700",
+                                               cfg2)
+        check(stored == "700"
+              and radar_common.read_rate_floor(cfg2) == 700.0,
+              "editing the floor updates the one line the banding reads")
+        text_after = prefs.read_text(encoding="utf-8")
+        check("Prose stays untouched." in text_after
+              and "More prose after." in text_after,
+              "the surrounding prose survives the edit untouched")
+        radar_common.update_pref_line("target_title",
+                                      "Fractional software director", cfg2)
+        check(radar_common.read_pref_line("target_title", cfg2)
+              == "Fractional software director"
+              and "## Title and keywords." in prefs.read_text(encoding="utf-8"),
+              "a missing line is appended under its managed section")
+        for bad_key, bad_val, label in (
+                ("nonsense", "x", "an unknown key is refused"),
+                ("day_rate_floor_gbp", "cheap", "a non-number floor is refused"),
+                ("day_rate_floor_gbp", "50000", "an insane floor is refused"),
+                ("target_title", "", "an empty value is refused")):
+            try:
+                radar_common.update_pref_line(bad_key, bad_val, cfg2)
+                check(False, label)
+            except ValueError:
+                check(True, label)
+
     # ----- the pay backfill, rehearsed in mock against a throwaway db
     import json as json_mod
     import subprocess
@@ -496,7 +532,33 @@ def main() -> int:
         check(f'data-ack="{ids["Keepit Ltd"]}"' in jobs_page,
               "job rows carry the acknowledge action here too")
         check('>Home</a>' in html_page and 'href="/jobs"' in html_page,
-              "the Home page tab bar names Home and reaches Jobs")
+              "the archive page tab bar names Home and reaches Jobs")
+
+        # Home is the entrance now. Three cards to the pages, the trends,
+        # and the scoring panel with the file's own values in its inputs.
+        home = build_dashboard.render_home_page(data, config, "t")
+        for href, word in (("/jobs", "Jobs"), ("/insights", "Insights"),
+                           ("/cv", "CV")):
+            check(f'href="{href}"' in home and f">{word}</span>" in home,
+                  f"the {word} entrance card links to its page")
+        check("<svg" in home.split('class="entrance"')[1][:2000],
+              "the entrance cards carry their icons")
+        check("Top prospects, week on week" in home
+              and 'class="bars"' in home,
+              "the week-on-week prospects chart renders")
+        check("Insight activity, twelve weeks" in home
+              and 'class="trend-line"' in home,
+              "the twelve-week insight line chart renders")
+        check('id="pref-day_rate_floor_gbp"' in home
+              and 'value="650"' in home,
+              "the scoring panel shows the live floor")
+        check('id="pref-target_title"' in home
+              and 'id="pref-keywords"' in home,
+              "title and keywords are editable from the panel")
+        check("Needs you" not in home,
+              "the attention section stays silent with nothing due")
+        check('href="/archive"' in home,
+              "the full archive stays reachable from the footer")
 
         digest_data = build_digest.collect(read, config)
         digest_text = build_digest.render_text(digest_data, "unit day")
@@ -564,11 +626,16 @@ def main() -> int:
             check(resp.status == 200 and body.get("ok") is True,
                   "POST /ack acknowledges over real HTTP")
             with urllib.request.urlopen(
-                    f"http://127.0.0.1:{port}/", timeout=10) as resp:
+                    f"http://127.0.0.1:{port}/archive", timeout=10) as resp:
                 page = resp.read().decode("utf-8")
             check(resp.status == 200
                   and f'data-unack="{ids["Seenit Ltd"]}"' in page,
-                  "the served page re-renders with the row acknowledged")
+                  "the archive re-renders with the row acknowledged")
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/", timeout=10) as resp:
+                home_http = resp.read().decode("utf-8")
+            check(resp.status == 200 and 'class="entrance"' in home_http,
+                  "GET / serves the entrance dashboard over HTTP")
             with urllib.request.urlopen(
                     f"http://127.0.0.1:{port}/insights", timeout=10) as resp:
                 ins_page = resp.read().decode("utf-8")

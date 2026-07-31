@@ -398,6 +398,80 @@ _FLOOR_LINE = re.compile(r"^day_rate_floor_gbp:\s*([0-9]+(?:\.[0-9]+)?)\s*$",
                          re.IGNORECASE | re.MULTILINE)
 
 
+# The labelled lines the dashboard may edit inside the preferences file.
+# The scorer reads the whole file, so a value set here flows into scoring
+# with no other plumbing. Everything else in that file stays Luke's prose.
+PREF_EDITABLE = {
+    "day_rate_floor_gbp": "number",
+    "target_title": "text",
+    "keywords": "text",
+}
+
+
+def _prefs_path(config: dict | None = None) -> Path:
+    config = config or load_config()
+    prefs_rel = config.get("prefs_file", "config/profile/preferences.md")
+    live = REPO_ROOT / prefs_rel
+    if live.exists():
+        return live
+    return REPO_ROOT / "config" / "preferences.template.md"
+
+
+def read_pref_line(key: str, config: dict | None = None) -> str | None:
+    """The value of one labelled line, or None when the line is absent."""
+    if key not in PREF_EDITABLE:
+        raise ValueError(f"{key} is not a dashboard-editable line.")
+    path = _prefs_path(config)
+    if not path.exists():
+        return None
+    match = re.search(rf"^{re.escape(key)}:\s*(.+?)\s*$",
+                      path.read_text(encoding="utf-8"),
+                      re.IGNORECASE | re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def update_pref_line(key: str, value: str,
+                     config: dict | None = None) -> str:
+    """Surgically set one labelled line in the preferences file.
+
+    Replaces the line in place when it exists, otherwise appends a small
+    dashboard-managed section at the end. Never touches any other line,
+    the file is Luke's prose and stays that way. Returns the stored value.
+    """
+    if key not in PREF_EDITABLE:
+        raise ValueError(f"{key} is not a dashboard-editable line.")
+    value = " ".join(str(value or "").split())[:200]
+    if not value:
+        raise ValueError("An empty value would delete the line. Type "
+                         "something, or edit the file by hand to remove it.")
+    if PREF_EDITABLE[key] == "number":
+        try:
+            number = float(value.replace("£", "").replace(",", ""))
+        except ValueError as err:
+            raise ValueError(f"{key} needs a plain number.") from err
+        if not 0 < number <= 10000:
+            raise ValueError(f"{key} of {number:g} is outside any sane "
+                             "day-rate range.")
+        value = f"{number:g}"
+    path = _prefs_path(config)
+    if not path.exists():
+        raise ValueError(f"No preferences file at {path} to edit.")
+    text = path.read_text(encoding="utf-8")
+    line = f"{key}: {value}"
+    pattern = re.compile(rf"^{re.escape(key)}:.*$",
+                         re.IGNORECASE | re.MULTILINE)
+    if pattern.search(text):
+        text = pattern.sub(line, text, count=1)
+    else:
+        if "## Title and keywords." not in text:
+            text = (text.rstrip() + "\n\n## Title and keywords.\n\n"
+                    "Lines the dashboard's scoring panel manages. The "
+                    "scorer reads them as part of this file.\n\n")
+        text = text.rstrip() + "\n" + line + "\n"
+    path.write_text(text, encoding="utf-8")
+    return value
+
+
 def read_rate_floor(config: dict | None = None) -> float:
     """The day-rate floor in GBP, from the one machine-readable line.
 

@@ -39,3 +39,11 @@ Software driven medical devices and IVD first, photonics and diagnostics
 especially. Adjacent regulated sectors, defence, aerospace, utilities, are
 acceptable as bridge work but score below medtech. Unregulated sectors score
 lowest.
+
+## Title and keywords.
+
+Lines the dashboard's scoring panel manages in place. The scorer reads
+them as part of this file, so what is written here shapes want_match.
+
+target_title: Fractional software director, medtech and IVD
+keywords: IEC 62304, ISO 13485, IVD, medical devices, fractional, interim
