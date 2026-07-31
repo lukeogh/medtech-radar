@@ -1108,6 +1108,11 @@ EXT_SVG = ('<svg viewBox="0 0 12 12" width="11" height="11" fill="none" '
            '<path d="M7.5 1H11v3.5M11 1 5.8 6.2"/></svg>')
 
 
+def info_tip(text: str) -> str:
+    """The small circled i that carries a widget's rule on hover."""
+    return (f'<span class="info" tabindex="0" data-tip="{esc(text)}">i</span>')
+
+
 def board_title_html(s: dict) -> str:
     """Badge tile, board name, and the open-the-site arrow when known."""
     badge = s.get("badge") or (s.get("name") or "?")[:1].upper()
@@ -1387,7 +1392,10 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
 
     widgets = ['<div class="widgets">']
     widgets.append(
-        '<div class="widget"><h4>The week in numbers</h4><ul>'
+        '<div class="widget"><h4>The week in numbers'
+        + info_tip("Fresh means scored insights first seen in the last "
+                   "seven days, dismissed and followed-up ones excluded.")
+        + "</h4><ul>"
         f'<li><span class="num">{len(fresh)}</span>fresh '
         f'{"insight" if len(fresh) == 1 else "insights"}</li>'
         f'<li><span class="num">{data["week_new"]}</span>new items through '
@@ -1404,8 +1412,12 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
         items = "".join(
             f"<li>{esc(s.get('headline') or s.get('company'))} "
             f"({fmt_day(s.get('pushed_at'))})</li>" for s in pushed[:5])
-        widgets.append(f'<div class="widget"><h4>Reached the phone</h4>'
-                       f"<ul>{items}</ul></div>")
+        widgets.append('<div class="widget"><h4>Reached the phone'
+                       + info_tip(f"Signals at {data['fast']} or higher "
+                                  "push to the phone the moment they "
+                                  "score. This lists what actually "
+                                  "arrived, with the date it did.")
+                       + f"</h4><ul>{items}</ul></div>")
     coverage_note = (f'<li><span class="num">{answering}</span>of {watched} '
                      "sources answering</li>")
     quiet_items = "".join(f"<li>{esc(q)}</li>" for q in quiet[:5])
@@ -1419,7 +1431,11 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
                            f"{watched - data['checked']} await their first "
                            "check.</li>")
     widgets.append(
-        '<div class="widget"><h4>Coverage</h4><ul>' + coverage_note
+        '<div class="widget"><h4>Coverage'
+        + info_tip("Answering means the last fetch came back with content "
+                   "or not-modified. Sources never checked are queued, "
+                   "not failing, and anything gone dark is named here.")
+        + '</h4><ul>' + coverage_note
         + quiet_items + "</ul></div>")
     widgets.append("</div>")
 
@@ -1685,19 +1701,19 @@ def render_home_page(data: dict, config: dict, db_label: str) -> str:
     mp = data["month_prospects"]
 
     overview = f"""<div class="metrics">
-<div class="widget"><h4>Right now</h4><ul>
+<div class="widget"><h4>Right now{info_tip("The inbox light judges its hourly schedule. Green ran within two hours, amber within six, red stalled or never run. The counts are the last seven days.")}</h4><ul>
 <li><span class="dot dot-{sync_dot}" title="{esc(sync_word)}"></span>Inbox {esc(sync_word)}{esc(sync_when)}</li>
 <li><span class="num">{len(new_this_week)}</span>new {"job" if len(new_this_week) == 1 else "jobs"} this week</li>
 <li><span class="num">{data["week_new"]}</span>through the pipeline, {max(0, data["week_seen"] - data["week_new"])} duplicates skipped</li>
 </ul></div>
-<div class="widget"><h4>Top prospects, week on week</h4>
+<div class="widget"><h4>Top prospects, week on week{info_tip(f"A top prospect scores {data['threshold']} or higher combined, the digest bar. Bars are Monday-to-Sunday weeks, and the month figures sit beneath for the slower trend.")}</h4>
 <div class="bars">{wp_bars}</div>
 <p class="bars-label"><span>eight weeks ago</span><span>this week</span></p>
 <ul style="margin-top:8px">
 <li><span class="num">{this_wk}</span>this week, {last_wk} last week, {esc(wk_verdict)}</li>
 <li><span class="num">{mp["this"]}</span>this month, {mp["last"]} last month</li>
 </ul></div>
-<div class="widget"><h4>Insight activity, the year<span class="info" tabindex="0" data-tip="Only medtech events scoring {data["threshold"]} or higher count, the ones that could need your input. Peaks say the ecosystem is announcing, troughs say go quiet and build.">i</span></h4>
+<div class="widget"><h4>Insight activity, the year{info_tip(f"Only medtech events scoring {data['threshold']} or higher count, the ones that could need your input. Peaks say the ecosystem is announcing, troughs say go quiet and build.")}</h4>
 {_line_chart(data["monthly_signals"], "Relevant medtech signals per month over twelve months")}
 </div>
 </div>"""
@@ -1919,7 +1935,12 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
     dups = max(0, data["week_seen"] - data["week_new"])
     metrics = ['<div class="metrics">']
     metrics.append(
-        '<div class="widget"><h4>The machine</h4><ul>'
+        '<div class="widget"><h4>The machine'
+        + info_tip("Green ran within two hours of the hourly schedule, "
+                   "amber within six, red stalled or never run. Failed "
+                   "emails are poison messages that hit the three-strike "
+                   "cap, the digest names them.")
+        + "</h4><ul>"
         + f"<li>{dot(inbox_light, inbox_word)}Inbox {inbox_word}"
         + (f'<span class="li-age">{ago(inbox_hours)}</span>'
            if inbox_hours is not None else "")
@@ -1952,7 +1973,11 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
                         f'title="{c} on {esc(label)}"></i>')
     fortnight_total = sum(counts)
     metrics.append(
-        '<div class="widget"><h4>The flow, last fourteen days</h4>'
+        '<div class="widget"><h4>The flow, last fourteen days'
+        + info_tip("Arrivals per day, acknowledged ones included, an "
+                   "arrival is an arrival. Hover a bar for its exact "
+                   "count and date.")
+        + "</h4>"
         f'<div class="bars">{"".join(bars)}</div>'
         '<p class="bars-label"><span>two weeks ago</span><span>today</span></p>'
         '<ul style="margin-top:8px">'
@@ -1975,7 +2000,12 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
     any_red_board = any(
         board_light(hours_since(last_by_source.get(s["id"])))[0] == "red"
         for s in registry)
-    metrics.append('<div class="widget"><h4>Board freshness</h4><ul>'
+    metrics.append('<div class="widget"><h4>Board freshness'
+                   + info_tip("Green emailed within two days, amber within "
+                              "a week, red was flowing and went silent, a "
+                              "hollow dot has never been heard from and is "
+                              "waiting on a subscription.")
+                   + "</h4><ul>"
                    + "".join(fresh_items)
                    + ('<li class="board-note">A silent board stopped '
                       "sending email. Check its alert settings on the "

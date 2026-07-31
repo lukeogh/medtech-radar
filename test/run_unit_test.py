@@ -360,6 +360,8 @@ def main() -> int:
               "the Insights tab marks itself current")
         check("The week in numbers" in insights and "Coverage" in insights,
               "the widgets render")
+        check(insights.count('class="info"') >= 2,
+              "the Insights widget rules sit behind info icons")
 
         # The insight actions. Dismiss follows the jobs rule, done logs
         # the touch and the touch feeds context back onto the page.
@@ -489,6 +491,8 @@ def main() -> int:
               "the open-the-site arrow links out from the heading")
         check("The machine" in jobs_page and "Board freshness" in jobs_page,
               "the trust metrics render at the top")
+        check(jobs_page.count('class="info"') >= 3,
+              "each Jobs widget rule sits behind an info icon")
         check("The flow, last fourteen days" in jobs_page
               and 'class="bars"' in jobs_page,
               "the fortnight flow chart renders")
@@ -552,8 +556,9 @@ def main() -> int:
         check("Recording began" in home,
               "months before the radar existed are named, never faked as "
               "quiet")
-        check('class="info"' in home and "scoring 70 or higher" in home,
-              "the counting rule lives behind the info icon's tooltip")
+        check(home.count('class="info"') >= 3
+              and "scoring 70 or higher" in home,
+              "every Home widget rule lives behind an info icon")
         # The relevance filter. A sub-threshold signal is activity noise
         # and must not move the annual line.
         low = dict(data)
