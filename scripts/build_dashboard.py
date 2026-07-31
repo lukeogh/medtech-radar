@@ -781,6 +781,10 @@ a:hover{text-decoration-color:var(--accent)}
 .add-source-strip{margin-top:var(--space-40)}
 .add-source input{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-1);background:var(--surface);border:1px solid var(--hairline-strong);border-radius:var(--radius-sm);padding:6px 10px;min-width:200px}
 .add-source input::placeholder{color:var(--ink-3)}
+.board-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;margin-right:10px;color:#fff;font:650 10px/1 var(--font-sans);letter-spacing:0;text-transform:none;vertical-align:-4px;flex:none}
+.section-head h2{display:inline-flex;align-items:center}
+.ext{display:inline-flex;color:var(--ink-3);margin-left:8px;vertical-align:-1px;transition:color var(--dur-instant) var(--ease)}
+.ext:hover{color:var(--accent)}
 @media (max-width:900px){.front{grid-template-columns:minmax(0,1fr)}}
 .row-acked{display:none;opacity:.6}
 .panel.show-acked .row-acked{display:block}
@@ -973,14 +977,39 @@ SERVE_SCRIPT = """
 
 
 def section(title: str, count, note: str, panel_class: str, body: str,
-            legend: str = "", head_extra: str = "") -> str:
+            legend: str = "", head_extra: str = "",
+            title_html: str | None = None) -> str:
     legend_html = f'\n<p class="legend">{esc(legend)}</p>' if legend else ""
     return f"""<section class="section">
-<div class="section-head"><h2>{esc(title)}</h2>{head_extra}
+<div class="section-head"><h2>{title_html or esc(title)}</h2>{head_extra}
 <span class="section-count">{count}</span></div>
 <p class="section-note">{esc(note)}</p>
 <div class="panel {panel_class}">{body}</div>{legend_html}
 </section>"""
+
+
+# The box-with-arrow glyph, the universal "this opens the website".
+EXT_SVG = ('<svg viewBox="0 0 12 12" width="11" height="11" fill="none" '
+           'stroke="currentColor" stroke-width="1.3" stroke-linecap="round" '
+           'stroke-linejoin="round" aria-hidden="true">'
+           '<path d="M5 2H2.2A1.2 1.2 0 0 0 1 3.2v6.6A1.2 1.2 0 0 0 2.2 11'
+           'h6.6A1.2 1.2 0 0 0 10 9.8V7"/>'
+           '<path d="M7.5 1H11v3.5M11 1 5.8 6.2"/></svg>')
+
+
+def board_title_html(s: dict) -> str:
+    """Badge tile, board name, and the open-the-site arrow when known."""
+    badge = s.get("badge") or (s.get("name") or "?")[:1].upper()
+    colour = s.get("colour") or ("var(--ink-3)" if s["id"] == "email-other"
+                                 else "var(--accent)")
+    html = (f'<span class="board-badge" style="background:{esc(colour)}">'
+            f'{esc(badge)}</span><span>{esc(s.get("name") or s["id"])}</span>')
+    site = safe_url(s.get("url"))
+    if site:
+        html += (f'<a class="ext" href="{esc(site)}" target="_blank" '
+                 f'rel="noopener noreferrer" aria-label="Open '
+                 f'{esc(s.get("name") or s["id"])} in a new tab">{EXT_SVG}</a>')
+    return html
 
 
 def rate_legend(floor) -> str:
@@ -1368,6 +1397,7 @@ JOBS_SCRIPT = """
   var addBtn = document.getElementById('src-add');
   var nameIn = document.getElementById('src-name');
   var senderIn = document.getElementById('src-sender');
+  var urlIn = document.getElementById('src-url');
   var note = document.getElementById('src-note');
   if (!addBtn) return;
   addBtn.addEventListener('click', function () {
@@ -1375,7 +1405,8 @@ JOBS_SCRIPT = """
     fetch('/jobs/source', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: nameIn.value, sender: senderIn.value })
+      body: JSON.stringify({ name: nameIn.value, sender: senderIn.value,
+                            url: urlIn ? urlIn.value : '' })
     }).then(function (r) { return r.json(); })
       .then(function (j) {
         if (j && j.ok === false) {
@@ -1499,7 +1530,8 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
         else:
             body_html = f'<p class="empty">{note}</p>'
         return section(s["name"], len(rows_for), note if rows_for else "",
-                       "panel-stone", body_html)
+                       "panel-stone", body_html,
+                       title_html=board_title_html(s))
 
     known = [s for s in registry if s["id"] in known_ids]
     catch_all = [s for s in registry if s["id"] not in known_ids]
@@ -1522,6 +1554,7 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
 <div class="add-source">
 <input type="text" id="src-name" placeholder="Board name, e.g. Technojobs">
 <input type="text" id="src-sender" placeholder="Sender contains, e.g. technojobs">
+<input type="text" id="src-url" placeholder="Site, optional, e.g. technojobs.co.uk">
 <button type="button" class="act-btn" id="src-add">Add the source</button>
 <span class="board-note" id="src-note"></span>
 </div>

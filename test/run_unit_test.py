@@ -404,24 +404,25 @@ def main() -> int:
               "the four boards ship built in")
         reg_path = Path(tmp) / "job_sources.yaml"
         added = radar_common.add_job_source("Technojobs", "technojobs",
-                                            reg_path)
+                                            url="technojobs.co.uk",
+                                            path=reg_path)
         check(added["id"] == "technojobs-alert",
               "a custom source slugs into the built-in id shape")
         loaded = radar_common.load_job_sources(reg_path)
         check(any(s["id"] == "technojobs-alert" for s in loaded),
               "the custom source loads alongside the built-ins")
         try:
-            radar_common.add_job_source("Technojobs", "other", reg_path)
+            radar_common.add_job_source("Technojobs", "other", path=reg_path)
             check(False, "a duplicate source name is refused")
         except ValueError:
             check(True, "a duplicate source name is refused")
         try:
-            radar_common.add_job_source("Other Board", "technojobs", reg_path)
+            radar_common.add_job_source("Other Board", "technojobs", path=reg_path)
             check(False, "a duplicate sender match is refused")
         except ValueError:
             check(True, "a duplicate sender match is refused")
         try:
-            radar_common.add_job_source("X", "ab", reg_path)
+            radar_common.add_job_source("X", "ab", path=reg_path)
             check(False, "too-short inputs are refused")
         except ValueError:
             check(True, "too-short inputs are refused")
@@ -443,8 +444,13 @@ def main() -> int:
         check("Top prospects" in jobs_page,
               "the Jobs page leads with top prospects")
         for board in ("LinkedIn", "Reed", "Indeed", "CV-Library"):
-            check(f"<h2>{board}</h2>" in jobs_page,
+            check(f">{board}</span>" in jobs_page,
                   f"{board} gets a section of its own")
+        check("board-badge" in jobs_page,
+              "board sections carry their badge tiles")
+        check('class="ext"' in jobs_page
+              and "https://www.linkedin.com/jobs/" in jobs_page,
+              "the open-the-site arrow links out from the heading")
         check("The machine" in jobs_page and "Board freshness" in jobs_page,
               "the trust metrics render at the top")
         check('id="src-add"' in jobs_page and "Add a job source" in jobs_page,
@@ -452,9 +458,9 @@ def main() -> int:
         check("None yet" not in jobs_page
               and "job_sources.yaml" not in jobs_page,
               "no custom-source receipt renders while there are none")
-        i_cv = jobs_page.index("<h2>CV-Library</h2>")
+        i_cv = jobs_page.index(">CV-Library</span>")
         i_add = jobs_page.index("Add a job source")
-        i_other = jobs_page.index("<h2>Other email alerts</h2>")
+        i_other = jobs_page.index(">Other email alerts</span>")
         check(i_cv < i_add < i_other,
               "the add-source strip sits after the boards, before the "
               "catch-all")
@@ -469,9 +475,11 @@ def main() -> int:
               in jobs_with_custom
               and "job_sources.yaml" in jobs_with_custom,
               "an added source earns its one-line receipt, with the edit path")
-        check("<h2>Technojobs</h2>" in jobs_with_custom,
+        check(">Technojobs</span>" in jobs_with_custom,
               "an added source gets its own board section")
-        check(jobs_with_custom.index("<h2>Technojobs</h2>")
+        check("https://technojobs.co.uk" in jobs_with_custom,
+              "a custom board with a site gets the arrow too")
+        check(jobs_with_custom.index(">Technojobs</span>")
               < jobs_with_custom.index("Add a job source"),
               "a custom board's section sits above the add-source strip")
         check('href="/jobs" aria-current="page"' in jobs_page,

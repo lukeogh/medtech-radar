@@ -540,9 +540,11 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_json_body()
             name = body.get("name") if isinstance(body, dict) else None
             sender = body.get("sender") if isinstance(body, dict) else None
+            url = body.get("url") if isinstance(body, dict) else None
             try:
                 added = radar_common.add_job_source(str(name or ""),
-                                                    str(sender or ""))
+                                                    str(sender or ""),
+                                                    str(url or ""))
                 self._send(200, json.dumps({"ok": True, **added}).encode(),
                            "application/json")
             except ValueError as err:

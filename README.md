@@ -389,3 +389,9 @@ read by detect_source, so a new board's emails file under its own name
 the moment they start arriving. The form says the honest second half out
 loud, subscribing the aggregator inbox on the board is still yours to
 do. Suite green, the registry, the tagging and the endpoints pinned.
+
+30 July 2026, last touch. The boards got faces. Each Jobs section heading
+carries a small brand-coloured badge tile, the board's name, and the
+box-with-arrow glyph opening the board's site in a new tab, inline SVG
+throughout because the page stays self-contained. The add-a-source form
+gained an optional site field so a custom board earns the same arrow.

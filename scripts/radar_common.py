@@ -289,11 +289,17 @@ def sanitise_free_text(text):
 # the Jobs page and readable by hand, gitignored so it travels by hand.
 JOB_SOURCES_PATH = REPO_ROOT / "config" / "job_sources.yaml"
 BUILTIN_JOB_SOURCES = (
-    {"id": "linkedin-alert", "name": "LinkedIn", "sender_contains": "linkedin"},
-    {"id": "reed-alert", "name": "Reed", "sender_contains": "reed"},
-    {"id": "indeed-alert", "name": "Indeed", "sender_contains": "indeed"},
+    {"id": "linkedin-alert", "name": "LinkedIn", "sender_contains": "linkedin",
+     "url": "https://www.linkedin.com/jobs/", "badge": "in",
+     "colour": "#0A66C2"},
+    {"id": "reed-alert", "name": "Reed", "sender_contains": "reed",
+     "url": "https://www.reed.co.uk/", "badge": "R", "colour": "#E0257B"},
+    {"id": "indeed-alert", "name": "Indeed", "sender_contains": "indeed",
+     "url": "https://uk.indeed.com/", "badge": "i", "colour": "#2557A7"},
     {"id": "cvlibrary-alert", "name": "CV-Library",
-     "sender_contains": "cv-library"},
+     "sender_contains": "cv-library",
+     "url": "https://www.cv-library.co.uk/", "badge": "CV",
+     "colour": "#0E7490"},
 )
 
 
@@ -312,25 +318,38 @@ def load_job_sources(path: Path | None = None) -> list[dict]:
         for entry in data.get("sources") or []:
             if (isinstance(entry, dict) and entry.get("id")
                     and entry.get("sender_contains")):
-                sources.append({
+                custom = {
                     "id": str(entry["id"]),
                     "name": str(entry.get("name") or entry["id"]),
                     "sender_contains": str(entry["sender_contains"]).lower(),
-                })
+                }
+                if entry.get("url"):
+                    custom["url"] = str(entry["url"])
+                sources.append(custom)
     return sources
 
 
 def add_job_source(name: str, sender_contains: str,
+                   url: str | None = None,
                    path: Path | None = None) -> dict:
     """Append one custom source to the registry. Refuses duplicates.
 
     The id is the slugged name plus -alert, matching the built-in shape,
     so detect_source and the dashboard treat customs exactly like the
-    boards the radar shipped with.
+    boards the radar shipped with. The optional url powers the section
+    heading's open-the-site arrow and nothing else.
     """
     path = path or JOB_SOURCES_PATH
     name = " ".join((name or "").split())[:60]
     sender = (sender_contains or "").strip().lower()[:120]
+    site = (url or "").strip()[:200]
+    if site:
+        if not re.match(r"^https?://", site, re.IGNORECASE):
+            site = "https://" + site
+        if " " in site or "." not in site.split("//", 1)[-1]:
+            raise ValueError("The site does not look like a web address. "
+                             "Something like technojobs.co.uk works, or "
+                             "leave it empty.")
     if not name or len(name) < 2:
         raise ValueError("The source needs a name, two characters or more.")
     if not sender or len(sender) < 3:
@@ -351,8 +370,10 @@ def add_job_source(name: str, sender_contains: str,
 
     customs = [s for s in existing
                if s["id"] not in {b["id"] for b in BUILTIN_JOB_SOURCES}]
-    customs.append({"id": source_id, "name": name,
-                    "sender_contains": sender})
+    new_entry = {"id": source_id, "name": name, "sender_contains": sender}
+    if site:
+        new_entry["url"] = site
+    customs.append(new_entry)
     import yaml
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -362,7 +383,7 @@ def add_job_source(name: str, sender_contains: str,
         + yaml.safe_dump({"sources": customs}, sort_keys=False,
                          allow_unicode=True),
         encoding="utf-8")
-    return {"id": source_id, "name": name, "sender_contains": sender}
+    return dict(new_entry)
 
 
 # ----------------------------------------------------------------- rate bands
