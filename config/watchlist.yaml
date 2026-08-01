@@ -155,6 +155,11 @@ sources:
       semiconductors, quantum, photonics and biomedical. SharePoint site. The feed
       URL embeds a GUID widget id that could change if the site is rebuilt, so keep
       the press-releases listing page above as the fallback diff target.
+      Since at least 1 August 2026 the watcher records this source as
+      robots-blocked, so nothing is being read from it. That is the politeness
+      gate working, not a fault, and it is left in place deliberately. Coverage
+      dashboard names it as the one source gone dark. Revisit only if CEA-Leti
+      publishes a feed its robots.txt permits.
 
   - id: fraunhofer-venture
     name: Fraunhofer Venture news
@@ -213,18 +218,31 @@ sources:
       No RSS feed (/rss 404s). Minor JS loading elements but the core list is
       plain HTML.
 
-  - id: electronics-weekly
-    name: Electronics Weekly
-    tier: 2
-    url: "https://www.electronicsweekly.com/news"
-    method: rss
-    rss_url: "https://www.electronicsweekly.com/feed/"
-    check_interval_hours: 24
-    status: live
-    notes: >
-      Valid RSS 2.0 feed updated same-day covering funding, semiconductors and
-      markets. No hard paywall. Category feeds likely exist if the firehose proves
-      noisy.
+  # Parked 1 August 2026 after the first fortnight of real scores. Kept in
+  # full, commented rather than deleted, because the verification work above
+  # is still true and re-enabling is a matter of removing the hashes.
+  #
+  # The evidence. Electronics Weekly produced 8 of the first 26 scored
+  # signals at an average relevance of 2.3, best score 5, and nothing within
+  # sixty points of the digest bar. What it actually delivered was Apple's
+  # results call, Amazon's quarterly sales, a Samsung profit line and a fable
+  # about research advice. The firehose the note below anticipated arrived,
+  # and the category feeds it suggested were never narrow enough to be worth
+  # finding. The rubric was right every time, so this is not a scoring fault,
+  # it is a source that cannot produce what the radar is looking for.
+  #
+  # - id: electronics-weekly
+  #   name: Electronics Weekly
+  #   tier: 2
+  #   url: "https://www.electronicsweekly.com/news"
+  #   method: rss
+  #   rss_url: "https://www.electronicsweekly.com/feed/"
+  #   check_interval_hours: 24
+  #   status: live
+  #   notes: >
+  #     Valid RSS 2.0 feed updated same-day covering funding, semiconductors and
+  #     markets. No hard paywall. Category feeds likely exist if the firehose proves
+  #     noisy.
 
   - id: new-electronics
     name: New Electronics
@@ -239,17 +257,25 @@ sources:
       exists but no working URL was verifiable. A watcher would need browser-like
       headers or JS rendering. Skipped on normal runs, spot-check with --source.
 
-  - id: semiconductor-digest
-    name: Semiconductor Digest
-    tier: 2
-    url: "https://www.semiconductor-digest.com/"
-    method: rss
-    rss_url: "https://www.semiconductor-digest.com/feed/"
-    check_interval_hours: 24
-    status: live
-    notes: >
-      WordPress /feed/ is a valid RSS 2.0 feed updated same-day. Homepage is
-      JS-heavy with a cookie banner, so RSS is the right method here.
+  # Parked 1 August 2026 on the same evidence, same terms. Semiconductor
+  # Digest was the loudest source on the watchlist, 10 of the first 26 scored
+  # signals, average relevance 3.0, best 12, none near the bar. Fab capacity,
+  # sealing production lines and x86 licensing are real semiconductor news
+  # and none of it is a European medtech company that might need software
+  # help. Photonics coverage stays through optics.org and PIC Magazine, which
+  # score an order of magnitude better on the same rubric.
+  #
+  # - id: semiconductor-digest
+  #   name: Semiconductor Digest
+  #   tier: 2
+  #   url: "https://www.semiconductor-digest.com/"
+  #   method: rss
+  #   rss_url: "https://www.semiconductor-digest.com/feed/"
+  #   check_interval_hours: 24
+  #   status: live
+  #   notes: >
+  #     WordPress /feed/ is a valid RSS 2.0 feed updated same-day. Homepage is
+  #     JS-heavy with a cookie banner, so RSS is the right method here.
 
   - id: silicon-semiconductor
     name: Silicon Semiconductor

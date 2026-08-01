@@ -445,6 +445,32 @@ needs him. The old archive page kept every row and moved to /archive,
 linked from the footer. The working tables live where the work lives,
 Home just tells the truth quickly.
 
+1 August 2026. The buying window stopped being doctrine and became
+machinery. Every advert that arrives is now matched in code against the
+touch log, and one from a company already spoken to is flagged on the
+row and written up as its own insight, source id job-advert, relevance
+90, the playbook's step four carried on its back. The match is a fact
+about our own history, so it is decided at store time and never by a
+model, and a job score has no vote. A generic role at a touched
+seed-stage company used to score low on want match by design and sink
+without trace. It now surfaces as what it actually is, the week IEC
+62304 and ISO 13485 stop being abstract for them. One window per company
+ever, checked against the job-advert signals themselves so a restore
+from backup cannot re-open a conversation, and idempotent on the
+advert's own url hash. Nothing here pushes. The catch-up sweep already
+collects any new unacknowledged signal above the fast bar within a day,
+so arming semantics did not move.
+
+Week three books itself the same day. Marking an insight done through
+the page already logged the touch, and now the announcement-day channels
+book the follow-up too, twenty-one days out with the action named. Only
+comment and connection-note book anything. An engagement already is week
+three, and an artefact send is the buying-window move whose next event
+belongs to them, a reply or silence, both fine, so booking a date on
+either would invent the chase the playbook forbids. The Insights card
+carries the booking under the last touch, and Home counts what has come
+due, because a thread waiting and a thread late are not the same thread.
+
 31 July 2026, later. The insight line stretched to a rolling year, months
 as buckets, and learned two kinds of honesty. Only signals at or above
 the digest bar count now, the rubric's own judgement of a medtech event
