@@ -15,13 +15,16 @@ from __future__ import annotations
 import argparse
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+import process_email
 import radar_common
+import serve_dashboard
 
 failures: list[str] = []
 
@@ -1020,6 +1023,71 @@ def main() -> int:
                   "Note the company and revisit."):
         check(radar_common.sanitise_free_text(probe) == probe,
               f"idempotent on {probe[:24]!r}")
+
+    # Buying window. The doctrine's reading of an advert, decided in code
+    # against the touch log, never by a model.
+    check(process_email.normalise_company("  Veltrix   Diagnostics  ")
+          == "veltrix diagnostics",
+          "company names normalise for case and spacing")
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "buying_window.sqlite")
+        conn.execute(
+            "INSERT INTO touches (company, touched_at, channel, note)"
+            " VALUES (?,?,?,?)",
+            ("Veltrix Diagnostics", "2026-07-01T09:00:00Z", "comment",
+             "congrats comment on seed post"))
+        conn.commit()
+        touched = process_email.touched_companies(conn)
+        check(process_email.normalise_company("VELTRIX   diagnostics") in touched,
+              "touch-log matching survives case and spacing")
+        check(process_email.normalise_company("Untouched Ltd") not in touched,
+              "an untouched company never matches the touch log")
+
+        wrote = process_email.record_buying_window(
+            conn, "Veltrix Diagnostics", "QA Manager",
+            "https://example.test/jobs/1", "hash-one", "2026-07-20T09:00:00Z")
+        conn.commit()
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM signals WHERE source_id = 'job-advert'")]
+        check(wrote and len(rows) == 1,
+              "the first advert from a touched company writes one signal")
+        row = rows[0] if rows else {}
+        check(row.get("relevance") == process_email.BUYING_WINDOW_RELEVANCE
+              and (row.get("relevance") or 0) >= 75,
+              "the buying-window signal clears the fast push bar")
+        check(row.get("pushed") == 0,
+              "the buying-window signal is written unpushed")
+        check("QA Manager" in (row.get("why") or ""),
+              "the why names the advert that opened the window")
+        built = " ".join(str(row.get(f) or "") for f in
+                         ("headline", "why", "playbook_step"))
+        check(":" not in built and ";" not in built,
+              "the built text carries no colons and no semicolons")
+
+        again = process_email.record_buying_window(
+            conn, "veltrix  DIAGNOSTICS", "Regulatory Lead",
+            "https://example.test/jobs/2", "hash-two", "2026-07-21T09:00:00Z")
+        conn.commit()
+        count = conn.execute(
+            "SELECT COUNT(*) AS n FROM signals"
+            " WHERE source_id = 'job-advert'").fetchone()["n"]
+        check(not again and count == 1,
+              "a second advert from the same company writes nothing")
+        conn.close()
+
+    # Week three books itself, but only where the playbook says the next
+    # event is ours to make.
+    fixed = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+    for channel in ("comment", "connection-note"):
+        action, when = serve_dashboard.week_three_booking(channel, fixed)
+        check(when == "2026-07-22",
+              f"{channel} books week three twenty-one days out (got {when!r})")
+        check(action == serve_dashboard.WEEK_THREE_ACTION,
+              f"{channel} books the week-three action")
+    for channel in ("engagement", "artefact", "other"):
+        action, when = serve_dashboard.week_three_booking(channel, fixed)
+        check(action is None and when is None,
+              f"{channel} books nothing, the next event is not ours")
 
     print()
     if failures:

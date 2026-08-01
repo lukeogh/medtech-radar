@@ -182,7 +182,8 @@ def collect(conn, config) -> dict:
     # The latest touch per company, whatever the channel, so a story about
     # a company Luke already spoke to says so on its card.
     touch_map = {r["company"].lower(): dict(r) for r in conn.execute(
-        """SELECT t.company, t.touched_at, t.channel FROM touches t
+        """SELECT t.company, t.touched_at, t.channel, t.next_action,
+                  t.next_action_date FROM touches t
            JOIN (SELECT company, MAX(id) AS mid FROM touches
                  GROUP BY company) l ON t.id = l.mid""")}
     threads = [dict(r) for r in conn.execute(
@@ -420,9 +421,15 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
         out.append(f'<span class="row-why">{esc(sentence(why))}</span>')
     out.append("</span>")
 
+    # The buying window is a fact about our own history, so it shows on both
+    # branches. An advert that could not be scored still tells us the company
+    # is hiring, and that is the whole of the signal.
+    window_chip = ('<span class="chip">buying window</span>'
+                   if o.get("buying_window") else "")
     if review:
         out.append('<span class="col-score">&ndash;</span>')
         out.append(rate_cell(o))
+        out.append(window_chip)
         if not acked:
             out.append('<span class="chip chip-fail">review</span>')
     else:
@@ -431,11 +438,18 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
                    f'<span class="col-want">{o["want_match"]}</span>'
                    f'<span class="col-score{hot}">{o["combined"]}</span>')
         out.append(rate_cell(o))
+        out.append(window_chip)
     if acked:
         out.append(f'<span class="chip">seen {fmt_day(o.get("acknowledged_at"))}</span>')
     out.append(f'<span class="col-when">{fmt_day(o.get("first_seen"))}</span>')
 
     parts = [labelled("Rate", rate_detail(o))]
+    if o.get("buying_window"):
+        parts.append(labelled(
+            "Buying window",
+            "This company is already in the touch log, so the advert is the "
+            "playbook's buying-window moment whatever the job score says. "
+            "The insight, and the move to make, wait on the Insights page."))
     flags = []
     try:
         flags = [str(f) for f in json.loads(o.get("red_flags") or "[]")]
@@ -1324,6 +1338,13 @@ def _story_card(s: dict, data: dict, lead: bool = False,
         touch_line = (f'<p class="touch-note">You last touched this company '
                       f'{esc(fmt_day(touch.get("touched_at")))} via '
                       f'{esc(touch.get("channel") or "other")}.</p>')
+        # A booked next move belongs beside the last one, so the card
+        # answers "what now" without a trip to the tracker.
+        if touch.get("next_action"):
+            due = touch.get("next_action_date")
+            when = f" Due {esc(fmt_day(due))}." if due else ""
+            touch_line += (f'<p class="touch-note">Booked. '
+                           f'{esc(sentence(touch["next_action"]))}{when}</p>')
     actions = ""
     if state == "active":
         actions = (f'<p class="story-actions">'
@@ -1754,12 +1775,19 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
     n_threads = len(data["threads"])
     n_age = len(data["ageing"])
     n_review = sum(1 for o in active if o.get("combined") is None)
+    # A booked date that has arrived is the difference between a thread
+    # waiting and a thread late. Today counts as due, not overdue.
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    n_due = sum(1 for t in data["threads"]
+                if (t.get("next_action_date") or "") and
+                str(t["next_action_date"])[:10] <= today)
     attention_bits = []
     if n_threads:
+        due_note = f", {n_due} due or overdue" if n_due else ""
         attention_bits.append(
             f'<li><span class="num">{n_threads}</span>'
             f'{"thread" if n_threads == 1 else "threads"} awaiting your '
-            'next move</li>')
+            f'next move{due_note}</li>')
     if n_age:
         attention_bits.append(
             f'<li><span class="num">{n_age}</span>above the bar and '

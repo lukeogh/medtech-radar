@@ -39,6 +39,81 @@ if str(SCRIPT_DIR) not in sys.path:
 import radar_common
 import score_item
 
+# The buying-window signal is written by code, not scored by a model, so it
+# needs a relevance of its own. 90 sits deliberately above the fast signal
+# threshold, which is 75 in radar.yaml, because the doctrine treats the
+# first QA, regulatory or software hire at a touched company as the moment
+# worth interrupting the day for. Nothing here pushes. The catch-up sweep in
+# check_signals.py collects any new unacknowledged signal at or above the
+# fast bar within 24 hours of first_seen on the next armed run, so arming
+# semantics stay exactly where they were.
+BUYING_WINDOW_RELEVANCE = 90
+
+# Step 4 of playbook/announcement-day.md, compressed to one instruction.
+BUYING_WINDOW_STEP = (
+    "Send the compliance-cost article, or the gap assessment one-pager if "
+    "the article is not published yet. It does the selling by not selling, "
+    "so the paid assessment earns one line at the very end and never earlier."
+)
+
+
+def normalise_company(name: str) -> str:
+    """A company name reduced to something two spellings can agree on.
+
+    Lowercase and collapsed whitespace only. Deliberately not clever, no
+    suffix stripping, because turning "Veltrix Diagnostics" into "veltrix"
+    would let a different Veltrix borrow a touch history it never earned.
+    """
+    return " ".join(str(name or "").lower().split())
+
+
+def touched_companies(conn) -> set[str]:
+    """Every company in the touch log, normalised, as a set.
+
+    Read once per run rather than per advert. The log is small and the
+    inbox loop is hot.
+    """
+    return {normalise_company(r["company"])
+            for r in conn.execute("SELECT company FROM touches")
+            if normalise_company(r["company"])}
+
+
+def record_buying_window(conn, company: str, title: str, url: str,
+                         h: str, now: str) -> bool:
+    """Write the buying-window insight for one advert. True if written.
+
+    One per company, ever. A company hiring three QA people in a week is
+    one buying window, not three, and the second advert must not re-open a
+    conversation the first already started. The check is on existing
+    job-advert signals rather than on a flag somewhere, so it survives a
+    database restored from backup.
+
+    Idempotent on reruns through the advert's own url_hash and INSERT OR
+    IGNORE, matching how opportunities dedupe.
+    """
+    key = normalise_company(company)
+    if not key:
+        return False
+    seen = {normalise_company(r["company"]) for r in conn.execute(
+        "SELECT company FROM signals WHERE source_id = 'job-advert'")}
+    if key in seen:
+        return False
+    headline = radar_common.sanitise_free_text(
+        f"Buying window. {company} is hiring")
+    why = radar_common.sanitise_free_text(
+        f"They advertised {title or 'a role'}, and the playbook reads the "
+        "first QA, regulatory or software hire at a company already touched "
+        "as the week the standards stop being abstract.")
+    conn.execute(
+        "INSERT OR IGNORE INTO signals"
+        " (url_hash, first_seen, source_id, company, headline, summary,"
+        "  source_url, relevance, why, playbook_step, pushed, status)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,0,'new')",
+        (h, now, "job-advert", company, headline, None, url or "",
+         BUYING_WINDOW_RELEVANCE, why,
+         radar_common.sanitise_free_text(BUYING_WINDOW_STEP)))
+    return True
+
 
 def detect_source(from_field: str) -> str:
     """Tag the email by its board, built-ins and configured customs alike.
@@ -82,7 +157,8 @@ def pay_columns(opp: dict, config: dict, floor: float) -> dict:
 
 def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
                        scored: dict | None, note: str | None,
-                       pay: dict, cv_version: str | None = None) -> None:
+                       pay: dict, cv_version: str | None = None,
+                       buying_window: int = 0) -> None:
     if scored is None:
         scored = {
             "company": opp.get("company", ""),
@@ -100,8 +176,8 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
         "  source_url, thread_type, cv_match, want_match, combined, one_line_why,"
         "  red_flags, suggested_action, act_by, status, status_changed_at, notes,"
         "  pay_currency, pay_period, pay_min, pay_max, day_rate, rate_band,"
-        "  cv_version)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "  cv_version, buying_window)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (h, now, source,
          scored["company"] or opp.get("company", ""),
          scored["role_title"] or opp.get("title", ""),
@@ -114,7 +190,8 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
          scored["suggested_action"], scored["act_by"],
          "new", now, note,
          pay["pay_currency"], pay["pay_period"], pay["pay_min"],
-         pay["pay_max"], pay["day_rate"], pay["rate_band"], cv_version))
+         pay["pay_max"], pay["day_rate"], pay["rate_band"], cv_version,
+         buying_window))
 
 
 def main(argv=None) -> int:
@@ -180,6 +257,10 @@ def main(argv=None) -> int:
 
     source = detect_source(email.get("from", ""))
     now = radar_common.now_iso()
+    # The touch log, read once. Every advert is checked against it, so the
+    # doctrine's reading of a company survives whatever the job scorer makes
+    # of the role itself.
+    touched = touched_companies(conn)
     system_blocks = None  # built lazily, only when something new needs scoring
     seen_hashes: set[str] = set()
     items, new_count, dup_count = [], 0, 0
@@ -204,8 +285,23 @@ def main(argv=None) -> int:
             opp, system_blocks, config, mock_fn=score_fn)
         radar_common.add_usage(usage_total, s_usage)
 
+        # The doctrine's reading of this advert, taken before anything is
+        # stored and deliberately independent of the score. scored is None
+        # when scoring failed, and a failed score must not cost us the
+        # buying window, so every field falls back to the extraction.
+        company = (str((scored or {}).get("company") or "").strip()
+                   or str(opp.get("company", "")).strip())
+        role_title = (str((scored or {}).get("role_title") or "").strip()
+                      or str(opp.get("title", "")).strip())
+        advert_url = (str((scored or {}).get("source_url") or "").strip()
+                      or str(opp.get("source_url", "")).strip())
+        is_window = normalise_company(company) in touched
+
         insert_opportunity(conn, h, now, source, opp, scored, s_note,
-                           pay_columns(opp, config, floor), cv_version)
+                           pay_columns(opp, config, floor), cv_version,
+                           buying_window=int(is_window))
+        if is_window:
+            record_buying_window(conn, company, role_title, advert_url, h, now)
         new_count += 1
         item = {"company": opp.get("company", ""),
                 "title": opp.get("title", ""),
@@ -219,6 +315,8 @@ def main(argv=None) -> int:
                 "combined": scored["combined"],
                 "one_line_why": scored["one_line_why"],
             })
+        if is_window:
+            item["buying_window"] = True
         if s_note:
             item["note"] = s_note
         items.append(item)

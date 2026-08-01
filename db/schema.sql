@@ -33,7 +33,13 @@ CREATE TABLE IF NOT EXISTS opportunities (
   -- A human said "seen it". The row leaves the default view, the digest and
   -- the ageing section, but never the database, so dedupe keeps rejecting it.
   acknowledged_at   TEXT,
-  cv_version        TEXT               -- CV file label the score was made against
+  cv_version        TEXT,              -- CV file label the score was made against
+  -- The doctrine's buying window. Set in code at store time by matching the
+  -- advert's company against the touch log, never by a model, because it is
+  -- a fact about our own history and not a judgement about the role. A low
+  -- job score does not clear it, a generic advert at a company already
+  -- touched is still the week the standards stop being abstract for them.
+  buying_window     INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS signals (

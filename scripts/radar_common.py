@@ -84,6 +84,11 @@ _MIGRATIONS = (
     ("opportunities", "rate_band", "TEXT"),
     ("opportunities", "acknowledged_at", "TEXT"),
     ("opportunities", "cv_version", "TEXT"),
+    # Set in code at store time, never by a model. NOT NULL carries its
+    # DEFAULT so the ALTER lands on a populated table without rewriting it,
+    # existing rows read as 0, which is the honest answer for adverts
+    # stored before the touch log was ever consulted.
+    ("opportunities", "buying_window", "INTEGER NOT NULL DEFAULT 0"),
     ("signals", "cv_version", "TEXT"),
     ("signals", "acknowledged_at", "TEXT"),
 )

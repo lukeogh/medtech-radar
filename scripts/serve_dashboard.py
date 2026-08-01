@@ -47,6 +47,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -332,6 +333,30 @@ def _infer_channel(step: str) -> str:
     return "engagement"
 
 
+# Step 3 of playbook/announcement-day.md. Around three weeks after the
+# announcement, one genuine engagement, brief, no standards and no ask.
+WEEK_THREE_ACTION = "Week three. One genuine engagement with their content, brief."
+WEEK_THREE_DAYS = 21
+
+
+def week_three_booking(channel: str, now: datetime | None = None):
+    """The next action to book after a touch, or nothing at all.
+
+    Only the announcement-day channels book week three. A comment or a
+    connection note is the first contact, so the playbook's next event is
+    ours to make and it belongs in the diary. An engagement already is week
+    three, and an artefact send is the buying-window move whose next event
+    belongs to them, a reply or silence, both fine. Booking a date on either
+    would invent a chase the doctrine explicitly forbids.
+
+    Returns (action, YYYY-MM-DD) or (None, None).
+    """
+    if channel not in ("comment", "connection-note"):
+        return None, None
+    when = (now or datetime.now(timezone.utc)) + timedelta(days=WEEK_THREE_DAYS)
+    return WEEK_THREE_ACTION, when.strftime("%Y-%m-%d")
+
+
 def set_signal_state(item_id: int, action: str) -> dict:
     """done, ack or unack on one signal row.
 
@@ -360,12 +385,17 @@ def set_signal_state(item_id: int, action: str) -> dict:
                          " WHERE id = ?", (item_id,))
             channel = _infer_channel(row["playbook_step"])
             note = f"Did the suggestion. {row['headline'] or 'Signal'}."
+            next_action, next_date = week_three_booking(channel)
             conn.execute(
-                "INSERT INTO touches (company, touched_at, channel, note)"
-                " VALUES (?,?,?,?)",
-                (row["company"] or "Unknown company", now, channel, note))
+                "INSERT INTO touches (company, touched_at, channel, note,"
+                " next_action, next_action_date) VALUES (?,?,?,?,?,?)",
+                (row["company"] or "Unknown company", now, channel, note,
+                 next_action, next_date))
             conn.commit()
-            return {"ok": True, "id": item_id, "channel": channel}
+            out = {"ok": True, "id": item_id, "channel": channel}
+            if next_date:
+                out["week_three"] = next_date
+            return out
         if action == "ack":
             cur = conn.execute(
                 "UPDATE signals SET acknowledged_at = ? WHERE id = ?"
