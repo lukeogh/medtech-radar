@@ -52,8 +52,8 @@ BUYING_WINDOW_RELEVANCE = 90
 # Step 4 of playbook/announcement-day.md, compressed to one instruction.
 BUYING_WINDOW_STEP = (
     "Send the compliance-cost article, or the gap assessment one-pager if "
-    "the article is not published yet. It does the selling by not selling, "
-    "so the paid assessment earns one line at the very end and never earlier."
+    "the article is not published yet. The note stays short, and the paid "
+    "assessment earns one line at the very end, never earlier."
 )
 
 
