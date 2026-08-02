@@ -570,3 +570,33 @@ version control and the target can move without an edit. It currently points
 at the homelab ntfy, which asks for no token and cannot do phone push. The
 server that can is deny-all and wants a credential, and credentials are not
 ours to mint.
+2 August 2026, backups. The two things that cannot be rebuilt now leave the
+machine that holds them. The database is the business memory, the touch log
+and the buying-window history and the dedupe record, and config/profile/ is
+the CV versions every score was made against, gitignored by design and
+existing on one host and nowhere else. Neither survived that host dying.
+
+The database is copied with VACUUM INTO and never with cp. Three workflows
+overlap on one file in WAL mode, and a plain copy can catch a write in
+flight and produce a file that opens cleanly while quietly missing the last
+transaction, which is the worst kind of backup because it looks like a good
+one. The script proves the snapshot opens and counts its rows before calling
+itself finished, and a snapshot that will not open is deleted rather than
+kept, because a file that cannot be read is not a backup and should not
+occupy the slot of one.
+
+Getting the copies away is a separate job on purpose, since a backup beside
+the thing it protects is not one. A timer on the Pi runs at 02:37 nightly,
+persistent so a machine that was off overnight still takes its copy on the
+next boot, reaches into the container through the node, and verifies the
+copy that landed here rather than the one at source. Fourteen daily and
+eight weekly on the NAS drives, a different machine and different disks.
+It mints no credentials to do it, and the container was deliberately not
+given a key to the Pi.
+
+Then it was restored, because a backup nobody has restored is a rumour. The
+off-host copy opened at 190 opportunities, 34 signals and 0 touches against
+a live database reading exactly the same, integrity ok, with the CV and the
+preferences intact in the archive beside it. The procedure is written down
+in docs/architecture.md with the warning that matters most, restore to a
+scratch path and compare before anything goes near the live file.
