@@ -91,6 +91,14 @@ _MIGRATIONS = (
     ("opportunities", "buying_window", "INTEGER NOT NULL DEFAULT 0"),
     ("signals", "cv_version", "TEXT"),
     ("signals", "acknowledged_at", "TEXT"),
+    # Phase two. Every stored row points at the company it belongs to. The
+    # name columns stay where they are, because they are what the page
+    # shows and what a restored-from-backup row still has if the join ever
+    # breaks. Nullable on purpose, a row that arrives before its company
+    # can be resolved is still a row worth keeping.
+    ("opportunities", "company_id", "INTEGER"),
+    ("signals", "company_id", "INTEGER"),
+    ("touches", "company_id", "INTEGER"),
 )
 
 
@@ -119,6 +127,139 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # not die on the primary key.
         conn.execute("INSERT OR IGNORE INTO meta (key, value)"
                      " VALUES ('migrated_retirement', '1')")
+    # Phase two. Give every row already stored a company to belong to, once
+    # per database, behind its own flag for the same reason as above. New
+    # rows resolve their company at store time and never come through here.
+    # The backfill itself is idempotent, so a hand re-run after the flag is
+    # set is harmless, it simply finds nothing to do.
+    done_co = conn.execute(
+        "SELECT value FROM meta WHERE key = 'migrated_companies'").fetchone()
+    if not done_co:
+        backfill_companies(conn)
+        conn.execute("INSERT OR IGNORE INTO meta (key, value)"
+                     " VALUES ('migrated_companies', '1')")
+
+
+def normalise_company(name) -> str:
+    """A company name reduced to something two spellings can agree on.
+
+    Lowercase and collapsed whitespace only. Deliberately not clever, no
+    suffix stripping, because turning "Veltrix Diagnostics" into "veltrix"
+    would let a different Veltrix borrow a touch history it never earned.
+
+    This is the natural key for the companies table, so changing this rule
+    changes which rows are the same company. Do not change it casually.
+    """
+    return " ".join(str(name or "").lower().split())
+
+
+def resolve_company(conn, display_name, now: str | None = None):
+    """The id of the company row for this name, creating it if new.
+
+    Idempotent. Two workflows racing on the same new company both end up
+    pointing at one row, because the insert is OR IGNORE against the unique
+    normalised name and the read that follows is what decides the answer.
+
+    Returns None for an empty name rather than inventing a company, since
+    an unnamed advert is a real thing and a company called "" is not.
+    """
+    key = normalise_company(display_name)
+    if not key:
+        return None
+    conn.execute(
+        "INSERT OR IGNORE INTO companies (norm_name, display_name, first_seen)"
+        " VALUES (?,?,?)",
+        (key, str(display_name).strip(), now or now_iso()))
+    row = conn.execute(
+        "SELECT id FROM companies WHERE norm_name = ?", (key,)).fetchone()
+    return row["id"] if row else None
+
+
+def backfill_companies(conn) -> dict:
+    """Give every stored item and touch a company row. Safe to re-run.
+
+    Adds and annotates only. It never rewrites a name, never merges two
+    companies, and never clears a company_id that is already set, so a
+    second run over a populated database is a no-op that costs one scan.
+    """
+    made = 0
+    linked = {"opportunities": 0, "signals": 0, "touches": 0}
+    for table in ("opportunities", "signals", "touches"):
+        rows = conn.execute(
+            f"SELECT DISTINCT company FROM {table}"
+            " WHERE company IS NOT NULL AND TRIM(company) <> ''"
+            "   AND company_id IS NULL").fetchall()
+        for r in rows:
+            key = normalise_company(r["company"])
+            if not key:
+                continue
+            before = conn.execute(
+                "SELECT COUNT(*) AS n FROM companies WHERE norm_name = ?",
+                (key,)).fetchone()["n"]
+            cid = resolve_company(conn, r["company"])
+            if cid is None:
+                continue
+            if not before:
+                made += 1
+            # Exact match on the stored spelling, because the loop is over
+            # distinct stored spellings. Two spellings of one firm both
+            # resolve to the same id above, so they meet at the company row
+            # without SQL ever needing to know the normalising rule.
+            cur = conn.execute(
+                f"UPDATE {table} SET company_id = ?"
+                f" WHERE company_id IS NULL AND company = ?",
+                (cid, r["company"]))
+            linked[table] += cur.rowcount
+    return {"companies_created": made, "linked": linked}
+
+
+# Relationship states. The three a human sets are stored on the company
+# row. The rest are facts already in the database and are read, not kept.
+# Strength order, weakest first. dead is not in this list because it is
+# not a rung on the ladder, it ends the climb.
+_STATE_ORDER = ("seen", "touched", "window open", "in conversation", "client")
+
+
+def company_display_state(stored, has_items: bool, has_touches: bool,
+                          has_window: bool) -> str:
+    """The one state to show for a company. The strongest that applies.
+
+    dead trumps everything, including client, because a human said so and
+    no amount of derived activity should argue with them. Otherwise the
+    strongest rung wins, and a company with nothing at all reads as new.
+    """
+    if stored == "dead":
+        return "dead"
+    candidates = []
+    if has_items:
+        candidates.append("seen")
+    if has_touches:
+        candidates.append("touched")
+    if has_window:
+        candidates.append("window open")
+    if stored == "in-conversation":
+        candidates.append("in conversation")
+    if stored == "client":
+        candidates.append("client")
+    if not candidates:
+        return "new"
+    return max(candidates, key=_STATE_ORDER.index)
+
+
+def company_state(conn, company_id) -> str:
+    """company_display_state for one company, reading the facts itself."""
+    row = conn.execute("SELECT state FROM companies WHERE id = ?",
+                       (company_id,)).fetchone()
+    stored = row["state"] if row else None
+    def any_row(sql):
+        return conn.execute(sql, (company_id,)).fetchone() is not None
+    return company_display_state(
+        stored,
+        any_row("SELECT 1 FROM opportunities WHERE company_id = ? LIMIT 1")
+        or any_row("SELECT 1 FROM signals WHERE company_id = ? LIMIT 1"),
+        any_row("SELECT 1 FROM touches WHERE company_id = ? LIMIT 1"),
+        any_row("SELECT 1 FROM signals WHERE company_id = ?"
+                " AND source_id = 'job-advert' LIMIT 1"))
 
 
 def get_db(db_path: Path | None = None) -> sqlite3.Connection:

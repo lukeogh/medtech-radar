@@ -424,13 +424,18 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
     except (TypeError, ValueError):
         relevance = 0
 
+    # Resolve the company before storing, so the signal lands already
+    # pointing at it. "Unknown company" is a real stored name here, and
+    # normalise_company keeps it as one row rather than many.
+    company_id = rc.resolve_company(conn, company)
     conn.execute(
         "INSERT INTO signals (url_hash, first_seen, source_id, company,"
-        " headline, summary, source_url, relevance, why, playbook_step)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?)",
+        " headline, summary, source_url, relevance, why, playbook_step,"
+        " company_id)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (h, rc.now_iso(), item["source_id"], company, headline,
          (item.get("text") or "")[:500], item["url"], relevance,
-         why, playbook_step),
+         why, playbook_step, company_id),
     )
     conn.commit()
     result["items_new"] += 1

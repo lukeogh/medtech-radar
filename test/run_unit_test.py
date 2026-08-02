@@ -1075,6 +1075,92 @@ def main() -> int:
               "a second advert from the same company writes nothing")
         conn.close()
 
+    # The companies table. The landscape is companies, not rows.
+    check(radar_common.normalise_company("  Nordic  BioSystems ")
+          == "nordic biosystems",
+          "the company key normalises case and spacing")
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "companies.sqlite")
+        now = radar_common.now_iso()
+
+        a = radar_common.resolve_company(conn, "Veltrix Diagnostics", now)
+        b = radar_common.resolve_company(conn, "  VELTRIX   diagnostics ", now)
+        check(a is not None and a == b,
+              "two spellings of one company resolve to one row")
+        check(radar_common.resolve_company(conn, "   ", now) is None,
+              "an empty name gets no company row rather than an empty one")
+        check(conn.execute("select display_name from companies where id=?",
+                           (a,)).fetchone()["display_name"] == "Veltrix Diagnostics",
+              "the first spelling seen is kept for display")
+
+        # Legacy rows, stored before company_id existed. The backfill is
+        # what turns a populated database into a companies-shaped one.
+        conn.execute("INSERT INTO opportunities (url_hash, first_seen, company,"
+                     " title, thread_type, status) VALUES ('u1',?, 'Caldora Medical',"
+                     " 'Head of Software', 'inbound', 'new')", (now,))
+        conn.execute("INSERT INTO opportunities (url_hash, first_seen, company,"
+                     " title, thread_type, status) VALUES ('u2',?, 'caldora  MEDICAL',"
+                     " 'QA Lead', 'inbound', 'new')", (now,))
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status) VALUES ('s1',?,'imec-press',"
+                     " 'Caldora Medical', 'Caldora raises', 'new')", (now,))
+        conn.execute("INSERT INTO touches (company, touched_at, channel)"
+                     " VALUES ('Caldora Medical', ?, 'comment')", (now,))
+        conn.commit()
+
+        res = radar_common.backfill_companies(conn)
+        conn.commit()
+        cid = radar_common.resolve_company(conn, "Caldora Medical")
+        linked = conn.execute(
+            "select count(*) from opportunities where company_id=?",
+            (cid,)).fetchone()[0]
+        check(linked == 2,
+              f"both spellings of a legacy company link to one row (got {linked})")
+        check(res["companies_created"] >= 1, "the backfill creates missing companies")
+        again = radar_common.backfill_companies(conn)
+        conn.commit()
+        check(again["companies_created"] == 0
+              and sum(again["linked"].values()) == 0,
+              "the backfill is idempotent, a second run finds nothing to do")
+        dupes = conn.execute(
+            "select count(*) from (select norm_name from companies"
+            " group by norm_name having count(*)>1)").fetchone()[0]
+        check(dupes == 0, "no company is stored twice under one key")
+
+        # Derived states, read from facts rather than stored.
+        check(radar_common.company_state(conn, cid) == "touched",
+              "items plus a touch reads as touched, the stronger rung")
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status, company_id)"
+                     " VALUES ('s2',?,'job-advert','Caldora Medical',"
+                     " 'Buying window. Caldora Medical is hiring','new',?)",
+                     (now, cid))
+        conn.commit()
+        check(radar_common.company_state(conn, cid) == "window open",
+              "a job-advert signal opens the window, the strongest derived rung")
+        conn.execute("UPDATE companies SET state='client' WHERE id=?", (cid,))
+        check(radar_common.company_state(conn, cid) == "client",
+              "a stored client state outranks every derived one")
+        conn.execute("UPDATE companies SET state='dead' WHERE id=?", (cid,))
+        check(radar_common.company_state(conn, cid) == "dead",
+              "dead trumps everything, including client")
+        conn.close()
+
+    # The state ladder in isolation, so a regression names the rung it broke.
+    for stored, items, touches, window, want in (
+            (None,  False, False, False, "new"),
+            (None,  True,  False, False, "seen"),
+            (None,  True,  True,  False, "touched"),
+            (None,  True,  True,  True,  "window open"),
+            ("in-conversation", True, True, True, "in conversation"),
+            ("client", True, True, True, "client"),
+            ("dead",   True, True, True, "dead"),
+            ("dead",   False, False, False, "dead")):
+        got = radar_common.company_display_state(stored, items, touches, window)
+        check(got == want,
+              f"state ladder, stored={stored!r} items={items} touches={touches}"
+              f" window={window} reads {want} (got {got})")
+
     # Week three books itself, but only where the playbook says the next
     # event is ours to make.
     fixed = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)

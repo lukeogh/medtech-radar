@@ -42,6 +42,39 @@ CREATE TABLE IF NOT EXISTS opportunities (
   buying_window     INTEGER NOT NULL DEFAULT 0
 );
 
+-- The landscape is companies, not rows. One row per company, keyed on the
+-- normalised name so two spellings of the same firm meet here rather than
+-- living as strangers in three tables.
+--
+-- Enrichment fills the descriptive columns once, at first sight. They stay
+-- NULL until then and nothing depends on them being present.
+--
+-- state holds only the three a human sets, and only ever by hand. The other
+-- states, seen and touched and window open, are facts already in the
+-- database and are derived at read time rather than stored, because a
+-- stored copy of a derivable fact is a second source of truth that will
+-- eventually disagree with the first.
+CREATE TABLE IF NOT EXISTS companies (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  norm_name        TEXT NOT NULL UNIQUE,   -- normalise_company(display_name), the natural key
+  display_name     TEXT NOT NULL,          -- as first seen, for the page
+  country          TEXT,
+  region           TEXT,                   -- computed from country and city, phase two task three
+  city             TEXT,
+  ecosystem        TEXT,                   -- imec, Ghent, KU Leuven, and the like
+  stage            TEXT,                   -- seed, series A, and the like
+  what_they_build  TEXT,
+  software_content TEXT,
+  people           TEXT,                   -- JSON array, only where the company published them
+  first_seen       TEXT NOT NULL,
+  enriched_at      TEXT,
+  enrich_status    TEXT,                   -- ok | text-only | failed, with the reason
+  state            TEXT CHECK (state IS NULL OR
+                               state IN ('in-conversation','client','dead')),
+  state_changed_at TEXT,
+  notes            TEXT
+);
+
 CREATE TABLE IF NOT EXISTS signals (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   url_hash     TEXT NOT NULL UNIQUE,

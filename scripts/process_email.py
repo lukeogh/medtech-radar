@@ -57,14 +57,11 @@ BUYING_WINDOW_STEP = (
 )
 
 
-def normalise_company(name: str) -> str:
-    """A company name reduced to something two spellings can agree on.
-
-    Lowercase and collapsed whitespace only. Deliberately not clever, no
-    suffix stripping, because turning "Veltrix Diagnostics" into "veltrix"
-    would let a different Veltrix borrow a touch history it never earned.
-    """
-    return " ".join(str(name or "").lower().split())
+# The rule moved to radar_common in phase two, because it is now the
+# natural key of the companies table and three writers need the same
+# answer. Re-exported here so callers and tests that knew it by this name
+# keep working.
+normalise_company = radar_common.normalise_company
 
 
 def touched_companies(conn) -> set[str]:
@@ -79,7 +76,7 @@ def touched_companies(conn) -> set[str]:
 
 
 def record_buying_window(conn, company: str, title: str, url: str,
-                         h: str, now: str) -> bool:
+                         h: str, now: str, company_id=None) -> bool:
     """Write the buying-window insight for one advert. True if written.
 
     One per company, ever. A company hiring three QA people in a week is
@@ -107,11 +104,13 @@ def record_buying_window(conn, company: str, title: str, url: str,
     conn.execute(
         "INSERT OR IGNORE INTO signals"
         " (url_hash, first_seen, source_id, company, headline, summary,"
-        "  source_url, relevance, why, playbook_step, pushed, status)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,0,'new')",
+        "  source_url, relevance, why, playbook_step, pushed, status,"
+        "  company_id)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,0,'new',?)",
         (h, now, "job-advert", company, headline, None, url or "",
          BUYING_WINDOW_RELEVANCE, why,
-         radar_common.sanitise_free_text(BUYING_WINDOW_STEP)))
+         radar_common.sanitise_free_text(BUYING_WINDOW_STEP),
+         company_id))
     return True
 
 
@@ -158,7 +157,8 @@ def pay_columns(opp: dict, config: dict, floor: float) -> dict:
 def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
                        scored: dict | None, note: str | None,
                        pay: dict, cv_version: str | None = None,
-                       buying_window: int = 0) -> None:
+                       buying_window: int = 0,
+                       company_id: int | None = None) -> None:
     if scored is None:
         scored = {
             "company": opp.get("company", ""),
@@ -176,8 +176,8 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
         "  source_url, thread_type, cv_match, want_match, combined, one_line_why,"
         "  red_flags, suggested_action, act_by, status, status_changed_at, notes,"
         "  pay_currency, pay_period, pay_min, pay_max, day_rate, rate_band,"
-        "  cv_version, buying_window)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "  cv_version, buying_window, company_id)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (h, now, source,
          scored["company"] or opp.get("company", ""),
          scored["role_title"] or opp.get("title", ""),
@@ -191,7 +191,7 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
          "new", now, note,
          pay["pay_currency"], pay["pay_period"], pay["pay_min"],
          pay["pay_max"], pay["day_rate"], pay["rate_band"], cv_version,
-         buying_window))
+         buying_window, company_id))
 
 
 def main(argv=None) -> int:
@@ -297,11 +297,18 @@ def main(argv=None) -> int:
                       or str(opp.get("source_url", "")).strip())
         is_window = normalise_company(company) in touched
 
+        # The company row is resolved before the item is stored, so every
+        # row lands already pointing at the company it belongs to and the
+        # backfill only ever has legacy rows to find.
+        company_id = radar_common.resolve_company(conn, company, now)
+
         insert_opportunity(conn, h, now, source, opp, scored, s_note,
                            pay_columns(opp, config, floor), cv_version,
-                           buying_window=int(is_window))
+                           buying_window=int(is_window),
+                           company_id=company_id)
         if is_window:
-            record_buying_window(conn, company, role_title, advert_url, h, now)
+            record_buying_window(conn, company, role_title, advert_url, h, now,
+                                 company_id=company_id)
         new_count += 1
         item = {"company": opp.get("company", ""),
                 "title": opp.get("title", ""),

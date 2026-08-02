@@ -47,6 +47,12 @@ import radar_common  # noqa: E402  (import after sys.path tweak)
 
 CHANNELS = ("comment", "connection-note", "engagement", "artefact", "other")
 
+# The only relationship states a human sets. Everything else, seen and
+# touched and window open, is derived from facts already stored and is
+# never written down. Set here or on the dossier page, nowhere else, and
+# never by the machine.
+HUMAN_STATES = ("in-conversation", "client", "dead")
+
 
 def _clean(text: str | None) -> str:
     return " ".join((text or "").split())
@@ -90,12 +96,14 @@ def cmd_add(args, conn) -> int:
             print("--next-date needs --next describing the action.",
                   file=sys.stderr)
             return 2
+    now = radar_common.now_iso()
+    company_id = radar_common.resolve_company(conn, company, now)
     conn.execute(
         "INSERT INTO touches (company, touched_at, channel, note,"
-        " next_action, next_action_date) VALUES (?,?,?,?,?,?)",
-        (company, radar_common.now_iso(), args.channel,
+        " next_action, next_action_date, company_id) VALUES (?,?,?,?,?,?,?)",
+        (company, now, args.channel,
          _clean(args.note) or None, _clean(args.next) or None,
-         args.next_date or None),
+         args.next_date or None, company_id),
     )
     conn.commit()
     print(f"Logged {args.channel} touch for {company}.")
@@ -232,6 +240,44 @@ def cmd_mark(args, conn) -> int:
     return 0
 
 
+def cmd_state(args, conn) -> int:
+    """Set the relationship state a human owns, and log why it changed.
+
+    Setting a state writes a touch as well, so the timeline explains
+    itself later. A state that appeared with no trace of who decided it
+    or when is a state nobody trusts six months on.
+    """
+    company = _clean(args.company)
+    if not company:
+        print("Company name is empty.", file=sys.stderr)
+        return 2
+    if args.as_state == "dead" and not args.yes:
+        print(f"Marking {company} dead hides it behind every other state, "
+              "including client.")
+        print("Re-run with --yes if that is what you mean.")
+        return 2
+    now = radar_common.now_iso()
+    company_id = radar_common.resolve_company(conn, company, now)
+    if company_id is None:
+        print(f"Could not resolve a company named {company!r}.", file=sys.stderr)
+        return 2
+    before = conn.execute("SELECT state FROM companies WHERE id = ?",
+                          (company_id,)).fetchone()["state"]
+    conn.execute("UPDATE companies SET state = ?, state_changed_at = ?"
+                 " WHERE id = ?", (args.as_state, now, company_id))
+    note = radar_common.sanitise_free_text(
+        f"State set to {args.as_state.replace('-', ' ')}"
+        + (f" from {before.replace('-', ' ')}" if before else "")
+        + (f". {_clean(args.note)}" if _clean(args.note) else "."))
+    conn.execute(
+        "INSERT INTO touches (company, touched_at, channel, note, company_id)"
+        " VALUES (?,?,?,?,?)", (company, now, "other", note, company_id))
+    conn.commit()
+    print(f"{company} is now {args.as_state.replace('-', ' ')}.")
+    print(f"Showing as: {radar_common.company_state(conn, company_id)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="touch.py",
@@ -273,9 +319,21 @@ def main(argv: list[str] | None = None) -> int:
     p_mark.add_argument("--signal", type=int, default=None, metavar="ID",
                         help="mark one signal row by id instead")
 
+    p_state = sub.add_parser(
+        "state", help="set the relationship state a human owns")
+    p_state.add_argument("company",
+                         help="company name, quoted if it has spaces")
+    p_state.add_argument("--as", dest="as_state", required=True,
+                         choices=HUMAN_STATES,
+                         help="the three states a human sets, nothing else")
+    p_state.add_argument("--note", default=None,
+                         help="why it changed, kept on the logged touch")
+    p_state.add_argument("--yes", action="store_true",
+                         help="confirm dead, which outranks every other state")
+
     # --db is also accepted after the subcommand. SUPPRESS keeps the
     # subparser from clobbering a value given before it.
-    for p in (p_add, p_list, p_pending, p_mark):
+    for p in (p_add, p_list, p_pending, p_mark, p_state):
         p.add_argument("--db", default=argparse.SUPPRESS, metavar="PATH",
                        help="database file (default db/radar.sqlite)")
 
@@ -288,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_list(args, conn)
         if args.command == "mark":
             return cmd_mark(args, conn)
+        if args.command == "state":
+            return cmd_state(args, conn)
         return cmd_pending(args, conn)
     finally:
         conn.close()

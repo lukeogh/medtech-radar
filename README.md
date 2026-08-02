@@ -600,3 +600,34 @@ a live database reading exactly the same, integrity ok, with the CV and the
 preferences intact in the archive beside it. The procedure is written down
 in docs/architecture.md with the warning that matters most, restore to a
 scratch path and compare before anything goes near the live file.
+
+2 August 2026, companies. The landscape stopped being rows and became
+companies. One table keyed on the normalised name, so two spellings of one
+firm meet in a single row instead of living as strangers in three tables,
+and company_id on opportunities, signals and touches pointing at it. The
+name columns stay exactly where they were, because they are what the page
+shows and what a row restored from a backup still carries if a join ever
+breaks. The normalising rule moved out of the inbox script into
+radar_common, since it is now the natural key of a table and three writers
+need the same answer to the same question.
+
+The states are split by who owns them. Seen, touched and window open are
+facts already in the database, an item exists, a touch exists, a job-advert
+signal exists, and they are derived when the page asks rather than stored,
+because a written-down copy of a derivable fact is a second source of truth
+that eventually disagrees with the first. In conversation, client and dead
+are stored, and only a human ever sets them, through touch.py state today
+and the dossier later. The strongest that applies is the one shown, except
+dead, which is not a rung on that ladder but the end of the climb and
+outranks even client, because a human said so and no amount of derived
+activity should argue.
+
+The migration ran against a real copy before it ran anywhere else. A
+hundred and forty five companies out of a hundred and ninety opportunities
+and thirty four signals, every named row linked, nothing named left
+unlinked, and the thirty four adverts that never carried a company name
+left pointing at nothing rather than at an invented company called nothing.
+Opened three times over and hand-run a fourth, it creates nothing the
+second time. The backfill adds and annotates only. It never rewrites a
+name, never merges two companies and never clears an id already set, so
+the worst a stray re-run can do is cost one scan.
