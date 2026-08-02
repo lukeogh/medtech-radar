@@ -512,3 +512,33 @@ the same day. History keeps it. The key in that commit is not the key in
 use, compared by fingerprint without either value being printed, so the
 rotation already happened and what remains is revoking the old one. Nothing
 was fixed silently and nothing was rewritten.
+
+2 August 2026, later. The rest of the doors were shut. Twenty five hostnames
+were being served to the open internet with no access list and no
+authentication, and after the dashboard came the proxy's own admin page, the
+hypervisor console, the vault, the DNS server, Home Assistant and two vhosts
+carrying personal financial records that the earlier count had missed
+entirely, because that count read NPM's database and the database is not the
+authority, the generated config is. Two rows in it have no conf file and were
+never served at all. Twenty four of the twenty five now refuse anything that
+is not the LAN or the tailnet. ntfy stays public on purpose, deny-all with
+token auth, and the phone needs it.
+
+The first attempt was an allow list per host and it left jellyfin open. A
+return inside a location runs in the rewrite phase, before the access phase
+where allow and deny are read, so the redirect at location = / answered
+strangers happily while the allow list sat underneath it doing nothing. The
+fix refuses in the same phase the redirect lives in. A geo block names who is
+local, a map names the exceptions in one readable place, and a two line
+include that NPM already writes into every server block it generates does the
+refusing. That last detail is the point. A proxy host created next month
+inherits the deny without anyone remembering to apply it, which is the only
+kind of rule that survives a busy week.
+
+One path stays open from the WAN by choice. Two onlyoffice certificates still
+renew over HTTP-01, so the ACME challenge directory is exempt and was proved
+still reachable. Move those two to the DNS challenge and the exemption can go.
+Nothing else was touched, LAN access was checked host by host afterwards, and
+the two that answer 403 there were answering 403 before, from the applications
+themselves, proved by going straight to their backends with the proxy out of
+the path.
