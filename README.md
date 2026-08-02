@@ -479,3 +479,36 @@ rather than ecosystem chatter. And months before the earliest signal on
 file draw nothing at all, with a note naming when recording began,
 because a gap in the radar's life must never read as a quiet market. The
 annual shape earns itself month by month from here.
+
+2 August 2026. The dashboard stopped answering the internet. radar.yaml has
+said since the day it was written that this page is LAN or tailnet only by
+design, and it was not. Nginx Proxy Manager served it on a hostname whose
+ports 80 and 443 are open on the router, with no access list, no
+authentication and nothing between a stranger and every scored opportunity,
+every company name, the CV upload at /cv and the endpoints that spend
+Anthropic tokens. Proved rather than assumed. A request to the WAN address
+carrying the right host header returned 200 on every page, and nginx logged
+it against the public IP, which is exactly what an outside client looks
+like. The fix is an allow list on the proxy host, LAN and both Tailscale
+ranges and nothing else, scoped to location / so the ACME challenge path is
+untouched and the wildcard certificate keeps renewing on its DNS challenge.
+After it, the same WAN request gets 403 on every page and on /ack and
+/unack, and the LAN still gets 200. The denied writes changed no rows.
+
+The scan that found it found more, and none of the rest was touched. Twenty
+five proxy hosts, every one enabled, every one with no access list, and no
+access lists defined at all. Among them the proxy's own admin page, the
+hypervisor console, the password vault, the DNS server and an n8n that can
+run shell next to the API key. That list is in MORNING_REPORT.md with a
+decision to make, because closing another man's door without asking is how
+you lock him out of his own house. Public DNS for the domain also points at
+an address this network no longer holds, which is the only reason the open
+door was not being walked through, and correcting it before the doors are
+shut would make the exposure immediate rather than theoretical.
+
+gitleaks over all fifty seven commits found one real secret, an Anthropic
+key committed to .env.example on 29 July and removed from the working tree
+the same day. History keeps it. The key in that commit is not the key in
+use, compared by fingerprint without either value being printed, so the
+rotation already happened and what remains is revoking the old one. Nothing
+was fixed silently and nothing was rewritten.
