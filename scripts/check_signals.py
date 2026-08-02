@@ -39,6 +39,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
+import draft_outreach
 import radar_common as rc  # noqa: E402
 
 WATCHLIST_PATH = REPO_ROOT / "config" / "watchlist.yaml"
@@ -448,12 +449,25 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
     if relevance < threshold:
         return
 
+    # Drafts at push time, and only for the announcement-day step. The
+    # words are what turns a notification into a two minute job, so they
+    # are written before the push rather than after it.
+    drafts = {"drafted": False}
+    if draft_outreach.wants_drafts(playbook_step):
+        drafts = draft_outreach.generate_drafts(
+            conn, h, company, headline, item.get("text") or "", config)
+        rc.add_usage(result["usage"], drafts.get("usage") or {})
+        conn.commit()
+        if drafts.get("note"):
+            result["notes"].append(f"drafts for {company}: {drafts['note']}")
+
     title = f"Radar signal. {company}"
     message = (
         f"{headline}\n"
         f"Why it matters. {why}\n"
         f"Do today. {playbook_step}\n"
-        f"{item['url']}"
+        + ("Drafts ready on the Insights page.\n" if drafts.get("drafted") else "")
+        + f"{item['url']}"
     )
     if push_live:
         # A failed push must not kill the rest of the run. The pushed flag

@@ -714,3 +714,27 @@ Read only otherwise, and behind nothing of its own. It is served by the same
 process as every other page, so it sits behind the same LAN and tailnet
 restriction that closed the estate this morning, which is the whole reason
 that work came first.
+
+2 August 2026, the drafts. When a signal clears the fast bar and its step
+is the announcement-day comment and connection note, both are written at
+push time and stored on the signal, so the phone buzzing becomes a two
+minute editing job rather than a blank page. The push says drafts are ready
+and stays short. Nothing is ever posted by the machine, and the words sit
+there until a human copies them.
+
+The comment must earn its specificity. It is drafted from the fetched
+article where there is one and from the headline where there is not, and
+the row records which, because a comment written from a headline is a
+weaker thing and the page should not pretend otherwise. When the text is
+too thin to say something that could not be pasted under another company's
+announcement, the drafter returns an empty comment on purpose. Silence
+under a founder's post is better than enthusiasm that reads as automated.
+
+Every draft is checked before it is stored and refused outright if it
+fails, because a bad draft is worse than none, it is sitting there ready to
+send. A price, a link, a named service, an offer, an ask, standards in the
+comment where they belong only in the note, or a note over the three
+hundred character limit, any of those and nothing is stored and the run
+says why. The doctrine tests now cover the drafts in both modes and also
+prove the guard catches what it claims to, by feeding it four drafts that
+should fail and checking each one does.

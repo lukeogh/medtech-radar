@@ -104,6 +104,13 @@ _MIGRATIONS = (
     # recompute_regions keeps the mirror honest when the rules change.
     ("opportunities", "region", "TEXT"),
     ("signals", "region", "TEXT"),
+    # Phase two task five. Drafts written at push time and stored on the
+    # signal, so the words are waiting when the phone is picked up. Never
+    # sent by anything, only copied by a human.
+    ("signals", "draft_comment", "TEXT"),
+    ("signals", "draft_note", "TEXT"),
+    ("signals", "draft_source", "TEXT"),   # article | headline, what it drafted from
+    ("signals", "drafted_at", "TEXT"),
 )
 
 

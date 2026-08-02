@@ -1354,6 +1354,30 @@ def _story_card(s: dict, data: dict, lead: bool = False,
             when = f" Due {esc(fmt_day(due))}." if due else ""
             touch_line += (f'<p class="touch-note">Booked. '
                            f'{esc(sentence(touch["next_action"]))}{when}</p>')
+    # Drafts sit on the card, ready to copy. Nothing sends them.
+    drafts_html = ""
+    if s.get("draft_comment") or s.get("draft_note"):
+        src = s.get("draft_source") or "headline"
+        pieces = []
+        for label, key in (("Comment", "draft_comment"),
+                           ("Connection note", "draft_note")):
+            val = s.get(key)
+            if not val:
+                continue
+            pieces.append(
+                f'<div class="row-sub"><span class="detail-label">{label}</span>'
+                f'<span class="detail-body">{esc(val)}</span></div>'
+                f'<button type="button" class="act-btn" data-copy="{esc(val)}">'
+                f'Copy the {label.lower()}</button>')
+        drafts_html = (
+            '<div class="widget" style="margin-top:12px">'
+            '<h4>Drafts, yours to edit'
+            + info_tip("Written when the signal cleared the bar, from the "
+                       f"{esc(src)} text. Nothing is ever posted by the "
+                       "machine. Read them, change what does not sound like "
+                       "you, and send them yourself.")
+            + '</h4>' + "".join(pieces) + '</div>')
+
     actions = ""
     if state == "active":
         actions = (f'<p class="story-actions">'
@@ -1368,6 +1392,7 @@ def _story_card(s: dict, data: dict, lead: bool = False,
                    f'</button></p>')
     why = esc(sentence(s.get("why") or ""))
     headline = esc(s.get("headline") or s.get("company") or "Signal")
+    actions = drafts_html + actions
     if lead:
         return (f'<article class="lead"><p class="kicker">{kicker}</p>'
                 f"<h3>{headline}</h3>"
@@ -1572,7 +1597,7 @@ like a front page. Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
 {body}
 {sources_fold}
 </main>
-<script>{SCRIPT}{INSIGHTS_SCRIPT}</script>
+<script>{SCRIPT}{INSIGHTS_SCRIPT}{COPY_SCRIPT}</script>
 </body>
 </html>"""
 
@@ -2248,6 +2273,30 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+COPY_SCRIPT = """
+(function () {
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-copy]');
+    if (!btn) return;
+    var text = btn.getAttribute('data-copy') || '';
+    var done = function () {
+      var was = btn.textContent;
+      btn.textContent = 'Copied';
+      setTimeout(function () { btn.textContent = was; }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, done);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (err) {}
+      document.body.removeChild(ta); done();
+    }
+  });
+})();
+"""
 
 
 COMPANY_SCRIPT = """

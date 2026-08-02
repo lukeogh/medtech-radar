@@ -289,3 +289,40 @@ def mock_enricher(user_content: str) -> str:
         "country": "Belgium" if "belgium" in text or "ghent" in text else "",
         "city": "", "ecosystem": "", "software_content": "", "people": [],
     })
+
+
+def mock_drafter(user_content: str) -> str:
+    """Deterministic announcement-day drafts. Playbook shape, no selling.
+
+    Reads the supplied text for a specific detail, the same discipline the
+    real prompt is held to, and returns an empty comment when there is
+    nothing specific to say rather than inventing enthusiasm.
+    """
+    import json as _json
+    try:
+        payload = _json.loads(user_content)
+    except (ValueError, TypeError):
+        payload = {}
+    company = str(payload.get("company") or "the company")
+    article = str(payload.get("article_text") or "")
+    headline = str(payload.get("headline") or "")
+    haystack = f"{article} {headline}".lower()
+
+    detail = ""
+    for word, phrase in (("oct", "the multi-spot OCT approach"),
+                         ("biosensor", "the self-cleaning biosensor work"),
+                         ("metalens", "the metalens manufacturing route"),
+                         ("assay", "the assay side of it"),
+                         ("diagnost", "the diagnostics angle")):
+        if word in haystack:
+            detail = phrase
+            break
+
+    comment = (f"Congratulations on the round. {detail.capitalize()} is the "
+               "part I would not have expected to see working this early."
+               ) if detail else ""
+    note = ("Congratulations on the round. I run software at a Belgian "
+            "photonics diagnostics spin-off, so I know a little of the road "
+            "ahead. If IEC 62304 or ISO 13485 ever land on your desk, happy "
+            "to compare notes. Always good to know the neighbours.")
+    return _json.dumps({"comment": comment, "connection_note": note})
