@@ -198,13 +198,24 @@ sources:
   - id: optics-org
     name: optics.org
     tier: 2
-    url: "https://optics.org/news"
+    url: "https://optics.org/"
     method: diff
     check_interval_hours: 24
     status: live
     notes: >
-      Server-rendered listing of roughly twenty dated photonics industry articles.
-      No RSS feed (/rss 404s).
+      Watches the homepage, which carries the current article links, because
+      every news listing path on this site started hanging on 1 August 2026.
+      /news, /news/ and all four category pages time out with zero bytes,
+      /news.xml 301s to /news and hangs with it, while the homepage answers in
+      0.7s and individual articles in 0.8s. Not our end. A browser user agent
+      hangs the same way, so does a second machine on a different route out,
+      robots allows both paths and robots.txt is itself a 404 page. Index
+      generation failing server-side while static pages render is their bug to
+      fix. The homepage carries more churn than a clean listing, promo blocks
+      and sidebars, but the link differ ignores repeats it has already seen,
+      the same trade already accepted for startups-magazine. Still no RSS
+      (/rss and /feed both 404). If the listing recovers, /news is the better
+      target and this should go back to it.
 
   - id: pic-magazine
     name: PIC Magazine
