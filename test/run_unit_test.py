@@ -1265,6 +1265,41 @@ def main() -> int:
               f"editing the local list moves the row on the next open (got {got})")
         conn.close()
 
+    # The dossier's state writes. Only the three a human owns, dead behind
+    # a confirm, and every change leaves a touch explaining itself.
+    with tempfile.TemporaryDirectory() as tmp:
+        dbp = Path(tmp) / "dossier.sqlite"
+        conn = radar_common.get_db(dbp)
+        cid = radar_common.resolve_company(conn, "Dossier Diagnostics")
+        conn.commit()
+        conn.close()
+        serve_dashboard.ARGS = type("A", (), {"db": str(dbp)})()
+
+        r = serve_dashboard.set_company_state(cid, "in-conversation", False)
+        check(r["ok"] and r["showing"] == "in conversation",
+              "a human state is set and shows as the strongest that applies")
+        r = serve_dashboard.set_company_state(cid, "dead", False)
+        check(r["ok"] is False and "confirm" in r["note"],
+              "dead needs confirming, it outranks every other state")
+        r = serve_dashboard.set_company_state(cid, "dead", True)
+        check(r["ok"] and r["showing"] == "dead",
+              "dead sticks once confirmed")
+        for bad in ("seen", "touched", "window open", "client-ish", ""):
+            r = serve_dashboard.set_company_state(cid, bad, True)
+            check(r["ok"] is False,
+                  f"{bad!r} is refused, the machine never sets a derived state")
+        r = serve_dashboard.set_company_state(999999, "client", True)
+        check(r["ok"] is False, "an unknown company is refused, never invented")
+
+        c2 = radar_common.get_db(dbp)
+        notes = [x["note"] for x in c2.execute(
+            "select note from touches where company_id=? order by id", (cid,))]
+        check(len(notes) == 2 and all("State set to" in n for n in notes),
+              f"every accepted state change logs a touch that explains it (got {len(notes)})")
+        check(all(":" not in n and ";" not in n for n in notes),
+              "the logged notes obey the voice rules")
+        c2.close()
+
     # The state ladder in isolation, so a regression names the rung it broke.
     for stored, items, touches, window, want in (
             (None,  False, False, False, "new"),

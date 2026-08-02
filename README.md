@@ -688,3 +688,29 @@ travel and it should be cheap to correct.
 The digest gets the group name as a plain prefix and nothing else. It is a
 list read on a phone, not a page to browse, and geography earns three words
 there rather than headings of its own.
+
+2 August 2026, the dossier. One screen per company, at /company/ and its
+id, reached by clicking the company name anywhere it appears. The timeline
+interleaves adverts, insights and touches newest first, because the question
+this page answers is what has happened with these people, and that question
+does not care which table the answer is in. Above it sit the enrichment
+summary, the region, the relationship state and the next move with its date.
+
+Empty fields are shown as not known rather than hidden. A blank the
+enricher honestly left is information, and hiding it would make a company
+nobody has looked at yet indistinguishable from one that was studied and
+found plain.
+
+Three buttons and no more. In conversation, client and dead are the states a
+human owns, and the page refuses anything else outright, including the
+derived ones, so seen and touched and window open cannot be forced by a
+POST. Dead sits behind a confirm because it outranks every other state
+including client. Every accepted change writes a touch saying what it was
+and what it became, so six months later the timeline explains itself rather
+than the state having simply appeared. The notes go through the sanitiser
+like every other generated line, and a test pins that.
+
+Read only otherwise, and behind nothing of its own. It is served by the same
+process as every other page, so it sits behind the same LAN and tailnet
+restriction that closed the estate this morning, which is the whole reason
+that work came first.

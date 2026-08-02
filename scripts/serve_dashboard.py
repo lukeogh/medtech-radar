@@ -108,6 +108,61 @@ def render(page_name: str = "archive") -> bytes:
     return page.encode("utf-8")
 
 
+def render_company(company_id: int):
+    """The dossier for one company, or None when there is no such id."""
+    config = radar_common.load_config()
+    dbp = Path(ARGS.db).resolve() if ARGS.db else radar_common.DB_PATH
+    conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        try:
+            db_label = dbp.relative_to(REPO_ROOT).as_posix()
+        except ValueError:
+            db_label = str(dbp)
+        page = build_dashboard.render_company_page(conn, company_id, config,
+                                                   db_label)
+    finally:
+        conn.close()
+    return page.encode("utf-8") if page else None
+
+
+def set_company_state(company_id: int, state: str, confirmed: bool) -> dict:
+    """Set one of the three states a human owns, and log why.
+
+    The machine never calls this. Setting a state also writes a touch, so
+    six months later the timeline says who decided and when, rather than
+    the state having simply appeared.
+    """
+    if state not in ("in-conversation", "client", "dead"):
+        return {"ok": False, "note": f"{state!r} is not a state a human sets here"}
+    if state == "dead" and not confirmed:
+        return {"ok": False, "note": "dead outranks every other state, confirm first"}
+    try:
+        conn = radar_common.get_db(db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    try:
+        row = conn.execute("SELECT display_name, state FROM companies"
+                           " WHERE id = ?", (company_id,)).fetchone()
+        if row is None:
+            return {"ok": False, "note": f"no company {company_id}"}
+        now = radar_common.now_iso()
+        conn.execute("UPDATE companies SET state = ?, state_changed_at = ?"
+                     " WHERE id = ?", (state, now, company_id))
+        note = radar_common.sanitise_free_text(
+            f"State set to {state.replace('-', ' ')}"
+            + (f" from {row['state'].replace('-', ' ')}." if row["state"] else "."))
+        conn.execute(
+            "INSERT INTO touches (company, touched_at, channel, note, company_id)"
+            " VALUES (?,?,?,?,?)",
+            (row["display_name"], now, "other", note, company_id))
+        conn.commit()
+        return {"ok": True, "id": company_id, "state": state,
+                "showing": radar_common.company_state(conn, company_id)}
+    finally:
+        conn.close()
+
+
 def db_path() -> Path:
     return Path(ARGS.db).resolve() if ARGS.db else radar_common.DB_PATH
 
@@ -495,6 +550,24 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")
             return
+        if path.startswith("/company/"):
+            raw = path[len("/company/"):].strip("/")
+            if not raw.isdigit():
+                self._send(404, b"Company ids are numbers.",
+                           "text/plain; charset=utf-8")
+                return
+            try:
+                page = render_company(int(raw))
+            except Exception as err:  # noqa: BLE001
+                self._send(500, f"Render failed. {type(err).__name__}: {err}"
+                           .encode(), "text/plain; charset=utf-8")
+                return
+            if page is None:
+                self._send(404, b"No company with that id.",
+                           "text/plain; charset=utf-8")
+                return
+            self._send(200, page, "text/html; charset=utf-8")
+            return
         if path in ("/insights", "/jobs", "/archive"):
             try:
                 self._send(200, render(path.lstrip("/")),
@@ -582,6 +655,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(422, json.dumps(
                     {"ok": False, "note": str(err)}).encode(),
                     "application/json")
+            return
+        if path == "/company/state":
+            body = self._read_json_body()
+            cid = body.get("id") if isinstance(body, dict) else None
+            state = body.get("state") if isinstance(body, dict) else None
+            if not isinstance(cid, int) or isinstance(cid, bool):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            result = set_company_state(cid, str(state or ""),
+                                       bool(body.get("confirm")))
+            self._send(200 if result["ok"] else 409,
+                       json.dumps(result).encode(), "application/json")
             return
         if path == "/jobs/source":
             body = self._read_json_body()

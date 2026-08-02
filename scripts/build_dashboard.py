@@ -473,6 +473,10 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
     if o.get("cv_version"):
         parts.append(f'<div class="row-sub">Scored against {esc(o["cv_version"])}.</div>')
     parts.append(f'<div class="row-sub">Via {esc(via(o.get("source")))}.</div>')
+    if o.get("company_id") and o.get("company"):
+        parts.append(f'<div class="row-sub"><a href="/company/'
+                     f'{int(o["company_id"])}">Everything on file for '
+                     f'{esc(o["company"])}</a></div>')
     link = source_link(o.get("source_url"), "View the advert")
     if link:
         parts.append(link)
@@ -1313,10 +1317,15 @@ def _story_card(s: dict, data: dict, lead: bool = False,
     state chooses the action row. "active" offers I did it and Dismiss,
     "followed" shows when it was done, "dismissed" offers the undo.
     """
-    kicker_bits = [b for b in (s.get("company"),) if b]
+    # The company name is a door to its dossier wherever it appears.
+    name = s.get("company")
+    if name and s.get("company_id"):
+        kicker_bits = [f'<a href="/company/{int(s["company_id"])}">{esc(name)}</a>']
+    else:
+        kicker_bits = [esc(b) for b in (name,) if b]
     if s.get("source_id"):
-        kicker_bits.append(f"via {s['source_id']}")
-    kicker = " &middot; ".join(esc(b) for b in kicker_bits)
+        kicker_bits.append(esc(f"via {s['source_id']}"))
+    kicker = " &middot; ".join(kicker_bits)
     relevance = s.get("relevance")
     meta_bits = [f"Relevance {relevance}" if relevance is not None
                  else "Awaiting a score"]
@@ -2239,3 +2248,195 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+COMPANY_SCRIPT = """
+(function () {
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-set-state]');
+    if (!btn) return;
+    var state = btn.dataset.setState;
+    var id = btn.dataset.companyId;
+    if (state === 'dead' && !window.confirm(
+        'Dead outranks every other state, including client. The company stays '
+        + 'in the database and keeps deduping. Mark it dead?')) return;
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Working';
+    fetch('/company/state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: Number(id), state: state, confirm: true })
+    }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok === false) {
+          btn.disabled = false;
+          btn.textContent = label;
+          window.alert(j.note || 'That did not stick. Try again.');
+          return;
+        }
+        location.reload();
+      })
+      .catch(function () { location.reload(); });
+  });
+})();
+"""
+
+HUMAN_STATES = (("in-conversation", "In conversation"),
+                ("client", "Client"),
+                ("dead", "Dead"))
+
+
+def render_company_page(conn, company_id: int, config: dict,
+                        db_label: str) -> str:
+    """One company, everything known about it, before a call.
+
+    The timeline interleaves adverts, insights and touches newest first,
+    because the question this page answers is "what has happened with these
+    people", and that question does not care which table the answer is in.
+    """
+    co = conn.execute("SELECT * FROM companies WHERE id = ?",
+                      (company_id,)).fetchone()
+    if co is None:
+        return None
+    now = radar_common.now_iso()
+    state = radar_common.company_state(conn, company_id)
+
+    events = []
+    for r in conn.execute(
+            "SELECT id, first_seen, title, company, combined, rate_band,"
+            " source, source_url, buying_window, acknowledged_at"
+            " FROM opportunities WHERE company_id = ?", (company_id,)):
+        events.append({"when": r["first_seen"], "kind": "advert", "row": r})
+    for r in conn.execute(
+            "SELECT id, first_seen, headline, why, relevance, source_id,"
+            " source_url, playbook_step, status FROM signals"
+            " WHERE company_id = ?", (company_id,)):
+        events.append({"when": r["first_seen"], "kind": "insight", "row": r})
+    for r in conn.execute(
+            "SELECT id, touched_at, channel, note, next_action,"
+            " next_action_date FROM touches WHERE company_id = ?",
+            (company_id,)):
+        events.append({"when": r["touched_at"], "kind": "touch", "row": r})
+    events.sort(key=lambda e: e["when"] or "", reverse=True)
+
+    pending = conn.execute(
+        "SELECT next_action, next_action_date FROM touches"
+        " WHERE company_id = ? AND next_action IS NOT NULL"
+        " ORDER BY id DESC LIMIT 1", (company_id,)).fetchone()
+
+    # Enrichment summary. Empty fields are shown as unknown rather than
+    # hidden, because a blank the enricher honestly left is information.
+    def fact(label, value):
+        return (f'<div class="row-sub"><span class="detail-label">{esc(label)}'
+                f'</span><span class="detail-body">{esc(value or "not known")}'
+                f'</span></div>')
+
+    people_bits = []
+    try:
+        for p in json.loads(co["people"] or "[]"):
+            people_bits.append(f'{p.get("name","")} ({p.get("role","").upper()})')
+    except (ValueError, TypeError):
+        pass
+
+    facts = (fact("What they build", co["what_they_build"])
+             + fact("Software content", co["software_content"])
+             + fact("Stage", co["stage"])
+             + fact("Where", ", ".join(x for x in (co["city"], co["country"]) if x))
+             + fact("Region", co["region"])
+             + fact("Ecosystem", co["ecosystem"])
+             + fact("Published people", ", ".join(people_bits))
+             + fact("Enriched", f'{fmt_day(co["enriched_at"])}. {co["enrich_status"] or ""}'
+                    if co["enriched_at"] else None))
+
+    controls = "".join(
+        f'<button type="button" class="act-btn" data-set-state="{k}" '
+        f'data-company-id="{company_id}"{" disabled" if co["state"] == k else ""}>'
+        f'{esc(label)}</button>' for k, label in HUMAN_STATES)
+
+    timeline = []
+    for e in events:
+        r, when = e["row"], fmt_day(e["when"])
+        if e["kind"] == "advert":
+            chip = ('<span class="chip">buying window</span>'
+                    if r["buying_window"] else "")
+            timeline.append(
+                f'<li><span class="col-when">{esc(when)}</span>'
+                f'<span class="row-title">{esc(r["title"] or "Untitled role")}</span>'
+                f'{chip}<span class="row-sub">Advert via {esc(via(r["source"]))}. '
+                f'Score {r["combined"] if r["combined"] is not None else "unscored"}. '
+                f'Rate {esc(r["rate_band"] or "unstated")}.</span></li>')
+        elif e["kind"] == "insight":
+            timeline.append(
+                f'<li><span class="col-when">{esc(when)}</span>'
+                f'<span class="row-title">{esc(r["headline"] or "Insight")}</span>'
+                f'<span class="row-sub">Insight via {esc(r["source_id"] or "watcher")}. '
+                f'Relevance {r["relevance"] if r["relevance"] is not None else "unscored"}.'
+                f'</span>'
+                + (f'<span class="row-why">{esc(sentence(r["why"]))}</span>'
+                   if r["why"] else "") + '</li>')
+        else:
+            nxt = (f' Next. {esc(sentence(r["next_action"]))}'
+                   + (f' Due {esc(fmt_day(r["next_action_date"]))}.'
+                      if r["next_action_date"] else "")
+                   if r["next_action"] else "")
+            timeline.append(
+                f'<li><span class="col-when">{esc(when)}</span>'
+                f'<span class="row-title">Touch, {esc(r["channel"] or "other")}'
+                f'</span><span class="row-sub">{esc(r["note"] or "")}{nxt}</span></li>')
+
+    body = (f'<section class="section"><div class="section-head">'
+            f'<h2>{esc(co["display_name"])}</h2>'
+            f'<span class="chip">{esc(state)}</span></div>'
+            f'<div class="widget" style="margin-top:12px">{facts}</div>'
+            f'<p class="legend">The state shown is the strongest that applies. '
+            f'Seen, touched and window open are read from what is already '
+            f'stored. In conversation, client and dead are set here by hand '
+            f'and never by the machine. Dead outranks everything.</p>'
+            f'<p class="story-actions">{controls}</p></section>')
+
+    if pending and pending["next_action"]:
+        due = (f' Due {esc(fmt_day(pending["next_action_date"]))}.'
+               if pending["next_action_date"] else " No date set.")
+        body += (f'<section class="section"><div class="section-head">'
+                 f'<h2>Next move</h2></div><div class="widget" '
+                 f'style="margin-top:12px"><p>{esc(sentence(pending["next_action"]))}'
+                 f'{due}</p></div></section>')
+
+    body += ('<section class="section"><div class="section-head">'
+             '<h2>Timeline</h2></div>'
+             + (f'<ul class="flags" style="margin-top:12px">{"".join(timeline)}</ul>'
+                if timeline else
+                '<p class="legend">Nothing recorded yet. The timeline fills as '
+                'adverts arrive, the watcher finds insights and touches are '
+                'logged.</p>')
+             + '</section>')
+
+    return f"""<!doctype html>
+<html lang="en" data-appearance="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MedTech Radar. {esc(co["display_name"])}.</title>
+<link rel="icon" href="{FAVICON}">
+<style>{CSS}</style>
+</head>
+<body>
+<main class="page">
+<header class="masthead">
+<div>
+<div class="brand">{MARK_SVG}<h1>{esc(co["display_name"])}</h1></div>
+<p class="masthead-sub">Everything on file, before the call. Generated
+{esc(fmt_long(now))} from {esc(db_label)}.</p>
+</div>
+<div class="controls">
+<nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav>
+</div>
+</header>
+{body}
+<footer class="foot"><p>Read only except the three states above. Back to
+<a href="/insights">Insights</a>.</p></footer>
+</main>
+<script>{SCRIPT}{COMPANY_SCRIPT}</script>
+</body>
+</html>"""
