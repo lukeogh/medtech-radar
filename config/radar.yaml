@@ -52,6 +52,12 @@ claude_model_extract: "claude-haiku-4-5"
 claude_model_score: "claude-sonnet-4-6"
 api_key_env: "ANTHROPIC_API_KEY"        # name only, value lives in .env
 
+# How many companies may be enriched in one run. Enrichment is one fast-model
+# pass per company, ever, at first sight, so this is a ceiling on a cost that
+# does not repeat rather than a recurring bill. Raise it to drain a backlog
+# faster, lower it to keep an inbox run short.
+enrich_cap_per_run: 5
+
 # Minimum hours between checks of any single watched source. Politeness floor.
 min_check_interval_hours: 6
 

@@ -246,3 +246,46 @@ def mock_scorer(user_content: str) -> str:
         "suggested_action": action,
         "act_by": act_by,
     })
+
+
+def mock_enricher(user_content: str) -> str:
+    """Deterministic company enrichment. No network, no model, no guessing.
+
+    Reads only what the caller sent, the same discipline the real prompt is
+    held to, so a test that expects an empty field gets one. The Veltrix
+    fixture carries a full house, everything else comes back mostly empty,
+    which is the honest shape of a first sighting.
+    """
+    import json as _json
+    try:
+        payload = _json.loads(user_content)
+    except (ValueError, TypeError):
+        payload = {}
+    name = str(payload.get("company") or "")
+    text = (str(payload.get("item_text") or "")
+            + " " + str(payload.get("company_site_text") or "")).lower()
+    low = name.lower()
+
+    if "veltrix" in low:
+        return _json.dumps({
+            "what_they_build": "Point of care IVD analysers for hospital labs.",
+            "stage": "series a", "country": "Belgium", "city": "Ghent",
+            "ecosystem": "imec",
+            "software_content": "Embedded firmware and a clinician facing results application.",
+            "people": [{"name": "Anke De Vos", "role": "ceo"},
+                       {"name": "Pieter Maes", "role": "cto"}],
+        })
+    if "northvale" in low:
+        return _json.dumps({
+            "what_they_build": "Molecular diagnostics for infectious disease.",
+            "stage": "seed", "country": "United Kingdom", "city": "Cambridge",
+            "ecosystem": "", "software_content": "",
+            "people": [],
+        })
+    # The common case. A name, maybe a country, nothing else, and the empty
+    # fields stay empty rather than being filled with something plausible.
+    return _json.dumps({
+        "what_they_build": "", "stage": "",
+        "country": "Belgium" if "belgium" in text or "ghent" in text else "",
+        "city": "", "ecosystem": "", "software_content": "", "people": [],
+    })

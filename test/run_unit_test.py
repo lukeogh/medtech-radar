@@ -22,6 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+import enrich_company
 import process_email
 import radar_common
 import serve_dashboard
@@ -1145,6 +1146,56 @@ def main() -> int:
         check(radar_common.company_state(conn, cid) == "dead",
               "dead trumps everything, including client")
         conn.close()
+
+    # Enrichment. One pass per company ever, capped, and never fatal.
+    check(enrich_company.candidate_site(
+        "See https://www.linkedin.com/company/veltrix and https://veltrix.example/about")
+        == "https://veltrix.example/about",
+        "a LinkedIn URL is never taken as the company site")
+    check(enrich_company.candidate_site(
+        "via https://optics.org/news/story https://reed.co.uk/jobs/1") is None,
+        "a news outlet and a job board are not company sites")
+    check(enrich_company.candidate_site("no urls here at all") is None,
+          "no site is guessed from the company name")
+
+    import os as _os
+    _os.environ["RADAR_MOCK"] = "1"
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "enrich.sqlite")
+        cfg = {"claude_model_extract": "claude-haiku-4-5", "enrich_cap_per_run": 2}
+        cid = radar_common.resolve_company(conn, "Veltrix Diagnostics")
+        r1 = enrich_company.enrich_company(conn, cid, "Ghent, Belgium.", cfg,
+                                           enrich_company.new_budget(cfg))
+        check(r1["enriched"] is True, "a new company is enriched at first sight")
+        row = conn.execute("select country, city, stage, people, enrich_status"
+                           " from companies where id=?", (cid,)).fetchone()
+        check(row["country"] == "Belgium" and row["city"] == "Ghent",
+              f"country and city are stored for the region mapping (got {row['country']}, {row['city']})")
+        check("ceo" in (row["people"] or "") and "cto" in (row["people"] or ""),
+              "published CEO and CTO are kept")
+        check(row["enrich_status"].startswith("text-only"),
+              f"a company with no site fetched says so in enrich_status (got {row['enrich_status']})")
+
+        r2 = enrich_company.enrich_company(conn, cid, "Ghent, Belgium.", cfg,
+                                           enrich_company.new_budget(cfg))
+        check(r2["enriched"] is False and r2["status"] == "already enriched",
+              "a company is never enriched twice, however often it is seen")
+
+        budget = {"spent": 0, "cap": 1}
+        a = radar_common.resolve_company(conn, "Alpha Diagnostics")
+        b = radar_common.resolve_company(conn, "Beta Diagnostics")
+        ra = enrich_company.enrich_company(conn, a, "x", cfg, budget)
+        rb = enrich_company.enrich_company(conn, b, "x", cfg, budget)
+        check(ra["enriched"] is True and rb["enriched"] is False
+              and rb["status"] == "cap reached this run",
+              "the per-run cap stops the second company, and says why")
+
+        # A broken company id must not raise into the caller's pipeline.
+        rc_ = enrich_company.enrich_company(conn, 999999, "x", cfg, None)
+        check(rc_["enriched"] is False and rc_["status"] == "no such company",
+              "an unknown company is reported, never raised")
+        conn.close()
+    _os.environ.pop("RADAR_MOCK", None)
 
     # The state ladder in isolation, so a regression names the rung it broke.
     for stored, items, touches, window, want in (

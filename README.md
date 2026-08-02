@@ -631,3 +631,32 @@ Opened three times over and hand-run a fourth, it creates nothing the
 second time. The backfill adds and annotates only. It never rewrites a
 name, never merges two companies and never clears an id already set, so
 the worst a stray re-run can do is cost one scan.
+
+2 August 2026, enrichment. A company earns one description the first time it
+is seen, so the same-day package never needs a research step. One fast-model
+pass, capped for the whole run rather than per item so a busy email cannot
+spend the day's budget, and logged as its own line in the runs table because
+a cost that happens once per company behaves nothing like one that happens
+once per advert and hiding them together would make both unreadable.
+
+The prompt is told, twice, that it is describing what the evidence says and
+not recalling a company it may have read about. Empty is a correct answer and
+the common one, since most first sightings are a name, a city and a round.
+Filling what_they_build with a plausible guess is worse than leaving it
+blank, because the blank is honest and the guess gets believed. People are
+kept only where the company published the name itself, so a founder quoted by
+a journalist does not become a stored contact.
+
+One polite fetch of the company site where the item names one, robots
+deciding, and a disallow means no fetch and a status that says so. Nothing is
+guessed from the company name, because guessing a domain and knocking on it
+is how a polite watcher stops being one, and LinkedIn heads a list of hosts
+that are never treated as a company site whatever the item says. A failed
+fetch, an unparseable answer and an unknown company all end the same way, a
+status written down and the advert stored and scored regardless, because
+enrichment is a description and the record does not depend on it.
+
+Proved against the real copy. A hundred and forty five stored companies
+drained in three capped runs with no failures, and a re-run of the same email
+enriched nothing, because a company already described is never described
+again however often it turns up.

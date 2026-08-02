@@ -36,6 +36,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import enrich_company
 import radar_common
 import score_item
 
@@ -261,6 +262,12 @@ def main(argv=None) -> int:
     # doctrine's reading of a company survives whatever the job scorer makes
     # of the role itself.
     touched = touched_companies(conn)
+    # Enrichment is capped for the whole run, not per item, so one busy
+    # email cannot spend the day's budget. Reaching the cap is not an
+    # error, the rest wait for backfill_enrich.py or the next run.
+    enrich_budget = enrich_company.new_budget(config)
+    enrich_usage: dict = {}
+    enriched_count = 0
     system_blocks = None  # built lazily, only when something new needs scoring
     seen_hashes: set[str] = set()
     items, new_count, dup_count = [], 0, 0
@@ -301,6 +308,18 @@ def main(argv=None) -> int:
         # row lands already pointing at the company it belongs to and the
         # backfill only ever has legacy rows to find.
         company_id = radar_common.resolve_company(conn, company, now)
+        # First sight of a company earns one description, ever. It runs
+        # after the row is resolved and before nothing at all, because a
+        # failure here must not cost the advert. enrich_company never
+        # raises for that reason.
+        if company_id is not None:
+            er = enrich_company.enrich_company(
+                conn, company_id,
+                f"{role_title}. {opp.get('location','')}. {advert_url}",
+                config, enrich_budget)
+            radar_common.add_usage(enrich_usage, er.get("usage") or {})
+            if er.get("enriched"):
+                enriched_count += 1
 
         insert_opportunity(conn, h, now, source, opp, scored, s_note,
                            pay_columns(opp, config, floor), cv_version,
@@ -331,6 +350,15 @@ def main(argv=None) -> int:
     conn.commit()
     mode = "mock" if radar_common.mock_mode_active() else "live"
     note_parts = [source] + ([extract_note] if extract_note else [])
+    # Enrichment is its own line in the runs table. Folding its tokens into
+    # the inbox row would hide a cost that behaves differently, one pass per
+    # company ever rather than one per advert.
+    if enrich_usage or enriched_count:
+        radar_common.log_run(conn, "enrich", mode=mode,
+                             items_in=enriched_count, items_new=enriched_count,
+                             model=config.get("claude_model_extract"),
+                             usage=enrich_usage,
+                             note=f"first sight, cap {enrich_budget['cap']}")
     radar_common.log_run(conn, "inbox", mode=mode,
                          items_in=len(opps), items_new=new_count,
                          model=config.get("claude_model_score"),
