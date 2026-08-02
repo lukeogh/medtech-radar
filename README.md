@@ -555,3 +555,18 @@ were exercised before it was trusted, the pass, the failure with a host opened
 on purpose to see the alarm work, and the inconclusive that fires when the
 proxy cannot be read at all. That last one matters most. A check that cannot
 see the estate must never report it safe.
+
+2 August 2026, last of the day. The watchdog got a voice. It publishes to
+ntfy on failure and on the inconclusive verdict, and stays silent on a pass,
+because an alarm that fires weekly when nothing is wrong gets muted and a
+muted alarm is worse than none. Four paths were exercised rather than two.
+The pass sends nothing, the failure publishes and the message was read back
+off the server to prove it arrived, the unreadable-proxy case sends its own
+warning, and a destination that refuses the message records that refusal in
+the report instead of swallowing it, because a notification path that has
+quietly died looks exactly like a week with no problems. The destination
+lives in a config file rather than the script, so a token never lands in
+version control and the target can move without an edit. It currently points
+at the homelab ntfy, which asks for no token and cannot do phone push. The
+server that can is deny-all and wants a credential, and credentials are not
+ours to mint.
