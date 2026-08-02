@@ -542,3 +542,16 @@ Nothing else was touched, LAN access was checked host by host afterwards, and
 the two that answer 403 there were answering 403 before, from the applications
 themselves, proved by going straight to their backends with the proxy out of
 the path.
+
+2 August 2026, later still. The deny got a watchdog, because a rule nobody
+checks is a rule that has already failed quietly. A weekly job asks the
+question from outside, resolving every hostname to the WAN address the way a
+stranger would, and calls anything that is not a refusal what it is. It reads
+the host list from the live nginx config rather than a list of its own, so a
+proxy host added next month is checked without anyone remembering, and it
+reads the deliberately-public exceptions from the same file that enforces
+them, so the check and the rule cannot drift apart. All three of its verdicts
+were exercised before it was trusted, the pass, the failure with a host opened
+on purpose to see the alarm work, and the inconclusive that fires when the
+proxy cannot be read at all. That last one matters most. A check that cannot
+see the estate must never report it safe.
