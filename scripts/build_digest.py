@@ -414,8 +414,12 @@ def render_html(data: dict, today_label: str) -> str:
                 why = f"<br><em>{esc(sentence(s['why']))}</em>" if s.get("why") else ""
                 step = (f"<br>Playbook step. {esc(sentence(s['playbook_step']))}"
                         if s.get("playbook_step") else "")
+                # The group name as a plain prefix, nothing more. The
+                # digest is a list to read on a phone, not a page to browse,
+                # so geography earns three words and no headings.
+                where = f"{esc(s.get('region'))}. " if s.get("region") else ""
                 parts.append(
-                    f"<li><strong>{esc(s['headline'] or s['company'])}</strong><br>"
+                    f"<li><strong>{where}{esc(s['headline'] or s['company'])}</strong><br>"
                     f"Relevance {s['score']}. {esc(s['company'])}.{why}{step}{link}</li>")
             else:
                 parts.append(

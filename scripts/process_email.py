@@ -159,7 +159,8 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
                        scored: dict | None, note: str | None,
                        pay: dict, cv_version: str | None = None,
                        buying_window: int = 0,
-                       company_id: int | None = None) -> None:
+                       company_id: int | None = None,
+                       region: str | None = None) -> None:
     if scored is None:
         scored = {
             "company": opp.get("company", ""),
@@ -177,8 +178,8 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
         "  source_url, thread_type, cv_match, want_match, combined, one_line_why,"
         "  red_flags, suggested_action, act_by, status, status_changed_at, notes,"
         "  pay_currency, pay_period, pay_min, pay_max, day_rate, rate_band,"
-        "  cv_version, buying_window, company_id)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "  cv_version, buying_window, company_id, region)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (h, now, source,
          scored["company"] or opp.get("company", ""),
          scored["role_title"] or opp.get("title", ""),
@@ -192,7 +193,7 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
          "new", now, note,
          pay["pay_currency"], pay["pay_period"], pay["pay_min"],
          pay["pay_max"], pay["day_rate"], pay["rate_band"], cv_version,
-         buying_window, company_id))
+         buying_window, company_id, region))
 
 
 def main(argv=None) -> int:
@@ -321,10 +322,19 @@ def main(argv=None) -> int:
             if er.get("enriched"):
                 enriched_count += 1
 
+        # The region is mirrored onto the row at store time so grouping the
+        # page is a column read. Enrichment may have just filled the
+        # country, so this is read after it rather than before.
+        region = None
+        if company_id is not None:
+            co = conn.execute("SELECT country, city FROM companies WHERE id=?",
+                              (company_id,)).fetchone()
+            region = radar_common.region_for(co["country"], co["city"], config) if co else None
+
         insert_opportunity(conn, h, now, source, opp, scored, s_note,
                            pay_columns(opp, config, floor), cv_version,
                            buying_window=int(is_window),
-                           company_id=company_id)
+                           company_id=company_id, region=region)
         if is_window:
             record_buying_window(conn, company, role_title, advert_url, h, now,
                                  company_id=company_id)

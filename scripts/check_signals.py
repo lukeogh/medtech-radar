@@ -428,14 +428,18 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
     # pointing at it. "Unknown company" is a real stored name here, and
     # normalise_company keeps it as one row rather than many.
     company_id = rc.resolve_company(conn, company)
+    co = conn.execute("SELECT country, city FROM companies WHERE id=?",
+                      (company_id,)).fetchone() if company_id else None
+    region = rc.region_for(co["country"], co["city"], config) if co else \
+        rc.region_group_names(config)[-1]
     conn.execute(
         "INSERT INTO signals (url_hash, first_seen, source_id, company,"
         " headline, summary, source_url, relevance, why, playbook_step,"
-        " company_id)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        " company_id, region)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (h, rc.now_iso(), item["source_id"], company, headline,
          (item.get("text") or "")[:500], item["url"], relevance,
-         why, playbook_step, company_id),
+         why, playbook_step, company_id, region),
     )
     conn.commit()
     result["items_new"] += 1

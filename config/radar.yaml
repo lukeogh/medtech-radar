@@ -52,6 +52,49 @@ claude_model_extract: "claude-haiku-4-5"
 claude_model_score: "claude-sonnet-4-6"
 api_key_env: "ANTHROPIC_API_KEY"        # name only, value lives in .env
 
+# Where an insight happened, for grouping the Insights page. Ordered. The
+# first group whose rule matches wins, and the last one catches everything
+# left, including companies not yet enriched, because a company with no
+# country must still appear somewhere rather than vanish off the page.
+#
+# LUKE EDITS local_places. It is the list of counties and cities that count
+# as near enough to meet before lunch. It ships with a South East England
+# default because that is where you are, and it is meant to be changed the
+# first time it puts something in the wrong group. Matching is on the city
+# or the county as the enricher recorded it, case and spacing ignored.
+regions:
+  - name: "Local"
+    match: places
+    local_places:
+      - "Surrey"
+      - "West Sussex"
+      - "East Sussex"
+      - "Hampshire"
+      - "Kent"
+      - "Berkshire"
+      - "Greater London"
+      - "London"
+      - "Guildford"
+      - "Woking"
+      - "Reading"
+      - "Brighton"
+      - "Crawley"
+      - "Horsham"
+  - name: "UK"
+    match: countries
+    countries: ["United Kingdom", "UK", "England", "Scotland", "Wales",
+                "Northern Ireland", "Great Britain"]
+  - name: "Europe"
+    match: countries
+    countries: ["Belgium", "Netherlands", "Germany", "France", "Ireland",
+                "Denmark", "Sweden", "Norway", "Finland", "Switzerland",
+                "Austria", "Spain", "Portugal", "Italy", "Poland", "Czechia",
+                "Czech Republic", "Slovakia", "Slovenia", "Hungary", "Romania",
+                "Bulgaria", "Croatia", "Greece", "Estonia", "Latvia",
+                "Lithuania", "Luxembourg", "Iceland", "Malta", "Cyprus"]
+  - name: "Elsewhere"
+    match: rest
+
 # How many companies may be enriched in one run. Enrichment is one fast-model
 # pass per company, ever, at first sight, so this is a ceiling on a cost that
 # does not repeat rather than a recurring bill. Raise it to drain a backlog

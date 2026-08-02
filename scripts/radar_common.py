@@ -99,6 +99,11 @@ _MIGRATIONS = (
     ("opportunities", "company_id", "INTEGER"),
     ("signals", "company_id", "INTEGER"),
     ("touches", "company_id", "INTEGER"),
+    # Phase two task three. The company's region, mirrored onto the rows so
+    # grouping the page is a column read rather than a join on every render.
+    # recompute_regions keeps the mirror honest when the rules change.
+    ("opportunities", "region", "TEXT"),
+    ("signals", "region", "TEXT"),
 )
 
 
@@ -138,6 +143,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
         backfill_companies(conn)
         conn.execute("INSERT OR IGNORE INTO meta (key, value)"
                      " VALUES ('migrated_companies', '1')")
+    # Regions are a cache of a config rule, so they are recomputed whenever
+    # that rule changes and skipped entirely when it has not. Wrapped
+    # because a malformed regions block must not make the database
+    # unopenable, the page degrades to Elsewhere instead.
+    try:
+        recompute_regions(conn, load_config())
+    except Exception:                              # noqa: BLE001
+        pass
 
 
 def normalise_company(name) -> str:
@@ -260,6 +273,92 @@ def company_state(conn, company_id) -> str:
         any_row("SELECT 1 FROM touches WHERE company_id = ? LIMIT 1"),
         any_row("SELECT 1 FROM signals WHERE company_id = ?"
                 " AND source_id = 'job-advert' LIMIT 1"))
+
+
+_REGION_FALLBACK = "Elsewhere"
+
+
+def _norm_place(value) -> str:
+    return " ".join(str(value or "").lower().split())
+
+
+def region_for(country, city, config: dict) -> str:
+    """Which group an insight belongs to. First rule that matches wins.
+
+    The last group catches everything left, including a company nobody has
+    enriched yet, because a company with no country must still land
+    somewhere. Vanishing off the page is the one outcome a grouping rule
+    must never produce.
+    """
+    groups = config.get("regions") or []
+    if not groups:
+        return _REGION_FALLBACK
+    c_country, c_city = _norm_place(country), _norm_place(city)
+    for g in groups:
+        how = str(g.get("match") or "").lower()
+        if how == "places":
+            places = {_norm_place(p) for p in (g.get("local_places") or [])}
+            if (c_city and c_city in places) or (c_country and c_country in places):
+                return str(g.get("name") or _REGION_FALLBACK)
+        elif how == "countries":
+            names = {_norm_place(n) for n in (g.get("countries") or [])}
+            if c_country and c_country in names:
+                return str(g.get("name") or _REGION_FALLBACK)
+        elif how == "rest":
+            return str(g.get("name") or _REGION_FALLBACK)
+    last = groups[-1]
+    return str(last.get("name") or _REGION_FALLBACK)
+
+
+def region_group_names(config: dict) -> list:
+    """Group names in configured order, for rendering and for the digest."""
+    return [str(g.get("name")) for g in (config.get("regions") or [])
+            if g.get("name")] or [_REGION_FALLBACK]
+
+
+def regions_fingerprint(config: dict) -> str:
+    """A stable hash of the region rules, so a config edit can be noticed."""
+    return hashlib.sha256(
+        json.dumps(config.get("regions") or [], sort_keys=True,
+                   ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
+def recompute_regions(conn, config: dict, force: bool = False) -> dict:
+    """Recompute company regions when the rules change, and mirror them.
+
+    The region is stored on companies and mirrored onto opportunities and
+    signals so the page groups by reading a column rather than joining on
+    every render. That mirror is a cache, and this is what keeps a cache
+    honest when the thing it copies moves.
+
+    Cheap when nothing changed. The fingerprint of the rules is kept in
+    meta, and an unchanged fingerprint means an early return.
+    """
+    fp = regions_fingerprint(config)
+    row = conn.execute(
+        "SELECT value FROM meta WHERE key = 'regions_fingerprint'").fetchone()
+    if not force and row and row["value"] == fp:
+        return {"changed": False, "companies": 0}
+    updated = 0
+    for co in conn.execute(
+            "SELECT id, country, city FROM companies").fetchall():
+        want = region_for(co["country"], co["city"], config)
+        cur = conn.execute(
+            "UPDATE companies SET region = ? WHERE id = ? AND"
+            " (region IS NOT ? OR region IS NULL)", (want, co["id"], want))
+        updated += cur.rowcount
+        conn.execute("UPDATE opportunities SET region = ? WHERE company_id = ?",
+                     (want, co["id"]))
+        conn.execute("UPDATE signals SET region = ? WHERE company_id = ?",
+                     (want, co["id"]))
+    # Rows with no company at all still need a group, and Elsewhere is the
+    # honest one. A row with no region reads as a bug on the page.
+    fallback = region_group_names(config)[-1]
+    for t in ("opportunities", "signals"):
+        conn.execute(f"UPDATE {t} SET region = ? WHERE region IS NULL", (fallback,))
+    conn.execute("INSERT INTO meta (key, value) VALUES ('regions_fingerprint', ?)"
+                 " ON CONFLICT(key) DO UPDATE SET value = excluded.value", (fp,))
+    return {"changed": True, "companies": updated}
 
 
 def get_db(db_path: Path | None = None) -> sqlite3.Connection:

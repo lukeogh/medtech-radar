@@ -660,3 +660,31 @@ Proved against the real copy. A hundred and forty five stored companies
 drained in three capped runs with no failures, and a re-run of the same email
 enriched nothing, because a company already described is never described
 again however often it turns up.
+
+2 August 2026, geography. Insights group as Local, UK, Europe and
+Elsewhere, in the order radar.yaml lists them, and the order is the config's
+to decide rather than the code's. The lead story stays above the groups,
+because the strongest story of the week is the strongest wherever it
+happened and a front page has exactly one of those. Inside a group the fresh
+and earlier split is untouched. An empty group is not rendered at all, so a
+quiet month in Europe leaves no empty shelf on the page.
+
+The catch-all earns its place. A company nobody has enriched has no country,
+and a grouping rule that cannot place a row must put it somewhere rather
+than drop it, because a row that vanishes from a page is indistinguishable
+from a row that was never collected. Every unenriched company lands in
+Elsewhere and says so, and the test that pins this asserts no signal is ever
+left without a group.
+
+The region is a cache. It is computed from the country and city the enricher
+found, stored on the company and mirrored onto every opportunity and signal,
+so grouping the page is a column read rather than a join on every render.
+Caches go stale, so the rules carry a fingerprint and any edit to them
+recomputes every row on the next database open. Editing the Local list is
+therefore a config change and nothing more, no migration and no redeploy,
+which is the point, because that list is a guess about where Luke will
+travel and it should be cheap to correct.
+
+The digest gets the group name as a plain prefix and nothing else. It is a
+list read on a phone, not a page to browse, and geography earns three words
+there rather than headings of its own.

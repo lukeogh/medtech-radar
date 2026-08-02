@@ -1197,6 +1197,74 @@ def main() -> int:
         conn.close()
     _os.environ.pop("RADAR_MOCK", None)
 
+    # Regions. The rules live in config, the answer lives on the row.
+    rcfg = radar_common.load_config()
+    check(radar_common.region_group_names(rcfg)[-1] == "Elsewhere",
+          "the last configured group is the catch-all")
+    for country, city, want in (
+            ("United Kingdom", "Guildford", "Local"),
+            ("United Kingdom", "Manchester", "UK"),
+            ("Belgium", "Ghent", "Europe"),
+            ("United States", "Boston", "Elsewhere"),
+            (None, None, "Elsewhere"),
+            ("", "", "Elsewhere")):
+        got = radar_common.region_for(country, city, rcfg)
+        check(got == want,
+              f"{country or 'no country'}/{city or 'no city'} groups as {want} (got {got})")
+    check(radar_common.region_for("  belgium  ", "  GHENT ", rcfg) == "Europe",
+          "region matching ignores case and spacing like every other name rule")
+    check(radar_common.region_for("United Kingdom", None, rcfg) == "UK",
+          "a UK company with no city is still UK, not Local")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "regions.sqlite")
+        cid = radar_common.resolve_company(conn, "Northvale Bio")
+        conn.execute("UPDATE companies SET country='United Kingdom',"
+                     " city='Guildford' WHERE id=?", (cid,))
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status, company_id)"
+                     " VALUES ('rg1',?,'imec-press','Northvale Bio','x','new',?)",
+                     (radar_common.now_iso(), cid))
+        conn.commit()
+        radar_common.recompute_regions(conn, rcfg, force=True)
+        conn.commit()
+        got = conn.execute("select region from signals where url_hash='rg1'"
+                           ).fetchone()["region"]
+        check(got == "Local",
+              f"the region is mirrored onto the signal row (got {got})")
+
+        # A company nobody enriched must still land somewhere.
+        orphan = radar_common.resolve_company(conn, "Unknown Origins Ltd")
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status, company_id)"
+                     " VALUES ('rg2',?,'imec-press','Unknown Origins Ltd','y','new',?)",
+                     (radar_common.now_iso(), orphan))
+        conn.commit()
+        radar_common.recompute_regions(conn, rcfg, force=True)
+        conn.commit()
+        got = conn.execute("select region from signals where url_hash='rg2'"
+                           ).fetchone()["region"]
+        check(got == "Elsewhere",
+              f"an unenriched company lands in the catch-all, never nowhere (got {got})")
+        check(conn.execute("select count(*) from signals where region is null"
+                           ).fetchone()[0] == 0,
+              "no signal is left without a group")
+
+        # The mirror is a cache, so it must follow the rules when they move.
+        again = radar_common.recompute_regions(conn, rcfg)
+        check(again["changed"] is False,
+              "an unchanged rules block costs nothing on the next open")
+        moved = dict(rcfg)
+        moved["regions"] = [dict(g) for g in rcfg["regions"]]
+        moved["regions"][0] = {**moved["regions"][0], "local_places": ["Nowhere"]}
+        radar_common.recompute_regions(conn, moved, force=False)
+        conn.commit()
+        got = conn.execute("select region from signals where url_hash='rg1'"
+                           ).fetchone()["region"]
+        check(got == "UK",
+              f"editing the local list moves the row on the next open (got {got})")
+        conn.close()
+
     # The state ladder in isolation, so a regression names the rung it broke.
     for stored, items, touches, window, want in (
             (None,  False, False, False, "new"),

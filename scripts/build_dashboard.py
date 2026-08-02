@@ -1460,20 +1460,48 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
         + quiet_items + "</ul></div>")
     widgets.append("</div>")
 
+    # Grouped by where it happened, in the order radar.yaml lists. The lead
+    # stays above the groups, because the strongest story of the week is the
+    # strongest story wherever it happened and a front page has one of those.
+    # Within a group the fresh and earlier split is exactly as it was.
+    group_order = radar_common.region_group_names(config)
+    fallback = group_order[-1]
+
+    def grouped(rows):
+        out = {}
+        for row in rows:
+            out.setdefault(row.get("region") or fallback, []).append(row)
+        return out
+
+    fresh_by = grouped(fresh_rest)
+    earlier_by = grouped(earlier_rest)
+
     if lead:
         front = (f'<div class="front">{_story_card(lead, data, lead=True)}'
                  + "".join(widgets) + "</div>")
         body = front
-        if fresh_rest:
-            body += ('<p class="section-rule">Also fresh this week</p>'
-                     '<div class="stories">'
-                     + "".join(_story_card(s, data) for s in fresh_rest)
-                     + "</div>")
-        if earlier_rest:
-            body += ('<p class="section-rule">Earlier, still on file</p>'
-                     '<div class="stories">'
-                     + "".join(_story_card(s, data) for s in earlier_rest)
-                     + "</div>")
+        for gname in group_order:
+            g_fresh = fresh_by.get(gname) or []
+            g_earlier = earlier_by.get(gname) or []
+            if not g_fresh and not g_earlier:
+                continue          # an empty group stays off the page entirely
+            body += (f'<p class="section-rule">{esc(gname)}'
+                     + info_tip(
+                         "Grouped by where the company is, read from the "
+                         "country and city the enricher found and the rules "
+                         "in radar.yaml. A company nobody has enriched yet "
+                         f"lands in {esc(fallback)} rather than disappearing.")
+                     + '</p>')
+            if g_fresh:
+                body += ('<p class="section-rule">Also fresh this week</p>'
+                         '<div class="stories">'
+                         + "".join(_story_card(s, data) for s in g_fresh)
+                         + "</div>")
+            if g_earlier:
+                body += ('<p class="section-rule">Earlier, still on file</p>'
+                         '<div class="stories">'
+                         + "".join(_story_card(s, data) for s in g_earlier)
+                         + "</div>")
     else:
         body = ('<div class="front"><div class="lead"><h3>Nothing checked '
                 "and relevant yet.</h3><p class=\"standfirst\">The watcher "
