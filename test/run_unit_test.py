@@ -1197,6 +1197,35 @@ def main() -> int:
         conn.close()
     _os.environ.pop("RADAR_MOCK", None)
 
+    # Phase three. The tier ladder, and a fixture set that covers all four
+    # tiers, because a tiering change that only ever sees one shape is
+    # untested. The spec asks for this before any backfill runs.
+    import score_item as _si
+
+    G = lambda **k: {"sector": True, "cv": True, "location": True, "rate": True, **k}
+    for label, gates, basis, cv, real, want in (
+            ("all four gates pass", G(), "", 84, True, "top"),
+            ("all pass, rate unstated", G(), "", 84, True, "top"),
+            ("location alone fails", G(location=False), "", 84, True, "question"),
+            ("stated day rate alone fails", G(rate=False), "day-rate", 84, True, "question"),
+            ("rate from a salary alone fails", G(rate=False), "converted-salary", 84, True, "reading"),
+            ("sector alone fails", G(sector=False), "", 84, True, "reading"),
+            ("cv alone fails", G(cv=False), "", 68, True, "reading"),
+            ("two gates fail", G(location=False, rate=False), "", 84, True, "reading"),
+            ("cv under forty", G(cv=False), "", 22, True, "filtered"),
+            ("not a real role", G(), "", 84, False, "filtered")):
+        got = _si.derive_tier(gates, basis, cv, real)["tier"]
+        check(got == want, f"{label} lands in {want} (got {got})")
+
+    check(_si.derive_tier(G(sector=False), "", 84, True)["failed_gates"] == ["sector"],
+          "the failed gate is recorded as the verdict")
+    check(_si.derive_tier(G(cv=False), "", 22, True)["filter_reason"] == "cv match under 40",
+          "a filtered row records why, so the filter can be audited")
+    check(_si.question_for(G(location=False), {}) == "Would they go remote",
+          "the location question is the one a conversation could settle")
+    check(_si.question_for(G(rate=False), {}) == "Would they move on the rate",
+          "the rate question likewise")
+
     # Traction and the connector circle. Counting rules, pinned, because a
     # metric nobody has checked the arithmetic of is a rumour with a number.
     import build_dashboard as _bdash
