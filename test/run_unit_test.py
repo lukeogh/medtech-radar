@@ -1250,6 +1250,31 @@ def main() -> int:
                            ).fetchone()[0] == 0,
               "no signal is left without a group")
 
+        # The bug of 3 August. Enrichment fills a country long after the
+        # company row exists, and the fingerprint alone said nothing had
+        # changed, so 39 companies with a known country stayed grouped as
+        # Elsewhere. An unplaced company is now reason enough to do the work.
+        late = radar_common.resolve_company(conn, "Late Arrival Ltd")
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status, company_id)"
+                     " VALUES ('rg3',?,'imec-press','Late Arrival Ltd','z','new',?)",
+                     (radar_common.now_iso(), late))
+        conn.commit()
+        res_late = radar_common.recompute_regions(conn, rcfg)
+        conn.commit()
+        check(res_late["changed"] is True,
+              "a company with no region is reason enough to recompute")
+        conn.execute("UPDATE companies SET country='Belgium', city='Ghent'"
+                     " WHERE id=?", (late,))
+        conn.execute("UPDATE companies SET region=NULL WHERE id=?", (late,))
+        conn.commit()
+        radar_common.recompute_regions(conn, rcfg)
+        conn.commit()
+        got = conn.execute("select region from signals where url_hash='rg3'"
+                           ).fetchone()["region"]
+        check(got == "Europe",
+              f"a country learned after the fact regroups the row (got {got})")
+
         # The mirror is a cache, so it must follow the rules when they move.
         again = radar_common.recompute_regions(conn, rcfg)
         check(again["changed"] is False,

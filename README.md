@@ -738,3 +738,29 @@ hundred character limit, any of those and nothing is stored and the run
 says why. The doctrine tests now cover the drafts in both modes and also
 prove the guard catches what it claims to, by feeding it four drafts that
 should fail and checking each one does.
+
+3 August 2026. The backfill enriched every stored company and the page did
+not move, which is how a bug in the region cache announced itself. The cache
+was recomputed only when the rules changed, and the rules had not. What had
+changed was the evidence, because enrichment fills a country in long after
+the company row was created, so thirty nine companies whose country the
+database plainly knew sat grouped as Elsewhere, and one company created
+since the last pass had no group at all.
+
+Two causes, two fixes. Enrichment now decides the region at the moment the
+country becomes known, which is the natural place for it, and a company
+with no region is now itself a reason to recompute rather than something the
+fingerprint check silently steps over. The live rows were corrected first
+and the code second, so the page told the truth before the fix shipped. A
+regression test pins both, a late-arriving company forcing a recompute and a
+country learned after the fact regrouping its rows.
+
+The backfill itself, for the record. A hundred and fifty seven companies,
+none failed, a hundred and fifty three thousand input tokens on the fast
+model and seven thousand out, which is pennies. The yield is honest and
+thin, thirty nine countries, forty six cities, seventeen descriptions of
+what a company builds and two of its software. That is not the enricher
+underperforming. Most of these companies arrived as job adverts carrying a
+title, a location and a board URL, and there is nothing else in that to
+know. The companies that arrive as news will read better, and the empty
+fields are the prompt doing as it was told rather than inventing.

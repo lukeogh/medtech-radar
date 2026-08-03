@@ -344,7 +344,15 @@ def recompute_regions(conn, config: dict, force: bool = False) -> dict:
     fp = regions_fingerprint(config)
     row = conn.execute(
         "SELECT value FROM meta WHERE key = 'regions_fingerprint'").fetchone()
-    if not force and row and row["value"] == fp:
+    # The rules changing is not the only way this cache goes stale. Enrichment
+    # fills in a country long after the company row was created, and a company
+    # created since the last pass has no region at all. Either leaves rows
+    # grouped as Elsewhere while the database plainly knows better, which is
+    # exactly what happened on 3 August, so an unplaced row is also a reason
+    # to do the work.
+    unplaced = conn.execute(
+        "SELECT 1 FROM companies WHERE region IS NULL LIMIT 1").fetchone()
+    if not force and row and row["value"] == fp and not unplaced:
         return {"changed": False, "companies": 0}
     updated = 0
     for co in conn.execute(

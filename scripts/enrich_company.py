@@ -184,6 +184,22 @@ def enrich_company(conn, company_id: int, item_text: str, config: dict,
              _clean(parsed.get("software_content")),
              _clean_people(parsed.get("people")),
              radar_common.now_iso(), status, company_id))
+        # Enrichment is the moment a company's country becomes known, so it
+        # is also the moment its region can be decided. Doing it here keeps
+        # the mirror honest without waiting for a rules change.
+        try:
+            region = radar_common.region_for(
+                _clean(parsed.get("country")), _clean(parsed.get("city")),
+                config)
+            conn.execute("UPDATE companies SET region = ? WHERE id = ?",
+                         (region, company_id))
+            conn.execute("UPDATE opportunities SET region = ?"
+                         " WHERE company_id = ?", (region, company_id))
+            conn.execute("UPDATE signals SET region = ? WHERE company_id = ?",
+                         (region, company_id))
+            result["region"] = region
+        except Exception:                          # noqa: BLE001
+            pass   # a missing region is a grouping nuisance, not a lost row
         result.update({"enriched": True, "status": status})
         return result
     except Exception as err:                      # noqa: BLE001
