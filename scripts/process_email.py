@@ -258,14 +258,17 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
             "one_line_why": None, "red_flags": [],
             "suggested_action": None, "act_by": None,
         }
+    # A row that could not be scored has no gates and no tier. Nulls are the
+    # honest answer, and the page reads a missing tier as needs review.
     conn.execute(
         "INSERT OR IGNORE INTO opportunities"
         " (url_hash, first_seen, source, company, title, location, salary_rate,"
         "  source_url, thread_type, cv_match, want_match, combined, one_line_why,"
         "  red_flags, suggested_action, act_by, status, status_changed_at, notes,"
         "  pay_currency, pay_period, pay_min, pay_max, day_rate, rate_band,"
-        "  cv_version, buying_window, company_id, region)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "  cv_version, buying_window, company_id, region,"
+        "  gate_sector, gate_sector_note, gate_cv, gate_cv_note, gate_location, gate_location_note, gate_rate, gate_rate_note, tier, failed_gates, question_text, filter_reason, rate_stated, rate_value, rate_basis, ir35, location_class)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (h, now, source,
          scored["company"] or opp.get("company", ""),
          scored["role_title"] or opp.get("title", ""),
@@ -279,7 +282,8 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
          "new", now, note,
          pay["pay_currency"], pay["pay_period"], pay["pay_min"],
          pay["pay_max"], pay["day_rate"], pay["rate_band"], cv_version,
-         buying_window, company_id, region))
+         buying_window, company_id, region,
+         scored.get("gate_sector"), scored.get("gate_sector_note"), scored.get("gate_cv"), scored.get("gate_cv_note"), scored.get("gate_location"), scored.get("gate_location_note"), scored.get("gate_rate"), scored.get("gate_rate_note"), scored.get("tier"), scored.get("failed_gates"), scored.get("question_text"), scored.get("filter_reason"), scored.get("rate_stated"), scored.get("rate_value"), scored.get("rate_basis"), scored.get("ir35"), scored.get("location_class")))
 
 
 def main(argv=None) -> int:

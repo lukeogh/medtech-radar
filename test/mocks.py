@@ -154,98 +154,77 @@ def _day_rate(text: str) -> tuple[bool, int]:
 
 
 def mock_scorer(user_content: str) -> str:
+    """Deterministic four-gate scoring. No model, no network, no guessing.
+
+    Fixtures cover all four tiers on purpose, because a tiering change that
+    only ever sees one shape is untested.
+    """
+    import json as _json
     opp = _payload(user_content)
-    title_text = str(opp.get("title") or opp.get("role_title") or "")
-    if "RADAR-UNSCORABLE" in title_text and not opp.get("rescore"):
-        # Scoring failure trigger for tests. The rescore pass marks its
-        # payload and succeeds, proving rescore.py clears the backlog.
-        return "SCORER NOISE ((( not json"
-    text = " ".join(str(opp.get(k, "")) for k in
-                    ("title", "role_title", "company", "location", "salary_rate"))
+    title = str(opp.get("title") or "")
+    company = str(opp.get("company") or "")
+    location = str(opp.get("location") or "")
+    salary = str(opp.get("salary_rate") or "")
+    low = f"{title} {company}".lower()
+    loc_low = location.lower()
 
-    cv = 20
-    if MEDTECH.search(text):
-        cv += 30
-    if LEADERSHIP.search(text):
-        cv += 20
-    if SOFTWARE.search(text):
-        cv += 15
+    medtech = any(w in low for w in ("ivd", "diagnost", "medical", "medtech",
+                                     "clinical", "biosens", "device"))
+    adjacent = any(w in low for w in ("defence", "aerospace", "utilit", "nuclear"))
+    leadership = any(w in low for w in ("director", "head of", "lead", "manager",
+                                        "principal", "architect"))
+    cv = 93 if (medtech and leadership) else 84 if medtech else \
+         76 if adjacent else 55 if leadership else 30
+
+    relocation = "relocat" in loc_low
+    remote = "remote" in loc_low
+    onsite_far = ("on-site" in loc_low or "onsite" in loc_low) and \
+                 not any(c in loc_low for c in ("london", "surrey", "sussex",
+                                                "guildford", "brighton", "belgium",
+                                                "ghent", "leuven"))
+    loc_class = ("relocation" if relocation else "remote" if remote
+                 else "onsite-far" if onsite_far else
+                 "hybrid" if "hybrid" in loc_low else "local")
+    loc_pass = loc_class in ("remote", "hybrid", "local")
+
+    stated = bool(salary.strip())
+    per_day = "per day" in salary.lower() or "day rate" in salary.lower()
+    digits = "".join(ch if ch.isdigit() else " " for ch in salary).split()
+    amount = max((float(d) for d in digits), default=None) if digits else None
+    if not stated:
+        rate_pass, basis, value = True, "", None
+    elif per_day:
+        value, basis = amount, "day-rate"
+        rate_pass = amount is not None and amount >= 650
     else:
-        cv -= 10
-    if REGULATED.search(text):
-        cv += 5
-    if TEST_WORDS.search(text):
-        cv += 5
-    if IVD.search(text):
-        cv += 8
-    cv = max(5, min(cv, 97))
+        value = round(amount / 220) if amount else None
+        basis = "converted-salary"
+        rate_pass = value is not None and value >= 650
 
-    want = 10
-    if ENGAGEMENT.search(text):
-        want += 30
-    if MEDTECH.search(text):
-        want += 25
-    if NEAR_BASE.search(text):
-        want += 15
-    if DIRECTOR.search(text):
-        want += 10
-
-    red_flags = []
-    rate_flag = False
-    is_day_rate, amount = _day_rate(text)
-    if is_day_rate:
-        if amount >= DAY_RATE_FLOOR:
-            want += 7
-        else:
-            # The judgement is unchanged, a wrong rate still collapses want.
-            # The words about it are gone, the rate band column carries pay,
-            # so the flag list stays empty when pay is the only problem.
-            want = min(want, 30)
-            rate_flag = True
-    elif ONSITE.search(text) and not FLEXIBLE.search(text):
-        want -= 10
-        red_flags.append("Permanent on site role, relocation risk")
-    want = max(5, min(want, 97))
-
-    combined = round((cv + want) / 2)
-
-    if rate_flag:
-        why = ("Right work, wrong terms. The offer fails the preferences, "
-               "so the want score collapses.")
-    elif combined >= 85:
-        why = ("Exactly the target. Senior IVD software leadership on "
-               "fractional terms.")
-    elif cv >= 70 and want < 50:
-        why = ("Good CV fit but a permanent on site post, not the engagement "
-               "model I want.")
-    elif cv < 30:
-        why = "Nothing here for me. Outside software leadership and outside medtech."
-    else:
-        why = "Generic software work with no medtech angle. Not the target."
-
-    if combined >= 70:
-        action = "Read the full advert and reply within two working days."
-        act_by = (date.today() + timedelta(days=2)).isoformat()
-    elif rate_flag:
-        action = "Park it. Note the company and revisit if the terms move."
-        act_by = ""
-    else:
-        action = "No action needed."
-        act_by = ""
-
-    return json.dumps({
-        "company": opp.get("company", ""),
-        "role_title": opp.get("title") or opp.get("role_title", ""),
-        "location": opp.get("location", ""),
+    return _json.dumps({
+        "company": company, "role_title": title, "location": location,
         "source_url": opp.get("source_url", ""),
-        "thread_type": "inbound",
-        "cv_match_pct": cv,
-        "want_match_pct": want,
-        "one_line_why": why,
-        "red_flags": red_flags,
-        "suggested_action": action,
-        "act_by": act_by,
+        "gate_sector": bool(medtech or adjacent),
+        "gate_sector_note": ("medtech" if medtech else
+                             "adjacent, regulated" if adjacent else
+                             "generic software, out of sector"),
+        "cv_match": cv,
+        "gate_cv_note": f"evidence supports {cv}",
+        "gate_location": loc_pass,
+        "gate_location_note": ("relocation required" if relocation else
+                              "workable from West Sussex" if loc_pass else
+                              "full time on site beyond commuting distance"),
+        "location_class": loc_class,
+        "gate_rate": rate_pass,
+        "gate_rate_note": ("rate unstated, that's your first question" if not stated
+                           else f"{'at or above' if rate_pass else 'below'} the floor"),
+        "rate_stated": stated, "rate_value": value, "rate_basis": basis,
+        "ir35": "outside" if "outside ir35" in salary.lower() else "",
+        "one_line_why": "Judged against the four gates.",
+        "question_text": "", "suggested_action": "Read it and decide.",
+        "act_by": "",
     })
+
 
 
 def mock_enricher(user_content: str) -> str:

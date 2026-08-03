@@ -39,7 +39,28 @@ CREATE TABLE IF NOT EXISTS opportunities (
   -- a fact about our own history and not a judgement about the role. A low
   -- job score does not clear it, a generic advert at a company already
   -- touched is still the week the standards stop being abstract for them.
-  buying_window     INTEGER NOT NULL DEFAULT 0
+  buying_window     INTEGER NOT NULL DEFAULT 0,
+  -- Phase three. Excitement does not add up, it gates. Four gates, each a
+  -- boolean with a one-line note, and a tier derived from them. combined and
+  -- want_match stay for history and nothing new reads them.
+  gate_sector       INTEGER,          -- 1 pass, 0 fail, NULL not yet gated
+  gate_sector_note  TEXT,
+  gate_cv           INTEGER,
+  gate_cv_note      TEXT,
+  gate_location     INTEGER,
+  gate_location_note TEXT,
+  gate_rate         INTEGER,
+  gate_rate_note    TEXT,
+  tier              TEXT CHECK (tier IS NULL OR
+                                tier IN ('top','question','reading','filtered')),
+  failed_gates      TEXT,             -- JSON array of gate names as text
+  question_text     TEXT,             -- the one question, question tier only
+  filter_reason     TEXT,             -- why it was filtered, auditable
+  rate_stated       INTEGER,          -- 1 the advert stated pay, 0 silent
+  rate_value        REAL,             -- the gating figure, a day rate in GBP
+  rate_basis        TEXT,             -- day-rate | converted-salary
+  ir35              TEXT,             -- inside | outside, recorded never gated
+  location_class    TEXT              -- remote | hybrid | local | relocation | onsite-far
 );
 
 -- The landscape is companies, not rows. One row per company, keyed on the

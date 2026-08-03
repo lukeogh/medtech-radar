@@ -114,6 +114,26 @@ _MIGRATIONS = (
     # Phase two task seven. What came back from a touch. Replies were
     # happening and going uncounted, so the doctrine could not be measured.
     ("touches", "outcome", "TEXT"),
+    # Phase three. The four gates, their notes, and the tier derived from
+    # them. Nullable throughout, because a row scored before the gates
+    # existed has no honest answer and inventing one would be worse.
+    ("opportunities", "gate_sector", "INTEGER"),
+    ("opportunities", "gate_sector_note", "TEXT"),
+    ("opportunities", "gate_cv", "INTEGER"),
+    ("opportunities", "gate_cv_note", "TEXT"),
+    ("opportunities", "gate_location", "INTEGER"),
+    ("opportunities", "gate_location_note", "TEXT"),
+    ("opportunities", "gate_rate", "INTEGER"),
+    ("opportunities", "gate_rate_note", "TEXT"),
+    ("opportunities", "tier", "TEXT"),
+    ("opportunities", "failed_gates", "TEXT"),
+    ("opportunities", "question_text", "TEXT"),
+    ("opportunities", "filter_reason", "TEXT"),
+    ("opportunities", "rate_stated", "INTEGER"),
+    ("opportunities", "rate_value", "REAL"),
+    ("opportunities", "rate_basis", "TEXT"),
+    ("opportunities", "ir35", "TEXT"),
+    ("opportunities", "location_class", "TEXT"),
 )
 
 
