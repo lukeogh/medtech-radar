@@ -873,3 +873,35 @@ the flag off the query is character for character the one that shipped and
 the Monday email cannot quietly change shape. Three tests pin that, the flag
 absent, the flag explicitly zero and the flag at fifty, and the first two
 must agree exactly.
+
+3 August 2026, tripwires. A first quality or regulatory hire at a company
+nobody has spoken to used to sink. It arrived as an advert, the job scorer
+correctly decided Luke does not want to be a QA manager, and it scored low
+and disappeared. That was the wrong reading of the right fact. The advert is
+not an opportunity for Luke, it is news about a company that has just
+started caring about IEC 62304 and ISO 13485 in practice rather than in
+principle, which is the buying window by another name.
+
+So a copy now goes down the signal path with its own source id, and the
+signal rubric judges it. No fixed relevance. A touched company already gets
+a buying window at ninety, chosen deliberately, but an untouched one has
+earned nothing yet and deserves the rubric's opinion rather than a number
+picked in advance by the code that spotted it.
+
+Three gates, all of which must pass, and none of which costs a model call to
+decide whether to spend a model call. The title reads as quality or
+regulatory. The advert reads as medtech or IVD from the fields the extractor
+already returns. And the company is not in the touch log, because a touched
+company gets the buying window and having both would be the same event
+recorded twice. The exclusion beats the inclusion, so a quality manager at
+an NHS trust advertising for medical devices work is a hospital job and stays
+one. Hospitals always have quality people. That is not news.
+
+One per company ever, checked against the stored signals rather than a flag,
+so a restore from backup cannot re-open one, and the advert still stores and
+scores as an opportunity exactly as before. The tripwire is additional, never
+a replacement.
+
+A test fixture carries both halves of the case, a Belgian diagnostics firm
+advertising a QA manager and an NHS trust advertising a sterile services
+one. The first fires and scores 65. The second does not fire at all.

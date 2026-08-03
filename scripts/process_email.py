@@ -39,6 +39,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import enrich_company
 import radar_common
 import score_item
+import tripwire
 
 # The buying-window signal is written by code, not scored by a model, so it
 # needs a relevance of its own. 90 sits deliberately above the fast signal
@@ -113,6 +114,91 @@ def record_buying_window(conn, company: str, title: str, url: str,
          radar_common.sanitise_free_text(BUYING_WINDOW_STEP),
          company_id))
     return True
+
+
+def fire_tripwire(conn, company: str, title: str, url: str, h: str,
+                  now: str, opp: dict, config: dict, company_id) -> dict:
+    """Score a first-hire advert with the signal rubric and store it.
+
+    The signal scorer, not the job scorer, and no fixed relevance. An
+    untouched company deserves the rubric's judgement, and a number chosen
+    in advance would be the code deciding what the rubric is for.
+
+    Never raises. The advert is already stored and scored as an
+    opportunity by the time this runs, and a tripwire that fails must not
+    cost the row it was derived from.
+    """
+    out = {"fired": False, "note": None, "usage": {}}
+    try:
+        import check_signals
+
+        # A distinct hash, because the same advert is legitimately both an
+        # opportunity and a signal and they must not dedupe against each
+        # other in the signals table.
+        sig_hash = radar_common.url_hash(f"radar-tripwire://{h}")
+        if conn.execute("SELECT 1 FROM signals WHERE url_hash = ?",
+                        (sig_hash,)).fetchone():
+            out["note"] = "already stored"
+            return out
+
+        rubric = check_signals.RUBRIC_PATH.read_text(encoding="utf-8")
+        system_blocks = [{"type": "text", "text": rubric,
+                          "cache_control": {"type": "ephemeral"}}]
+        mock_fn = None
+        if radar_common.mock_mode_active():
+            sys.path.insert(0, str(SCRIPT_DIR.parent / "test"))
+            import mocks_signals
+            mock_fn = mocks_signals.mock_signal_scorer
+
+        where = str(opp.get("location") or "").strip()
+        item = {
+            "source_id": tripwire.SOURCE_ID,
+            "source_name": "First hire tripwire",
+            "url": url or f"radar-tripwire://{h}",
+            "headline": f"{company} is hiring for {title}",
+            "date": None,
+            "text": (f"{company} advertised the role {title}"
+                     + (f" in {where}" if where else "")
+                     + ". A first quality or regulatory hire is the point a "
+                       "medical device company starts needing IEC 62304 and "
+                       "ISO 13485 in practice rather than in principle."),
+        }
+        parsed, usage = check_signals.score_item(item, system_blocks, config,
+                                                 mock_fn)
+        radar_common.add_usage(out["usage"], usage)
+        if parsed is None:
+            out["note"] = "signal scorer returned unparseable output"
+            return out
+
+        try:
+            relevance = max(0, min(100, int(parsed.get("relevance", 0))))
+        except (TypeError, ValueError):
+            relevance = 0
+        conn.execute(
+            "INSERT OR IGNORE INTO signals"
+            " (url_hash, first_seen, source_id, company, headline, summary,"
+            "  source_url, relevance, why, playbook_step, pushed, status,"
+            "  company_id, region)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,0,'new',?,?)",
+            # The advert names the company outright, so that is what is
+            # stored. The scorer is reading a headline this code wrote and
+            # its guess at the company cannot be better than the fact.
+            (sig_hash, now, tripwire.SOURCE_ID, company,
+             radar_common.sanitise_free_text(
+                 str(parsed.get("headline") or item["headline"])),
+             item["text"][:500], url or "", relevance,
+             radar_common.sanitise_free_text(str(parsed.get("why") or "")),
+             radar_common.sanitise_free_text(str(parsed.get("playbook_step") or "")),
+             company_id,
+             conn.execute("SELECT region FROM companies WHERE id=?",
+                          (company_id,)).fetchone()["region"]
+             if company_id else None))
+        out["fired"] = True
+        out["relevance"] = relevance
+        return out
+    except Exception as err:                       # noqa: BLE001
+        out["note"] = f"failed, {type(err).__name__}"
+        return out
 
 
 def detect_source(from_field: str) -> str:
@@ -269,6 +355,9 @@ def main(argv=None) -> int:
     enrich_budget = enrich_company.new_budget(config)
     enrich_usage: dict = {}
     enriched_count = 0
+    tripwire_usage: dict = {}
+    tripwire_count = 0
+    notes_extra: list = []
     system_blocks = None  # built lazily, only when something new needs scoring
     seen_hashes: set[str] = set()
     items, new_count, dup_count = [], 0, 0
@@ -304,6 +393,7 @@ def main(argv=None) -> int:
         advert_url = (str((scored or {}).get("source_url") or "").strip()
                       or str(opp.get("source_url", "")).strip())
         is_window = normalise_company(company) in touched
+        item_tripwire = False
 
         # The company row is resolved before the item is stored, so every
         # row lands already pointing at the company it belongs to and the
@@ -338,6 +428,22 @@ def main(argv=None) -> int:
         if is_window:
             record_buying_window(conn, company, role_title, advert_url, h, now,
                                  company_id=company_id)
+        else:
+            # Not a touched company, so no buying window. If this is a first
+            # quality or regulatory hire at a medtech firm it is still news
+            # about them, and the signal rubric should judge it rather than
+            # the job scorer deciding Luke does not want to be a QA manager.
+            fire, why_not = tripwire.should_trip(
+                conn, company, role_title, opp.get("location"), touched)
+            if fire:
+                tw = fire_tripwire(conn, company, role_title, advert_url, h,
+                                   now, opp, config, company_id)
+                radar_common.add_usage(tripwire_usage, tw.get("usage") or {})
+                if tw.get("fired"):
+                    tripwire_count += 1
+                    item_tripwire = True
+                elif tw.get("note"):
+                    notes_extra.append(f"tripwire for {company}: {tw['note']}")
         new_count += 1
         item = {"company": opp.get("company", ""),
                 "title": opp.get("title", ""),
@@ -353,16 +459,24 @@ def main(argv=None) -> int:
             })
         if is_window:
             item["buying_window"] = True
+        if item_tripwire:
+            item["tripwire"] = True
         if s_note:
             item["note"] = s_note
         items.append(item)
 
     conn.commit()
     mode = "mock" if radar_common.mock_mode_active() else "live"
-    note_parts = [source] + ([extract_note] if extract_note else [])
+    note_parts = [source] + ([extract_note] if extract_note else []) + notes_extra
     # Enrichment is its own line in the runs table. Folding its tokens into
     # the inbox row would hide a cost that behaves differently, one pass per
     # company ever rather than one per advert.
+    if tripwire_usage or tripwire_count:
+        radar_common.log_run(conn, "tripwire", mode=mode,
+                             items_in=tripwire_count, items_new=tripwire_count,
+                             model=config.get("claude_model_score"),
+                             usage=tripwire_usage,
+                             note="first QA or regulatory hire, untouched company")
     if enrich_usage or enriched_count:
         radar_common.log_run(conn, "enrich", mode=mode,
                              items_in=enriched_count, items_new=enriched_count,

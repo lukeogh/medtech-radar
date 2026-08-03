@@ -1197,6 +1197,75 @@ def main() -> int:
         conn.close()
     _os.environ.pop("RADAR_MOCK", None)
 
+    # Tripwires. A first quality or regulatory hire at an untouched medtech
+    # company is news about them, not a job for Luke.
+    import tripwire as _tw
+
+    for title, want in (("Quality Assurance Manager, ISO 13485", True),
+                        ("Regulatory Affairs Specialist", True),
+                        ("Head of Quality", True),
+                        ("QA Engineer", True),
+                        ("Senior Software Engineer", False),
+                        ("Account Executive", False),
+                        ("Quantitative Analyst", False)):
+        got = _tw.is_first_hire_title(title)
+        check(got is want,
+              f"{title!r} reads as a first quality hire: {want} (got {got})")
+
+    for company, title, loc, want in (
+            ("Cantilex Diagnostics", "Quality Assurance Manager", "Leuven", True),
+            ("Veltrix", "QA Manager, IVD platform", "Ghent", True),
+            ("Acme Medical Device Ltd", "Head of Quality", "Surrey", True),
+            ("NHS Berkshire Hospitals Trust", "Quality Manager", "Reading", False),
+            ("Guildford Hospital", "Regulatory Affairs, medical devices", "Surrey", False),
+            ("Bigg Foods Ltd", "Quality Manager", "Leeds", False),
+            ("Generic Software Co", "QA Manager", "London", False)):
+        got = _tw.reads_as_medtech(company, title, loc)
+        check(got is want,
+              f"{company!r} reads as medtech: {want} (got {got})")
+    check(_tw.reads_as_medtech("NHS Trust", "QA, medical devices", None) is False,
+          "a hospital wins over the words medical devices, it is the stronger fact")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "tripwire.sqlite")
+        touched = {"veltrix diagnostics"}
+
+        fire, why = _tw.should_trip(conn, "Cantilex Diagnostics",
+                                    "QA Manager, ISO 13485", "Leuven", touched)
+        check(fire is True, f"an untouched medtech first hire fires (got {why})")
+
+        fire, why = _tw.should_trip(conn, "Veltrix Diagnostics",
+                                    "QA Manager, IVD", "Ghent", touched)
+        check(fire is False and "touch log" in why,
+              f"a touched company gets a buying window instead, not a tripwire (got {why})")
+
+        fire, why = _tw.should_trip(conn, "Cantilex Diagnostics",
+                                    "Senior Software Engineer", "Leuven", touched)
+        check(fire is False and "quality or regulatory" in why,
+              f"an ordinary role does not fire (got {why})")
+
+        fire, why = _tw.should_trip(conn, "NHS Berkshire Trust",
+                                    "Quality Manager", "Reading", touched)
+        check(fire is False and "medtech" in why,
+              f"a hospital QA role never fires (got {why})")
+
+        fire, why = _tw.should_trip(conn, "", "QA Manager, IVD", None, touched)
+        check(fire is False, "an advert with no company cannot fire")
+
+        # One per company, ever, checked against the signals themselves.
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status) VALUES"
+                     " ('tw1',?,?, 'cantilex  DIAGNOSTICS', 'x', 'new')",
+                     (radar_common.now_iso(), _tw.SOURCE_ID))
+        conn.commit()
+        check(_tw.already_tripped(conn, "Cantilex Diagnostics") is True,
+              "the one-per-company check ignores case and spacing")
+        fire, why = _tw.should_trip(conn, "Cantilex Diagnostics",
+                                    "Regulatory Affairs Lead", "Leuven", touched)
+        check(fire is False and "already tripped" in why,
+              f"a second first-hire advert from the same company does not fire (got {why})")
+        conn.close()
+
     # digest_min_want. A second bar on the desire half alone, off by default,
     # and off must mean the digest is exactly what it was.
     import build_digest as _bd

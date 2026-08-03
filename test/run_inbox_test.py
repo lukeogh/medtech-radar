@@ -120,7 +120,7 @@ def main() -> int:
         CHILD_ENV.pop("RADAR_MOCK", None)
 
     samples = sorted(SAMPLES_DIR.glob("*.json"))
-    check(len(samples) == 5, f"five sample emails found ({len(samples)})")
+    check(len(samples) == 6, f"six sample emails found ({len(samples)})")
 
     results = []
     for path in samples:
@@ -148,10 +148,16 @@ def main() -> int:
     total_in = sum(r["processed"] for r in good)
     total_new = sum(r["new"] for r in good)
     check(total_in >= 7,
-          f"multi role alert split into individual roles ({total_in} opportunities from 5 emails)")
+          f"multi role alert split into individual roles ({total_in} opportunities "
+          f"from {len(good)} emails)")
     check(total_new < total_in,
           f"duplicate deduped, items_new {total_new} < items_in {total_in}")
-    dup_result = results[-1] if results else None
+    # By name, not by position. This was results[-1] until a sixth fixture
+    # was added and sorted after the duplicate one, at which point the test
+    # started asserting that a brand new email was a repeat. A fixture list
+    # is not a running order.
+    dup_result = next((r for p, r in zip(samples, results)
+                       if "duplicate" in p.name and r), None)
     check(bool(dup_result) and dup_result["duplicates"] >= 1 and dup_result["new"] == 0,
           "the repeat email produced no new rows")
 
