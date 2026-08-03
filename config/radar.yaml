@@ -30,13 +30,6 @@ allow_fixture_profile: false
 
 score_threshold: 70                     # combined score needed to appear in digest
 
-# A second bar for the digest, on want_match alone. Combined averages
-# capability and desire, so a role Luke could clearly do but does not want can
-# still clear 70 on the strength of the CV half. Set this to require the
-# desire half as well, 50 is the sensible first try. Zero means off, and off
-# is the shipped default because turning it on changes what the Monday email
-# contains and that is a decision rather than a tuning.
-digest_min_want: 0
 fast_signal_threshold: 75               # relevance needed for an immediate ntfy push
 
 # Euro day rates convert to GBP at this rate for banding. Deliberately

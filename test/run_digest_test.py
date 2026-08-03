@@ -178,16 +178,15 @@ def main() -> int:
     text = digest["text"]
     check(digest["item_count"] >= 2,
           f"item_count {digest['item_count']} covers inbound plus signal")
-    check("Inbound." in text, "Inbound section renders")
-    check("Veltrix Diagnostics" in text, "the strong inbound role is in the digest")
-    check("Signals." in text, "Signals section renders")
-    check("Lumivance" in text, "the signals table feeds the Signals section")
-    check("Ageing." in text, "Ageing section renders")
-    check("Orvala" in text, "the seeded old row appears in the ageing section")
-    check("Pipeline." in text, "pipeline stats line present")
-    check("failed extraction" in text,
-          "stats line reports the failed-email count")
-    check("Caldora" not in text, "below threshold roles stay out of the digest")
+    # Phase three. The email is counts and a link now. Mail clients cannot
+    # collapse and expand, Gmail included, so a wall of roles in an inbox is
+    # a wall nobody reads. The verdict is in the subject, the detail is one
+    # tap away, and the page is the thing that renders roles.
+    check("for reading" in text, "the reading count is on the email")
+    check("/jobs" in text, "the email links through to the page")
+    check("Veltrix Diagnostics" not in text,
+          "no role is rendered in the email, the page does that")
+    check("Caldora" not in text, "and nothing that failed a gate is either")
     check("Meridian" not in text, "the wrong rate role stays below the bar")
 
     html_file = REPO_ROOT / "test" / "last_digest.html"

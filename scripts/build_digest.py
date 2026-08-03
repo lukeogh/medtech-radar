@@ -184,26 +184,25 @@ def collect(conn, config: dict) -> dict:
     age_cutoff = (datetime.now(timezone.utc)
                   - timedelta(days=AGEING_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # A second bar, on want_match alone, off by default. Built as an optional
-    # SQL fragment rather than a "col >= ?" with zero, so that with the flag
-    # off the query is character for character the one that shipped and the
-    # digest cannot quietly change shape. The tests pin that.
-    min_want = int(config.get("digest_min_want", 0) or 0)
-    want_sql = " AND want_match IS NOT NULL AND want_match >= ?" if min_want else ""
-    want_args = (min_want,) if min_want else ()
+    # Phase three. Tiers, not a combined bar. digest_min_want retired with
+    # the additive score it was a second bar on top of.
 
     inbound = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
-        " AND combined IS NOT NULL AND combined >= ? AND thread_type = 'inbound'"
-        " AND acknowledged_at IS NULL" + want_sql
-        + " ORDER BY combined DESC, first_seen",
-        (last_ts, threshold) + want_args)]
+        " AND tier IN ('top','question') AND thread_type = 'inbound'"
+        " AND acknowledged_at IS NULL"
+        " ORDER BY CASE tier WHEN 'top' THEN 0 ELSE 1 END, cv_match DESC",
+        (last_ts,))]
     opp_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
-        " AND combined IS NOT NULL AND combined >= ? AND thread_type = 'signal'"
-        " AND acknowledged_at IS NULL" + want_sql
-        + " ORDER BY combined DESC, first_seen",
-        (last_ts, threshold) + want_args)]
+        " AND tier IN ('top','question') AND thread_type = 'signal'"
+        " AND acknowledged_at IS NULL"
+        " ORDER BY CASE tier WHEN 'top' THEN 0 ELSE 1 END, cv_match DESC",
+        (last_ts,))]
+    reading_count = conn.execute(
+        "SELECT COUNT(*) n FROM opportunities WHERE status = 'new'"
+        " AND first_seen > ? AND tier = 'reading' AND acknowledged_at IS NULL",
+        (last_ts,)).fetchone()["n"]
     table_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM signals WHERE status = 'new' AND first_seen > ?"
         " AND relevance IS NOT NULL AND relevance >= ?"
@@ -278,7 +277,11 @@ def collect(conn, config: dict) -> dict:
 
     return {"threshold": threshold, "floor": floor, "last_ts": last_ts,
             "inbound": inbound, "signals": signals, "ageing": ageing,
-            "threads": threads, "needs_review": needs_review, "stats": stats}
+            "threads": threads, "needs_review": needs_review, "stats": stats,
+            "reading_count": reading_count,
+            "top_count": sum(1 for x in inbound + signals if x.get("tier") == "top"),
+            "question_count": sum(1 for x in inbound + signals
+                                  if x.get("tier") == "question")}
 
 
 def stats_line(stats: dict) -> str:
@@ -524,15 +527,47 @@ def main(argv=None) -> int:
     data = collect(conn, config)
     now = radar_common.now_iso()
     today_label = fmt_date(now)
-    text = render_text(data, today_label)
-    html = render_html(data, today_label)
+    # Phase three. The email shrinks to the counts and a link through to the
+    # page, because mail clients cannot collapse and expand, Gmail included,
+    # and a wall of roles in an inbox is a wall nobody reads. The verdict is
+    # in the subject and the detail is one tap away.
+    top_n = data.get("top_count", 0)
+    q_n = data.get("question_count", 0)
+    read_n = data.get("reading_count", 0)
+    page_url = str(config.get("dashboard_url")
+                   or "https://medtech-radar.keogh.cloud") + "/jobs"
+    counts = [f"{top_n} top prospect" + ("" if top_n == 1 else "s"),
+              f"{q_n} one question away",
+              f"{read_n} for reading"]
+    text = ("Radar, week to " + today_label + ".\n\n"
+            + "\n".join("  " + c for c in counts)
+            + f"\n\nThe roles are on the page, sorted and gated.\n{page_url}\n"
+            + ("\nNothing cleared all four gates this week.\n" if not top_n else ""))
+    html = (f'<div style="font:15px/1.5 -apple-system,Segoe UI,sans-serif">'
+            f'<p>Radar, week to {esc(today_label)}.</p><ul>'
+            + "".join(f"<li>{esc(c)}</li>" for c in counts)
+            + f'</ul><p><a href="{esc(page_url)}">Open the roles</a>, sorted and '
+              f'gated.</p>'
+            + ("<p>Nothing cleared all four gates this week.</p>" if not top_n else "")
+            + "</div>")
     item_count = len(data["inbound"]) + len(data["signals"])
-    n_sig = len(data["signals"])
-    if item_count == 0:
-        subject = f"Radar digest. A quiet week, nothing new. {today_label}."
+
+    # The subject lands the verdict before the open, because most weeks the
+    # subject is the whole email as far as a phone lock screen is concerned.
+    def plural_n(n, word):
+        return f"{n} {word}" + ("" if n == 1 else "s")
+
+    if top_n:
+        bits = [plural_n(top_n, "top prospect")]
     else:
-        subject = (f"Radar digest. {len(data['inbound'])} inbound, "
-                   f"{n_sig} {plural(n_sig, 'signal', 'signals')}. {today_label}.")
+        bits = ["Nothing exciting"]
+    if q_n:
+        bits.append(f"{q_n} one question away")
+    if read_n:
+        bits.append(f"{read_n} for reading")
+    subject = "Radar. " + ", ".join(bits)
+    if item_count == 0 and not read_n:
+        subject = f"Radar. A quiet week, nothing new. {today_label}."
 
     # Record the exact built set under a one-use token. The commit step marks
     # this set and nothing else, so an item that arrives between build and
