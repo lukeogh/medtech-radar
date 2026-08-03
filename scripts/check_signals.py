@@ -48,6 +48,9 @@ DRY_RUN_PAYLOAD_PATH = REPO_ROOT / "test" / "last_signal.txt"
 
 MAX_NEW_ITEMS_PER_SOURCE = 5     # cost guardrail per check
 MAX_SEEN_IDS = 200               # rolling memory per source
+# A sitemap is a complete list rather than a stream, so its seen-set is
+# sized to hold all of it. Cheap, a few hundred urls is tens of kilobytes.
+MAX_SITEMAP_IDS = 5000
 MAX_ITEM_TEXT = 4000             # chars of body text sent to the scorer
 
 
@@ -233,6 +236,114 @@ def check_rss(source: dict, state: dict | None, config: dict, conn, notes: list)
     _save_state(
         conn, source, last_checked=checked, last_status=str(status),
         last_seen_ids=json.dumps(merged[:MAX_SEEN_IDS]),
+        etag=headers.get("ETag"), last_modified=headers.get("Last-Modified"),
+    )
+    return items
+
+
+def check_sitemap(source: dict, state: dict | None, config: dict, conn,
+                  notes: list):
+    """Read a sitemap and treat URLs never seen before as new items.
+
+    Some sites build their listing page with JavaScript, which a plain
+    fetcher cannot read, while publishing the same content as a sitemap that
+    is server-rendered XML. imec is the case that mattered. Reading the
+    sitemap avoids a headless browser entirely, and a browser is a large
+    thing to run for a small thing to read.
+
+    New URLs are the signal, not lastmod. A site rebuild can restamp
+    lastmod across hundreds of entries at once, which would look like a
+    hundred announcements, so the dates are ignored for detection and the
+    URL set is what decides.
+
+    include_patterns and exclude_patterns filter URLs by substring, include
+    acting as a whitelist when present. A sitemap is the whole site and most
+    of a site is not news. imec's carries 279 job vacancies and 240 research
+    papers beside its 301 press releases, and only the last are the company
+    events this radar is for.
+    """
+    url = source.get("sitemap_url") or source.get("url")
+    status, headers, body = rc.http_get(
+        url, config,
+        etag=state.get("etag") if state else None,
+        last_modified=state.get("last_modified") if state else None,
+    )
+    checked = rc.now_iso()
+    if status == 999:
+        notes.append(f"{source['id']}: blocked by robots.txt")
+        _save_state(conn, source, last_checked=checked,
+                    last_status="robots-blocked")
+        return []
+    if status == 304:
+        _save_state(conn, source, last_checked=checked, last_status="304")
+        return []
+    if status != 200 or not body:
+        notes.append(f"{source['id']}: sitemap fetch failed with status {status}")
+        _save_state(conn, source, last_checked=checked, last_status=str(status))
+        return []
+
+    locs = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", body)
+    includes = [str(x).lower() for x in (source.get("include_patterns") or [])]
+    excludes = [str(x).lower() for x in (source.get("exclude_patterns") or [])]
+    kept = []
+    dropped = 0
+    for loc in locs:
+        low = loc.lower()
+        # Include first, and when a source names one it is a whitelist. A
+        # sitemap is the whole site, and most of a site is not news. imec's
+        # carries 279 job vacancies and 240 research papers beside its 301
+        # press releases, and only the press releases are company events.
+        if includes and not any(x in low for x in includes):
+            dropped += 1
+            continue
+        if any(x in low for x in excludes):
+            dropped += 1
+            continue
+        kept.append(loc)
+    if dropped:
+        notes.append(f"{source['id']}: {dropped} sitemap urls filtered, "
+                     f"{len(kept)} kept")
+
+    # Remember every url the sitemap lists, not a window of them. A feed is
+    # a stream and a window over it is fine, but a sitemap is a complete
+    # list, and remembering only part of a complete list means the part
+    # outside the window is permanently unseen and is rediscovered as new on every
+    # run, refetching the same articles forever. Bounded by the sitemap.
+    current_ids = kept[-MAX_SITEMAP_IDS:]
+
+    previous = set()
+    first_run = state is None or not state.get("last_seen_ids")
+    if not first_run:
+        try:
+            previous = set(json.loads(state["last_seen_ids"]))
+        except (ValueError, TypeError):
+            first_run = True
+
+    items = []
+    if first_run:
+        notes.append(f"{source['id']}: first run, baselined "
+                     f"{len(current_ids)} sitemap urls")
+    else:
+        for loc in reversed(kept):
+            if loc in previous:
+                continue
+            text = fetch_article_text(loc, config)
+            slug = loc.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").strip()
+            items.append({
+                "source_id": source["id"],
+                "source_name": source.get("name", source["id"]),
+                "url": loc,
+                "headline": (text.split(". ")[0][:120] if text else slug) or slug,
+                "date": None,
+                "text": text,
+            })
+            if len(items) >= MAX_NEW_ITEMS_PER_SOURCE:
+                break
+
+    merged = current_ids + [i for i in previous if i not in current_ids]
+    _save_state(
+        conn, source, last_checked=checked, last_status=str(status),
+        last_seen_ids=json.dumps(merged[:MAX_SITEMAP_IDS]),
         etag=headers.get("ETag"), last_modified=headers.get("Last-Modified"),
     )
     return items
@@ -615,6 +726,9 @@ def main(argv=None) -> int:
             result["sources_checked"] += 1
             if source.get("method") == "rss" and source.get("rss_url"):
                 items = check_rss(source, state, config, conn, result["notes"])
+            elif source.get("method") == "sitemap":
+                items = check_sitemap(source, state, config, conn,
+                                      result["notes"])
             else:
                 items = check_diff(source, state, config, conn, result["notes"])
             for item in items:

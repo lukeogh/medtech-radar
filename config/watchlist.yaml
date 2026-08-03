@@ -26,14 +26,29 @@ sources:
     name: imec press releases
     tier: 1
     url: "https://www.imec-int.com/en/reading-room?type=press"
-    method: diff
+    method: sitemap
+    sitemap_url: "https://www.imec-int.com/sitemap_press.xml"
     check_interval_hours: 6
     status: live
+    include_patterns:
+      - "/en/press/"
     notes: >
-      Press releases live under /en/press/<slug>; the listing is the reading room
-      filtered to type=press. Page fetches OK but the list items are populated
-      client-side via JS, so a plain HTTP diff may see little or no change. No RSS
-      feed found. If this source stays silent, the Tier 2 net and email alerts cover it.
+      Switched from diff to sitemap on 3 August 2026. The reading-room listing
+      populates client-side, so a plain fetch saw almost nothing and this
+      source produced not one signal in a fortnight. docs/upgrade-paths.md
+      proposed changedetection.io with a real browser for exactly this, but
+      imec publishes sitemap_press.xml, which is server-rendered XML, 821
+      urls, robots-allowed, and needs no browser at all. Reading that is a
+      much smaller thing than running Chrome.
+      Two quirks worth knowing. The file is the whole site, not a press
+      feed, 301 press releases beside 279 job vacancies and 240 research
+      papers, so include_patterns whitelists /en/press/ and everything else
+      is dropped before a single scoring call is made. Filtering by slug
+      words was tried first and was wrong, it flagged real announcements
+      like imec-researcher-receives-erc-advanced-grant as vacancies. The
+      path is the honest signal, the slug is not. And lastmod is partly
+      rebuild-driven, hundreds of entries restamped the same day, so
+      detection ignores dates entirely and keys on urls never seen before.
 
   - id: imec-xpand
     name: imec.xpand

@@ -1197,6 +1197,74 @@ def main() -> int:
         conn.close()
     _os.environ.pop("RADAR_MOCK", None)
 
+    # The sitemap watcher. Reads a complete list, not a stream, so the
+    # rules that matter are what it filters and what it remembers.
+    import check_signals as _cs
+
+    SITEMAP = """<?xml version="1.0"?><urlset>
+      <url><loc>https://x.test/en/press/alpha-raises-seed</loc><lastmod>2026-08-03</lastmod></url>
+      <url><loc>https://x.test/en/press/beta-spins-out</loc><lastmod>2026-08-03</lastmod></url>
+      <url><loc>https://x.test/en/work-at-imec/job-opportunities/researcher</loc><lastmod>2026-08-03</lastmod></url>
+      <url><loc>https://x.test/en/articles/a-paper-about-waveguides</loc><lastmod>2026-08-03</lastmod></url>
+    </urlset>"""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "sitemap.sqlite")
+        src = {"id": "x-press", "name": "X press", "tier": 1,
+               "url": "https://x.test/news", "method": "sitemap",
+               "sitemap_url": "https://x.test/sitemap.xml",
+               "check_interval_hours": 6, "status": "live",
+               "include_patterns": ["/en/press/"]}
+        real_get, real_article = _cs.rc.http_get, _cs.fetch_article_text
+        _cs.rc.http_get = lambda url, cfg=None, etag=None, last_modified=None: (
+            200, {}, SITEMAP)
+        _cs.fetch_article_text = lambda url, cfg: f"body text for {url}"
+        try:
+            notes = []
+            items = _cs.check_sitemap(src, None, {}, conn, notes)
+            conn.commit()
+            check(items == [],
+                  "the first run baselines and returns nothing to score")
+            check(any("2 sitemap urls filtered" in n for n in notes),
+                  f"the whitelist drops the vacancy and the paper (notes {notes})")
+            state = _cs._get_state(conn, "x-press")
+            remembered = json_mod.loads(state["last_seen_ids"])
+            check(len(remembered) == 2 and all("/en/press/" in u for u in remembered),
+                  f"only whitelisted urls are remembered (got {remembered})")
+
+            items = _cs.check_sitemap(src, state, {}, conn, notes)
+            conn.commit()
+            check(items == [],
+                  "an unchanged sitemap yields nothing on the next run")
+
+            # A genuinely new press release arrives.
+            grown = SITEMAP.replace("</urlset>",
+                "<url><loc>https://x.test/en/press/gamma-series-a</loc>"
+                "<lastmod>2026-08-04</lastmod></url></urlset>")
+            _cs.rc.http_get = lambda url, cfg=None, etag=None, last_modified=None: (
+                200, {}, grown)
+            state = _cs._get_state(conn, "x-press")
+            items = _cs.check_sitemap(src, state, {}, conn, notes)
+            conn.commit()
+            check(len(items) == 1 and items[0]["url"].endswith("gamma-series-a"),
+                  f"a new press url is found and only that one (got {len(items)})")
+            check(items[0]["text"].startswith("body text"),
+                  "the article body is fetched so the scorer reads prose, not a slug")
+
+            # robots refusal must be honoured and must not raise.
+            _cs.rc.http_get = lambda url, cfg=None, etag=None, last_modified=None: (
+                999, {}, "")
+            notes2 = []
+            items = _cs.check_sitemap(src, _cs._get_state(conn, "x-press"), {},
+                                      conn, notes2)
+            check(items == [] and any("robots" in n for n in notes2),
+                  "a robots refusal yields nothing and says so")
+            check(_cs._get_state(conn, "x-press")["last_status"] == "robots-blocked",
+                  "the robots refusal is recorded on the source state")
+        finally:
+            _cs.rc.http_get, _cs.fetch_article_text = real_get, real_article
+            conn.close()
+
     # Regions. The rules live in config, the answer lives on the row.
     rcfg = radar_common.load_config()
     check(radar_common.region_group_names(rcfg)[-1] == "Elsewhere",

@@ -815,3 +815,30 @@ already sitting in Elsewhere are history rather than a feed. Parking a
 source stops new arrivals, it does not retract what is stored. If the quiet
 reads as breakage rather than discipline, the display floor is the smaller
 change and it is still on the table.
+
+3 August 2026, imec starts speaking. The most important origin source on the
+watchlist had produced nothing in a fortnight, and the reason was known and
+written down, its listing builds itself in the browser and a plain fetcher
+sees an empty shelf. The upgrade path on file proposed changedetection.io
+with a real browser for exactly this. It was not needed. imec publishes
+sitemap_press.xml, server-rendered XML, robots-allowed, eight hundred and
+twenty one urls, and three hundred and one of them are press releases. A
+sitemap reader is a much smaller thing to build and run than Chrome.
+
+So check_signals.py has a third method beside rss and diff. Two lessons are
+baked into it. A sitemap is the whole site rather than a news feed, so
+include_patterns whitelists the part that is news, imec's carrying two
+hundred and seventy nine job vacancies and two hundred and forty research
+papers beside the press. Filtering by words in the slug was tried first and
+was wrong, flagging real announcements as vacancies, because the path is the
+honest signal and the slug is not. And lastmod is partly rebuild-driven,
+hundreds of entries restamped in one day, so detection ignores dates and
+keys on urls never seen before.
+
+One bug of its own found and fixed before it shipped. The seen-set was a
+rolling window of two hundred while three hundred urls passed the filter, so
+the hundred outside the window would have been rediscovered as new on every
+run for ever, refetching the same articles until someone noticed the noise.
+A stream deserves a window. A complete list deserves to be remembered
+completely. Baseline then immediately re-run now finds nothing, which is the
+test that would have caught it and now does.
