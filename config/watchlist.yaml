@@ -314,17 +314,23 @@ sources:
   #    Combined news listing with roughly twenty five dated items, newest first.
   #    No RSS feed (/rss 404s). Plain HTML renders fine.
 
-  - id: startups-magazine
-    name: Startups Magazine
-    tier: 2
-    url: "https://startupsmagazine.co.uk/articles/news"
-    method: diff
-    check_interval_hours: 24
-    status: live
-    notes: >
-      Server-rendered dated news listing. No RSS feed (/rss.xml 404s). Trending
-      and events sidebars may cause minor churn, the link differ ignores repeats
-      it has already seen.
+  # Parked 3 August 2026, the fifth and last of the tier 2 net. Four scored
+  # signals, average relevance 2.0, best 2, nothing within sixty-eight points
+  # of the digest bar. It covers UK startups broadly, which sounds close to
+  # the target and is not, because the radar wants European medtech and IVD
+  # specifically and a general startup feed spends its volume on everything
+  # else. Kept commented like the rest, the verification below still holds.
+  #- id: startups-magazine
+  #  name: Startups Magazine
+  #  tier: 2
+  #  url: "https://startupsmagazine.co.uk/articles/news"
+  #  method: diff
+  #  check_interval_hours: 24
+  #  status: live
+  #  notes: >
+  #    Server-rendered dated news listing. No RSS feed (/rss.xml 404s). Trending
+  #    and events sidebars may cause minor churn, the link differ ignores repeats
+  #    it has already seen.
 
 # ---- Tier 3. Email-borne. Informational only, never fetched by check_signals.py.
 # These land in the aggregator inbox and travel through the radar-inbox workflow.

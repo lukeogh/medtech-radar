@@ -795,3 +795,23 @@ and a New Electronics entry that robots has kept dark since July. A page
 that shows four relevant things a month is worth more than one showing
 thirty five irrelevant ones, and the quiet is the system working rather than
 the system broken.
+
+3 August 2026, the net comes in. Startups Magazine follows the other four
+off the watchlist. Four scored signals, average relevance 2.0, best 2, and
+it is the most instructive of the five because it sounds like a fit and is
+not. A general UK startup feed spends its volume on everything that is not
+European medtech, and covering the target by accident once a quarter is not
+coverage.
+
+The tier 2 safety net is now optics.org and a New Electronics entry that
+robots has kept dark since July. Fourteen origin sources remain, the press
+desks and the investors and the accelerators, which is what the watchlist
+was for before the trade press was added to it as insurance. That insurance
+cost five sources worth of scoring calls and returned nothing above 22 on a
+bar of 70, so it has been cancelled.
+
+The page will get quieter, not better looking, and the thirty stories
+already sitting in Elsewhere are history rather than a feed. Parking a
+source stops new arrivals, it does not retract what is stored. If the quiet
+reads as breakage rather than discipline, the display floor is the smaller
+change and it is still on the table.
