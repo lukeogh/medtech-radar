@@ -238,6 +238,32 @@ def source_yield(conn, threshold: int, fast: int) -> dict:
     return out
 
 
+def deaths_by_gate(conn, days: int = 90) -> dict:
+    """Which gate killed what, over the trailing window.
+
+    Replaces the score histogram, which retired with the additive score. It
+    is also the first instrument for the skills question, because a CV gate
+    that keeps firing on the same kind of role names a gap long before any
+    ledger exists to hold it.
+    """
+    since = (datetime.now(timezone.utc)
+             - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    counts = {"sector": 0, "cv": 0, "location": 0, "rate": 0}
+    gated = 0
+    for r in conn.execute(
+            "SELECT failed_gates FROM opportunities WHERE first_seen > ?"
+            " AND tier IS NOT NULL", (since,)):
+        gated += 1
+        try:
+            for g in json.loads(r["failed_gates"] or "[]"):
+                if g in counts:
+                    counts[g] += 1
+        except (ValueError, TypeError):
+            continue
+    return {"days": days, "gated": gated,
+            "counts": sorted(counts.items(), key=lambda kv: -kv[1])}
+
+
 def score_histogram(conn, threshold: int, days: int = 90, bucket: int = 10):
     """Combined scores in buckets, so the bar's placement can be judged.
 
@@ -512,7 +538,10 @@ def collect(conn, config) -> dict:
         "connectors": connector_circle(conn, config),
         "rate_metrics": rate_metrics(conn, floor),
         "source_yield": source_yield(conn, threshold, fast),
-        "score_histogram": score_histogram(conn, threshold),
+        "deaths_by_gate": deaths_by_gate(conn),
+        "tiers": {t: [o for o in opportunities if (o.get("tier") or "") == t]
+                  for t in ("top", "question", "reading", "filtered")},
+        "ungated": [o for o in opportunities if not o.get("tier")],
         "touch_map": touch_map,
         "threads": threads, "ageing": ageing,
         "ageing_opp_ids": {a["id"] for a in ageing if a["kind"] == "opportunity"},
@@ -2444,48 +2473,119 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
             "see the shape it cuts through.")
         + f'</h4><ul>{bars}</ul></div></section>') if peak else ""
 
-    body = "".join(metrics) + rates_panel + yield_panel + hist_panel
-    body += section(
-        "Top prospects", len(prospects),
-        "The highest combined scores still in play, whatever the board. "
-        "Acknowledged roles live behind the toggle on Home.",
-        "panel-blue", prospects_body, legend=rate_legend(data["floor"]))
+    # ---- The page opens on the tiers. Nothing renders above them. The
+    # machine, the flow and board freshness are operating telemetry and
+    # live on Home beside the heartbeat, because a person opening Jobs
+    # came for roles, not for whether cron ran.
+    tiers = data.get("tiers") or {}
+    ungated = data.get("ungated") or []
 
-    def board_section(s) -> str:
+    def by_cv(rows):
+        return sorted(rows, key=lambda o: -(o.get("cv_match") or 0))
+
+    def tier_rows(rows):
         nonlocal counter
-        rows_for = [o for o in active
-                    if (o.get("source") or "email-other") == s["id"]]
-        rows_for.sort(key=lambda o: (o.get("combined") is None,
-                                     -(o.get("combined") or 0)))
-        seen = last_by_source.get(s["id"])
-        note = (f"Last email {fmt_day_time(seen)}." if seen else
-                (f"No roles yet from {esc(s['name'])}. Subscribe "
-                 f"{esc(config.get('aggregator_email', 'the aggregator inbox'))} "
-                 "to its alerts and they land here."
-                 if s.get("sender_contains")
-                 else "Alerts from senders no board claims land here, "
-                      "still extracted, still scored."))
-        if rows_for:
-            rows = [opp_head_html()]
-            for o in rows_for:
-                counter += 1
-                rows.append(render_opportunity(o, data, counter))
-            body_html = "".join(rows)
-        else:
-            body_html = f'<p class="empty">{note}</p>'
-        return section(s["name"], len(rows_for), note if rows_for else "",
-                       "panel-stone", body_html,
-                       title_html=board_title_html(s))
+        out = [opp_head_html()]
+        for o in by_cv(rows):
+            counter += 1
+            out.append(render_opportunity(o, data, counter))
+        return "".join(out)
 
-    known = [s for s in registry if s["id"] in known_ids]
-    catch_all = [s for s in registry if s["id"] not in known_ids]
-    for s in known:
-        body += board_section(s)
+    top = by_cv(tiers.get("top") or [])
+    question = by_cv(tiers.get("question") or [])
+    reading = by_cv(tiers.get("reading") or [])
+    filtered = tiers.get("filtered") or []
 
-    # The add-source strip. It sits where the next board's section would
-    # appear, quiet, footer weight, no tinted panel. The receipt line only
-    # earns ink once a custom source exists, there is no delete button on
-    # purpose, removal is a hand-edit of config/job_sources.yaml.
+    # Top prospects never backfills. With nothing through all four gates it
+    # says so and shows nothing, rather than falling back to the best of a
+    # bad week, because a page that always finds something to be excited
+    # about teaches you to stop believing it.
+    if top:
+        top_body = tier_rows(top)
+    else:
+        top_body = ('<p class="empty">Nothing to get excited about this week.</p>')
+    body = section(
+        "Top prospects", len(top),
+        "All four gates passed. An unstated rate sits here carrying its flag, "
+        "because missing information is not a blocker.",
+        "panel-blue", top_body, legend=rate_legend(data["floor"]))
+
+    # Opportunities the extractor read as signals rather than jobs for Luke,
+    # held here this week because they arrived down the inbound path.
+    held = [o for o in (data.get("opportunities") or [])
+            if (o.get("thread_type") == "signal")
+            and (o.get("first_seen") or "") >= week_ago]
+    if held:
+        body += section(
+            "Signals held this week", len(held),
+            "Arrived as adverts, read as news about a company rather than a "
+            "job. The Insights page carries the watcher's own signals.",
+            "panel-stone", tier_rows(held))
+
+    if question:
+        body += section(
+            "One question away", len(question),
+            "Exactly one movable gate failed. The question a conversation "
+            "could settle leads each row.",
+            "panel-stone", tier_rows(question))
+
+    if reading:
+        body += section(
+            "Reading", len(reading),
+            "Real roles that did not gate. The failed gate is the verdict. "
+            "Market intel for the field notes.",
+            "panel-stone", tier_rows(reading))
+
+    if ungated:
+        body += section(
+            "Needs review", len(ungated),
+            "Scored before the gates existed, or the scorer could not judge "
+            "them. Run rescore.py.",
+            "panel-stone", tier_rows(ungated))
+
+    ageing = data.get("ageing") or []
+    if ageing:
+        body += section(
+            "Ageing", len(ageing),
+            "Above the bar and sitting still for over a fortnight. Retire "
+            "them with touch.py mark or acknowledge them.",
+            "panel-stone", tier_rows(ageing))
+
+    if filtered:
+        reasons = {}
+        for o in filtered:
+            reasons[o.get("filter_reason") or "filtered"] = \
+                reasons.get(o.get("filter_reason") or "filtered", 0) + 1
+        roll = ", ".join(f"{n} {esc(r)}" for r, n in
+                         sorted(reasons.items(), key=lambda kv: -kv[1]))
+        body += (f'<p class="legend" style="margin-top:24px">Filtered, '
+                 f'{len(filtered)}. {roll}. Full records keep a filter reason '
+                 f'so the filter can be audited.</p>')
+
+    # ---- The analysis earns a place below the tiers, collapsed. Market
+    # intel for a longer break, not something to read every morning.
+    dg = data.get("deaths_by_gate") or {}
+    gate_rows = "".join(
+        f'<li><span class="num">{n}</span>{esc(g)}</li>'
+        for g, n in (dg.get("counts") or []) if n)
+    deaths_panel = (
+        '<div class="widget" style="margin-top:12px"><h4>Deaths by gate, 90 days'
+        + info_tip(
+            "Which gate killed what. A gate that keeps firing on the same "
+            "kind of role names a recurring gap, which is the first "
+            "instrument for the skills question and needs no ledger to be "
+            "useful.")
+        + f'</h4><ul>{gate_rows}</ul>'
+          f'<p class="legend">{dg.get("gated", 0)} roles gated in the window.</p>'
+          '</div>') if gate_rows else ""
+
+    body += (f'<details class="sources-fold"><summary>Analysis. Rates, source '
+             f'yield and deaths by gate.</summary>'
+             f'{rates_panel}{yield_panel}{deaths_panel}</details>')
+
+    # The add-source strip keeps its footer weight at the very bottom. The
+    # receipt line only earns ink once a custom source exists, and there is
+    # no delete button on purpose, removal is a hand-edit of the yaml.
     customs_line = ""
     if customs:
         named = ", ".join(
@@ -2493,6 +2593,7 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
             for s in customs)
         customs_line = (f'<p class="legend">Added so far: {named}. Edit or '
                         "remove them by hand in config/job_sources.yaml.</p>")
+
     body += f"""<div class="add-source-strip">
 <p class="section-rule">Add a job source</p>
 <div class="add-source">
@@ -2509,8 +2610,10 @@ senders are scored anyway under Other email alerts.</p>
 {customs_line}
 </div>
 """
-    for s in catch_all:
-        body += board_section(s)
+    # Board grouping died as an organising principle on 3 August. A role's
+    # board is one fact on its row, and board freshness is telemetry that
+    # belongs on Home. No section per board, no empty shelves inviting
+    # subscriptions, and no role rendered twice.
 
     return f"""<!doctype html>
 <html lang="en-GB" data-appearance="auto">

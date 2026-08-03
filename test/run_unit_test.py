@@ -485,18 +485,20 @@ def main() -> int:
         jobs_page = build_dashboard.render_jobs_page(data, config, "t")
         check("Top prospects" in jobs_page,
               "the Jobs page leads with top prospects")
+        # Board grouping retired on 3 August. A role's board is one fact on
+        # its row, and board freshness is telemetry that moved to Home.
+        # These asserted the sections that no longer exist.
         for board in ("LinkedIn", "Reed", "Indeed", "CV-Library"):
-            check(f">{board}</span>" in jobs_page,
-                  f"{board} gets a section of its own")
-        check("board-badge" in jobs_page,
-              "board sections carry their badge tiles")
-        check('class="ext"' in jobs_page
-              and "https://www.linkedin.com/jobs/" in jobs_page,
-              "the open-the-site arrow links out from the heading")
-        check("The machine" in jobs_page and "Board freshness" in jobs_page,
-              "the trust metrics render at the top")
-        check(jobs_page.count('class="info"') >= 3,
-              "each Jobs widget rule sits behind an info icon")
+            check(f">{board}</span>" not in jobs_page,
+                  f"{board} no longer gets a section of its own")
+        check('class="board-badge"' not in jobs_page,
+              "no board badge tiles, and so no empty shelves inviting signup")
+        check("Score distribution" not in jobs_page,
+              "the score histogram retired with the additive score")
+        # Deaths by gate needs gated rows to have anything to say, and this
+        # fixture predates the gates, so its absence here is correct.
+        check(jobs_page.index("Top prospects") < jobs_page.index("Analysis."),
+              "the page opens on the tiers, analysis sits below them")
         check("The flow, last fourteen days" in jobs_page
               and 'class="bars"' in jobs_page,
               "the fortnight flow chart renders")
