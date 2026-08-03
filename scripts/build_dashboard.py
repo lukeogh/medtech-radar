@@ -1519,20 +1519,23 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
             g_earlier = earlier_by.get(gname) or []
             if not g_fresh and not g_earlier:
                 continue          # an empty group stays off the page entirely
-            body += (f'<p class="section-rule">{esc(gname)}'
-                     + info_tip(
-                         "Grouped by where the company is, read from the "
-                         "country and city the enricher found and the rules "
-                         "in radar.yaml. A company nobody has enriched yet "
-                         f"lands in {esc(fallback)} rather than disappearing.")
-                     + '</p>')
+            # One rule per run of cards, naming both the place and the
+            # freshness. Emitting the group name on its own line put a
+            # heading above nothing, with the cards appearing under the
+            # next heading down, which reads as an empty section.
+            tip = info_tip(
+                "Grouped by where the company is, read from the country and "
+                "city the enricher found and the rules in radar.yaml. A "
+                "company nobody has enriched yet lands in "
+                f"{esc(fallback)} rather than disappearing.")
             if g_fresh:
-                body += ('<p class="section-rule">Also fresh this week</p>'
-                         '<div class="stories">'
+                body += (f'<p class="section-rule">{esc(gname)}. Fresh this '
+                         f'week{tip}</p><div class="stories">'
                          + "".join(_story_card(s, data) for s in g_fresh)
                          + "</div>")
             if g_earlier:
-                body += ('<p class="section-rule">Earlier, still on file</p>'
+                body += (f'<p class="section-rule">{esc(gname)}. Earlier, '
+                         f'still on file{tip if not g_fresh else ""}</p>'
                          '<div class="stories">'
                          + "".join(_story_card(s, data) for s in g_earlier)
                          + "</div>")

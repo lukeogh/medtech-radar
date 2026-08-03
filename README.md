@@ -764,3 +764,11 @@ underperforming. Most of these companies arrived as job adverts carrying a
 title, a location and a board URL, and there is nothing else in that to
 know. The companies that arrive as news will read better, and the empty
 fields are the prompt doing as it was told rather than inventing.
+
+3 August 2026, later. The group headings were showing an empty shelf. Each
+group emitted its name as a rule of its own and then the fresh and earlier
+rules underneath, so the eye read a heading called UK with nothing beneath
+it and the stories apparently belonging to the next heading down. One rule
+per run of cards now, naming both the place and the freshness, UK. Fresh
+this week. The information icon rides on the first rule of each group rather
+than repeating.
