@@ -772,3 +772,26 @@ it and the stories apparently belonging to the next heading down. One rule
 per run of cards now, naming both the place and the freshness, UK. Fresh
 this week. The information icon rides on the first rule of each group rather
 than repeating.
+
+3 August 2026, the last of the trade press. Silicon Semiconductor and PIC
+Magazine follow Electronics Weekly and Semiconductor Digest off the
+watchlist, and for the same reason, which is that they cannot produce what
+the radar is looking for. The story that made the case was a Scottish
+Enterprise grant to Cirrus Logic for smart metering silicon, which arrived
+on a page meant to find European medtech companies who might need software
+help. The rubric scored it 8 and was right. The source was still wrong.
+
+Four trade feeds parked in three days, and the arithmetic behind all four is
+the same. Every one of them averaged between 2 and 6 on the rubric and none
+ever came within sixty points of the digest bar, while optics.org averages
+17 and stays. PIC Magazine is the one exception to the evidence rule, having
+produced nothing at all, so it is parked on category rather than on measure.
+Photonic integrated circuits are a component industry, and this radar wants
+the companies building diagnostics with them rather than the fabs.
+
+What is left is thin on purpose. Fourteen tier 1 origin sources that are
+quiet by nature and valuable when they speak, optics.org, Startups Magazine
+and a New Electronics entry that robots has kept dark since July. A page
+that shows four relevant things a month is worth more than one showing
+thirty five irrelevant ones, and the quiet is the system working rather than
+the system broken.

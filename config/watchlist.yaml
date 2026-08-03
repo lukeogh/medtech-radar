@@ -217,17 +217,25 @@ sources:
       (/rss and /feed both 404). If the listing recovers, /news is the better
       target and this should go back to it.
 
-  - id: pic-magazine
-    name: PIC Magazine
-    tier: 2
-    url: "https://picmagazine.net/news/list/1"
-    method: diff
-    check_interval_hours: 24
-    status: live
-    notes: >
-      Chronological photonic integrated circuit industry news, server-rendered.
-      No RSS feed (/rss 404s). Minor JS loading elements but the core list is
-      plain HTML.
+  # Parked 3 August 2026 alongside silicon-semiconductor. It had produced
+  # nothing at all by this date, so unlike the others this is a decision on
+  # category rather than on measured yield. Photonic integrated circuits are
+  # a component industry, and the radar wants companies building diagnostics
+  # with them, not the fabs. optics.org stays and covers the same ground far
+  # better, averaging 17.0 against the 2 to 6 of every trade feed parked so
+  # far. Re-enable if the origin sources stay quiet and a safety net is
+  # wanted back.
+  #- id: pic-magazine
+  #  name: PIC Magazine
+  #  tier: 2
+  #  url: "https://picmagazine.net/news/list/1"
+  #  method: diff
+  #  check_interval_hours: 24
+  #  status: live
+  #  notes: >
+  #    Chronological photonic integrated circuit industry news, server-rendered.
+  #    No RSS feed (/rss 404s). Minor JS loading elements but the core list is
+  #    plain HTML.
 
   # Parked 1 August 2026 after the first fortnight of real scores. Kept in
   # full, commented rather than deleted, because the verification work above
@@ -288,16 +296,23 @@ sources:
   #     WordPress /feed/ is a valid RSS 2.0 feed updated same-day. Homepage is
   #     JS-heavy with a cookie banner, so RSS is the right method here.
 
-  - id: silicon-semiconductor
-    name: Silicon Semiconductor
-    tier: 2
-    url: "https://www.siliconsemiconductor.net/news/list/1"
-    method: diff
-    check_interval_hours: 24
-    status: live
-    notes: >
-      Combined news listing with roughly twenty five dated items, newest first.
-      No RSS feed (/rss 404s). Plain HTML renders fine.
+  # Parked 3 August 2026, on its own numbers and on what it delivered.
+  # Two scored signals, average relevance 6.0, best 8, nothing within sixty
+  # points of the digest bar. One of the two was a Scottish Enterprise grant
+  # to Cirrus Logic for smart metering silicon, which is a real story about a
+  # real company and has nothing whatever to do with medical devices. That is
+  # the shape of what this source produces. Kept commented, the verification
+  # below still holds and re-enabling is deleting hashes.
+  #- id: silicon-semiconductor
+  #  name: Silicon Semiconductor
+  #  tier: 2
+  #  url: "https://www.siliconsemiconductor.net/news/list/1"
+  #  method: diff
+  #  check_interval_hours: 24
+  #  status: live
+  #  notes: >
+  #    Combined news listing with roughly twenty five dated items, newest first.
+  #    No RSS feed (/rss 404s). Plain HTML renders fine.
 
   - id: startups-magazine
     name: Startups Magazine
