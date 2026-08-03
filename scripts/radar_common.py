@@ -111,6 +111,9 @@ _MIGRATIONS = (
     ("signals", "draft_note", "TEXT"),
     ("signals", "draft_source", "TEXT"),   # article | headline, what it drafted from
     ("signals", "drafted_at", "TEXT"),
+    # Phase two task seven. What came back from a touch. Replies were
+    # happening and going uncounted, so the doctrine could not be measured.
+    ("touches", "outcome", "TEXT"),
 )
 
 

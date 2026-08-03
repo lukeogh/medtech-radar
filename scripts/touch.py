@@ -53,6 +53,11 @@ CHANNELS = ("comment", "connection-note", "engagement", "artefact", "other")
 # never by the machine.
 HUMAN_STATES = ("in-conversation", "client", "dead")
 
+# What came back from a touch. A human sets this, never the machine,
+# because only a human can tell a polite acknowledgement from the
+# start of a conversation.
+OUTCOMES = ("none", "reply", "conversation")
+
 
 def _clean(text: str | None) -> str:
     return " ".join((text or "").split())
@@ -100,10 +105,12 @@ def cmd_add(args, conn) -> int:
     company_id = radar_common.resolve_company(conn, company, now)
     conn.execute(
         "INSERT INTO touches (company, touched_at, channel, note,"
-        " next_action, next_action_date, company_id) VALUES (?,?,?,?,?,?,?)",
+        " next_action, next_action_date, company_id, outcome)"
+        " VALUES (?,?,?,?,?,?,?,?)",
         (company, now, args.channel,
          _clean(args.note) or None, _clean(args.next) or None,
-         args.next_date or None, company_id),
+         args.next_date or None, company_id,
+         getattr(args, "outcome", None) or None),
     )
     conn.commit()
     print(f"Logged {args.channel} touch for {company}.")
@@ -278,6 +285,37 @@ def cmd_state(args, conn) -> int:
     return 0
 
 
+def cmd_outcome(args, conn) -> int:
+    """Record what came back from the most recent touch for a company.
+
+    Defaults to the latest touch because that is nearly always the one that
+    got the reply. --touch takes an id for the times it is not.
+    """
+    company = _clean(args.company)
+    if not company:
+        print("Company name is empty.", file=sys.stderr)
+        return 2
+    if args.touch:
+        row = conn.execute("SELECT id, company, touched_at, channel FROM touches"
+                           " WHERE id = ?", (args.touch,)).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT id, company, touched_at, channel FROM touches"
+            " WHERE LOWER(TRIM(company)) = LOWER(TRIM(?))"
+            " ORDER BY id DESC LIMIT 1", (company,)).fetchone()
+    if row is None:
+        print(f"No touch found for {company!r}. Log one first with add.",
+              file=sys.stderr)
+        return 2
+    conn.execute("UPDATE touches SET outcome = ? WHERE id = ?",
+                 (args.as_outcome, row["id"]))
+    conn.commit()
+    print(f"Touch {row['id']} for {row['company']}, "
+          f"{row['channel'] or 'other'} on {_shorten(row['touched_at'], 10)}, "
+          f"now reads {args.as_outcome}.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="touch.py",
@@ -319,6 +357,17 @@ def main(argv: list[str] | None = None) -> int:
     p_mark.add_argument("--signal", type=int, default=None, metavar="ID",
                         help="mark one signal row by id instead")
 
+    p_add.add_argument("--outcome", default=None, choices=OUTCOMES,
+                       help="what came back, if it already has")
+
+    p_outcome = sub.add_parser(
+        "outcome", help="record what came back from a touch")
+    p_outcome.add_argument("company", help="company name, quoted if it has spaces")
+    p_outcome.add_argument("--as", dest="as_outcome", required=True,
+                           choices=OUTCOMES, help="none, reply or conversation")
+    p_outcome.add_argument("--touch", type=int, default=None, metavar="ID",
+                           help="a specific touch id, default the latest")
+
     p_state = sub.add_parser(
         "state", help="set the relationship state a human owns")
     p_state.add_argument("company",
@@ -333,7 +382,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # --db is also accepted after the subcommand. SUPPRESS keeps the
     # subparser from clobbering a value given before it.
-    for p in (p_add, p_list, p_pending, p_mark, p_state):
+    for p in (p_add, p_list, p_pending, p_mark, p_state, p_outcome):
         p.add_argument("--db", default=argparse.SUPPRESS, metavar="PATH",
                        help="database file (default db/radar.sqlite)")
 
@@ -348,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_mark(args, conn)
         if args.command == "state":
             return cmd_state(args, conn)
+        if args.command == "outcome":
+            return cmd_outcome(args, conn)
         return cmd_pending(args, conn)
     finally:
         conn.close()

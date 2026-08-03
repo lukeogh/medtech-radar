@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -1196,6 +1196,91 @@ def main() -> int:
               "an unknown company is reported, never raised")
         conn.close()
     _os.environ.pop("RADAR_MOCK", None)
+
+    # Traction and the connector circle. Counting rules, pinned, because a
+    # metric nobody has checked the arithmetic of is a rumour with a number.
+    import build_dashboard as _bdash
+
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "traction.sqlite")
+        now = radar_common.now_iso()
+        old = "2026-01-05T09:00:00Z"
+
+        def touch(company, channel, when, nxt=None, when_due=None, outcome=None):
+            conn.execute(
+                "INSERT INTO touches (company, touched_at, channel, note,"
+                " next_action, next_action_date, outcome)"
+                " VALUES (?,?,?,?,?,?,?)",
+                (company, when, channel, "n", nxt, when_due, outcome))
+
+        touch("Alpha Dx", "comment", old, "week three", "2026-01-26")
+        touch("Alpha Dx", "engagement", now, outcome="conversation")
+        touch("Beta Bio", "connection-note", now, "week three", "2099-01-01",
+              outcome="reply")
+        touch("Gamma Ltd", "artefact", now)
+        conn.commit()
+
+        tr = _bdash.traction_metrics(conn, {})
+        check(tr["total"] == 4, f"every touch is counted (got {tr['total']})")
+        check(tr["outcomes"] == {"none": 2, "reply": 1, "conversation": 1},
+              f"outcomes count, with unset reading as none (got {tr['outcomes']})")
+        check(tr["booked"] == 2, f"two next actions are booked (got {tr['booked']})")
+        check(tr["due"] == 1,
+              f"only the past-dated booking is due (got {tr['due']})")
+        check(tr["done"] == 1,
+              f"a booking is done when a later touch exists for that company "
+              f"(got {tr['done']})")
+        months = dict(tr["by_month"])
+        check(months.get("2026-01", {}).get("comment") == 1,
+              f"touches bucket by month and channel (got {tr['by_month']})")
+
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status) VALUES"
+                     " ('w1',?, 'job-advert','Alpha Dx','x','new')", (now,))
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status) VALUES"
+                     " ('w2',?, 'qa-tripwire','Beta Bio','y','new')", (now,))
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status) VALUES"
+                     " ('w3',?, 'imec-press','Gamma Ltd','z','new')", (now,))
+        conn.commit()
+        tr = _bdash.traction_metrics(conn, {})
+        check(tr["windows"] == 2,
+              f"windows count buying windows and tripwires, not ordinary news "
+              f"(got {tr['windows']})")
+
+        # The circle. Names from config, days from the touch log, nothing else.
+        cc = _bdash.connector_circle(conn, {})
+        check(cc["configured"] == 0 and cc["quiet"] == [],
+              "no configured connectors means no circle line at all")
+        cfg_c = {"connectors": ["Alpha Dx", "Never Spoken Ltd"],
+                 "connector_quiet_days": 60}
+        cc = _bdash.connector_circle(conn, cfg_c)
+        quiet = [q["name"] for q in cc["quiet"]]
+        check(cc["configured"] == 2 and quiet == ["Never Spoken Ltd"],
+              f"a connector touched today is not quiet, one never touched is "
+              f"(got {quiet})")
+        # A configured zero must survive being falsy. This read 60 until
+        # 3 August, because `int(cfg.get(k, 60) or 60)` throws away a real
+        # zero for the crime of being falsy, and nobody would have noticed
+        # except that the number is reported back.
+        cc_zero = _bdash.connector_circle(conn, {**cfg_c, "connector_quiet_days": 0})
+        check(cc_zero["quiet_days"] == 0,
+              f"a configured zero is honoured, not swapped for the default "
+              f"(got {cc_zero['quiet_days']})")
+        # And the threshold genuinely moves. Yesterday's touch is quiet at
+        # zero days and not quiet at sixty.
+        conn.execute("INSERT INTO touches (company, touched_at, channel)"
+                     " VALUES ('Yesterday Ltd', ?, 'comment')",
+                     ((datetime.now(timezone.utc) - timedelta(days=1))
+                      .strftime("%Y-%m-%dT%H:%M:%SZ"),))
+        conn.commit()
+        cfg_y = {"connectors": ["Yesterday Ltd"]}
+        at_zero = _bdash.connector_circle(conn, {**cfg_y, "connector_quiet_days": 0})
+        at_sixty = _bdash.connector_circle(conn, {**cfg_y, "connector_quiet_days": 60})
+        check(len(at_zero["quiet"]) == 1 and len(at_sixty["quiet"]) == 0,
+              "the quiet threshold moves with the configured number")
+        conn.close()
 
     # Tripwires. A first quality or regulatory hire at an untouched medtech
     # company is news about them, not a job for Luke.

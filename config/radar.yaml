@@ -60,6 +60,14 @@ claude_model_extract: "claude-haiku-4-5"
 claude_model_score: "claude-sonnet-4-6"
 api_key_env: "ANTHROPIC_API_KEY"        # name only, value lives in .env
 
+# The connector circle. People who introduce, not companies who buy. LUKE
+# FILLS THIS IN, by name, exactly as they appear in the touch log. Nothing
+# automated ever touches them, no draft is written for them and no push
+# fires about them. Home simply names the ones nobody has spoken to in sixty
+# days, because a circle you do not work is a list of names.
+connectors: []
+connector_quiet_days: 60
+
 # Where an insight happened, for grouping the Insights page. Ordered. The
 # first group whose rule matches wins, and the last one catches everything
 # left, including companies not yet enriched, because a company with no

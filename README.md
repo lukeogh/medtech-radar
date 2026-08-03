@@ -905,3 +905,33 @@ a replacement.
 A test fixture carries both halves of the case, a Belgian diagnostics firm
 advertising a QA manager and an NHS trust advertising a sterile services
 one. The first fires and scores 65. The second does not fire at all.
+
+3 August 2026, traction. Every panel built so far measures the market. This
+one measures whether the doctrine is being worked, which is the harder
+question and the more useful one. Touches by month and channel, booked next
+actions against how many were followed through, replies and conversations,
+and the count of buying windows and tripwires opened. All of it read from
+the touch log, none of it inferred except one thing, and that one is worth
+saying out loud. A booked next action counts as done when a later touch
+exists against that company, because that later touch is the engagement the
+booking asked for. Nothing new had to be written down to know it.
+
+Outcomes are the missing half of the loop. Replies were happening and going
+uncounted, so a touch now carries none, reply or conversation, set by hand
+through touch.py or the buttons on the dossier and never by the machine,
+because only a human can tell a polite acknowledgement from the beginning of
+a conversation.
+
+The connector circle is a list of names in radar.yaml and a line on Home
+counting the days. It ships empty, because these are people Luke knows and
+no scraper should be inventing that list. Nothing automated touches them, no
+draft, no push, no scheduled follow-up. The line says how many have not heard
+from him in sixty days and names them, and that is the whole of it. A circle
+you do not work is a list of names, and a reminder is not a workflow.
+
+One bug of the kind that hides. connector_quiet_days read through
+`int(cfg.get(key, 60) or 60)`, which throws away a configured zero for the
+crime of being falsy and silently substitutes the default. Nobody would have
+found it, because the wrong number looks exactly like the right one. It is
+fixed, and the test asserts the configured value comes back rather than
+merely that the behaviour looks sensible.

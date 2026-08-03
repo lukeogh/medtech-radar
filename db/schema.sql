@@ -121,7 +121,13 @@ CREATE TABLE IF NOT EXISTS touches (
   channel          TEXT,               -- comment | connection-note | engagement | artefact | other
   note             TEXT,
   next_action      TEXT,
-  next_action_date TEXT
+  next_action_date TEXT,
+  -- What came back. NULL and 'none' both mean nothing yet, which is the
+  -- honest default and the common case. A human sets this, never the
+  -- machine, because only a human can tell a polite acknowledgement from
+  -- the start of a conversation.
+  outcome          TEXT CHECK (outcome IS NULL OR
+                               outcome IN ('none','reply','conversation'))
 );
 
 -- Run log with token usage. One row per script run. Cost guardrail.

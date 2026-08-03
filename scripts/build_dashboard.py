@@ -244,6 +244,80 @@ def score_histogram(conn, threshold: int, days: int = 90, bucket: int = 10):
             "buckets": [(b, buckets.get(b, 0)) for b in range(0, 100, bucket)]}
 
 
+def traction_metrics(conn, config: dict) -> dict:
+    """Whether the doctrine is being worked, as opposed to whether the
+    market moved.
+
+    Every other panel on these pages measures the world. This one measures
+    Luke, which is the harder and more useful question, and it reads only
+    what he already logged.
+    """
+    now = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+    by_month = {}
+    for r in conn.execute(
+            "SELECT substr(touched_at,1,7) m, COALESCE(channel,'other') c,"
+            " COUNT(*) n FROM touches GROUP BY m, c"):
+        by_month.setdefault(r["m"], {})[r["c"]] = r["n"]
+
+    outcomes = {"none": 0, "reply": 0, "conversation": 0}
+    for r in conn.execute(
+            "SELECT COALESCE(NULLIF(outcome,''),'none') o, COUNT(*) n"
+            " FROM touches GROUP BY o"):
+        outcomes[r["o"]] = outcomes.get(r["o"], 0) + r["n"]
+
+    booked = conn.execute(
+        "SELECT COUNT(*) n FROM touches WHERE next_action IS NOT NULL"
+    ).fetchone()["n"]
+    due = conn.execute(
+        "SELECT COUNT(*) n FROM touches WHERE next_action IS NOT NULL"
+        " AND next_action_date IS NOT NULL AND substr(next_action_date,1,10) <= ?",
+        (today,)).fetchone()["n"]
+    # Done is inferred rather than stored. A booked week three is done when
+    # a later touch exists against that company, because that later touch is
+    # the engagement the booking asked for. Nothing new needs writing down.
+    done = conn.execute(
+        "SELECT COUNT(*) n FROM touches t WHERE t.next_action IS NOT NULL"
+        " AND EXISTS (SELECT 1 FROM touches later WHERE later.company = t.company"
+        "             AND later.id > t.id)").fetchone()["n"]
+    windows = conn.execute(
+        "SELECT COUNT(*) n FROM signals WHERE source_id IN"
+        " ('job-advert','qa-tripwire')").fetchone()["n"]
+
+    return {"by_month": sorted(by_month.items()), "outcomes": outcomes,
+            "booked": booked, "due": due, "done": done, "windows": windows,
+            "total": sum(outcomes.values())}
+
+
+def connector_circle(conn, config: dict) -> dict:
+    """Connectors nobody has spoken to lately. A reminder, never a workflow.
+
+    The names come from radar.yaml because they are people Luke knows and
+    no scraper should be inventing that list. Nothing here drafts, pushes
+    or acts. It counts days and says a number out loud.
+    """
+    names = [str(n).strip() for n in (config.get("connectors") or []) if str(n).strip()]
+    # Not `or 60`. A configured zero is a real setting and `or` would throw
+    # it away for being falsy, which is how a config value gets silently
+    # ignored and nobody finds out until they wonder why nothing changed.
+    raw = config.get("connector_quiet_days")
+    quiet_days = int(raw) if raw is not None else 60
+    if not names:
+        return {"configured": 0, "quiet": [], "quiet_days": quiet_days}
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=quiet_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    last = {}
+    for r in conn.execute(
+            "SELECT company, MAX(touched_at) t FROM touches GROUP BY company"):
+        last[radar_common.normalise_company(r["company"])] = r["t"]
+    quiet = []
+    for name in names:
+        seen = last.get(radar_common.normalise_company(name))
+        if seen is None or seen < cutoff:
+            quiet.append({"name": name, "last": seen})
+    return {"configured": len(names), "quiet": quiet, "quiet_days": quiet_days}
+
+
 def collect(conn, config) -> dict:
     threshold = int(config.get("score_threshold", 70))
     fast = int(config.get("fast_signal_threshold", 75))
@@ -423,6 +497,8 @@ def collect(conn, config) -> dict:
         "threshold": threshold, "fast": fast, "floor": floor, "fresh": fresh,
         "opportunities": opportunities, "acknowledged": acknowledged,
         "signals": signals, "dismissed_signals": dismissed_signals,
+        "traction": traction_metrics(conn, config),
+        "connectors": connector_circle(conn, config),
         "rate_metrics": rate_metrics(conn, floor),
         "source_yield": source_yield(conn, threshold, fast),
         "score_histogram": score_histogram(conn, threshold),
@@ -1959,6 +2035,68 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
         attention_bits.append(
             f'<li><span class="num">{n_review}</span>awaiting a score, '
             'rescore.py clears them</li>')
+    # ---- Is the doctrine being worked. Everything else measures the market.
+    tr = data.get("traction") or {}
+    oc = tr.get("outcomes") or {}
+    months = "".join(
+        f'<li><span class="num">{sum(ch.values())}</span>{esc(m)}, '
+        + esc(", ".join(f"{n} {c}" for c, n in sorted(ch.items())))
+        + '</li>' for m, ch in (tr.get("by_month") or [])[-4:])
+    traction = ""
+    if tr.get("total") or tr.get("windows"):
+        traction = (
+            '<section class="section"><div class="section-head">'
+            '<h2>Traction</h2></div><div class="widget" style="margin-top:12px">'
+            '<h4>The doctrine, as worked'
+            + info_tip(
+                "Counted from the touch log and nothing else. Done is "
+                "inferred, a booked next action counts as done once a later "
+                "touch exists against that company, because that later touch "
+                "is the engagement the booking asked for. Outcomes are set by "
+                "hand, since only a human can tell a polite acknowledgement "
+                "from the start of a conversation.")
+            + '</h4><ul>'
+            + f'<li><span class="num">{tr.get("total", 0)}</span>touches logged'
+              f' in all</li>'
+            + f'<li><span class="num">{tr.get("done", 0)} of {tr.get("booked", 0)}'
+              f'</span>booked next actions followed through, '
+              f'{tr.get("due", 0)} due or overdue</li>'
+            + f'<li><span class="num">{oc.get("reply", 0)} / '
+              f'{oc.get("conversation", 0)}</span>replies and conversations, '
+              f'from {tr.get("total", 0)} touches</li>'
+            + f'<li><span class="num">{tr.get("windows", 0)}</span>buying '
+              f'windows and tripwires opened</li>'
+            + '</ul>'
+            + (f'<p class="legend">By month, and by channel.</p><ul>{months}</ul>'
+               if months else "")
+            + '</div></section>')
+
+    # ---- The connector circle. A reminder, never a workflow.
+    cc = data.get("connectors") or {}
+    connectors = ""
+    if cc.get("configured"):
+        quiet = cc.get("quiet") or []
+        if quiet:
+            names = ", ".join(esc(q["name"]) for q in quiet[:8])
+            connectors = (
+                f'<section class="section"><div class="section-head">'
+                f'<h2>The circle</h2></div><div class="widget" '
+                f'style="margin-top:12px"><ul><li><span class="num">'
+                f'{len(quiet)}</span>of {cc["configured"]} connectors have not '
+                f'heard from you in {cc["quiet_days"]} days. {names}</li></ul>'
+                + info_tip("Names come from connectors in radar.yaml, which "
+                           "Luke fills in. Nothing automated ever touches "
+                           "them. This line counts days and says so, and that "
+                           "is the whole of it.")
+                + '</div></section>')
+        else:
+            connectors = (
+                f'<section class="section"><div class="section-head">'
+                f'<h2>The circle</h2></div><div class="widget" '
+                f'style="margin-top:12px"><ul><li><span class="num">'
+                f'{cc["configured"]}</span>connectors, all spoken to inside '
+                f'{cc["quiet_days"]} days</li></ul></div></section>')
+
     attention = ""
     if attention_bits:
         attention = ('<section class="section">'
@@ -1998,7 +2136,7 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
 {cards}
 {overview}
 {profile}
-{attention}
+{attention}{traction}{connectors}
 <footer class="heartbeat">
 <ul class="heartbeat-facts">{heartbeat_facts(data)}</ul>
 {sparkline(data)}
@@ -2480,6 +2618,25 @@ COPY_SCRIPT = """
 COMPANY_SCRIPT = """
 (function () {
   document.addEventListener('click', function (e) {
+    var oBtn = e.target.closest('[data-outcome]');
+    if (oBtn) {
+      var was = oBtn.textContent;
+      oBtn.disabled = true; oBtn.textContent = 'Working';
+      fetch('/touch/outcome', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: Number(oBtn.dataset.touchId),
+                               outcome: oBtn.dataset.outcome })
+      }).then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (j && j.ok === false) {
+            oBtn.disabled = false; oBtn.textContent = was;
+            window.alert(j.note || 'That did not stick.');
+            return;
+          }
+          location.reload();
+        }).catch(function () { location.reload(); });
+      return;
+    }
     var btn = e.target.closest('[data-set-state]');
     if (!btn) return;
     var state = btn.dataset.setState;
@@ -2607,10 +2764,16 @@ def render_company_page(conn, company_id: int, config: dict,
                    + (f' Due {esc(fmt_day(r["next_action_date"]))}.'
                       if r["next_action_date"] else "")
                    if r["next_action"] else "")
+            cur = (r["outcome"] or "none") if "outcome" in r.keys() else "none"
+            picks = "".join(
+                f'<button type="button" class="act-btn" data-outcome="{o}" '
+                f'data-touch-id="{r["id"]}"{" disabled" if cur == o else ""}>'
+                f'{o.capitalize()}</button>' for o in ("none", "reply", "conversation"))
             timeline.append(
                 f'<li><span class="col-when">{esc(when)}</span>'
                 f'<span class="row-title">Touch, {esc(r["channel"] or "other")}'
-                f'</span><span class="row-sub">{esc(r["note"] or "")}{nxt}</span></li>')
+                f'</span><span class="row-sub">{esc(r["note"] or "")}{nxt}</span>'
+                f'<span class="row-sub">Outcome, {esc(cur)}. {picks}</span></li>')
 
     body = (f'<section class="section"><div class="section-head">'
             f'<h2>{esc(co["display_name"])}</h2>'

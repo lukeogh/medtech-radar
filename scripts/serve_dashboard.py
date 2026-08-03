@@ -163,6 +163,25 @@ def set_company_state(company_id: int, state: str, confirmed: bool) -> dict:
         conn.close()
 
 
+def set_touch_outcome(touch_id: int, outcome: str) -> dict:
+    """Record what came back from one touch. Human-set, never inferred."""
+    if outcome not in ("none", "reply", "conversation"):
+        return {"ok": False, "note": f"{outcome!r} is not an outcome"}
+    try:
+        conn = radar_common.get_db(db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    try:
+        cur = conn.execute("UPDATE touches SET outcome = ? WHERE id = ?",
+                           (outcome, touch_id))
+        conn.commit()
+        if cur.rowcount == 0:
+            return {"ok": False, "note": f"no touch {touch_id}"}
+        return {"ok": True, "id": touch_id, "outcome": outcome}
+    finally:
+        conn.close()
+
+
 def db_path() -> Path:
     return Path(ARGS.db).resolve() if ARGS.db else radar_common.DB_PATH
 
@@ -655,6 +674,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(422, json.dumps(
                     {"ok": False, "note": str(err)}).encode(),
                     "application/json")
+            return
+        if path == "/touch/outcome":
+            body = self._read_json_body()
+            tid = body.get("id") if isinstance(body, dict) else None
+            if not isinstance(tid, int) or isinstance(tid, bool):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            result = set_touch_outcome(tid, str(body.get("outcome") or ""))
+            self._send(200 if result["ok"] else 409,
+                       json.dumps(result).encode(), "application/json")
             return
         if path == "/company/state":
             body = self._read_json_body()
