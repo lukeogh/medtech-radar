@@ -134,10 +134,13 @@ def main() -> int:
     recent = iso(now - timedelta(days=2))
     conn = radar_common.get_db(db.resolve())
     conn.execute(
+        # Seeded with a tier, because phase three reads tiers. A row with
+        # none is by definition needs review, which is what this row became
+        # when the gates landed and is not what it is here to test.
         "INSERT INTO opportunities (url_hash, first_seen, source, company, title,"
         " location, source_url, thread_type, cv_match, want_match, combined,"
-        " one_line_why, red_flags, status, status_changed_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " one_line_why, red_flags, status, status_changed_at, tier)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'top')",
         (radar_common.url_hash("radar://seed/orvala-interim-director"), old,
          "linkedin-alert", "Orvala Health", "Interim Software Director",
          "Antwerp, Belgium (Hybrid)", "https://example.invalid/orvala",
@@ -195,8 +198,8 @@ def main() -> int:
           "test/last_digest.html written")
     check(txt_file.exists() and txt_file.stat().st_size > 0,
           "test/last_digest.txt written")
-    check("Veltrix" in html_file.read_text(encoding="utf-8"),
-          "html preview contains the inbound item")
+    check("/jobs" in html_file.read_text(encoding="utf-8"),
+          "the html preview links through to the page")
 
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
@@ -210,8 +213,8 @@ def main() -> int:
     conn.execute(
         "INSERT INTO opportunities (url_hash, first_seen, source, company, title,"
         " location, source_url, thread_type, cv_match, want_match, combined,"
-        " one_line_why, red_flags, status, status_changed_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " one_line_why, red_flags, status, status_changed_at, tier)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'top')",
         (radar_common.url_hash("radar://seed/lateshift-fractional-director"),
          iso(now + timedelta(seconds=5)), "linkedin-alert", "Lateshift Labs",
          "Fractional Software Director, diagnostics",
@@ -256,10 +259,13 @@ def main() -> int:
     proc = run_script(BUILD, ["--db", str(db)])
     check(proc.returncode == 0, "post commit rebuild exits 0")
     digest2 = parse_step(proc, "post-commit rebuild")
-    check(digest2["item_count"] == 1 and "Lateshift" in digest2["text"],
-          "the between-build arrival appears in the next digest")
-    check("Orvala" in digest2["text"],
-          "ageing keeps nagging until the status moves")
+    # It is counted wherever its gates put it. The email carries top and
+    # question, and counts reading separately, so the arrival lands in one
+    # of those rather than always in item_count.
+    check(digest2["item_count"] + digest2.get("reading_count", 0) >= 1,
+          "the between-build arrival is counted in the next digest")
+    check(digest2["ageing_count"] >= 1,
+          "ageing keeps being counted until the status moves, on the page now")
     proc = run_script(BUILD, ["--commit-token", digest2["token"], "--quiet",
                               "--db", str(db)])
     check(proc.returncode == 0, "second token commits cleanly")
@@ -327,8 +333,8 @@ def main() -> int:
     check(quiet_week["send"] is True, "the empty-week flag forces a send")
     check("quiet week" in quiet_week["subject"].lower(),
           "the quiet-week subject says so")
-    check("Pipeline." in quiet_week["text"],
-          "the quiet-week digest keeps the stats line")
+    check("Radar" in quiet_week["subject"],
+          "a quiet week still sends, so silence means breakage and nothing else")
 
     # Needs review. Null-scored rows surface in the digest instead of
     # vanishing, and rescore.py clears them.
@@ -359,12 +365,10 @@ def main() -> int:
     review = parse_step(proc, "needs-review build")
     check(review["needs_review_count"] == 2,
           "both null rows counted as needs review")
-    check("Needs review." in review["text"]
-          and "Norvik Bio" in review["text"]
-          and "Aldra Photonics" in review["text"],
-          "the Needs review section lists the null rows")
-    check("rescore.py" in review["text"],
-          "the Needs review footer names the clearing command")
+    # The email stopped listing rows on 3 August. Needs review is still
+    # counted and still forces a send, it is just read on the page now.
+    check(review["needs_review_count"] == 2,
+          "needs review is counted, and the page is where it is read")
     check(review["send"] is True,
           "needs review items alone force a send with the flag off")
     proc = subprocess.run(
@@ -377,9 +381,8 @@ def main() -> int:
           "rescore.py prints its JSON contract on stdout")
     proc = run_script(BUILD, ["--db", str(db)])
     cleared = parse_step(proc, "post-rescore rebuild")
-    check(cleared["needs_review_count"] == 0
-          and "Needs review." not in cleared["text"],
-          "rescore clears the Needs review section")
+    check(cleared["needs_review_count"] == 0,
+          "rescore clears the needs review count")
 
     # Mode bookkeeping.
     conn = sqlite3.connect(db)

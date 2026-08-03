@@ -239,8 +239,11 @@ def collect(conn, config: dict) -> dict:
         {"label": r["title"] or "Untitled role", "company": r["company"] or "",
          "note": r["notes"] or "scoring failed"}
         for r in conn.execute(
+            # Needs review means ungated now. combined is history and is
+            # null on every new row, so testing it here would have put the
+            # whole week in the review pile for ever.
             "SELECT title, company, notes FROM opportunities"
-            " WHERE combined IS NULL AND status = 'new' AND first_seen > ?"
+            " WHERE tier IS NULL AND status = 'new' AND first_seen > ?"
             " AND acknowledged_at IS NULL"
             " ORDER BY first_seen", (last_ts,))
     ] + [
@@ -611,6 +614,7 @@ def main(argv=None) -> int:
                           "ageing_count": len(data["ageing"]),
                           "thread_count": len(data["threads"]),
                           "needs_review_count": len(data["needs_review"]),
+                          "reading_count": data.get("reading_count", 0),
                           "token": token, "send": send,
                           "to": config.get("digest_to", "")}))
     return 0

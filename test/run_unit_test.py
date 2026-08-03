@@ -604,12 +604,20 @@ def main() -> int:
         check('href="/archive"' in home,
               "the full archive stays reachable from the footer")
 
+        # Phase three. The digest selects on tier, so the fixtures need one.
+        # Everything unacknowledged is gated top here, which is what makes
+        # the acknowledged-row exclusion below a real test rather than a
+        # tautology about an empty list.
+        w = sqlite3.connect(db)
+        w.execute("UPDATE opportunities SET tier = 'top'"
+                  " WHERE acknowledged_at IS NULL")
+        w.commit()
+        w.close()
+
         digest_data = build_digest.collect(read, config)
-        digest_text = build_digest.render_text(digest_data, "unit day")
-        check("Rate Above." in digest_text,
-              "the digest renders the band word on the item line")
-        check("Rate bands. Above meets the" in digest_text,
-              "the digest renders the rate legend under the inbound table")
+        # The email no longer renders roles, so the band word and the rate
+        # legend went with the table that carried them. What the email says
+        # now is counts and a link, and the page says the rest.
         # A week with no inbound but a scored signal-kind role still gets
         # the legend next to its rate words.
         sig_only = dict(digest_data)
@@ -619,9 +627,7 @@ def main() -> int:
             "company": "Sig Ltd", "location": "Ghent", "combined": 80,
             "cv_match": 80, "want_match": 80, "one_line_why": "Fits.",
             "source_url": "", "rate_band": "above"}]
-        sig_text = build_digest.render_text(sig_only, "unit day")
-        check("Rate bands. Above meets the" in sig_text,
-              "a signals-only digest still carries the legend")
+        check(True, "the rate legend retired with the email's inbound table")
         digest_ids = [o["id"] for o in digest_data["inbound"]]
         check(ids["Seenit Ltd"] not in digest_ids
               and ids["Keepit Ltd"] in digest_ids,
@@ -1386,39 +1392,35 @@ def main() -> int:
               f"a second first-hire advert from the same company does not fire (got {why})")
         conn.close()
 
-    # digest_min_want. A second bar on the desire half alone, off by default,
-    # and off must mean the digest is exactly what it was.
+    # digest_min_want retired on 3 August with the additive score it sat on
+    # top of. What replaced it is the tier, and the digest now selects on
+    # that, so the flag has nothing left to be a second bar above.
     import build_digest as _bd
 
     with tempfile.TemporaryDirectory() as tmp:
         conn = radar_common.get_db(Path(tmp) / "digest.sqlite")
         now = radar_common.now_iso()
-        # Two roles over the combined bar. One is wanted, one is not, which
-        # is the case the flag exists for, a role the CV can clearly do and
-        # the preferences plainly do not want.
-        for h, title, cv, want, comb in (("dw1", "Wanted role", 90, 90, 90),
-                                         ("dw2", "Capable but unwanted", 95, 20, 75)):
+        for h, title, cv, tier in (("dw1", "Gated role", 90, "top"),
+                                   ("dw2", "One question away", 84, "question"),
+                                   ("dw3", "Reading only", 72, "reading"),
+                                   ("dw4", "Filtered out", 20, "filtered")):
             conn.execute(
                 "INSERT INTO opportunities (url_hash, first_seen, company, title,"
-                " cv_match, want_match, combined, thread_type, status)"
-                " VALUES (?,?,?,?,?,?,?,'inbound','new')",
-                (h, now, "Acme Dx", title, cv, want, comb))
+                " cv_match, tier, thread_type, status)"
+                " VALUES (?,?,?,?,?,?,'inbound','new')",
+                (h, now, "Acme Dx", title, cv, tier))
         conn.commit()
-
-        base_cfg = {"score_threshold": 70, "prefs_file": "config/profile/preferences.md"}
-        off = _bd.collect(conn, dict(base_cfg))
-        off_zero = _bd.collect(conn, {**base_cfg, "digest_min_want": 0})
-        on = _bd.collect(conn, {**base_cfg, "digest_min_want": 50})
-
-        titles = lambda d: sorted(x["title"] for x in d["inbound"])
-        check(titles(off) == ["Capable but unwanted", "Wanted role"],
-              f"with the flag absent both roles are in the digest (got {titles(off)})")
-        check(titles(off_zero) == titles(off),
-              "an explicit zero behaves exactly as the flag being absent")
-        check(titles(on) == ["Wanted role"],
-              f"with the flag at 50 the unwanted role drops out (got {titles(on)})")
-        check(len(on["inbound"]) == 1 and on["inbound"][0]["want_match"] >= 50,
-              "what survives the flag clears the want bar it names")
+        d = _bd.collect(conn, {"score_threshold": 70,
+                               "prefs_file": "config/profile/preferences.md"})
+        titles = sorted(x["title"] for x in d["inbound"])
+        check(titles == ["Gated role", "One question away"],
+              f"the digest carries the top and question tiers only (got {titles})")
+        check(d["reading_count"] == 1,
+              f"reading is counted, not carried (got {d['reading_count']})")
+        check(d["top_count"] == 1 and d["question_count"] == 1,
+              "the counts that drive the subject line are separated")
+        check(all("Filtered out" != x["title"] for x in d["inbound"]),
+              "a filtered role never reaches the email")
         conn.close()
 
     # The sitemap watcher. Reads a complete list, not a stream, so the

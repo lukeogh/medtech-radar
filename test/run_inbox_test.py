@@ -165,12 +165,17 @@ def main() -> int:
     conn.row_factory = sqlite3.Row
     rows = conn.execute("SELECT * FROM opportunities").fetchall()
     check(len(rows) == total_new, f"db row count {len(rows)} matches items_new {total_new}")
-    scored = [r for r in rows if r["cv_match"] is not None
-              and r["want_match"] is not None and r["combined"] is not None]
-    check(len(scored) == len(rows), "scores populated on every stored row")
-    spread = sorted(r["combined"] for r in scored)
+    # Phase three. A stored row carries a CV number and a tier. combined
+    # retired with the additive score that guaranteed its own bar could
+    # never be cleared.
+    scored = [r for r in rows if r["cv_match"] is not None and r["tier"]]
+    check(len(scored) == len(rows), "every stored row carries a cv match and a tier")
+    tiers = sorted({r["tier"] for r in rows})
+    check(len(tiers) > 1,
+          f"the fixture set spreads across more than one tier {tiers}")
+    spread = sorted(r["cv_match"] for r in scored)
     check(bool(spread) and spread[-1] >= 70 and spread[0] < 50,
-          f"honest score spread {spread}")
+          f"honest cv spread {spread}")
     veltrix = conn.execute("SELECT COUNT(*) AS c FROM opportunities"
                            " WHERE company LIKE 'Veltrix%'").fetchone()["c"]
     check(veltrix == 1, "the duplicated role is stored exactly once")
@@ -317,10 +322,10 @@ def main() -> int:
     check(proc.returncode == 0, "unscorable email still exits 0")
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT combined, notes FROM opportunities"
+    row = conn.execute("SELECT tier, notes FROM opportunities"
                        " WHERE company = 'Nebulon Health'").fetchone()
-    check(row is not None and row["combined"] is None,
-          "the unscorable row is stored with a null score")
+    check(row is not None and row["tier"] is None,
+          "the unscorable row is stored ungated, which reads as needs review")
     check(bool(row and row["notes"]), "the failure note is stored on the row")
     conn.close()
     proc = subprocess.run(
@@ -334,9 +339,9 @@ def main() -> int:
           "rescore.py reports one opportunity rescored")
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT combined FROM opportunities"
+    row = conn.execute("SELECT tier FROM opportunities"
                        " WHERE company = 'Nebulon Health'").fetchone()
-    check(row["combined"] is not None, "the rescored row now carries a score")
+    check(row["tier"] is not None, "the rescored row now carries a tier")
     conn.close()
 
     # The fixture-CV guard. With mock off and no CV in config/profile/, the

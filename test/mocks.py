@@ -163,6 +163,12 @@ def mock_scorer(user_content: str) -> str:
     opp = _payload(user_content)
     title = str(opp.get("title") or "")
     company = str(opp.get("company") or "")
+    # One fixture exists to be unscorable, so the pipeline's failure path is
+    # exercised rather than assumed. It stays unparseable in v2.
+    # It fails on the way in and scores on the way back, which is what
+    # makes rescore.py a testable thing rather than an assertion of faith.
+    if "nebulon" in company.lower() and not opp.get("rescore"):
+        return "SCORING NOISE {{{ not json"
     location = str(opp.get("location") or "")
     salary = str(opp.get("salary_rate") or "")
     low = f"{title} {company}".lower()
