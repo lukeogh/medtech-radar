@@ -1923,6 +1923,168 @@ HOME_SCRIPT = """
 """
 
 
+def telemetry_html(data: dict, config: dict) -> str:
+    """The machine, the flow and board freshness, as one strip.
+
+    Moved off Jobs on 3 August. It is operating telemetry, and a person
+    opening Jobs came for roles rather than for whether cron ran. Home
+    is where the heartbeat already lives, so it belongs beside it.
+    """
+    active = data["opportunities"]
+    everything = active + (data.get("acknowledged") or [])
+
+    last_by_source: dict[str, str] = {}
+    for o in everything:
+        src = o.get("source") or "email-other"
+        seen = o.get("first_seen") or ""
+        if seen > last_by_source.get(src, ""):
+            last_by_source[src] = seen
+
+    registry = [dict(s) for s in radar_common.load_job_sources()]
+    known_ids = {s["id"] for s in registry}
+    extras = sorted({(o.get("source") or "email-other") for o in everything
+                     if (o.get("source") or "email-other") not in known_ids})
+    for extra in extras:
+        registry.append({"id": extra,
+                         "name": ("Other email alerts" if extra == "email-other"
+                                  else extra),
+                         "sender_contains": None})
+
+    builtin_ids = {s["id"] for s in radar_common.BUILTIN_JOB_SOURCES}
+    customs = [s for s in registry
+               if s["id"] not in builtin_ids and s.get("sender_contains")]
+
+    def hours_since(iso) -> float | None:
+        try:
+            then = datetime.strptime(str(iso)[:16], "%Y-%m-%dT%H:%M")
+        except (ValueError, TypeError):
+            return None
+        return max(0.0, (datetime.now(timezone.utc)
+                         - then.replace(tzinfo=timezone.utc)
+                         ).total_seconds() / 3600)
+
+    def ago(hours: float | None) -> str:
+        if hours is None:
+            return ""
+        if hours < 1:
+            return "under an hour ago"
+        if hours < 48:
+            n = round(hours)
+            return f"{n} {'hour' if n == 1 else 'hours'} ago"
+        days = round(hours / 24)
+        return f"{days} days ago"
+
+    def dot(cls: str, word: str) -> str:
+        return f'<span class="dot dot-{cls}" title="{esc(word)}"></span>'
+
+    # Traffic lights. Boards send daily-ish, so two days is flowing,
+    # a week is quiet, longer means a subscription died. Never-heard-from
+    # is a hollow waiting dot, not an alarm, subscribing is a human step.
+    def board_light(hours: float | None) -> tuple[str, str]:
+        if hours is None:
+            return "grey", "waiting for the first email"
+        if hours <= 48:
+            return "green", "flowing"
+        if hours <= 24 * 7:
+            return "amber", "quiet lately"
+        return "red", "gone silent"
+
+    # The inbox runs hourly when armed, so its light judges the schedule.
+    inbox_hours = hours_since(data["inbox_ts"])
+    if inbox_hours is None:
+        inbox_light, inbox_word = "red", "never run"
+    elif inbox_hours <= 2:
+        inbox_light, inbox_word = "green", "on schedule"
+    elif inbox_hours <= 6:
+        inbox_light, inbox_word = "amber", "running late"
+    else:
+        inbox_light, inbox_word = "red", "stalled"
+
+    dups = max(0, data["week_seen"] - data["week_new"])
+    metrics = ['<div class="metrics">']
+    metrics.append(
+        '<div class="widget"><h4>The machine'
+        + info_tip("Green ran within two hours of the hourly schedule, "
+                   "amber within six, red stalled or never run. Failed "
+                   "emails are poison messages that hit the three-strike "
+                   "cap, the digest names them.")
+        + "</h4><ul>"
+        + f"<li>{dot(inbox_light, inbox_word)}Inbox {inbox_word}"
+        + (f'<span class="li-age">{ago(inbox_hours)}</span>'
+           if inbox_hours is not None else "")
+        + "</li>"
+        + f'<li><span class="num">{data["week_runs"]}</span>inbox '
+        f'{"run" if data["week_runs"] == 1 else "runs"} this week</li>'
+        + (f"<li>{dot('green', 'no failed emails')}No failed emails</li>"
+           if not data["failed_emails"]
+           else f"<li>{dot('red', 'failed emails')}"
+                f'<span class="num">{data["failed_emails"]}</span>'
+                'failed emails, see the digest</li>')
+        + ('<li class="board-note">First move. Open n8n and read Radar '
+           "Inbox's last execution. Active, failed, or absent tells you "
+           "which fix it is.</li>"
+           if inbox_light in ("amber", "red") else "")
+        + "</ul></div>")
+
+    counts = [c for _, c in data["daily_arrivals"]]
+    top = max(counts) if any(counts) else 0
+    bars = []
+    for i, (day, c) in enumerate(data["daily_arrivals"]):
+        label = datetime.strptime(day, "%Y-%m-%d").strftime("%d %b").lstrip("0")
+        if c == 0:
+            bars.append(f'<i class="none" title="none on {esc(label)}"></i>')
+        else:
+            h = max(4, round(46 * c / top))
+            today_cls = " today" if i == len(data["daily_arrivals"]) - 1 else ""
+            bars.append(f'<i class="{today_cls.strip()}" '
+                        f'style="height:{h}px" '
+                        f'title="{c} on {esc(label)}"></i>')
+    fortnight_total = sum(counts)
+    metrics.append(
+        '<div class="widget"><h4>The flow, last fourteen days'
+        + info_tip("Arrivals per day, acknowledged ones included, an "
+                   "arrival is an arrival. Hover a bar for its exact "
+                   "count and date.")
+        + "</h4>"
+        f'<div class="bars">{"".join(bars)}</div>'
+        '<p class="bars-label"><span>two weeks ago</span><span>today</span></p>'
+        '<ul style="margin-top:8px">'
+        f'<li><span class="num">{fortnight_total}</span>'
+        f'{"role" if fortnight_total == 1 else "roles"} arrived</li>'
+        f'<li><span class="num">{data["week_new"]}</span>new this week, '
+        f'{dups} {"duplicate" if dups == 1 else "duplicates"} skipped</li>'
+        "</ul></div>")
+
+    fresh_items = []
+    for s in registry:
+        seen = last_by_source.get(s["id"])
+        h = hours_since(seen)
+        light, word = board_light(h)
+        fresh_items.append(
+            f"<li>{dot(light, word)}{esc(s['name'])}"
+            f'<span class="li-age">'
+            + (esc(ago(h)) if h is not None else "waiting")
+            + "</span></li>")
+    any_red_board = any(
+        board_light(hours_since(last_by_source.get(s["id"])))[0] == "red"
+        for s in registry)
+    metrics.append('<div class="widget"><h4>Board freshness'
+                   + info_tip("Green emailed within two days, amber within "
+                              "a week, red was flowing and went silent, a "
+                              "hollow dot has never been heard from and is "
+                              "waiting on a subscription.")
+                   + "</h4><ul>"
+                   + "".join(fresh_items)
+                   + ('<li class="board-note">A silent board stopped '
+                      "sending email. Check its alert settings on the "
+                      "board, then the aggregator's spam folder. LinkedIn "
+                      "also rides the personal-Gmail forward filter.</li>"
+                      if any_red_board else "")
+                   + "</ul></div>")
+    metrics.append("</div>")
+    return "".join(metrics)
+
+
 def render_home_page(data: dict, config: dict, db_label: str) -> str:
     """Home as the entrance. Cards to the pages, trends, the scoring panel.
 
@@ -2147,6 +2309,14 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
                      '<a href="/archive">the full archive</a>.</p>'
                      "</div></section>")
 
+    # Operating telemetry, moved here from Jobs on 3 August. It sits with
+    # the heartbeat because that is what it is, and a person opening Jobs
+    # came for roles rather than for whether cron ran.
+    try:
+        telemetry = telemetry_html(data, config)
+    except Exception:                              # noqa: BLE001
+        telemetry = ""   # a broken light must never cost the page
+
     return f"""<!doctype html>
 <html lang="en-GB" data-appearance="auto">
 <head>
@@ -2176,7 +2346,7 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
 {cards}
 {overview}
 {profile}
-{attention}{traction}{connectors}
+{telemetry}{attention}{traction}{connectors}
 <footer class="heartbeat">
 <ul class="heartbeat-facts">{heartbeat_facts(data)}</ul>
 {sparkline(data)}
@@ -2234,155 +2404,6 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
     active = data["opportunities"]
     everything = active + (data.get("acknowledged") or [])
 
-    last_by_source: dict[str, str] = {}
-    for o in everything:
-        src = o.get("source") or "email-other"
-        seen = o.get("first_seen") or ""
-        if seen > last_by_source.get(src, ""):
-            last_by_source[src] = seen
-
-    registry = [dict(s) for s in radar_common.load_job_sources()]
-    known_ids = {s["id"] for s in registry}
-    extras = sorted({(o.get("source") or "email-other") for o in everything
-                     if (o.get("source") or "email-other") not in known_ids})
-    for extra in extras:
-        registry.append({"id": extra,
-                         "name": ("Other email alerts" if extra == "email-other"
-                                  else extra),
-                         "sender_contains": None})
-
-    builtin_ids = {s["id"] for s in radar_common.BUILTIN_JOB_SOURCES}
-    customs = [s for s in registry
-               if s["id"] not in builtin_ids and s.get("sender_contains")]
-
-    def hours_since(iso) -> float | None:
-        try:
-            then = datetime.strptime(str(iso)[:16], "%Y-%m-%dT%H:%M")
-        except (ValueError, TypeError):
-            return None
-        return max(0.0, (datetime.now(timezone.utc)
-                         - then.replace(tzinfo=timezone.utc)
-                         ).total_seconds() / 3600)
-
-    def ago(hours: float | None) -> str:
-        if hours is None:
-            return ""
-        if hours < 1:
-            return "under an hour ago"
-        if hours < 48:
-            n = round(hours)
-            return f"{n} {'hour' if n == 1 else 'hours'} ago"
-        days = round(hours / 24)
-        return f"{days} days ago"
-
-    def dot(cls: str, word: str) -> str:
-        return f'<span class="dot dot-{cls}" title="{esc(word)}"></span>'
-
-    # Traffic lights. Boards send daily-ish, so two days is flowing,
-    # a week is quiet, longer means a subscription died. Never-heard-from
-    # is a hollow waiting dot, not an alarm, subscribing is a human step.
-    def board_light(hours: float | None) -> tuple[str, str]:
-        if hours is None:
-            return "grey", "waiting for the first email"
-        if hours <= 48:
-            return "green", "flowing"
-        if hours <= 24 * 7:
-            return "amber", "quiet lately"
-        return "red", "gone silent"
-
-    # The inbox runs hourly when armed, so its light judges the schedule.
-    inbox_hours = hours_since(data["inbox_ts"])
-    if inbox_hours is None:
-        inbox_light, inbox_word = "red", "never run"
-    elif inbox_hours <= 2:
-        inbox_light, inbox_word = "green", "on schedule"
-    elif inbox_hours <= 6:
-        inbox_light, inbox_word = "amber", "running late"
-    else:
-        inbox_light, inbox_word = "red", "stalled"
-
-    dups = max(0, data["week_seen"] - data["week_new"])
-    metrics = ['<div class="metrics">']
-    metrics.append(
-        '<div class="widget"><h4>The machine'
-        + info_tip("Green ran within two hours of the hourly schedule, "
-                   "amber within six, red stalled or never run. Failed "
-                   "emails are poison messages that hit the three-strike "
-                   "cap, the digest names them.")
-        + "</h4><ul>"
-        + f"<li>{dot(inbox_light, inbox_word)}Inbox {inbox_word}"
-        + (f'<span class="li-age">{ago(inbox_hours)}</span>'
-           if inbox_hours is not None else "")
-        + "</li>"
-        + f'<li><span class="num">{data["week_runs"]}</span>inbox '
-        f'{"run" if data["week_runs"] == 1 else "runs"} this week</li>'
-        + (f"<li>{dot('green', 'no failed emails')}No failed emails</li>"
-           if not data["failed_emails"]
-           else f"<li>{dot('red', 'failed emails')}"
-                f'<span class="num">{data["failed_emails"]}</span>'
-                'failed emails, see the digest</li>')
-        + ('<li class="board-note">First move. Open n8n and read Radar '
-           "Inbox's last execution. Active, failed, or absent tells you "
-           "which fix it is.</li>"
-           if inbox_light in ("amber", "red") else "")
-        + "</ul></div>")
-
-    counts = [c for _, c in data["daily_arrivals"]]
-    top = max(counts) if any(counts) else 0
-    bars = []
-    for i, (day, c) in enumerate(data["daily_arrivals"]):
-        label = datetime.strptime(day, "%Y-%m-%d").strftime("%d %b").lstrip("0")
-        if c == 0:
-            bars.append(f'<i class="none" title="none on {esc(label)}"></i>')
-        else:
-            h = max(4, round(46 * c / top))
-            today_cls = " today" if i == len(data["daily_arrivals"]) - 1 else ""
-            bars.append(f'<i class="{today_cls.strip()}" '
-                        f'style="height:{h}px" '
-                        f'title="{c} on {esc(label)}"></i>')
-    fortnight_total = sum(counts)
-    metrics.append(
-        '<div class="widget"><h4>The flow, last fourteen days'
-        + info_tip("Arrivals per day, acknowledged ones included, an "
-                   "arrival is an arrival. Hover a bar for its exact "
-                   "count and date.")
-        + "</h4>"
-        f'<div class="bars">{"".join(bars)}</div>'
-        '<p class="bars-label"><span>two weeks ago</span><span>today</span></p>'
-        '<ul style="margin-top:8px">'
-        f'<li><span class="num">{fortnight_total}</span>'
-        f'{"role" if fortnight_total == 1 else "roles"} arrived</li>'
-        f'<li><span class="num">{data["week_new"]}</span>new this week, '
-        f'{dups} {"duplicate" if dups == 1 else "duplicates"} skipped</li>'
-        "</ul></div>")
-
-    fresh_items = []
-    for s in registry:
-        seen = last_by_source.get(s["id"])
-        h = hours_since(seen)
-        light, word = board_light(h)
-        fresh_items.append(
-            f"<li>{dot(light, word)}{esc(s['name'])}"
-            f'<span class="li-age">'
-            + (esc(ago(h)) if h is not None else "waiting")
-            + "</span></li>")
-    any_red_board = any(
-        board_light(hours_since(last_by_source.get(s["id"])))[0] == "red"
-        for s in registry)
-    metrics.append('<div class="widget"><h4>Board freshness'
-                   + info_tip("Green emailed within two days, amber within "
-                              "a week, red was flowing and went silent, a "
-                              "hollow dot has never been heard from and is "
-                              "waiting on a subscription.")
-                   + "</h4><ul>"
-                   + "".join(fresh_items)
-                   + ('<li class="board-note">A silent board stopped '
-                      "sending email. Check its alert settings on the "
-                      "board, then the aggregator's spam folder. LinkedIn "
-                      "also rides the personal-Gmail forward filter.</li>"
-                      if any_red_board else "")
-                   + "</ul></div>")
-    metrics.append("</div>")
 
     counter = 0
     scored = [o for o in active if o.get("combined") is not None]
@@ -2582,6 +2603,13 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
     body += (f'<details class="sources-fold"><summary>Analysis. Rates, source '
              f'yield and deaths by gate.</summary>'
              f'{rates_panel}{yield_panel}{deaths_panel}</details>')
+
+    # The registry, only for the add-source strip's receipt line now that
+    # board sections are gone and the freshness lights live on Home.
+    registry = [dict(x) for x in radar_common.load_job_sources()]
+    _builtin = {x["id"] for x in radar_common.BUILTIN_JOB_SOURCES}
+    customs = [x for x in registry
+               if x["id"] not in _builtin and x.get("sender_contains")]
 
     # The add-source strip keeps its footer weight at the very bottom. The
     # receipt line only earns ink once a custom source exists, and there is

@@ -499,26 +499,29 @@ def main() -> int:
         # fixture predates the gates, so its absence here is correct.
         check(jobs_page.index("Top prospects") < jobs_page.index("Analysis."),
               "the page opens on the tiers, analysis sits below them")
-        check("The flow, last fourteen days" in jobs_page
-              and 'class="bars"' in jobs_page,
-              "the fortnight flow chart renders")
-        check("dot-green" in jobs_page,
+        # The telemetry moved to Home on 3 August. These facts still matter,
+        # they are just no longer on the page a person opens for roles, so
+        # the checks follow them rather than being deleted.
+        home_page = build_dashboard.render_home_page(data, config, "t")
+        check("The flow, last fourteen days" in home_page
+              and 'class="bars"' in home_page,
+              "the fortnight flow chart renders, on Home")
+        check("dot-green" in home_page,
               "a board that heard from its sender today shows a green light")
-        check("dot-grey" in jobs_page,
+        check("dot-grey" in home_page,
               "a board never heard from shows the hollow waiting light")
-        check("dot-red" in jobs_page and "Inbox never run" in jobs_page,
-              "an inbox that has never run wears the red light honestly")
+        check("dot-red" in home_page and "Inbox never run" in home_page,
+              "an inbox that has never run wears the red light honestly, on Home")
+        check("The flow, last fourteen days" not in jobs_page
+              and "Board freshness" not in jobs_page,
+              "and none of it clutters Jobs any more")
         check('id="src-add"' in jobs_page and "Add a job source" in jobs_page,
               "the add-a-source form renders")
         check("None yet" not in jobs_page
               and "job_sources.yaml" not in jobs_page,
               "no custom-source receipt renders while there are none")
-        i_cv = jobs_page.index(">CV-Library</span>")
-        i_add = jobs_page.index("Add a job source")
-        i_other = jobs_page.index(">Other email alerts</span>")
-        check(i_cv < i_add < i_other,
-              "the add-source strip sits after the boards, before the "
-              "catch-all")
+        # The board-order assertion went with the board sections. Ordering
+        # boards on a page that no longer groups by board tested nothing.
         saved_reg3 = radar_common.JOB_SOURCES_PATH
         try:
             radar_common.JOB_SOURCES_PATH = reg_path
@@ -530,13 +533,14 @@ def main() -> int:
               in jobs_with_custom
               and "job_sources.yaml" in jobs_with_custom,
               "an added source earns its one-line receipt, with the edit path")
-        check(">Technojobs</span>" in jobs_with_custom,
-              "an added source gets its own board section")
-        check("https://technojobs.co.uk" in jobs_with_custom,
-              "a custom board with a site gets the arrow too")
-        check(jobs_with_custom.index(">Technojobs</span>")
-              < jobs_with_custom.index("Add a job source"),
-              "a custom board's section sits above the add-source strip")
+        # A custom source no longer earns a section, because no source does.
+        # What it earns is the receipt line above, which is the honest
+        # acknowledgement that the radar now watches for its sender.
+        check(">Technojobs</span>" not in jobs_with_custom,
+              "an added source gets no board section, because none exist")
+        check(jobs_with_custom.index("Added so far: Technojobs")
+              > jobs_with_custom.index("Top prospects"),
+              "its receipt sits at the foot of the page, below the tiers")
         check('href="/jobs" aria-current="page"' in jobs_page,
               "the Jobs tab marks itself current")
         check(f'data-ack="{ids["Keepit Ltd"]}"' in jobs_page,
