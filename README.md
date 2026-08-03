@@ -842,3 +842,34 @@ run for ever, refetching the same articles until someone noticed the noise.
 A stream deserves a window. A complete list deserves to be remembered
 completely. Baseline then immediately re-run now finds nothing, which is the
 test that would have caught it and now does.
+
+3 August 2026, the metrics. Three panels on Jobs, all reading what was
+already stored and judging nothing. Rates gives the median converted day
+rate over ninety days against the floor, with the spread and the share that
+said nothing at all, and that last figure is the honest one, eighty five per
+cent of adverts state no pay. Adverts with no stated rate are counted and
+never averaged, because silence is not a number and folding it into a median
+drags the answer toward whatever the quiet adverts happen to be. Source
+yield gives arrivals over thirty and ninety days per board and per watched
+source with how many cleared the bar, so the next source to go quiet, or to
+arrive constantly and never land, is visible without counting by hand.
+
+The score histogram was the stretch goal and it turned out to be the most
+useful thing built today, because a bar is a guess until you can see the
+shape it cuts through. The shape is this. Two hundred and eleven roles
+scored, the highest is fifty, nothing in the sixties, nothing above. The
+digest bar sits at seventy. It has never been cleared by anything, and the
+same holds on the signals side where the best relevance on file is
+twenty two. That is not a fault in the scorer or the sources. It is a
+threshold set for a market that has not turned up at this volume, and it is
+now a number Luke can judge rather than assume. It sits in the morning
+report as a decision, not a fix.
+
+digest_min_want joins radar.yaml at zero, off. It adds a second bar on the
+desire half alone, for the role the CV can clearly do and the preferences
+plainly do not want, which combined scoring hides by averaging. Built as an
+optional SQL fragment rather than a comparison against zero, so that with
+the flag off the query is character for character the one that shipped and
+the Monday email cannot quietly change shape. Three tests pin that, the flag
+absent, the flag explicitly zero and the flag at fifty, and the first two
+must agree exactly.

@@ -149,6 +149,101 @@ def week_usage(conn, since_iso) -> tuple[int, float]:
 
 # ------------------------------------------------------------------ collect
 
+def _median(values):
+    """Median without pulling in statistics for one call. None when empty."""
+    vals = sorted(v for v in values if v is not None)
+    if not vals:
+        return None
+    mid = len(vals) // 2
+    if len(vals) % 2:
+        return vals[mid]
+    return (vals[mid - 1] + vals[mid]) / 2
+
+
+def rate_metrics(conn, floor, days: int = 90) -> dict:
+    """What the market actually paid, over the trailing window.
+
+    Reads the banded rows only. An advert with no stated pay says nothing
+    about the market, so counting it in a median would drag the answer
+    toward whatever the silent adverts happen to be, and silence is not a
+    number. The share that stayed silent is reported beside the median
+    instead, because that share is itself the most honest thing on the
+    panel, and on this data it is most of it.
+    """
+    since = (datetime.now(timezone.utc)
+             - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [dict(r) for r in conn.execute(
+        "SELECT day_rate, rate_band, first_seen FROM opportunities"
+        " WHERE first_seen > ?", (since,))]
+    banded = [r for r in rows if (r.get("rate_band") or "unstated") != "unstated"
+              and r.get("day_rate") is not None]
+    rates = [r["day_rate"] for r in banded]
+    by_month = {}
+    for r in banded:
+        by_month.setdefault((r["first_seen"] or "")[:7], []).append(r["day_rate"])
+    return {
+        "days": days,
+        "total": len(rows),
+        "stated": len(banded),
+        "unstated": len(rows) - len(banded),
+        "median": _median(rates),
+        "low": min(rates) if rates else None,
+        "high": max(rates) if rates else None,
+        "floor": floor,
+        "above_floor": sum(1 for v in rates if floor is not None and v >= floor),
+        "by_month": sorted(((m, _median(v), len(v))
+                            for m, v in by_month.items() if m), key=lambda x: x[0]),
+    }
+
+
+def source_yield(conn, threshold: int, fast: int) -> dict:
+    """Arrivals and hits per source, over 30 and 90 days.
+
+    The point is that the next source going quiet, or going noisy, is
+    visible without anyone counting by hand. Boards are read from
+    opportunities.source and watched sources from signals.source_id,
+    because they are different pipelines that happen to end in the same
+    database.
+    """
+    now = datetime.now(timezone.utc)
+    windows = {d: (now - timedelta(days=d)).strftime("%Y-%m-%dT%H:%M:%SZ")
+               for d in (30, 90)}
+    out = {"boards": {}, "watched": {}}
+    for days, since in windows.items():
+        for r in conn.execute(
+                "SELECT COALESCE(source,'unknown') s, COUNT(*) n,"
+                " SUM(CASE WHEN combined >= ? THEN 1 ELSE 0 END) hits"
+                " FROM opportunities WHERE first_seen > ? GROUP BY s",
+                (threshold, since)):
+            out["boards"].setdefault(r["s"], {})[days] = {
+                "arrivals": r["n"], "hits": r["hits"] or 0}
+        for r in conn.execute(
+                "SELECT COALESCE(source_id,'unknown') s, COUNT(*) n,"
+                " SUM(CASE WHEN relevance >= ? THEN 1 ELSE 0 END) hits"
+                " FROM signals WHERE first_seen > ? GROUP BY s",
+                (threshold, since)):
+            out["watched"].setdefault(r["s"], {})[days] = {
+                "arrivals": r["n"], "hits": r["hits"] or 0}
+    return out
+
+
+def score_histogram(conn, threshold: int, days: int = 90, bucket: int = 10):
+    """Combined scores in buckets, so the bar's placement can be judged.
+
+    A threshold is a guess until you can see the shape it cuts through.
+    """
+    since = (datetime.now(timezone.utc)
+             - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    buckets = {}
+    for r in conn.execute(
+            "SELECT combined FROM opportunities WHERE first_seen > ?"
+            " AND combined IS NOT NULL", (since,)):
+        b = min(int(r["combined"]) // bucket * bucket, 90)
+        buckets[b] = buckets.get(b, 0) + 1
+    return {"bucket": bucket, "threshold": threshold, "days": days,
+            "buckets": [(b, buckets.get(b, 0)) for b in range(0, 100, bucket)]}
+
+
 def collect(conn, config) -> dict:
     threshold = int(config.get("score_threshold", 70))
     fast = int(config.get("fast_signal_threshold", 75))
@@ -328,6 +423,9 @@ def collect(conn, config) -> dict:
         "threshold": threshold, "fast": fast, "floor": floor, "fresh": fresh,
         "opportunities": opportunities, "acknowledged": acknowledged,
         "signals": signals, "dismissed_signals": dismissed_signals,
+        "rate_metrics": rate_metrics(conn, floor),
+        "source_yield": source_yield(conn, threshold, fast),
+        "score_histogram": score_histogram(conn, threshold),
         "touch_map": touch_map,
         "threads": threads, "ageing": ageing,
         "ageing_opp_ids": {a["id"] for a in ageing if a["kind"] == "opportunity"},
@@ -2120,7 +2218,84 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
     else:
         prospects_body = ('<p class="empty">Nothing scored yet. The top of '
                           'the pile appears here as roles land.</p>')
-    body = "".join(metrics)
+    # ---- What the market paid, and what the machine is judging it against.
+    rm = data.get("rate_metrics") or {}
+    def money(v):
+        return f"£{v:,.0f}" if isinstance(v, (int, float)) else "not known"
+    share = (f"{round(100 * rm.get('unstated', 0) / rm['total'])}%"
+             if rm.get("total") else "no data")
+    months = "".join(
+        f'<li><span class="num">{money(med)}</span>{esc(m)}, {n} stated</li>'
+        for m, med, n in (rm.get("by_month") or [])[-4:])
+    rates_panel = (
+        '<section class="section"><div class="section-head"><h2>Rates</h2></div>'
+        '<div class="widget" style="margin-top:12px"><h4>The trailing 90 days'
+        + info_tip(
+            "Median and range of the converted day rate, over adverts that "
+            "actually stated pay. Adverts that stated none are counted but "
+            "never averaged, because silence is not a number and folding it "
+            "into a median would drag the answer toward whatever the quiet "
+            "adverts happen to be.")
+        + '</h4><ul>'
+        + f'<li><span class="num">{money(rm.get("median"))}</span>median day '
+          f'rate, against a floor of {money(rm.get("floor"))}</li>'
+        + f'<li><span class="num">{money(rm.get("low"))} to {money(rm.get("high"))}'
+          f'</span>the spread</li>'
+        + f'<li><span class="num">{rm.get("stated", 0)}</span>adverts stated a '
+          f'rate, {rm.get("above_floor", 0)} of them at or above the floor</li>'
+        + f'<li><span class="num">{share}</span>said nothing about pay at all, '
+          f'{rm.get("unstated", 0)} of {rm.get("total", 0)}</li>'
+        + '</ul>'
+        + (f'<p class="legend">By month, median of what was stated.</p><ul>{months}</ul>'
+           if months else "")
+        + '</div></section>')
+
+    # ---- Where the work is coming from, and whether any of it clears the bar.
+    sy = data.get("source_yield") or {}
+    def yield_rows(group, label):
+        rows = []
+        for name, w in sorted(group.items(),
+                              key=lambda kv: -(kv[1].get(90, {}).get("arrivals", 0))):
+            a30 = w.get(30, {}).get("arrivals", 0)
+            a90 = w.get(90, {}).get("arrivals", 0)
+            h90 = w.get(90, {}).get("hits", 0)
+            rows.append(f'<li><span class="num">{a30} / {a90}</span>'
+                        f'{esc(name)}, {h90} at or above the bar</li>')
+        return (f'<h4>{label}' + info_tip(
+            "Arrivals in the last 30 days and the last 90, then how many of "
+            "the 90 cleared the digest bar. A source that stops arriving and "
+            "a source that arrives constantly and never clears the bar are "
+            "different problems, and this is where both become visible "
+            "without counting by hand.")
+            + f'</h4><ul>{"".join(rows)}</ul>') if rows else ""
+
+    yield_panel = (
+        '<section class="section"><div class="section-head"><h2>Source yield'
+        '</h2></div><div class="widget" style="margin-top:12px">'
+        + yield_rows(sy.get("boards") or {}, "Job boards")
+        + yield_rows(sy.get("watched") or {}, "Watched sources")
+        + '</div></section>')
+
+    # ---- The shape the bar cuts through.
+    hg = data.get("score_histogram") or {}
+    hb = hg.get("buckets") or []
+    peak = max((n for _, n in hb), default=0)
+    bars = "".join(
+        f'<li><span class="num">{n}</span>{b} to {b + hg.get("bucket", 10) - 1}'
+        + (' <b>&larr; the bar</b>' if b <= hg.get("threshold", 70)
+           < b + hg.get("bucket", 10) else '')
+        + '</li>' for b, n in hb if n or b >= 40)
+    hist_panel = (
+        '<section class="section"><div class="section-head">'
+        '<h2>Score distribution</h2></div>'
+        '<div class="widget" style="margin-top:12px"><h4>Combined scores, 90 days'
+        + info_tip(
+            f"Every scored advert bucketed by ten. The digest bar sits at "
+            f"{hg.get('threshold', 70)}, and a bar is a guess until you can "
+            "see the shape it cuts through.")
+        + f'</h4><ul>{bars}</ul></div></section>') if peak else ""
+
+    body = "".join(metrics) + rates_panel + yield_panel + hist_panel
     body += section(
         "Top prospects", len(prospects),
         "The highest combined scores still in play, whatever the board. "

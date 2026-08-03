@@ -184,16 +184,26 @@ def collect(conn, config: dict) -> dict:
     age_cutoff = (datetime.now(timezone.utc)
                   - timedelta(days=AGEING_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # A second bar, on want_match alone, off by default. Built as an optional
+    # SQL fragment rather than a "col >= ?" with zero, so that with the flag
+    # off the query is character for character the one that shipped and the
+    # digest cannot quietly change shape. The tests pin that.
+    min_want = int(config.get("digest_min_want", 0) or 0)
+    want_sql = " AND want_match IS NOT NULL AND want_match >= ?" if min_want else ""
+    want_args = (min_want,) if min_want else ()
+
     inbound = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
         " AND combined IS NOT NULL AND combined >= ? AND thread_type = 'inbound'"
-        " AND acknowledged_at IS NULL"
-        " ORDER BY combined DESC, first_seen", (last_ts, threshold))]
+        " AND acknowledged_at IS NULL" + want_sql
+        + " ORDER BY combined DESC, first_seen",
+        (last_ts, threshold) + want_args)]
     opp_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
         " AND combined IS NOT NULL AND combined >= ? AND thread_type = 'signal'"
-        " AND acknowledged_at IS NULL"
-        " ORDER BY combined DESC, first_seen", (last_ts, threshold))]
+        " AND acknowledged_at IS NULL" + want_sql
+        + " ORDER BY combined DESC, first_seen",
+        (last_ts, threshold) + want_args)]
     table_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM signals WHERE status = 'new' AND first_seen > ?"
         " AND relevance IS NOT NULL AND relevance >= ?"

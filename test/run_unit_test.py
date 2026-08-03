@@ -1197,6 +1197,41 @@ def main() -> int:
         conn.close()
     _os.environ.pop("RADAR_MOCK", None)
 
+    # digest_min_want. A second bar on the desire half alone, off by default,
+    # and off must mean the digest is exactly what it was.
+    import build_digest as _bd
+
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "digest.sqlite")
+        now = radar_common.now_iso()
+        # Two roles over the combined bar. One is wanted, one is not, which
+        # is the case the flag exists for, a role the CV can clearly do and
+        # the preferences plainly do not want.
+        for h, title, cv, want, comb in (("dw1", "Wanted role", 90, 90, 90),
+                                         ("dw2", "Capable but unwanted", 95, 20, 75)):
+            conn.execute(
+                "INSERT INTO opportunities (url_hash, first_seen, company, title,"
+                " cv_match, want_match, combined, thread_type, status)"
+                " VALUES (?,?,?,?,?,?,?,'inbound','new')",
+                (h, now, "Acme Dx", title, cv, want, comb))
+        conn.commit()
+
+        base_cfg = {"score_threshold": 70, "prefs_file": "config/profile/preferences.md"}
+        off = _bd.collect(conn, dict(base_cfg))
+        off_zero = _bd.collect(conn, {**base_cfg, "digest_min_want": 0})
+        on = _bd.collect(conn, {**base_cfg, "digest_min_want": 50})
+
+        titles = lambda d: sorted(x["title"] for x in d["inbound"])
+        check(titles(off) == ["Capable but unwanted", "Wanted role"],
+              f"with the flag absent both roles are in the digest (got {titles(off)})")
+        check(titles(off_zero) == titles(off),
+              "an explicit zero behaves exactly as the flag being absent")
+        check(titles(on) == ["Wanted role"],
+              f"with the flag at 50 the unwanted role drops out (got {titles(on)})")
+        check(len(on["inbound"]) == 1 and on["inbound"][0]["want_match"] >= 50,
+              "what survives the flag clears the want bar it names")
+        conn.close()
+
     # The sitemap watcher. Reads a complete list, not a stream, so the
     # rules that matter are what it filters and what it remembers.
     import check_signals as _cs
