@@ -70,8 +70,9 @@ medtech-radar/
    page re-renders from the database on every load, the Refresh button
    reloads it, Check now runs the signals watcher on demand, and it reloads
    itself every fifteen minutes while n8n keeps feeding the database on its
-   own schedule. `python scripts/build_dashboard.py` still writes the plain
-   static file. Both are read only against the database. If you serve it
+   own schedule. `python scripts/build_dashboard.py` still writes a static archive
+   file but is deprecated and says so, because the served page re-renders
+   from the database on every load and is the one to trust. If you serve it
    beyond this machine, put it behind the reverse proxy with authentication,
    the page carries scored opportunities and names.
 7. When a thread is handled or has gone nowhere, retire it so the ageing
@@ -935,3 +936,31 @@ crime of being falsy and silently substitutes the default. Nobody would have
 found it, because the wrong number looks exactly like the right one. It is
 fixed, and the test asserts the configured value comes back rather than
 merely that the behaviour looks sensible.
+
+3 August 2026, consolidation. Two surfaces rendered the same First Light
+pages and only one of them could ever be right. The served dashboard
+re-renders from the database on every load and takes the writes, so it is
+canonical, and the static export is deprecated and says so when it runs. It
+still writes its file, because removing something a person might have put in
+a cron job is a rude way to make a point, but a file written this morning is
+a photograph of a database that has moved on and two surfaces disagreeing is
+worse than having one. Nothing was deleted. build_dashboard.py remains the
+rendering library that serve_dashboard imports every page from, which is why
+folding it away entirely was never on the table.
+
+A health endpoint joins the served page, returning last inbox run, last
+signals run, database reachability and row counts as JSON, with a 200 when
+fresh and a 503 when the database cannot be read or a pipeline has been
+quiet for more than triple its schedule. Triple, deliberately, because one
+missed run is a blip and a watchdog that cries at blips gets muted. It
+exists so silence means quiet rather than broken. Nobody opens a dashboard
+at three in the morning, and a pipeline that stopped at midnight looks
+exactly like a pipeline with nothing to say until somebody looks.
+
+docs/architecture.md now describes the system that exists rather than the
+one that shipped in July. The companies model and why derived states are not
+stored, enrichment and why empty is the honest answer, regions and why the
+cache watches the evidence as well as the rules, the dossier, drafts and why
+a bad one is worse than none, tripwires and why the sector exclusion beats
+the inclusion, and the renderer question settled. Phase two ends with the
+docs true.

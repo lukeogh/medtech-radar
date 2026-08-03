@@ -1,11 +1,22 @@
-"""Render the read-only Radar dashboard from the database.
+"""Render the Radar pages from the database. The renderer, not a product.
 
-Implements the First Light design system's dashboard kit
-(ui_kits/medtech-radar-dashboard in the design project). The archive.
-Everything the machine has on file, read on purpose rather than out of
-habit. One self-contained file, no server, no external requests.
+DEPRECATED AS A COMMAND, 3 August 2026. Still the rendering library, and
+serve_dashboard.py imports every page from here, so nothing about this file
+is going away. What ended is the habit of writing a static copy of a page
+that a running server already renders live.
 
-    python scripts/build_dashboard.py
+The served page is canonical. It re-renders from the database on every
+load, it takes the writes, and it is the only surface that can be trusted
+to be current. A file written to disk this morning is a photograph of a
+database that has moved on, and the two disagreeing is worse than only
+having one. First Light lives in one place now.
+
+The command below still works and still writes the archive page, because
+removing a thing someone might have in a cron job is a rude way to make a
+point. It prints a deprecation note when it runs.
+
+    python scripts/build_dashboard.py        # archive export, deprecated
+    python scripts/serve_dashboard.py        # the real thing
 
 Design decisions carried over from the kit, in brief. No score meters, no
 stat tiles, no pipeline table, no tinted hot rows. A standing line orients,
@@ -2577,6 +2588,10 @@ def main(argv=None) -> int:
         db_label = str(db_path)
 
     out = Path(args.out).resolve() if args.out else OUT_DEFAULT
+    print("NOTE. Writing a static archive page is deprecated. The served "
+          "dashboard re-renders from the database on every load and takes "
+          "the writes, so it is the page to trust. This file is a snapshot "
+          "of a database that has already moved on.", file=sys.stderr)
     out.write_text(render_page(data, config, db_label, out), encoding="utf-8")
     if not args.quiet:
         print(json.dumps({"out": str(out), "fresh": data["fresh"],

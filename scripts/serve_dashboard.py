@@ -182,6 +182,67 @@ def set_touch_outcome(touch_id: int, outcome: str) -> dict:
         conn.close()
 
 
+def health_payload() -> tuple[int, dict]:
+    """Is the machine alive, as JSON, for something else to watch.
+
+    Exists so that silence means quiet rather than broken. Nobody opens a
+    dashboard at three in the morning, and a pipeline that stopped at
+    midnight looks exactly like a pipeline with nothing to say until
+    somebody looks. This is the thing Uptime Kuma can look at instead.
+
+    Degraded rather than dead is a real state and gets its own answer. The
+    database being reachable while the inbox has not run for a day is not
+    an outage, it is a fact worth a nudge.
+    """
+    out = {"database": "unreachable", "inbox_last_run": None,
+           "signals_last_run": None, "status": "down"}
+    try:
+        dbp = db_path()
+        conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            for key, workflow in (("inbox_last_run", "inbox"),
+                                  ("signals_last_run", "signals")):
+                row = conn.execute(
+                    "SELECT MAX(ts) t FROM runs WHERE workflow = ?",
+                    (workflow,)).fetchone()
+                out[key] = row["t"] if row else None
+            out["opportunities"] = conn.execute(
+                "SELECT COUNT(*) n FROM opportunities").fetchone()["n"]
+            out["signals"] = conn.execute(
+                "SELECT COUNT(*) n FROM signals").fetchone()["n"]
+        finally:
+            conn.close()
+        out["database"] = "ok"
+    except Exception as err:                       # noqa: BLE001
+        out["note"] = f"{type(err).__name__}"
+        return 503, out
+
+    now = datetime.now(timezone.utc)
+    def hours_since(iso):
+        if not iso:
+            return None
+        try:
+            when = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return round((now - when).total_seconds() / 3600, 1)
+
+    out["inbox_hours_ago"] = hours_since(out["inbox_last_run"])
+    out["signals_hours_ago"] = hours_since(out["signals_last_run"])
+    # The schedules are hourly and two-hourly. Triple them before calling
+    # anything wrong, because one missed run is a blip and a watchdog that
+    # cries at blips gets muted.
+    stale = [name for name, hrs, limit in
+             (("inbox", out["inbox_hours_ago"], 3),
+              ("signals", out["signals_hours_ago"], 6))
+             if hrs is None or hrs > limit]
+    out["status"] = "ok" if not stale else "degraded"
+    if stale:
+        out["stale"] = stale
+    return (200 if out["status"] == "ok" else 503), out
+
+
 def db_path() -> Path:
     return Path(ARGS.db).resolve() if ARGS.db else radar_common.DB_PATH
 
@@ -568,6 +629,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as err:  # noqa: BLE001  a broken render is a 500, not a crash
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")
+            return
+        if path == "/health":
+            code, payload = health_payload()
+            self._send(code, json.dumps(payload).encode(), "application/json")
             return
         if path.startswith("/company/"):
             raw = path[len("/company/"):].strip("/")
