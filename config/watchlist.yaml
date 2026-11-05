@@ -421,6 +421,80 @@ sources:
       two dozen items, verified 5 November 2026. This is the feed that would
       have carried the 25 September Nanopore rapid brain tumour test story.
 
+  # ---- Tier 2 additions, verified 5 November 2026. Medtech trade press and
+  # ---- general news, added so the news page carries industry news rather
+  # ---- than relying on the photonics and semiconductor titles alone.
+  - id: medtech-dive
+    name: MedTech Dive
+    tier: 2
+    url: "https://www.medtechdive.com/topic/medical-devices/"
+    method: rss
+    rss_url: "https://www.medtechdive.com/feeds/news/"
+    check_interval_hours: 24
+    status: live
+    notes: >
+      Industry Dive trade title for medical devices. /feeds/news/ is a valid
+      RSS 2.0 feed ("MedTech Dive - Latest News") with same-day items,
+      verified 5 November 2026. The feed is the whole-site firehose and
+      covers the medical devices topic page given as url.
+
+  - id: massdevice
+    name: MassDevice
+    tier: 2
+    url: "https://www.massdevice.com/"
+    method: rss
+    rss_url: "https://www.massdevice.com/feed/"
+    check_interval_hours: 24
+    status: unverified
+    notes: >
+      WordPress /feed/ exists but returned HTTP 403 to the radar's own user
+      agent on 5 November 2026, edge bot-blocking, same situation as
+      new-electronics. Skipped on normal runs. Spot-check with --source from
+      the box, a different egress address may be treated differently.
+
+  - id: businesswire-medical
+    name: Business Wire medical devices
+    tier: 2
+    url: "https://www.businesswire.com/newsroom/industry/health/medical-devices"
+    method: diff
+    check_interval_hours: 24
+    status: live
+    notes: >
+      Press release wire filtered to medical devices. Returned HTTP 200 with
+      server-rendered HTML to the radar's user agent on 5 November 2026, and
+      the link differ extracted ten same-day /news/ press release links from
+      it. No direct RSS feed advertised, only a feed-options help page.
+      Next.js site, so if the differ ever reports page changes with no new
+      article links, check whether the listing moved client-side.
+
+  - id: reuters-medtech
+    name: Reuters medtech
+    tier: 2
+    url: "https://www.reuters.com/business/healthcare-pharmaceuticals/medtech/"
+    method: diff
+    check_interval_hours: 24
+    status: unverified
+    notes: >
+      robots.txt disallows this page for the radar's crawler-style user agent
+      (checked 5 November 2026), so the polite fetcher refuses it and would
+      record 999 robots-blocked. Reuters retired its public RSS feeds years
+      ago. Left unverified so normal runs skip it rather than knock on a door
+      the site has closed. Their stories reach the net through the other
+      trade feeds anyway.
+
+  - id: bbc-medical-technology
+    name: BBC News medical technology
+    tier: 2
+    url: "https://www.bbc.co.uk/news/topics/cx1m7zg0w38t"
+    method: rss
+    rss_url: "https://feeds.bbci.co.uk/news/topics/cx1m7zg0w38t/rss.xml"
+    check_interval_hours: 24
+    status: live
+    notes: >
+      The BBC News medical technology topic feed, valid RSS 2.0 with around
+      two dozen items, verified 5 November 2026. This is the feed that would
+      have carried the 25 September Nanopore rapid brain tumour test story.
+
 # ---- Tier 3. Email-borne. Informational only, never fetched by check_signals.py.
 # These land in the aggregator inbox and travel through the radar-inbox workflow.
 email_sources:
