@@ -2402,6 +2402,8 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
     data["serve"] = True
     now = radar_common.now_iso()
     active = data["opportunities"]
+    week_ago = (datetime.now(timezone.utc)
+                - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     everything = active + (data.get("acknowledged") or [])
 
 

@@ -1381,6 +1381,32 @@ def main() -> int:
               "the archive still lists the signal in its ageing rows")
         conn.close()
 
+        # Signals held this week. An advert the extractor read as news about
+        # a company rather than a job for Luke, inside the last seven days.
+        # The block compared first_seen against week_ago, a name never
+        # defined in render_jobs_page, so the first such advert would have
+        # taken the page down with a NameError.
+        conn = radar_common.get_db(Path(tmp) / "jobs_held.sqlite")
+        conn.execute(
+            "INSERT INTO opportunities (url_hash, first_seen, company, title,"
+            " thread_type, status, cv_match, want_match, combined,"
+            " one_line_why) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("held-sig", now, "Newsworthy Ltd",
+             "Newsworthy Ltd opens a Ghent office", "signal", "new",
+             70, 70, 70, "News, not a role."))
+        conn.commit()
+        data_h = _bdash.collect(conn, config_j)
+        try:
+            jobs_h = _bdash.render_jobs_page(data_h, config_j, "t")
+            held_at = jobs_h.find("Signals held this week")
+            check(held_at >= 0
+                  and "Newsworthy Ltd opens a Ghent office" in jobs_h[held_at:],
+                  "a fresh signal-kind advert renders under Signals held this week")
+        except Exception as err:  # noqa: BLE001
+            check(False, "the Jobs page renders with a signal-kind advert "
+                         f"this week (raised {type(err).__name__}: {err})")
+        conn.close()
+
     # Tripwires. A first quality or regulatory hire at an untouched medtech
     # company is news about them, not a job for Luke.
     import tripwire as _tw
