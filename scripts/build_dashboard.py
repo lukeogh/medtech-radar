@@ -1267,9 +1267,9 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
          "resurface.", "panel-blue", opp_body,
          legend=rate_legend(data["floor"]), head_extra=ack_toggle)}
 {section("Signals", 0 if fresh else len(data["signals"]),
-         "Funding, spin-offs, accelerator entries and first quality hires. "
-         f"At {data['fast']} the phone gets a push once the workflow is "
-         "armed.", "panel-sand", sig_body)}
+         "Funding, spin-offs and accelerator entries. Hiring news lives on "
+         f"the Jobs page. At {data['fast']} the phone gets a push once the "
+         "workflow is armed.", "panel-sand", sig_body)}
 {section("Threads awaiting action", 0 if fresh else len(data["threads"]),
          "The latest touch per company with a next step still open, from "
          "the tracker.", "panel-sage", thr_body)}
@@ -1457,8 +1457,8 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
         body = ('<div class="front"><div class="lead"><h3>Nothing checked '
                 "and relevant yet.</h3><p class=\"standfirst\">The watcher "
                 "fills this page as the watchlist turns up funding rounds, "
-                "spin-offs and first hires. The sources below say whether "
-                "it is looking.</p></div>" + "".join(widgets) + "</div>")
+                "spin-offs and accelerator entries. The sources below say "
+                "whether it is looking.</p></div>" + "".join(widgets) + "</div>")
 
     if followed:
         body += ('<p class="section-rule">Followed up. The suggestion is '
