@@ -1323,6 +1323,64 @@ def main() -> int:
               "the quiet threshold moves with the configured number")
         conn.close()
 
+    # The Jobs page and the ageing list. collect() builds data["ageing"] from
+    # two kinds of row, adverts and watcher signals, because the archive
+    # renders both. Jobs is for roles, so its Ageing section carries the
+    # adverts only and never hands a signal to render_opportunity, which
+    # reads o["combined"], a key a signal does not have. The live trigger
+    # was eight signals above the bar, status new, older than a fortnight,
+    # and /jobs answered "Render failed. KeyError: combined".
+    import re as _re
+
+    def _section_count(page: str, title: str):
+        m = _re.search(r"<h2>" + _re.escape(title)
+                       + r"</h2>.*?<span class=\"section-count\">(\d+)</span>",
+                       page, _re.S)
+        return int(m.group(1)) if m else None
+
+    config_j = radar_common.load_config()
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "jobs_ageing.sqlite")
+        now = radar_common.now_iso()
+        stale = (datetime.now(timezone.utc)
+                 - timedelta(days=_bdash.AGEING_DAYS + 1)
+                 ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        conn.execute(
+            "INSERT INTO opportunities (url_hash, first_seen, company, title,"
+            " thread_type, status, cv_match, want_match, combined, tier,"
+            " one_line_why) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            ("age-opp", stale, "Stale Dx", "Stale Director Role", "inbound",
+             "new", 88, 88, 88, "top", "Sat still for a fortnight."))
+        conn.execute(
+            "INSERT INTO signals (url_hash, first_seen, source_id, company,"
+            " headline, summary, source_url, relevance, status)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            ("age-sig", stale, "imec-news", "Stale Photonics",
+             "Stale Photonics closes a seed round nobody acted on",
+             "Funding note.", "https://example.invalid/stale", 85, "new"))
+        conn.commit()
+        data_j = _bdash.collect(conn, config_j)
+        kinds = sorted(a["kind"] for a in data_j["ageing"])
+        check(kinds == ["opportunity", "signal"],
+              f"collect() ages the advert and the signal together (got {kinds})")
+        try:
+            jobs_j = _bdash.render_jobs_page(data_j, config_j, "t")
+            n_age = _section_count(jobs_j, "Ageing")
+            check(n_age == 1,
+                  f"the Jobs Ageing section counts the advert only (got {n_age})")
+            check("Stale Director Role" in jobs_j
+                  and "Stale Photonics closes a seed round" not in jobs_j,
+                  "the Jobs Ageing section lists the advert and not the signal")
+        except Exception as err:  # noqa: BLE001
+            check(False, "the Jobs page renders with a watcher signal in the "
+                         f"ageing list (raised {type(err).__name__}: {err})")
+        archive_j = _bdash.render_page(data_j, config_j, "t",
+                                       Path(tmp) / "dash.html", serve=True)
+        check(_section_count(archive_j, "Ageing") == 2
+              and "Stale Photonics closes a seed round" in archive_j,
+              "the archive still lists the signal in its ageing rows")
+        conn.close()
+
     # Tripwires. A first quality or regulatory hire at an untouched medtech
     # company is news about them, not a job for Luke.
     import tripwire as _tw
