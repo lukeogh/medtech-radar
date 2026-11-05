@@ -2402,6 +2402,8 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
     data["serve"] = True
     now = radar_common.now_iso()
     active = data["opportunities"]
+    week_ago = (datetime.now(timezone.utc)
+                - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     everything = active + (data.get("acknowledged") or [])
 
 
@@ -2564,7 +2566,13 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
             "them. Run rescore.py.",
             "panel-stone", tier_rows(ungated))
 
-    ageing = data.get("ageing") or []
+    # The ageing list carries two kinds of row, adverts and watcher
+    # signals, because the archive renders both. Jobs is for roles, so
+    # only the adverts belong here, and tier_rows reads o["combined"],
+    # which a signal never has. The signals already sit on Insights
+    # under "earlier".
+    ageing = [a for a in (data.get("ageing") or [])
+              if a.get("kind") == "opportunity"]
     if ageing:
         body += section(
             "Ageing", len(ageing),
