@@ -22,6 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+import check_jobs
 import enrich_company
 import process_email
 import radar_common
@@ -253,6 +254,217 @@ def main() -> int:
     check(radar_common.life_state({"first_seen": fresh_s},
                                   now_s) == "live",
           "a legacy mapping without the lifecycle keys judges on first_seen")
+
+    # ----- the page checker's ladder, over the saved page shapes
+    fixtures = REPO_ROOT / "test" / "fixtures" / "linkedin"
+    pages = {name: (fixtures / f"{name}.html").read_text(encoding="utf-8")
+             for name in ("live", "closed", "renamed", "noh1", "ambiguous")}
+    jid = "4482760631"
+    job_url = f"https://www.linkedin.com/jobs/view/{jid}/"
+    title = "Principal Medical Device Engineer"
+
+    verdict, why = check_jobs.classify(
+        200, "https://www.linkedin.com/jobs/search/?trk=expired_jd_redirect",
+        "<html>search results</html>", title, jid)
+    check(verdict == "gone",
+          f"the expired redirect reads gone (got {verdict})")
+    verdict, why = check_jobs.classify(200, job_url, pages["closed"],
+                                       title, jid)
+    check(verdict == "closed",
+          f"the closed marker with no apply button reads closed (got {verdict})")
+    verdict, why = check_jobs.classify(200, job_url, pages["live"],
+                                       title, jid)
+    check(verdict == "live",
+          "a live page reads live on title, button and posting id,"
+          f" no JSON-LD needed (got {verdict})")
+    verdict, why = check_jobs.classify(429, job_url, "", title, jid)
+    check(verdict == "unknown",
+          f"a 429 reads unknown, never closed (got {verdict})")
+    verdict, why = check_jobs.classify(
+        200, "https://www.linkedin.com/authwall?sessionRedirect=x",
+        "<html>sign in</html>", title, jid)
+    check(verdict == "unknown", f"the authwall reads unknown (got {verdict})")
+    verdict, why = check_jobs.classify(200, job_url, pages["renamed"],
+                                       title, jid)
+    check(verdict == "unknown",
+          f"a renamed advert reads unknown, not live (got {verdict})")
+    verdict, why = check_jobs.classify(200, job_url, pages["noh1"],
+                                       title, jid)
+    check(verdict == "unknown",
+          f"a page with no h1 reads unknown (got {verdict})")
+    verdict, why = check_jobs.classify(200, job_url, pages["ambiguous"],
+                                       title, jid)
+    check(verdict == "unknown",
+          f"a closed marker beside an apply button reads unknown (got {verdict})")
+    verdict, why = check_jobs.classify(200, job_url, pages["live"],
+                                       title, "999")
+    check(verdict == "unknown",
+          f"a posting id mismatch reads unknown (got {verdict})")
+    verdict, why = check_jobs.classify(404, job_url, "", title, jid)
+    check(verdict == "unknown",
+          f"a bare 404 reads unknown, never closed (got {verdict})")
+    check(check_jobs.job_view_id(
+        "https://www.linkedin.com/comm/jobs/view/4441461574/?trackingId=x")
+        == "4441461574", "the job id parses out of a stored comm URL")
+
+    # ----- the page checker. Selection, the capped run and the stamps.
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "checker.sqlite"
+        conn = radar_common.get_db(db)
+
+        def plant(key, tier, seen, source_url=None, **extra):
+            cols = {"url_hash": key, "first_seen": seen, "last_seen": seen,
+                    "title": title, "company": "Veritas Medical",
+                    "tier": tier,
+                    "source_url": source_url
+                    or f"https://www.linkedin.com/jobs/view/{key}/"}
+            cols.update(extra)
+            conn.execute(
+                f"INSERT INTO opportunities ({', '.join(cols)}) VALUES"
+                f" ({', '.join('?' for _ in cols)})", tuple(cols.values()))
+            return conn.execute("SELECT id FROM opportunities WHERE"
+                                " url_hash = ?", (key,)).fetchone()["id"]
+
+        a = plant("111", "top", "2026-10-20T00:00:00Z")
+        b = plant("222", "question", "2026-10-08T00:00:00Z")
+        c = plant("333", "question", "2026-10-13T00:00:00Z")
+        i = plant("444", "question", "2026-09-25T00:00:00Z",
+                  last_checked_at="2026-10-28T00:00:00Z",
+                  last_check_result="unknown")
+        d = plant("555", "top", "2026-11-05T00:00:00Z")
+        e = plant("666", "top", "2026-10-20T00:00:00Z",
+                  last_checked_at="2026-11-04T00:00:00Z",
+                  last_check_result="unknown")
+        plant("777", "reading", "2026-10-20T00:00:00Z")
+        plant("888", "top", "2026-10-20T00:00:00Z",
+              closed_at="2026-11-01T00:00:00Z", closed_source="manual")
+        plant("999", "top", "2026-10-20T00:00:00Z",
+              source_url="https://example.com/role/1")
+        conn.commit()
+
+        due = check_jobs.due_candidates(conn, now_s)
+        check([r["id"] for r in due] == [a, i, b, c],
+              "due is top first then stalest liveness, and fresh, recently"
+              " checked, reading, closed and off-site rows are left out")
+
+        gone_url = ("https://www.linkedin.com/jobs/search/"
+                    "?position=1&trk=expired_jd_redirect")
+        responses = {
+            "111": (200, "https://www.linkedin.com/jobs/view/111/",
+                    pages["live"].replace(jid, "111")),
+            "222": (200, "https://www.linkedin.com/jobs/view/222/",
+                    pages["closed"]),
+            "333": (200, gone_url, "<html>search</html>"),
+            "444": (200, "https://www.linkedin.com/jobs/view/444/",
+                    pages["noh1"]),
+        }
+        calls = []
+
+        def fake_fetch(url):
+            calls.append(url)
+            return responses[check_jobs.job_view_id(url)]
+
+        def no_pause():
+            return None
+
+        real_fetch = check_jobs.fetch_job_page
+        check_jobs.fetch_job_page = fake_fetch
+        try:
+            trial = check_jobs.run_checks(conn, cap=2, write=False,
+                                          now=now_s, pause=no_pause)
+            check(trial["checked"] == 2 and len(calls) == 2,
+                  "the cap holds, two fetches for a cap of two")
+            unstamped = conn.execute(
+                "SELECT COUNT(*) AS n FROM opportunities"
+                " WHERE last_checked_at IS NOT NULL"
+                " AND last_checked_at > '2026-11-06'").fetchone()["n"]
+            check(unstamped == 0, "a dry run writes nothing")
+
+            calls.clear()
+            run = check_jobs.run_checks(conn, cap=25, write=True,
+                                        now=now_s, pause=no_pause)
+            check(run["due"] == 4 and run["checked"] == 4,
+                  "the live run checks all four due rows")
+            check(run["closed"] == 2 and run["verdicts"].get("live") == 1
+                  and run["verdicts"].get("unknown") == 1,
+                  "the verdicts land one live, one closed, one gone,"
+                  " one unknown, two rows retired")
+            rows = {r["url_hash"]: dict(r) for r in conn.execute(
+                "SELECT * FROM opportunities")}
+            check(rows["111"]["last_check_result"] == "live"
+                  and rows["111"]["closed_at"] is None,
+                  "the live page stamps live and closes nothing")
+            check(radar_common.life_state(rows["111"]) == "live",
+                  "a stale sighting with a fresh live check reads live")
+            check(rows["222"]["last_check_result"] == "closed"
+                  and rows["222"]["closed_at"] is not None
+                  and rows["222"]["closed_source"] == "page_check",
+                  "the closed page closes the row, confirmed by page_check")
+            check(rows["333"]["last_check_result"] == "gone"
+                  and rows["333"]["closed_source"] == "page_check",
+                  "the expired redirect closes the row the same way")
+            check(rows["444"]["last_check_result"] == "unknown"
+                  and rows["444"]["closed_at"] is None,
+                  "an unknown verdict stamps the check and changes no state")
+            check(radar_common.life_state(rows["222"]) == "closed",
+                  "a page_check close derives closed like a manual one")
+
+            calls.clear()
+            again = check_jobs.run_checks(conn, cap=25, write=True,
+                                          now=now_s, pause=no_pause)
+            check(again["due"] == 0 and not calls,
+                  "a second run finds nothing due, checked rows wait a week")
+
+            j = plant("1212", "question", "2026-09-01T00:00:00Z")
+            k = plant("1313", "question", "2026-09-10T00:00:00Z")
+            conn.commit()
+            responses["1212"] = (
+                429, "https://www.linkedin.com/jobs/view/1212/", "")
+            responses["1313"] = (
+                200, "https://www.linkedin.com/jobs/view/1313/",
+                pages["noh1"])
+            stopped = check_jobs.run_checks(conn, cap=25, write=True,
+                                            now=now_s, pause=no_pause)
+            check(stopped["due"] == 2 and stopped["checked"] == 1,
+                  "a 429 ends the run, the rest of the batch waits")
+            row_j = conn.execute(
+                "SELECT last_check_result FROM opportunities WHERE id = ?",
+                (j,)).fetchone()
+            row_k = conn.execute(
+                "SELECT last_checked_at FROM opportunities WHERE id = ?",
+                (k,)).fetchone()
+            check(row_j["last_check_result"] == "unknown"
+                  and row_k["last_checked_at"] is None,
+                  "the rate-limited row stamps unknown, the next is untouched")
+            check(any("429" in n for n in stopped["notes"]),
+                  "the stop is named in the run notes")
+
+            responses["1313"] = (
+                0, "https://www.linkedin.com/jobs/view/1313/", "")
+            failed = check_jobs.run_checks(conn, cap=25, write=True,
+                                           now=now_s, pause=no_pause)
+            still_k = conn.execute(
+                "SELECT last_checked_at FROM opportunities WHERE id = ?",
+                (k,)).fetchone()
+            check(failed["checked"] == 0
+                  and still_k["last_checked_at"] is None,
+                  "a network failure stops the run and stamps nothing")
+
+            responses["555"] = (
+                200, "https://www.linkedin.com/jobs/view/555/",
+                pages["live"].replace(jid, "555"))
+            spot = check_jobs.run_checks(conn, only_id=d, write=False,
+                                         now=now_s, pause=no_pause)
+            check(spot["checked"] == 1
+                  and spot["checks"][0]["verdict"] == "live",
+                  "a spot check by id bypasses the due gate")
+        finally:
+            check_jobs.fetch_job_page = real_fetch
+        check(conn.execute(
+            "SELECT last_checked_at FROM opportunities WHERE id = ?",
+            (e,)).fetchone()["last_checked_at"] == "2026-11-04T00:00:00Z",
+              "a row checked three days ago was never re-asked")
+        conn.close()
 
     # ----- the retirement migration, once per database ever
     import sqlite3 as sqlite3_mod

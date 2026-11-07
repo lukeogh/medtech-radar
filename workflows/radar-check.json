@@ -1,0 +1,138 @@
+{
+  "id": "radarcheck00001",
+  "name": "Radar Page Check",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Radar page check\n\nAsks the public page for every top or question role with no liveness signal in seven days. One run a day, 25 fetches at most, 8 to 12 seconds apart. Gone and closed each need their documented marker; unknown changes nothing and the row is asked again next week.\n\nArming steps.\n1. Set repo_path and python_bin in the Config node if the defaults are wrong.\n2. Run one capped batch by hand from the host: `python3 scripts/check_jobs.py --dry-run`\n3. Eyeball every classification in the printed JSON against the pages before trusting it.\n4. Edit the Check pages node and change `--dry-run` to `--live`.\n5. Activate the workflow.\n\nPoliteness lives in the script, not here. Sequential fetches, a hard cap, no retries, and a 429 ends the run. Re-runs are safe, a checked row is not asked again inside a week.",
+        "width": 420,
+        "height": 420
+      },
+      "id": "2a7e9c14-6b3f-4d82-9e5a-1c8d4f7b0a26",
+      "name": "How to arm this",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 10,
+              "triggerAtMinute": 15
+            }
+          ]
+        }
+      },
+      "id": "d93f5a28-1c7e-46b4-8f0d-6a2b9e4c3d81",
+      "name": "Once a day",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7b4c2e90-5d1a-48f3-a6c8-3e9f0b7d2a54",
+              "name": "repo_path",
+              "value": "/data/medtech-radar",
+              "type": "string"
+            },
+            {
+              "id": "4e8a1d37-9f2b-45c6-b0e4-8c5d7a3f1b92",
+              "name": "python_bin",
+              "value": "python3",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "a1f6d8b3-4c2e-49a7-8b5f-0d9e6c4a2f78",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "command": "={{ $json.python_bin }} {{ $json.repo_path }}/scripts/check_jobs.py --dry-run --cap 25"
+      },
+      "id": "f2c8e5a9-7d4b-41f6-9a3c-5b0e8d2f6c17",
+      "name": "Check pages",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pull the result JSON out of the script's stdout so the execution log\n// shows the verdicts and every classification at a glance.\nconst out = [];\nfor (const item of $input.all()) {\n  const stdout = item.json.stdout || '';\n  const start = stdout.indexOf('{');\n  let summary;\n  try {\n    summary = start >= 0 ? JSON.parse(stdout.slice(start)) : { note: 'no JSON in stdout', stderr: item.json.stderr || '' };\n  } catch (err) {\n    summary = { note: 'could not parse stdout', error: String(err), stdout: stdout.slice(0, 500) };\n  }\n  out.push({ json: summary });\n}\nreturn out;"
+      },
+      "id": "c5b9f3e7-2a8d-47c1-b6e9-4f0a7d5c8b32",
+      "name": "Summarise run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Once a day": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Check pages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check pages": {
+      "main": [
+        [
+          {
+            "node": "Summarise run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
