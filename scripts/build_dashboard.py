@@ -208,37 +208,6 @@ def rate_metrics(conn, floor, days: int = 90) -> dict:
     }
 
 
-def source_yield(conn, threshold: int, fast: int) -> dict:
-    """Arrivals and hits per source, over 30 and 90 days.
-
-    The point is that the next source going quiet, or going noisy, is
-    visible without anyone counting by hand. Boards are read from
-    opportunities.source and watched sources from signals.source_id,
-    because they are different pipelines that happen to end in the same
-    database.
-    """
-    now = datetime.now(timezone.utc)
-    windows = {d: (now - timedelta(days=d)).strftime("%Y-%m-%dT%H:%M:%SZ")
-               for d in (30, 90)}
-    out = {"boards": {}, "watched": {}}
-    for days, since in windows.items():
-        for r in conn.execute(
-                "SELECT COALESCE(source,'unknown') s, COUNT(*) n,"
-                " SUM(CASE WHEN combined >= ? THEN 1 ELSE 0 END) hits"
-                " FROM opportunities WHERE first_seen > ? GROUP BY s",
-                (threshold, since)):
-            out["boards"].setdefault(r["s"], {})[days] = {
-                "arrivals": r["n"], "hits": r["hits"] or 0}
-        for r in conn.execute(
-                "SELECT COALESCE(source_id,'unknown') s, COUNT(*) n,"
-                " SUM(CASE WHEN relevance >= ? THEN 1 ELSE 0 END) hits"
-                " FROM signals WHERE first_seen > ? GROUP BY s",
-                (threshold, since)):
-            out["watched"].setdefault(r["s"], {})[days] = {
-                "arrivals": r["n"], "hits": r["hits"] or 0}
-    return out
-
-
 def deaths_by_gate(conn, days: int = 90) -> dict:
     """Which gate killed what, over the trailing window.
 
@@ -263,23 +232,6 @@ def deaths_by_gate(conn, days: int = 90) -> dict:
             continue
     return {"days": days, "gated": gated,
             "counts": sorted(counts.items(), key=lambda kv: -kv[1])}
-
-
-def score_histogram(conn, threshold: int, days: int = 90, bucket: int = 10):
-    """Combined scores in buckets, so the bar's placement can be judged.
-
-    A threshold is a guess until you can see the shape it cuts through.
-    """
-    since = (datetime.now(timezone.utc)
-             - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    buckets = {}
-    for r in conn.execute(
-            "SELECT combined FROM opportunities WHERE first_seen > ?"
-            " AND combined IS NOT NULL", (since,)):
-        b = min(int(r["combined"]) // bucket * bucket, 90)
-        buckets[b] = buckets.get(b, 0) + 1
-    return {"bucket": bucket, "threshold": threshold, "days": days,
-            "buckets": [(b, buckets.get(b, 0)) for b in range(0, 100, bucket)]}
 
 
 def traction_metrics(conn, config: dict) -> dict:
@@ -476,9 +428,11 @@ def collect(conn, config) -> dict:
         monday = d - timedelta(days=d.weekday())
         return monday.strftime("%Y-%m-%d")
 
+    # A prospect is a top or one-question role, what the digest sends.
+    # combined is history and would read zero forever here.
     prospects_by_week: dict[str, int] = {}
     for o in all_opportunities:
-        if (o.get("combined") or 0) >= threshold:
+        if o.get("tier") in ("top", "question"):
             wk = week_bucket(o.get("first_seen"))
             if wk:
                 prospects_by_week[wk] = prospects_by_week.get(wk, 0) + 1
@@ -521,7 +475,7 @@ def collect(conn, config) -> dict:
     month_prev = (now.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
     month_prospects = {"this": 0, "last": 0}
     for o in all_opportunities:
-        if (o.get("combined") or 0) >= threshold:
+        if o.get("tier") in ("top", "question"):
             month = (o.get("first_seen") or "")[:7]
             if month == month_now:
                 month_prospects["this"] += 1
@@ -554,7 +508,6 @@ def collect(conn, config) -> dict:
         "traction": traction_metrics(conn, config),
         "connectors": connector_circle(conn, config),
         "rate_metrics": rate_metrics(conn, floor),
-        "source_yield": source_yield(conn, threshold, fast),
         "deaths_by_gate": deaths_by_gate(conn),
         "tiers": {t: [o for o in opportunities if (o.get("tier") or "") == t]
                   for t in ("top", "question", "reading", "filtered")},
@@ -608,40 +561,114 @@ def source_link(url, text: str) -> str:
             f'{esc(text)}</a>')
 
 
-RATE_WORDS = {"above": "Above", "close": "Close", "below": "Below",
-              "unstated": "Unstated"}
-
-
-def rate_cell(o: dict) -> str:
-    band = (o.get("rate_band") or "unstated").lower()
-    word = RATE_WORDS.get(band, "Unstated")
-    return f'<span class="col-rate rate-{esc(band)}">{esc(word)}</span>'
-
-
 def rate_detail(o: dict) -> str:
-    """The arithmetic behind the band, spelled out in the row detail.
+    """The advert's own words on pay, verbatim and nothing else (J9)."""
+    return (o.get("salary_rate") or "").strip() or "No usable figure stated."
 
-    Code-computed pay display lives here on purpose. The ban on pay words
-    covers model-written free text, the column and this line are exactly
-    where pay now belongs.
+
+def liveness_age_days(o: dict) -> int | None:
+    """Whole days since the row's newest sign of life."""
+    newest = radar_common.latest_liveness(o)
+    try:
+        then = datetime.strptime(str(newest), "%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, TypeError):
+        return None
+    moment = datetime.now(timezone.utc).replace(tzinfo=None)
+    return max(0, (moment - then).days)
+
+
+def _ago(days) -> str:
+    if days is None:
+        return "an unknown while ago"
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "yesterday"
+    return f"{days} days ago"
+
+
+def state_cell(o: dict) -> str:
+    """Live or Unknown on the row itself (J12). Closed never renders."""
+    state = radar_common.life_state(o)
+    word = "Live" if state == "live" else "Unknown"
+    return f'<span class="col-state state-{esc(state)}">{word}</span>'
+
+
+def state_detail(o: dict) -> str:
+    """The state spelled out in plain words, with its age (J12)."""
+    state = radar_common.life_state(o)
+    days = liveness_age_days(o)
+    if state == "live":
+        return f"Live, a sign of life {_ago(days)}."
+    first = fmt_day(o.get("first_seen"))
+    return (f"Unknown, nothing seen since {_ago(days)}."
+            + (f" First seen {first}." if first else ""))
+
+
+def collapse_roles(rows: list) -> list:
+    """One row per role (J18). The freshest advert is the face.
+
+    Groups by role_key, keeps the advert with the newest sign of life,
+    rolls the chain's locations up for the meta line and hands the
+    counts to the detail. A row without a key stands alone. The face
+    carries the chain's freshest liveness by construction, so the state
+    chip and the sort both read true for the role.
     """
-    verbatim = (o.get("salary_rate") or "").strip()
-    rate = o.get("day_rate")
-    if rate is not None:
-        converted = f"About £{round(rate):,} a day converted."
-        return f"{verbatim} {converted}".strip() if verbatim else converted
-    return verbatim or "No usable figure stated."
+    groups: dict = {}
+    order = []
+    for o in rows:
+        key = o.get("role_key") or f"row-{o.get('id')}"
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(o)
+    out = []
+    for key in order:
+        group = sorted(groups[key], key=radar_common.latest_liveness,
+                       reverse=True)
+        face = group[0]
+        if len(group) > 1:
+            face = dict(face)
+            locations = []
+            for o in group:
+                loc = str(o.get("location") or "").strip()
+                if loc and loc not in locations:
+                    locations.append(loc)
+            face["_chain"] = {
+                "adverts": len(group),
+                "sightings": sum(o.get("seen_count") or 1 for o in group),
+                "first": min(o.get("first_seen") or "" for o in group),
+                "locations": locations,
+            }
+        out.append(face)
+    return out
 
 
 def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
+    """One role, one row. Keyed on the tier and the derived state.
+
+    combined is history and shapes nothing here any more. A collapsed
+    repost chain hands its face row a _chain dict, locations rolled up
+    and the counts for the detail (J18).
+    """
     did = f"d-o{i}"
-    review = o["combined"] is None
-    meta_bits = [b for b in (o.get("company"), o.get("location"),
+    chain = o.get("_chain") or {}
+    locations = [str(loc) for loc in (chain.get("locations") or []) if loc]
+    if not locations and o.get("location"):
+        locations = [str(o["location"])]
+    if len(locations) > 3:
+        loc_text = f"{locations[0]} and {len(locations) - 1} more locations"
+    else:
+        loc_text = " / ".join(locations)
+    meta_bits = [b for b in (o.get("company"), loc_text,
                              o.get("salary_rate")) if b]
     meta = ". ".join(str(b) for b in meta_bits)
-    why = o.get("one_line_why") or (
-        "The scorer could not score this one, so a human look is due."
-        if review else "")
+    # The question a conversation could settle leads a question-tier row
+    # (J7, J8); everything else leads with the scorer's verdict.
+    if o.get("tier") == "question" and o.get("question_text"):
+        why = o["question_text"]
+    else:
+        why = o.get("one_line_why") or ""
     out = [row_open(did, "row-acked" if acked else ""),
            '<span class="row-main"><span class="row-head">',
            f'<span class="row-title">{esc(o.get("title") or "Untitled role")}</span>']
@@ -652,35 +679,28 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
         out.append(f'<span class="row-why">{esc(sentence(why))}</span>')
     out.append("</span>")
 
-    # The buying window is a fact about our own history, so it shows on both
-    # branches. An advert that could not be scored still tells us the company
-    # is hiring, and that is the whole of the signal.
-    window_chip = ('<span class="chip">buying window</span>'
-                   if o.get("buying_window") else "")
-    if review:
-        out.append('<span class="col-score">&ndash;</span>')
-        out.append(rate_cell(o))
-        out.append(window_chip)
-        if not acked:
-            out.append('<span class="chip chip-fail">review</span>')
-    else:
-        hot = " col-score-hot" if (o["combined"] or 0) >= data["threshold"] else ""
-        out.append(f'<span class="col-cv">{o["cv_match"]}</span>'
-                   f'<span class="col-want">{o["want_match"]}</span>'
-                   f'<span class="col-score{hot}">{o["combined"]}</span>')
-        out.append(rate_cell(o))
-        out.append(window_chip)
+    if o.get("cv_match") is not None:
+        out.append(f'<span class="col-cv">{o["cv_match"]}</span>')
+    out.append(state_cell(o))
+    # The one prominent flag (J8): silence about pay is information.
+    if (o.get("rate_band") or "unstated") == "unstated":
+        out.append('<span class="chip">rate not stated</span>')
     if acked:
         out.append(f'<span class="chip">seen {fmt_day(o.get("acknowledged_at"))}</span>')
-    out.append(f'<span class="col-when">{fmt_day(o.get("first_seen"))}</span>')
+    out.append(f'<span class="col-when">{esc(_ago(liveness_age_days(o)))}</span>')
 
-    parts = [labelled("Rate", rate_detail(o))]
-    if o.get("buying_window"):
-        parts.append(labelled(
-            "Buying window",
-            "This company is already in the touch log, so the advert is the "
-            "playbook's buying-window moment whatever the job score says. "
-            "The insight, and the move to make, wait on the Insights page."))
+    parts = [labelled("State", state_detail(o)),
+             labelled("Rate", rate_detail(o))]
+    if o.get("tier"):
+        failed = []
+        try:
+            failed = [str(g) for g in json.loads(o.get("failed_gates") or "[]")]
+        except (ValueError, TypeError):
+            pass
+        gates = ("All four gates passed." if o["tier"] == "top" and not failed
+                 else "Failed " + ", ".join(failed) + "." if failed
+                 else "No gate failed.")
+        parts.append(labelled("Gates", gates))
     flags = []
     try:
         flags = [str(f) for f in json.loads(o.get("red_flags") or "[]")]
@@ -690,17 +710,18 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
         items = "".join(f"<li>{esc(f)}</li>" for f in flags)
         parts.append(f'<span class="detail-label">Red flags</span>'
                      f'<ul class="flags">{items}</ul>')
-    if review:
+    if not o.get("tier"):
         parts.append(labelled(
             "Next step",
             "Re-score it once the cause is fixed. It stays out of the digest "
             "until then."))
         parts.append("<code>python scripts/rescore.py</code>")
-    else:
-        action = sentence(o.get("suggested_action") or "No action suggested.")
-        if o.get("act_by"):
-            action += f" Act by {fmt_day(o['act_by'])}."
-        parts.append(labelled("Next step", action))
+    if chain.get("adverts", 0) > 1:
+        parts.append(
+            f'<div class="row-sub">Seen {chain.get("sightings", 0)} times '
+            f'across {chain["adverts"]} adverts since '
+            f'{esc(fmt_day(chain.get("first")))}. A verdict here covers '
+            'the whole chain.</div>')
     if o.get("cv_version"):
         parts.append(f'<div class="row-sub">Scored against {esc(o["cv_version"])}.</div>')
     parts.append(f'<div class="row-sub">Via {esc(via(o.get("source")))}.</div>')
@@ -1077,8 +1098,8 @@ a:hover{text-decoration-color:var(--accent)}
 .col-score{grid-column:5}
 .col-score-hot{color:var(--ink-1);font-weight:var(--weight-strong)}
 .col-rate{grid-column:6;font:var(--weight-medium) var(--text-xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;white-space:nowrap;text-align:center;color:var(--ink-3)}
-.rate-above{color:var(--settled);font-weight:var(--weight-strong)}
-.rate-close{color:var(--ink-2)}
+.col-state{grid-column:5;font:var(--weight-medium) var(--text-xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;white-space:nowrap;text-align:center;color:var(--ink-3)}
+.state-live{color:var(--ink-1);font-weight:var(--weight-strong)}
 .panel-head .h-rate{grid-column:6;text-align:center}
 .legend{font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);margin:var(--space-8) 0 0;max-width:none;text-wrap:pretty}
 .tabs{display:inline-flex;gap:var(--space-16);align-items:baseline;margin-right:var(--space-16)}
@@ -1166,6 +1187,7 @@ a:hover{text-decoration-color:var(--accent)}
 .panel-head .h-cv{grid-column:3;text-align:center}
 .panel-head .h-want{grid-column:4;text-align:center}
 .panel-head .h-score{grid-column:5;text-align:center}
+.panel-head .h-state{grid-column:5;text-align:center}
 .panel-head .h-chip{grid-column:7;text-align:center}
 .panel-head .h-when{grid-column:8;text-align:center}
 .chip{display:inline-block;font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);border-radius:var(--radius-pill);padding:1px 8px;border:1px solid var(--hairline-strong);color:var(--ink-3);white-space:nowrap}
@@ -1203,6 +1225,7 @@ code{font:400 var(--text-xs)/1.55 var(--font-mono);background:var(--surface);bor
   .panel-head{display:none}
   .row-summary{grid-template-columns:12px minmax(0,1fr) auto;column-gap:var(--space-12);row-gap:var(--space-6)}
   .col-cv,.col-want,.col-rate{display:none}
+  .col-state{grid-column:3;text-align:right}
   .col-score{grid-column:3;text-align:right}
   .col-score::before{content:"combined ";font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3)}
   .row-summary > .chip{grid-column:2;justify-self:start}
@@ -1408,19 +1431,6 @@ def board_title_html(s: dict) -> str:
     return html
 
 
-def rate_legend(floor) -> str:
-    if floor is None:
-        return ("Rate bands need the day_rate_floor_gbp line in the "
-                "preferences file, and it is missing, so everything reads "
-                "Unstated until it returns.")
-    f = f"£{round(floor):,}"
-    lo = f"£{round(floor) - 50:,}"
-    return (f"Rate bands sit against the {f} a day floor from the "
-            f"preferences file. Above meets it, Close is under by up to "
-            f"£50, so {lo} and up, Below is under by more, and a stated "
-            "range is banded on its top, the best case. Salaries convert "
-            "at 220 working days a year, hours at eight a day, euros at "
-            "the static rate in radar.yaml.")
 
 
 def render_page(data: dict, config: dict, db_label: str, out: Path,
@@ -1431,12 +1441,10 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
     data["serve"] = serve
 
     opp_head = ('<div class="panel-head"><span></span><span>Role</span>'
-                '<span class="h-cv">Capability</span>'
-                '<span class="h-want">Desire</span>'
-                '<span class="h-score">Combined</span>'
-                '<span class="h-rate">Rate</span>'
+                '<span class="h-cv">CV match</span>'
+                '<span class="h-state">State</span>'
                 '<span class="h-chip"></span>'
-                '<span class="h-when">Seen</span></div>')
+                '<span class="h-when">Last seen</span></div>')
     sig_head = ('<div class="panel-head"><span></span><span>What happened</span>'
                 '<span class="h-score">Relevance</span>'
                 '<span class="h-chip">Push</span>'
@@ -1578,7 +1586,7 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
          f"{data['threshold']}. Acknowledged rows leave this view and the "
          "digest but never the database, so a seen advert can never "
          "resurface.", "panel-blue", opp_body,
-         legend=rate_legend(data["floor"]), head_extra=ack_toggle)}
+         head_extra=ack_toggle)}
 {section("Signals", 0 if fresh else len(data["signals"]),
          "Funding, spin-offs and accelerator entries. Hiring news lives on "
          f"the Jobs page. At {data['fast']} the phone gets a push once the "
@@ -1704,6 +1712,64 @@ def _story_card(s: dict, data: dict, lead: bool = False,
             + f'<p class="story-meta" style="margin-top:10px">{meta}.'
             + (f" {link}" if link else "") + "</p>" + actions
             + "</article>")
+
+
+def rates_panel_html(data: dict) -> str:
+    """What the market paid, the trailing 90 days. Market intel, so it
+    lives on Insights with the rest of the reading (J11)."""
+    rm = data.get("rate_metrics") or {}
+
+    def money(v):
+        return f"£{v:,.0f}" if isinstance(v, (int, float)) else "not known"
+
+    share = (f"{round(100 * rm.get('unstated', 0) / rm['total'])}%"
+             if rm.get("total") else "no data")
+    months = "".join(
+        f'<li><span class="num">{money(med)}</span>{esc(m)}, {n} stated</li>'
+        for m, med, n in (rm.get("by_month") or [])[-4:])
+    return (
+        '<section class="section"><div class="section-head"><h2>Rates</h2></div>'
+        '<div class="widget" style="margin-top:12px"><h4>The trailing 90 days'
+        + info_tip(
+            "Median and range of the converted day rate, over adverts that "
+            "actually stated pay. Adverts that stated none are counted but "
+            "never averaged, because silence is not a number and folding it "
+            "into a median would drag the answer toward whatever the quiet "
+            "adverts happen to be.")
+        + '</h4><ul>'
+        + f'<li><span class="num">{money(rm.get("median"))}</span>median day '
+          f'rate, against a floor of {money(rm.get("floor"))}</li>'
+        + f'<li><span class="num">{money(rm.get("low"))} to {money(rm.get("high"))}'
+          f'</span>the spread</li>'
+        + f'<li><span class="num">{rm.get("stated", 0)}</span>adverts stated a '
+          f'rate, {rm.get("above_floor", 0)} of them at or above the floor</li>'
+        + f'<li><span class="num">{share}</span>said nothing about pay at all, '
+          f'{rm.get("unstated", 0)} of {rm.get("total", 0)}</li>'
+        + '</ul>'
+        + (f'<p class="legend">By month, median of what was stated.</p><ul>{months}</ul>'
+           if months else "")
+        + '</div></section>')
+
+
+def deaths_panel_html(data: dict) -> str:
+    """Which gate killed what, the trailing 90 days. Same move as the
+    rates panel, reading matter rather than a working list."""
+    dg = data.get("deaths_by_gate") or {}
+    gate_rows = "".join(
+        f'<li><span class="num">{n}</span>{esc(g)}</li>'
+        for g, n in (dg.get("counts") or []) if n)
+    if not gate_rows:
+        return ""
+    return (
+        '<div class="widget" style="margin-top:12px"><h4>Deaths by gate, 90 days'
+        + info_tip(
+            "Which gate killed what. A gate that keeps firing on the same "
+            "kind of role names a recurring gap, which is the first "
+            "instrument for the skills question and needs no ledger to be "
+            "useful.")
+        + f'</h4><ul>{gate_rows}</ul>'
+          f'<p class="legend">{dg.get("gated", 0)} roles gated in the window.</p>'
+          '</div>')
 
 
 def render_insights_page(data: dict, config: dict, db_label: str) -> str:
@@ -1858,6 +1924,14 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
                            for s in dismissed)
                  + "</div></details>")
 
+    # The jobs-market widgets, moved here from the Jobs page. Rates and
+    # deaths by gate are things to read on a longer break, exactly what
+    # this page is for, and Jobs stays roles only (J11).
+    market_fold = (
+        '<details class="sources-fold"><summary>The jobs market. Rates '
+        'and deaths by gate, from the Jobs pipeline.</summary>'
+        + rates_panel_html(data) + deaths_panel_html(data) + '</details>')
+
     sources_fold = (
         f'<details class="sources-fold"><summary>Sources. {watched} '
         f"watched, {answering} answering. Where this page's information "
@@ -1894,6 +1968,7 @@ like a front page. Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
 </div>
 </header>
 {body}
+{market_fold}
 {sources_fold}
 </main>
 <script>{SCRIPT}{INSIGHTS_SCRIPT}{COPY_SCRIPT}</script>
@@ -2250,7 +2325,7 @@ def render_home_page(data: dict, config: dict, db_label: str) -> str:
 <li><span class="num">{len(new_this_week)}</span>new {"job" if len(new_this_week) == 1 else "jobs"} this week</li>
 <li><span class="num">{data["week_new"]}</span>through the pipeline, {max(0, data["week_seen"] - data["week_new"])} duplicates skipped</li>
 </ul></div>
-<div class="widget"><h4>Top prospects, week on week{info_tip(f"A top prospect scores {data['threshold']} or higher combined, the digest bar. Bars are Monday-to-Sunday weeks, and the month figures sit beneath for the slower trend.")}</h4>
+<div class="widget"><h4>Top prospects, week on week{info_tip("A prospect is a role in the top or one-question-away tiers, what the digest sends. Bars are Monday-to-Sunday weeks, and the month figures sit beneath for the slower trend.")}</h4>
 <div class="bars">{wp_bars}</div>
 <p class="bars-label"><span>eight weeks ago</span><span>this week</span></p>
 <ul style="margin-top:8px">
@@ -2297,7 +2372,7 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
 
     n_threads = len(data["threads"])
     n_age = len(data["ageing"])
-    n_review = sum(1 for o in active if o.get("combined") is None)
+    n_review = sum(1 for o in active if not o.get("tier"))
     # A booked date that has arrived is the difference between a thread
     # waiting and a thread late. Today counts as due, not overdue.
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -2313,8 +2388,8 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
             f'next move{due_note}</li>')
     if n_age:
         attention_bits.append(
-            f'<li><span class="num">{n_age}</span>above the bar and '
-            'sitting still over a fortnight</li>')
+            f'<li><span class="num">{n_age}</span>unknown for over a '
+            'month, the Ageing list</li>')
     if n_review:
         attention_bits.append(
             f'<li><span class="num">{n_review}</span>awaiting a score, '
@@ -2473,111 +2548,18 @@ JOBS_SCRIPT = """
 
 
 def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
-    """The Jobs page. Top prospects first, then one section per board.
+    """The Jobs page. Tiers in the draft's order, one row per role.
 
-    Every board gets its section whether or not it has sent anything,
-    because an empty section under a board's own name says "subscribe the
-    inbox there" louder than absence ever could. The metrics strip at the
-    top exists to build trust that the machinery is alive, last run, this
-    week's flow, and the freshness of each board's most recent email.
+    Top prospects, One question away, Reading, Ageing, then Needs
+    review and the Filtered roll-up (J2). Within a tier the freshest
+    sighting leads (J3), a repost chain collapses to its newest advert
+    (J18), and every row carries Live or Unknown, never a closed role
+    (J12). Telemetry lives on Home, the market widgets on Insights;
+    this page is roles and the add-source strip (J11).
     """
     data["serve"] = True
     now = radar_common.now_iso()
-    active = data["opportunities"]
-    week_ago = (datetime.now(timezone.utc)
-                - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    everything = active + (data.get("acknowledged") or [])
-
-
     counter = 0
-    scored = [o for o in active if o.get("combined") is not None]
-    prospects = sorted(scored, key=lambda o: -(o["combined"] or 0))[:5]
-    if prospects:
-        rows = [opp_head_html()]
-        for o in prospects:
-            counter += 1
-            rows.append(render_opportunity(o, data, counter))
-        prospects_body = "".join(rows)
-    else:
-        prospects_body = ('<p class="empty">Nothing scored yet. The top of '
-                          'the pile appears here as roles land.</p>')
-    # ---- What the market paid, and what the machine is judging it against.
-    rm = data.get("rate_metrics") or {}
-    def money(v):
-        return f"£{v:,.0f}" if isinstance(v, (int, float)) else "not known"
-    share = (f"{round(100 * rm.get('unstated', 0) / rm['total'])}%"
-             if rm.get("total") else "no data")
-    months = "".join(
-        f'<li><span class="num">{money(med)}</span>{esc(m)}, {n} stated</li>'
-        for m, med, n in (rm.get("by_month") or [])[-4:])
-    rates_panel = (
-        '<section class="section"><div class="section-head"><h2>Rates</h2></div>'
-        '<div class="widget" style="margin-top:12px"><h4>The trailing 90 days'
-        + info_tip(
-            "Median and range of the converted day rate, over adverts that "
-            "actually stated pay. Adverts that stated none are counted but "
-            "never averaged, because silence is not a number and folding it "
-            "into a median would drag the answer toward whatever the quiet "
-            "adverts happen to be.")
-        + '</h4><ul>'
-        + f'<li><span class="num">{money(rm.get("median"))}</span>median day '
-          f'rate, against a floor of {money(rm.get("floor"))}</li>'
-        + f'<li><span class="num">{money(rm.get("low"))} to {money(rm.get("high"))}'
-          f'</span>the spread</li>'
-        + f'<li><span class="num">{rm.get("stated", 0)}</span>adverts stated a '
-          f'rate, {rm.get("above_floor", 0)} of them at or above the floor</li>'
-        + f'<li><span class="num">{share}</span>said nothing about pay at all, '
-          f'{rm.get("unstated", 0)} of {rm.get("total", 0)}</li>'
-        + '</ul>'
-        + (f'<p class="legend">By month, median of what was stated.</p><ul>{months}</ul>'
-           if months else "")
-        + '</div></section>')
-
-    # ---- Where the work is coming from, and whether any of it clears the bar.
-    sy = data.get("source_yield") or {}
-    def yield_rows(group, label):
-        rows = []
-        for name, w in sorted(group.items(),
-                              key=lambda kv: -(kv[1].get(90, {}).get("arrivals", 0))):
-            a30 = w.get(30, {}).get("arrivals", 0)
-            a90 = w.get(90, {}).get("arrivals", 0)
-            h90 = w.get(90, {}).get("hits", 0)
-            rows.append(f'<li><span class="num">{a30} / {a90}</span>'
-                        f'{esc(name)}, {h90} at or above the bar</li>')
-        return (f'<h4>{label}' + info_tip(
-            "Arrivals in the last 30 days and the last 90, then how many of "
-            "the 90 cleared the digest bar. A source that stops arriving and "
-            "a source that arrives constantly and never clears the bar are "
-            "different problems, and this is where both become visible "
-            "without counting by hand.")
-            + f'</h4><ul>{"".join(rows)}</ul>') if rows else ""
-
-    yield_panel = (
-        '<section class="section"><div class="section-head"><h2>Source yield'
-        '</h2></div><div class="widget" style="margin-top:12px">'
-        + yield_rows(sy.get("boards") or {}, "Job boards")
-        + yield_rows(sy.get("watched") or {}, "Watched sources")
-        + '</div></section>')
-
-    # ---- The shape the bar cuts through.
-    hg = data.get("score_histogram") or {}
-    hb = hg.get("buckets") or []
-    peak = max((n for _, n in hb), default=0)
-    bars = "".join(
-        f'<li><span class="num">{n}</span>{b} to {b + hg.get("bucket", 10) - 1}'
-        + (' <b>&larr; the bar</b>' if b <= hg.get("threshold", 70)
-           < b + hg.get("bucket", 10) else '')
-        + '</li>' for b, n in hb if n or b >= 40)
-    hist_panel = (
-        '<section class="section"><div class="section-head">'
-        '<h2>Score distribution</h2></div>'
-        '<div class="widget" style="margin-top:12px"><h4>Combined scores, 90 days'
-        + info_tip(
-            f"Every scored advert bucketed by ten. The digest bar sits at "
-            f"{hg.get('threshold', 70)}, and a bar is a guess until you can "
-            "see the shape it cuts through.")
-        + f'</h4><ul>{bars}</ul></div></section>') if peak else ""
-
     # ---- The page opens on the tiers. Nothing renders above them. The
     # machine, the flow and board freshness are operating telemetry and
     # live on Home beside the heartbeat, because a person opening Jobs
@@ -2585,20 +2567,23 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
     tiers = data.get("tiers") or {}
     ungated = data.get("ungated") or []
 
-    def by_cv(rows):
-        return sorted(rows, key=lambda o: -(o.get("cv_match") or 0))
+    def by_fresh(rows):
+        # Newest sighting first within a tier (J3). cv_match had its
+        # day as the sort; the freshest sign of life matters more.
+        return sorted(rows, key=radar_common.latest_liveness, reverse=True)
 
     def tier_rows(rows):
         nonlocal counter
         out = [opp_head_html()]
-        for o in by_cv(rows):
+        for o in rows:
             counter += 1
             out.append(render_opportunity(o, data, counter))
         return "".join(out)
 
-    top = by_cv(tiers.get("top") or [])
-    question = by_cv(tiers.get("question") or [])
-    reading = by_cv(tiers.get("reading") or [])
+    top = by_fresh(collapse_roles(tiers.get("top") or []))
+    question = by_fresh(collapse_roles(tiers.get("question") or []))
+    reading = by_fresh(collapse_roles(tiers.get("reading") or []))
+    needs_look = by_fresh(collapse_roles(ungated))
     filtered = tiers.get("filtered") or []
 
     # Top prospects never backfills. With nothing through all four gates it
@@ -2613,19 +2598,7 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
         "Top prospects", len(top),
         "All four gates passed. An unstated rate sits here carrying its flag, "
         "because missing information is not a blocker.",
-        "panel-blue", top_body, legend=rate_legend(data["floor"]))
-
-    # Opportunities the extractor read as signals rather than jobs for Luke,
-    # held here this week because they arrived down the inbound path.
-    held = [o for o in (data.get("opportunities") or [])
-            if (o.get("thread_type") == "signal")
-            and (o.get("first_seen") or "") >= week_ago]
-    if held:
-        body += section(
-            "Signals held this week", len(held),
-            "Arrived as adverts, read as news about a company rather than a "
-            "job. The Insights page carries the watcher's own signals.",
-            "panel-stone", tier_rows(held))
+        "panel-blue", top_body)
 
     if question:
         body += section(
@@ -2641,20 +2614,13 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
             "Market intel for the field notes.",
             "panel-stone", tier_rows(reading))
 
-    if ungated:
-        body += section(
-            "Needs review", len(ungated),
-            "Scored before the gates existed, or the scorer could not judge "
-            "them. Run rescore.py.",
-            "panel-stone", tier_rows(ungated))
-
-    # The ageing list carries two kinds of row, adverts and watcher
-    # signals, because the archive renders both. Jobs is for roles, so
-    # only the adverts belong here, and tier_rows reads o["combined"],
-    # which a signal never has. The signals already sit on Insights
-    # under "earlier".
-    ageing = [a for a in (data.get("ageing") or [])
-              if a.get("kind") == "opportunity"]
+    # J2 fixes the order of the named sections, so Ageing follows
+    # Reading. Needs review is not a tier in the draft and waits its
+    # turn behind them. The ageing list carries adverts and watcher
+    # signals because the archive renders both; Jobs is for roles.
+    ageing = by_fresh(collapse_roles(
+        [a for a in (data.get("ageing") or [])
+         if a.get("kind") == "opportunity"]))
     if ageing:
         body += section(
             "Ageing", len(ageing),
@@ -2662,6 +2628,13 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
             "Close them, dismiss them, or leave them for the forty-five "
             "day expiry.",
             "panel-stone", tier_rows(ageing))
+
+    if needs_look:
+        body += section(
+            "Needs review", len(needs_look),
+            "Scored before the gates existed, or the scorer could not judge "
+            "them. Run rescore.py.",
+            "panel-stone", tier_rows(needs_look))
 
     if filtered:
         reasons = {}
@@ -2674,26 +2647,9 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
                  f'{len(filtered)}. {roll}. Full records keep a filter reason '
                  f'so the filter can be audited.</p>')
 
-    # ---- The analysis earns a place below the tiers, collapsed. Market
-    # intel for a longer break, not something to read every morning.
-    dg = data.get("deaths_by_gate") or {}
-    gate_rows = "".join(
-        f'<li><span class="num">{n}</span>{esc(g)}</li>'
-        for g, n in (dg.get("counts") or []) if n)
-    deaths_panel = (
-        '<div class="widget" style="margin-top:12px"><h4>Deaths by gate, 90 days'
-        + info_tip(
-            "Which gate killed what. A gate that keeps firing on the same "
-            "kind of role names a recurring gap, which is the first "
-            "instrument for the skills question and needs no ledger to be "
-            "useful.")
-        + f'</h4><ul>{gate_rows}</ul>'
-          f'<p class="legend">{dg.get("gated", 0)} roles gated in the window.</p>'
-          '</div>') if gate_rows else ""
-
-    body += (f'<details class="sources-fold"><summary>Analysis. Rates, source '
-             f'yield and deaths by gate.</summary>'
-             f'{rates_panel}{yield_panel}{deaths_panel}</details>')
+    # The analysis widgets moved to Insights with the market intel they
+    # are. Jobs carries roles, the roll-up and the add-source strip,
+    # nothing else (J11).
 
     # The registry, only for the add-source strip's receipt line now that
     # board sections are gone and the freshness lights live on Home.
@@ -2748,8 +2704,8 @@ senders are scored anyway under Other email alerts.</p>
 <header class="masthead">
 <div>
 <div class="brand">{MARK_SVG}<h1>Jobs</h1></div>
-<p class="masthead-sub">Every board in its own section, best prospects
-first. Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
+<p class="masthead-sub">One row per role, the freshest sighting first.
+Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
 </div>
 <div class="controls">
 <nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs" aria-current="page">Jobs</a><a href="/insights">Insights</a></nav>
@@ -2769,12 +2725,10 @@ first. Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
 
 def opp_head_html() -> str:
     return ('<div class="panel-head"><span></span><span>Role</span>'
-            '<span class="h-cv">Capability</span>'
-            '<span class="h-want">Desire</span>'
-            '<span class="h-score">Combined</span>'
-            '<span class="h-rate">Rate</span>'
+            '<span class="h-cv">CV match</span>'
+            '<span class="h-state">State</span>'
             '<span class="h-chip"></span>'
-            '<span class="h-when">Seen</span></div>')
+            '<span class="h-when">Last seen</span></div>')
 
 
 def main(argv=None) -> int:

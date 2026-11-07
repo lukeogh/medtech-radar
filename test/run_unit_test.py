@@ -595,6 +595,104 @@ def main() -> int:
               "the Ageing note reads the new rule")
         conn.close()
 
+    # ----- one role, one row. The collapse, the chain verdicts and the
+    # row's state surface.
+    with tempfile.TemporaryDirectory() as tmp:
+        db5 = Path(tmp) / "roles.sqlite"
+        conn = radar_common.get_db(db5)
+        key5 = radar_common.role_key("Principal Device Engineer", "Chainwell")
+
+        def put5(h, first, last, **extra):
+            cols = {"url_hash": h, "first_seen": first, "last_seen": last,
+                    "title": "Principal Device Engineer",
+                    "company": "Chainwell", "tier": "reading",
+                    "role_key": key5}
+            cols.update(extra)
+            conn.execute(
+                f"INSERT INTO opportunities ({', '.join(cols)}) VALUES"
+                f" ({', '.join('?' for _ in cols)})", tuple(cols.values()))
+            return conn.execute("SELECT id FROM opportunities WHERE"
+                                " url_hash = ?", (h,)).fetchone()["id"]
+
+        def days5(n):
+            return (datetime.now(timezone.utc)
+                    - timedelta(days=n)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        older = put5("c1", days5(20), days5(12), location="Leeds",
+                     seen_count=4)
+        newer = put5("c2", days5(6), days5(2), location="Remote",
+                     seen_count=3)
+        put5("c3", days5(40), days5(40), title="Head of QA",
+             company="Solo Dx", tier="question",
+             role_key=radar_common.role_key("Head of QA", "Solo Dx"),
+             question_text="Would they move on the rate")
+        conn.commit()
+        config5 = radar_common.load_config()
+        data5 = bd4.collect(conn, config5)
+        jobs5 = bd4.render_jobs_page(data5, config5, "t")
+        check(f'data-ack="{newer}"' in jobs5
+              and f'data-ack="{older}"' not in jobs5,
+              "a repost chain renders once, the freshest advert its face")
+        check("Remote" in jobs5 and "Leeds" in jobs5,
+              "the chain's locations roll up onto the one row")
+        check("Seen 7 times across 2 adverts" in jobs5,
+              "the detail carries the sightings and the repost count")
+        check("Would they move on the rate" in jobs5,
+              "the question leads the one-question-away row")
+        check(">Live<" in jobs5 and "state-live" in jobs5,
+              "a chain seen this week reads Live on the row")
+        check(">Unknown<" in jobs5, "a silent role reads Unknown")
+        check("CV match" in jobs5 and "Capability" not in jobs5
+              and "Desire" not in jobs5 and ">Combined<" not in jobs5,
+              "the headers read Role, CV match, State, Last seen")
+        check("a day converted" not in jobs5,
+              "no estimated day rate anywhere on the page")
+        check(">rate not stated<" in jobs5,
+              "silence about pay carries its prominent flag")
+        check(jobs5.index("One question away") < jobs5.index("Reading")
+              < jobs5.index("Ageing"),
+              "the sections run in the draft's order, Ageing after Reading")
+
+        import serve_dashboard as serve5
+        saved5 = getattr(serve5, "ARGS", None)
+        serve5.ARGS = argparse.Namespace(db=str(db5), push=False,
+                                         host="127.0.0.1", port=0)
+        try:
+            result = serve5.set_lifecycle(newer, "close")
+            check(result.get("ok") is True, "closing the face reports ok")
+            rows5 = {r["url_hash"]: dict(r) for r in conn.execute(
+                "SELECT * FROM opportunities")}
+            check(rows5["c1"]["closed_at"] is not None
+                  and rows5["c2"]["closed_at"] is not None
+                  and rows5["c1"]["closed_source"] == "manual",
+                  "a hand close covers the whole repost chain")
+            check(rows5["c3"]["closed_at"] is None,
+                  "another role's rows are untouched by the chain close")
+            result = serve5.set_lifecycle(newer, "unclose")
+            rows5 = {r["url_hash"]: dict(r) for r in conn.execute(
+                "SELECT * FROM opportunities")}
+            check(result.get("ok") is True
+                  and rows5["c1"]["closed_at"] is None
+                  and rows5["c2"]["closed_at"] is None,
+                  "the undo lifts the stamp from the whole chain")
+            result = serve5.set_acknowledged(older, True)
+            rows5 = {r["url_hash"]: dict(r) for r in conn.execute(
+                "SELECT * FROM opportunities")}
+            check(result.get("ok") is True
+                  and rows5["c1"]["acknowledged_at"] is not None
+                  and rows5["c2"]["acknowledged_at"] is not None,
+                  "seen it covers the chain too")
+            result = serve5.set_acknowledged(older, False)
+            rows5 = {r["url_hash"]: dict(r) for r in conn.execute(
+                "SELECT * FROM opportunities")}
+            check(result.get("ok") is True
+                  and rows5["c1"]["acknowledged_at"] is None
+                  and rows5["c2"]["acknowledged_at"] is None,
+                  "and its undo brings the whole chain back")
+        finally:
+            serve5.ARGS = saved5
+        conn.close()
+
     # ----- the retirement migration, once per database ever
     import sqlite3 as sqlite3_mod
     with tempfile.TemporaryDirectory() as tmp:
@@ -699,8 +797,8 @@ def main() -> int:
             conn.execute(
                 "INSERT INTO opportunities (url_hash, first_seen, company,"
                 " title, thread_type, status, cv_match, want_match, combined,"
-                " one_line_why, rate_band)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                " one_line_why, rate_band, tier)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,'top')",
                 (h, now, company, title, "inbound", "new", 90, 90, 90,
                  "Exactly the target.", "above"))
         conn.execute(
@@ -744,15 +842,17 @@ def main() -> int:
               "the hidden row carries an undo, per row")
         check(f'data-ack="{ids["Keepit Ltd"]}"' in html_page,
               "the visible row carries an acknowledge action")
-        # The rendered rate surface, pinned. Column header, band word on
-        # the row, legend under the panel, and the status chip is gone
-        # from the inbound table.
-        check('class="h-rate"' in html_page,
-              "the dashboard renders the Rate column header")
-        check("rate-above" in html_page,
-              "the dashboard renders the band word on the row")
-        check("Rate bands sit against the" in html_page,
-              "the dashboard renders the rate legend under the table")
+        # The rendered row surface, pinned. CV match and State in the
+        # header, the state word on the row, and the derived bands,
+        # their legend and the status chip all gone (J9, J12).
+        check('class="h-state"' in html_page and 'class="h-cv"' in html_page,
+              "the dashboard renders the CV match and State headers")
+        check('state-live' in html_page,
+              "a freshly seen row wears the Live state word")
+        check('class="h-rate"' not in html_page
+              and "rate-above" not in html_page
+              and "Rate bands sit against the" not in html_page,
+              "the rate band words and their legend retired with the score")
         check('<span class="chip chip-new">' not in html_page,
               "the status chip has left the visible inbound table")
 
@@ -975,10 +1075,13 @@ def main() -> int:
               "no board badge tiles, and so no empty shelves inviting signup")
         check("Score distribution" not in jobs_page,
               "the score histogram retired with the additive score")
-        # Deaths by gate needs gated rows to have anything to say, and this
-        # fixture predates the gates, so its absence here is correct.
-        check(jobs_page.index("Top prospects") < jobs_page.index("Analysis."),
-              "the page opens on the tiers, analysis sits below them")
+        # The analysis fold moved to Insights with the market intel it
+        # is. Jobs carries roles, the roll-up and the add-source strip.
+        check("Analysis." not in jobs_page,
+              "the analysis fold has left the Jobs page")
+        check("The jobs market" in insights
+              and "The trailing 90 days" in insights,
+              "Insights carries the rates widget in the market fold instead")
         # The telemetry moved to Home on 3 August. These facts still matter,
         # they are just no longer on the page a person opens for roles, so
         # the checks follow them rather than being deleted.
@@ -1861,27 +1964,24 @@ def main() -> int:
               "the archive still lists the signal in its ageing rows")
         conn.close()
 
-        # Signals held this week. An advert the extractor read as news about
-        # a company rather than a job for Luke, inside the last seven days.
-        # The block compared first_seen against week_ago, a name never
-        # defined in render_jobs_page, so the first such advert would have
-        # taken the page down with a NameError.
+        # The held-signals shelf retired with the keep/drop pass. An
+        # advert the extractor read as news stays in its tier like any
+        # other row, and the page must still render with one present.
         conn = radar_common.get_db(Path(tmp) / "jobs_held.sqlite")
         conn.execute(
-            "INSERT INTO opportunities (url_hash, first_seen, company, title,"
-            " thread_type, status, cv_match, want_match, combined,"
+            "INSERT INTO opportunities (url_hash, first_seen, last_seen,"
+            " company, title, thread_type, status, cv_match, tier,"
             " one_line_why) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            ("held-sig", now, "Newsworthy Ltd",
+            ("held-sig", now, now, "Newsworthy Ltd",
              "Newsworthy Ltd opens a Ghent office", "signal", "new",
-             70, 70, 70, "News, not a role."))
+             70, "reading", "News, not a role."))
         conn.commit()
         data_h = _bdash.collect(conn, config_j)
         try:
             jobs_h = _bdash.render_jobs_page(data_h, config_j, "t")
-            held_at = jobs_h.find("Signals held this week")
-            check(held_at >= 0
-                  and "Newsworthy Ltd opens a Ghent office" in jobs_h[held_at:],
-                  "a fresh signal-kind advert renders under Signals held this week")
+            check("Signals held this week" not in jobs_h
+                  and "Newsworthy Ltd opens a Ghent office" in jobs_h,
+                  "the held-signals shelf is gone, the advert sits in its tier")
         except Exception as err:  # noqa: BLE001
             check(False, "the Jobs page renders with a signal-kind advert "
                          f"this week (raised {type(err).__name__}: {err})")

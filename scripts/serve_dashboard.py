@@ -262,17 +262,32 @@ def set_acknowledged(item_id: int, on: bool) -> dict:
     would look active on the page after Undo while the digest, the
     ageing nag and the backfill all still excluded it on status,
     half-alive forever.
+
+    The verdict covers the repost chain (J18). One role renders as one
+    row, so "seen it" on the row must reach every advert sharing its
+    role_key, or the next-freshest sibling would stand straight back
+    up as the role. A row without a key stands alone, the NULL never
+    matches the scope clause.
     """
     try:
         conn = radar_common.get_db(db_path())
     except sqlite3.OperationalError as err:
         return {"ok": False, "note": f"database busy, try again. {err}"}
     try:
+        target = conn.execute(
+            "SELECT role_key FROM opportunities WHERE id = ?",
+            (item_id,)).fetchone()
+        if target is None:
+            return {"ok": False, "note": f"no opportunity {item_id}"}
+        key = target["role_key"]
+        scope = " (id = ? OR (role_key IS NOT NULL AND role_key = ?))"
         if on:
             cur = conn.execute(
                 "UPDATE opportunities SET acknowledged_at = ?"
-                " WHERE id = ? AND acknowledged_at IS NULL",
-                (radar_common.now_iso(), item_id))
+                " WHERE" + scope + " AND acknowledged_at IS NULL"
+                " AND closed_at IS NULL AND dismissed_at IS NULL"
+                " AND expired_at IS NULL",
+                (radar_common.now_iso(), item_id, key))
         else:
             cur = conn.execute(
                 "UPDATE opportunities SET acknowledged_at = NULL,"
@@ -280,8 +295,8 @@ def set_acknowledged(item_id: int, on: bool) -> dict:
                 "              THEN 'new' ELSE status END,"
                 " status_changed_at = CASE WHEN status IN ('actioned','dead')"
                 "              THEN ? ELSE status_changed_at END"
-                " WHERE id = ? AND acknowledged_at IS NOT NULL",
-                (radar_common.now_iso(), item_id))
+                " WHERE" + scope + " AND acknowledged_at IS NOT NULL",
+                (radar_common.now_iso(), item_id, key))
         conn.commit()
         if cur.rowcount == 0:
             return {"ok": False,
@@ -304,18 +319,26 @@ def set_lifecycle(item_id: int, action: str) -> dict:
     manual, the confirmation the closed state demands, and unclose
     clears a page-check close too, the human outranking the checker.
     Same writable-connection manners as set_acknowledged.
+
+    A hand verdict judges the role, not the advert, so it covers the
+    repost chain (J14, J18): every advert sharing the role_key takes
+    the same stamp, and the undo lifts it from all of them. Only the
+    checker's page_check close stays per advert, because a closed
+    advert is not a closed role.
     """
+    scope = " (id = ? OR (role_key IS NOT NULL AND role_key = ?))"
     statements = {
         "close": ("UPDATE opportunities SET closed_at = ?,"
                   " closed_source = 'manual'"
-                  " WHERE id = ? AND closed_at IS NULL", True),
+                  " WHERE" + scope + " AND closed_at IS NULL", True),
         "unclose": ("UPDATE opportunities SET closed_at = NULL,"
                     " closed_source = NULL"
-                    " WHERE id = ? AND closed_at IS NOT NULL", False),
+                    " WHERE" + scope + " AND closed_at IS NOT NULL", False),
         "dismiss": ("UPDATE opportunities SET dismissed_at = ?"
-                    " WHERE id = ? AND dismissed_at IS NULL", True),
+                    " WHERE" + scope + " AND dismissed_at IS NULL", True),
         "undismiss": ("UPDATE opportunities SET dismissed_at = NULL"
-                      " WHERE id = ? AND dismissed_at IS NOT NULL", False),
+                      " WHERE" + scope + " AND dismissed_at IS NOT NULL",
+                      False),
     }
     if action not in statements:
         return {"ok": False, "note": f"unknown action {action}"}
@@ -325,8 +348,14 @@ def set_lifecycle(item_id: int, action: str) -> dict:
     except sqlite3.OperationalError as err:
         return {"ok": False, "note": f"database busy, try again. {err}"}
     try:
-        params = ((radar_common.now_iso(), item_id) if stamps
-                  else (item_id,))
+        target = conn.execute(
+            "SELECT role_key FROM opportunities WHERE id = ?",
+            (item_id,)).fetchone()
+        if target is None:
+            return {"ok": False, "note": f"no opportunity {item_id}"}
+        key = target["role_key"]
+        params = ((radar_common.now_iso(), item_id, key) if stamps
+                  else (item_id, key))
         cur = conn.execute(sql, params)
         conn.commit()
         if cur.rowcount == 0:
