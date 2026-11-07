@@ -28,7 +28,7 @@ prefs_file: "config/profile/preferences.md"
 # Mock mode always uses the fixture freely, the tests depend on that.
 allow_fixture_profile: false
 
-score_threshold: 70                     # combined score needed to appear in digest
+score_threshold: 70                     # the relevance bar for signals; jobs select on tiers
 
 fast_signal_threshold: 75               # relevance needed for an immediate ntfy push
 
