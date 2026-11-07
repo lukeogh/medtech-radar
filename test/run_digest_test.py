@@ -130,7 +130,8 @@ def main() -> int:
 
     # Seed rows the digest logic needs to prove itself.
     now = datetime.now(timezone.utc)
-    old = iso(now - timedelta(days=30))
+    # Over the month bar with a margin, the ageing rule reads first_seen.
+    old = iso(now - timedelta(days=31))
     recent = iso(now - timedelta(days=2))
     conn = radar_common.get_db(db.resolve())
     conn.execute(

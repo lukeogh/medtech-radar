@@ -191,6 +191,14 @@ def main() -> int:
     unseen = conn.execute("SELECT COUNT(*) AS c FROM opportunities"
                           " WHERE last_seen IS NULL").fetchone()["c"]
     check(unseen == 0, "every stored row carries a last_seen")
+    # Closure detection stage four. The insert computes the role key, so
+    # a repost lands in its chain the day it arrives.
+    unkeyed = conn.execute(
+        "SELECT COUNT(*) AS c FROM opportunities WHERE role_key IS NULL"
+        " AND TRIM(COALESCE(title, '')) <> ''"
+        " AND TRIM(COALESCE(company, '')) <> ''").fetchone()["c"]
+    check(unkeyed == 0,
+          "every stored row with a title and company carries a role key")
     sightings = conn.execute(
         "SELECT SUM(seen_count) AS s FROM opportunities").fetchone()["s"]
     check(sightings == total_in,

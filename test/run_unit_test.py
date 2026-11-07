@@ -255,6 +255,21 @@ def main() -> int:
                                   now_s) == "live",
           "a legacy mapping without the lifecycle keys judges on first_seen")
 
+    # ----- role keys, one role across its reposts
+    check(radar_common.role_key("Head of QA", "Pfizer")
+          == radar_common.role_key(" head  of  QA. ", "  PFIZER "),
+          "case, punctuation and spacing never split a role key")
+    check(radar_common.role_key("Director, Product Owner", "Pfizer")
+          == radar_common.role_key("Director - Product Owner", "Pfizer"),
+          "a reposted title with new separators is still the same role")
+    check(radar_common.role_key("Head of QA", "Pfizer")
+          != radar_common.role_key("Head of QA", "Roche"),
+          "the same title at another company is another role")
+    check(radar_common.role_key("Head of QA", None) is None
+          and radar_common.role_key(None, "Pfizer") is None
+          and radar_common.role_key("", "") is None,
+          "a missing half means no key, the row stands alone")
+
     # ----- the page checker's ladder, over the saved page shapes
     fixtures = REPO_ROOT / "test" / "fixtures" / "linkedin"
     pages = {name: (fixtures / f"{name}.html").read_text(encoding="utf-8")
@@ -466,6 +481,120 @@ def main() -> int:
               "a row checked three days ago was never re-asked")
         conn.close()
 
+    # ----- the expiry pass. Forty-five days of silence retires the role,
+    # on the repost chain's clock, not the advert's.
+    import build_dashboard as bd4
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "expiry.sqlite")
+
+        def put(h, seen, **extra):
+            cols = {"url_hash": h, "first_seen": seen, "last_seen": seen,
+                    "title": "Regulatory Affairs Lead", "company": "Veltrix"}
+            cols.update(extra)
+            conn.execute(
+                f"INSERT INTO opportunities ({', '.join(cols)}) VALUES"
+                f" ({', '.join('?' for _ in cols)})", tuple(cols.values()))
+            return conn.execute("SELECT id FROM opportunities WHERE"
+                                " url_hash = ?", (h,)).fetchone()["id"]
+
+        now_x = "2026-11-07T12:00:00Z"
+        old_x = "2026-09-01T00:00:00Z"   # 67 days before now_x
+        mid_x = "2026-10-28T00:00:00Z"   # 10 days before now_x
+        chain = radar_common.role_key("Regulatory Affairs Lead", "Veltrix")
+        put("ch1", old_x, role_key=chain)
+        put("ch2", mid_x, role_key=chain)
+        put("ln1", old_x, title="Quality Director", company="Orbase")
+        put("ln2", old_x, last_checked_at=mid_x, last_check_result="live")
+        put("ln3", old_x, tier="filtered")
+        put("ln4", old_x, closed_at=mid_x, closed_source="manual")
+        conn.commit()
+
+        dry_x = check_jobs.expire_stale(conn, write=False, now=now_x)
+        check(dry_x["expired"] == 2,
+              "two silent roles would expire, the lone advert and the"
+              f" filtered one (got {dry_x['expired']})")
+        check(conn.execute(
+            "SELECT COUNT(*) AS n FROM opportunities"
+            " WHERE expired_at IS NOT NULL").fetchone()["n"] == 0,
+              "the dry expiry writes nothing")
+        wet_x = check_jobs.expire_stale(conn, write=True, now=now_x)
+        check(wet_x["expired"] == 2, "the live pass stamps the same two")
+        rows_x = {r["url_hash"]: dict(r) for r in conn.execute(
+            "SELECT * FROM opportunities")}
+        check(rows_x["ch1"]["expired_at"] is None,
+              "a stale advert with a fresher sibling in its chain lives on")
+        check(rows_x["ln1"]["expired_at"] is not None
+              and rows_x["ln3"]["expired_at"] is not None,
+              "a lone silent role expires, the filtered tier included")
+        check(rows_x["ln2"]["expired_at"] is None,
+              "a live page check inside the window holds expiry off")
+        check(rows_x["ln4"]["expired_at"] is None,
+              "a closed row is already retired, expiry leaves it alone")
+        check(check_jobs.expire_stale(conn, write=True,
+                                      now=now_x)["expired"] == 0,
+              "the expiry pass is idempotent")
+        chain2 = radar_common.role_key("Clinical Lead", "Novem")
+        put("gh1", old_x, role_key=chain2)
+        put("gh2", mid_x, role_key=chain2,
+            closed_at=mid_x, closed_source="manual")
+        conn.commit()
+        check_jobs.expire_stale(conn, write=True, now=now_x)
+        check(conn.execute(
+            "SELECT expired_at FROM opportunities WHERE url_hash = 'gh1'"
+            ).fetchone()["expired_at"] is None,
+              "a closed sibling's recent sighting still anchors the chain")
+        config_x = radar_common.load_config()
+        data_x = bd4.collect(conn, config_x)
+        check({o["url_hash"] for o in data_x["retired_roles"]}
+              >= {"ln1", "ln3", "ln4"},
+              "expired rows retire into the archive list beside the closed")
+        conn.close()
+
+    # ----- ageing redefined. Unknown for a month, any tier bar filtered.
+    import build_digest as bg4
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "ageing_rule.sqlite")
+
+        def days_back(n):
+            return (datetime.now(timezone.utc)
+                    - timedelta(days=n)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        def put_age(h, tier, first, last, **extra):
+            cols = {"url_hash": h, "first_seen": first, "last_seen": last,
+                    "title": f"Role {h}", "company": "Agewell", "tier": tier}
+            cols.update(extra)
+            conn.execute(
+                f"INSERT INTO opportunities ({', '.join(cols)}) VALUES"
+                f" ({', '.join('?' for _ in cols)})", tuple(cols.values()))
+            return conn.execute("SELECT id FROM opportunities WHERE"
+                                " url_hash = ?", (h,)).fetchone()["id"]
+
+        old_unknown = put_age("ag1", "reading", days_back(40), days_back(40))
+        old_live = put_age("ag2", "top", days_back(40), days_back(2))
+        put_age("ag3", "question", days_back(10), days_back(10))
+        put_age("ag4", "filtered", days_back(40), days_back(40))
+        put_age("ag5", "reading", days_back(40), days_back(40),
+                last_checked_at=days_back(2), last_check_result="live")
+        conn.commit()
+        config_a = radar_common.load_config()
+        data_a = bd4.collect(conn, config_a)
+        age_ids = {a["id"] for a in data_a["ageing"]
+                   if a["kind"] == "opportunity"}
+        check(age_ids == {old_unknown},
+              "only the month-old unknown advert ages; live, young,"
+              f" filtered and freshly checked stay out (got {age_ids})")
+        check(any(o["id"] == old_live for o in data_a["tiers"]["top"]),
+              "the old but live row stays in its tier untouched")
+        digest_a = bg4.collect(conn, config_a)
+        digest_age = {a["id"] for a in digest_a["ageing"]
+                      if a.get("kind") == "opportunity"}
+        check(digest_age == {old_unknown},
+              f"the digest ages by the same rule (got {digest_age})")
+        jobs_a = bd4.render_jobs_page(data_a, config_a, "t")
+        check("no sighting and no live check" in jobs_a,
+              "the Ageing note reads the new rule")
+        conn.close()
+
     # ----- the retirement migration, once per database ever
     import sqlite3 as sqlite3_mod
     with tempfile.TemporaryDirectory() as tmp:
@@ -514,6 +643,17 @@ def main() -> int:
                                  " key = 'migrated_last_seen'").fetchone()
         check(seen_flag is not None,
               "the sighting backfill sets its once-only flag")
+        # Closure detection stage four. A legacy row gets its role key
+        # from the title and company it already carries.
+        row = conn.execute("SELECT role_key FROM opportunities"
+                           " WHERE url_hash = 'lg2'").fetchone()
+        check(row["role_key"]
+              == radar_common.role_key("Newer role", "Legacy New"),
+              "the role key backfill reads the stored title and company")
+        role_flag = conn.execute("SELECT value FROM meta WHERE"
+                                 " key = 'migrated_role_key'").fetchone()
+        check(role_flag is not None,
+              "the role key backfill sets its once-only flag")
         # The undo-survival regression, through the real /unack write.
         # Undo must clear the stamp, return the legacy status to
         # machine-owned 'new' so the digest, ageing and backfill can see

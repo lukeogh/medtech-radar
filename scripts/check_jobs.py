@@ -7,6 +7,11 @@ from agent B's ladder: gone, closed, live or unknown. Only a documented
 closed marker ever closes a role. Unknown changes nothing and is asked
 again a week later.
 
+The daily run ends with the expiry pass: any role whose repost chain has
+shown no sign of life in forty-five days retires as expired, every tier
+including filtered. A repost by the same company under the same title
+resets the chain's clock.
+
 Safety posture:
 - Dry run is the default. Fetches happen and the classifications print,
   nothing is written. Live stamps need an explicit --live.
@@ -47,6 +52,7 @@ import radar_common as rc  # noqa: E402
 
 CAP_DEFAULT = 25
 RECHECK_DAYS = 7                 # an answered page is not asked again inside a week
+EXPIRY_DAYS = 45                 # no sign of life this long retires the role (J17)
 SPACING_SECONDS = (8.0, 12.0)    # agent B hit one 429 in ten at five seconds
 FETCH_TIMEOUT = 20
 CHROME_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -257,6 +263,54 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
     return result
 
 
+# ------------------------------------------------------------------- expiry
+
+def expire_stale(conn, write: bool = False, now: str | None = None) -> dict:
+    """Retire every role with no sign of life in forty-five days.
+
+    The clock runs on the repost chain, not the advert: the newest
+    sighting or live check across every row sharing a role_key, retired
+    siblings included, because their history is still history. A repost
+    resets the whole chain, so a role that keeps being re-advertised
+    never expires, while a genuinely stale one goes quietly, every tier
+    including filtered. A row without a key stands alone on its own
+    clock. Expiry is retirement, not closure, nothing here claims the
+    page said anything.
+    """
+    now = now or rc.now_iso()
+    moment = datetime.strptime(now, "%Y-%m-%dT%H:%M:%SZ")
+    cutoff = ((moment - timedelta(days=EXPIRY_DAYS))
+              .strftime("%Y-%m-%dT%H:%M:%SZ"))
+    newest: dict[str, str] = {}
+    for row in conn.execute(
+            "SELECT role_key, last_seen, first_seen, last_checked_at,"
+            " last_check_result FROM opportunities"
+            " WHERE role_key IS NOT NULL"):
+        seen = rc.latest_liveness(row)
+        if seen > newest.get(row["role_key"], ""):
+            newest[row["role_key"]] = seen
+    expired = []
+    for row in conn.execute(
+            "SELECT id, title, company, role_key, last_seen, first_seen,"
+            " last_checked_at, last_check_result FROM opportunities"
+            " WHERE acknowledged_at IS NULL AND closed_at IS NULL"
+            " AND dismissed_at IS NULL AND expired_at IS NULL"):
+        seen = rc.latest_liveness(row)
+        if row["role_key"]:
+            seen = max(seen, newest.get(row["role_key"], ""))
+        if seen < cutoff:
+            expired.append({"id": row["id"], "title": row["title"],
+                            "company": row["company"], "newest": seen})
+    if write and expired:
+        stamp = rc.now_iso()
+        conn.executemany(
+            "UPDATE opportunities SET expired_at = ?"
+            " WHERE id = ? AND expired_at IS NULL",
+            [(stamp, item["id"]) for item in expired])
+        conn.commit()
+    return {"expired": len(expired), "sample": expired[:10]}
+
+
 # ----------------------------------------------------------------------- main
 
 def main(argv=None) -> int:
@@ -283,12 +337,19 @@ def main(argv=None) -> int:
 
     conn = rc.get_db(Path(args.db)) if args.db else rc.get_db()
     result = run_checks(conn, cap=args.cap, write=write, only_id=args.id)
+    if args.id is None:
+        # The expiry pass rides on the daily run, never on a spot check.
+        expiry = expire_stale(conn, write=write)
+        result["expired"] = expiry["expired"]
+        result["expired_sample"] = expiry["sample"]
 
     verdicts = ", ".join(f"{v} {k}" for k, v in sorted(
         result["verdicts"].items(), key=lambda kv: -kv[1]))
     note = f"{result['due']} due, {result['checked']} checked"
     if verdicts:
         note += f", {verdicts}"
+    if result.get("expired"):
+        note += f", {result['expired']} expired"
     rc.log_run(conn, "check", mode=result["mode"],
                items_in=result["checked"], items_new=result["closed"],
                note=note)

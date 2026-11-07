@@ -153,6 +153,13 @@ _MIGRATIONS = (
     ("opportunities", "expired_at", "TEXT"),
     ("opportunities", "last_checked_at", "TEXT"),
     ("opportunities", "last_check_result", "TEXT"),
+    # Closure detection, stage four. One role across its reposts,
+    # normalised title plus normalised company. Set in code at store
+    # time, backfilled once below, so a repost chain is a GROUP BY
+    # rather than a render-time fuzzy pass. Nullable, because a row
+    # missing either half cannot be told from its neighbours and
+    # honestly stands alone.
+    ("opportunities", "role_key", "TEXT"),
 )
 
 
@@ -203,6 +210,22 @@ def _migrate(conn: sqlite3.Connection) -> None:
                      " WHERE last_seen IS NULL")
         conn.execute("INSERT OR IGNORE INTO meta (key, value)"
                      " VALUES ('migrated_last_seen', '1')")
+    # Closure detection stage four. Every stored row gets its role key,
+    # once per database, the same manners as the backfills above. The
+    # key is computed in code, so this is a loop rather than an UPDATE,
+    # and it is idempotent, a re-run finds nothing with a NULL key left.
+    done_role = conn.execute(
+        "SELECT value FROM meta WHERE key = 'migrated_role_key'").fetchone()
+    if not done_role:
+        for row in conn.execute(
+                "SELECT id, title, company FROM opportunities"
+                " WHERE role_key IS NULL").fetchall():
+            key = role_key(row["title"], row["company"])
+            if key:
+                conn.execute("UPDATE opportunities SET role_key = ?"
+                             " WHERE id = ?", (key, row["id"]))
+        conn.execute("INSERT OR IGNORE INTO meta (key, value)"
+                     " VALUES ('migrated_role_key', '1')")
     # Regions are a cache of a config rule, so they are recomputed whenever
     # that rule changes and skipped entirely when it has not. Wrapped
     # because a malformed regions block must not make the database
@@ -216,31 +239,59 @@ def _migrate(conn: sqlite3.Connection) -> None:
 LIVE_WINDOW_DAYS = 7
 
 
+def _row_field(row, key):
+    """One column off a dict or sqlite3.Row, a missing column reads None."""
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
+
+
+def latest_liveness(row) -> str:
+    """The newest sign of life on one row, as a timestamp string.
+
+    A sighting, or a page check that answered live. A check that
+    answered anything else said nothing about life and does not count.
+    A legacy row without the lifecycle columns judges on first_seen,
+    the only honest date on file.
+    """
+    checked = (_row_field(row, "last_checked_at") or ""
+               if _row_field(row, "last_check_result") == "live" else "")
+    return max(_row_field(row, "last_seen")
+               or _row_field(row, "first_seen") or "", checked)
+
+
 def life_state(row, now: str | None = None) -> str:
     """Live, unknown or closed for one opportunity row. Derived, never stored.
 
     Closed is a confirmed stamp and outranks everything, including a
     fresh sighting. Live is any sighting, or a live page check, inside
     the window. Everything else is unknown, and the page shows the age
-    plainly rather than guessing. Accepts a dict or sqlite3.Row; a
-    missing column reads as empty, so a legacy row judges on first_seen
-    alone.
+    plainly rather than guessing.
     """
-    def field(key):
-        try:
-            return row[key]
-        except (KeyError, IndexError):
-            return None
-
-    if field("closed_at"):
+    if _row_field(row, "closed_at"):
         return "closed"
     moment = datetime.strptime(now or now_iso(), "%Y-%m-%dT%H:%M:%SZ")
     cutoff = ((moment - timedelta(days=LIVE_WINDOW_DAYS))
               .strftime("%Y-%m-%dT%H:%M:%SZ"))
-    checked = (field("last_checked_at") or ""
-               if field("last_check_result") == "live" else "")
-    newest = max(field("last_seen") or field("first_seen") or "", checked)
-    return "live" if newest >= cutoff else "unknown"
+    return "live" if latest_liveness(row) >= cutoff else "unknown"
+
+
+def role_key(title, company) -> str | None:
+    """One role across its reposts: normalised title plus normalised company.
+
+    The matcher both closure studies validated. The title drops case,
+    punctuation and doubled spaces, the company goes through the same
+    rule the companies table keys on. Location stays out on purpose,
+    same-day copies in several cities are one role. Either half missing
+    means the chain cannot be told from its neighbours, so the key is
+    None and the row honestly stands alone.
+    """
+    cleaned = re.sub(r"[\W_]+", " ", str(title or "").casefold()).strip()
+    named = normalise_company(company) if company else ""
+    if not cleaned or not named:
+        return None
+    return f"{cleaned}|{named}"
 
 
 def normalise_company(name) -> str:
