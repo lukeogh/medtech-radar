@@ -224,6 +224,36 @@ def main() -> int:
               "a completed backfill examines nothing, idempotent")
         conn.close()
 
+    # ----- the life state ladder, derived at render, never stored
+    now_s = "2026-11-07T12:00:00Z"
+    fresh_s = "2026-11-03T00:00:00Z"
+    edge_s = "2026-10-31T12:00:00Z"
+    stale_s = "2026-10-01T00:00:00Z"
+    base = {"closed_at": None, "last_seen": None, "first_seen": stale_s,
+            "last_checked_at": None, "last_check_result": None}
+    check(radar_common.life_state({**base, "closed_at": stale_s,
+                                   "last_seen": fresh_s}, now_s) == "closed",
+          "a closed stamp outranks a fresh sighting")
+    check(radar_common.life_state({**base, "last_seen": fresh_s},
+                                  now_s) == "live",
+          "a sighting inside seven days reads live")
+    check(radar_common.life_state({**base, "last_seen": edge_s},
+                                  now_s) == "live",
+          "a sighting exactly seven days old still reads live")
+    check(radar_common.life_state({**base, "last_checked_at": fresh_s,
+                                   "last_check_result": "live"},
+                                  now_s) == "live",
+          "a live page check inside seven days reads live")
+    check(radar_common.life_state({**base, "last_checked_at": fresh_s,
+                                   "last_check_result": "unknown"},
+                                  now_s) == "unknown",
+          "an unknown check result never reads live")
+    check(radar_common.life_state(base, now_s) == "unknown",
+          "an old row with no sighting reads unknown")
+    check(radar_common.life_state({"first_seen": fresh_s},
+                                  now_s) == "live",
+          "a legacy mapping without the lifecycle keys judges on first_seen")
+
     # ----- the retirement migration, once per database ever
     import sqlite3 as sqlite3_mod
     with tempfile.TemporaryDirectory() as tmp:
@@ -466,6 +496,75 @@ def main() -> int:
             data, config, "ack test", Path(tmp) / "static.html", serve=False)
         check('class="src-head"' in static_page,
               "the static single-page fallback keeps the watchlist table")
+
+        # Close and dismiss, the lifecycle loop. A verdict takes the row
+        # out of every working view, the archive holds it with an undo,
+        # and the stamp carries its confirmation source.
+        check(f'data-close="{ids["Keepit Ltd"]}"' in html_page
+              and f'data-dismiss="{ids["Keepit Ltd"]}"' in html_page,
+              "an open row carries Close and Dismiss beside Acknowledge")
+        result = serve_dashboard.set_lifecycle(ids["Keepit Ltd"], "close")
+        check(result.get("ok") is True, "closing a row reports ok")
+        result = serve_dashboard.set_lifecycle(ids["Keepit Ltd"], "close")
+        check(result.get("ok") is False,
+              "closing the same row twice is refused, not repeated")
+        readl = sqlite3.connect(db)
+        readl.row_factory = sqlite3.Row
+        row = readl.execute(
+            "SELECT closed_at, closed_source FROM opportunities"
+            " WHERE id = ?", (ids["Keepit Ltd"],)).fetchone()
+        check(row["closed_at"] is not None
+              and row["closed_source"] == "manual",
+              "a hand close is stamped manual, the confirmation on record")
+        datal = build_dashboard.collect(readl, config)
+        check(not any(o["id"] == ids["Keepit Ltd"]
+                      for o in datal["opportunities"]),
+              "a closed row leaves the working view")
+        check(not any(o["id"] == ids["Keepit Ltd"]
+                      for o in datal.get("acknowledged") or []),
+              "a closed row does not hide behind the acknowledged toggle")
+        check(any(o["id"] == ids["Keepit Ltd"]
+                  for o in datal.get("retired_roles") or []),
+              "a closed row sits in the retired list instead")
+        pagel = build_dashboard.render_page(
+            datal, config, "t", Path(tmp) / "retired.html", serve=True)
+        check("Closed and dismissed" in pagel
+              and f'data-unclose="{ids["Keepit Ltd"]}"' in pagel,
+              "the archive lists the closed row in its own section with"
+              " an undo")
+        jobsl = build_dashboard.render_jobs_page(datal, config, "t")
+        check(f'data-ack="{ids["Keepit Ltd"]}"' not in jobsl,
+              "the closed row has left the Jobs page")
+        check(radar_common.life_state(dict(readl.execute(
+                  "SELECT * FROM opportunities WHERE id = ?",
+                  (ids["Keepit Ltd"],)).fetchone())) == "closed",
+              "the closed row derives closed")
+        readl.close()
+        result = serve_dashboard.set_lifecycle(ids["Keepit Ltd"], "unclose")
+        check(result.get("ok") is True, "undo reopens the closed row")
+        readl = sqlite3.connect(db)
+        readl.row_factory = sqlite3.Row
+        row = readl.execute(
+            "SELECT closed_at, closed_source FROM opportunities"
+            " WHERE id = ?", (ids["Keepit Ltd"],)).fetchone()
+        check(row["closed_at"] is None and row["closed_source"] is None,
+              "unclose clears the stamp and its source together")
+        readl.close()
+        result = serve_dashboard.set_lifecycle(ids["Keepit Ltd"], "dismiss")
+        check(result.get("ok") is True, "dismissing a row reports ok")
+        readl = sqlite3.connect(db)
+        readl.row_factory = sqlite3.Row
+        datal = build_dashboard.collect(readl, config)
+        readl.close()
+        check(not any(o["id"] == ids["Keepit Ltd"]
+                      for o in datal["opportunities"])
+              and any(o["id"] == ids["Keepit Ltd"]
+                      for o in datal.get("retired_roles") or []),
+              "a dismissed row follows the same retirement rule")
+        result = serve_dashboard.set_lifecycle(ids["Keepit Ltd"], "undismiss")
+        check(result.get("ok") is True, "undo restores the dismissed row")
+        result = serve_dashboard.set_lifecycle(ids["Keepit Ltd"], "sideways")
+        check(result.get("ok") is False, "an unknown lifecycle action is refused")
 
         # The Jobs page. Boards as sections, prospects on top, a registry
         # the page itself can extend.

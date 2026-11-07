@@ -372,6 +372,15 @@ def collect(conn, config) -> dict:
     all_opportunities = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities"
         " ORDER BY (combined IS NULL), combined DESC, first_seen DESC")]
+    # A lifecycle stamp retires a row from every working view. It stays
+    # in the database so dedupe keeps rejecting its URL, and stays
+    # readable in the archive's own section, with an undo.
+    retired_roles = [o for o in all_opportunities
+                     if o.get("closed_at") or o.get("dismissed_at")
+                     or o.get("expired_at")]
+    all_opportunities = [o for o in all_opportunities
+                         if not (o.get("closed_at") or o.get("dismissed_at")
+                                 or o.get("expired_at"))]
     # A human said "seen it". Acknowledged rows leave the default view but
     # stay on the page behind the toggle, with an undo, and stay in the
     # database so dedupe keeps rejecting their URLs forever.
@@ -533,6 +542,7 @@ def collect(conn, config) -> dict:
     return {
         "threshold": threshold, "fast": fast, "floor": floor, "fresh": fresh,
         "opportunities": opportunities, "acknowledged": acknowledged,
+        "retired_roles": retired_roles,
         "signals": signals, "dismissed_signals": dismissed_signals,
         "traction": traction_metrics(conn, config),
         "connectors": connector_circle(conn, config),
@@ -701,6 +711,12 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
         else:
             parts.append(f'<button type="button" class="act-btn" '
                          f'data-ack="{o["id"]}">Acknowledge, seen it</button>')
+            # The two lifecycle verdicts. Either takes the row out of
+            # every view; the archive section holds the undo.
+            parts.append(f'<button type="button" class="act-btn" '
+                         f'data-close="{o["id"]}">Closed, role gone</button>')
+            parts.append(f'<button type="button" class="act-btn" '
+                         f'data-dismiss="{o["id"]}">Dismiss, not for me</button>')
     elif not acked:
         parts.append('<div class="row-sub">Acknowledge it from the served '
                      'page, or with <code>python scripts/touch.py mark '
@@ -1137,6 +1153,8 @@ a:hover{text-decoration-color:var(--accent)}
 .act-btn{font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;white-space:nowrap;border:1px solid var(--hairline-strong);border-radius:var(--radius-pill);padding:4px 12px;cursor:pointer;background:var(--surface);color:var(--ink-2);justify-self:start;transition:color var(--dur-instant) var(--ease),border-color var(--dur-instant) var(--ease)}
 .act-btn:hover{color:var(--accent);border-color:var(--accent-quiet)}
 .act-btn:disabled{color:var(--ink-3);cursor:wait}
+.retired-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 2px;border-top:1px solid var(--hairline);color:var(--ink-2)}
+.retired-row:first-child{border-top:0}
 .row-summary > .chip{grid-column:7;justify-self:center}
 .panel-head .h-cv{grid-column:3;text-align:center}
 .panel-head .h-want{grid-column:4;text-align:center}
@@ -1306,6 +1324,29 @@ SERVE_SCRIPT = """
       })
       .catch(function () { location.reload(); });
   });
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-close],[data-unclose],[data-dismiss],[data-undismiss]');
+    if (!btn) return;
+    var kind = ['close', 'unclose', 'dismiss', 'undismiss'].filter(function (k) {
+      return btn.dataset[k];
+    })[0];
+    btn.disabled = true;
+    btn.textContent = 'Saving';
+    fetch('/' + kind, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: Number(btn.dataset[kind]) })
+    }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok === false) {
+          btn.disabled = false;
+          window.alert(j.note || 'That did not stick. Try again.');
+          return;
+        }
+        location.reload();
+      })
+      .catch(function () { location.reload(); });
+  });
   var watch = document.getElementById('btn-watch');
   if (watch) watch.addEventListener('click', function () {
     watch.disabled = true;
@@ -1442,6 +1483,39 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
         age_body = age_head + "".join(
             render_ageing_row(a, i) for i, a in enumerate(data["ageing"], 1))
 
+    # Closed, dismissed and expired rows, the archive's own section. Out
+    # of every working view, kept on file, with the undo living here.
+    retired = data.get("retired_roles") or []
+    retired_section = ""
+    if retired and not fresh:
+        bits = []
+        for o in retired:
+            if o.get("closed_at"):
+                how = ("the page check"
+                       if o.get("closed_source") == "page_check" else "hand")
+                stamp = f"Closed {fmt_day(o['closed_at'])} by {how}"
+                undo = (f'<button type="button" class="act-btn" '
+                        f'data-unclose="{o["id"]}">Undo</button>'
+                        if serve else "")
+            elif o.get("dismissed_at"):
+                stamp = f"Dismissed {fmt_day(o['dismissed_at'])}"
+                undo = (f'<button type="button" class="act-btn" '
+                        f'data-undismiss="{o["id"]}">Undo</button>'
+                        if serve else "")
+            else:
+                stamp = f"Expired {fmt_day(o.get('expired_at'))}"
+                undo = ""
+            name = ". ".join(str(b) for b in (o.get("title"),
+                                              o.get("company")) if b)
+            bits.append('<div class="retired-row">'
+                        f'<span>{esc(name or "Untitled role")}. '
+                        f'{esc(stamp)}.</span>{undo}</div>')
+        retired_section = section(
+            "Closed and dismissed", len(retired),
+            "Out of every view, kept on file. Closed means confirmed, by "
+            "hand or by the page check. Dismissed means not for me. Undo "
+            "brings a row back.", "", "".join(bits))
+
     outlinks = []
     if serve:
         outlinks.append('<li><a href="/cv">Update the CV the scorer reads</a></li>')
@@ -1508,6 +1582,7 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
 {section("Ageing", 0 if fresh else len(data["ageing"]),
          "Above the bar, older than two weeks, hasn't moved. Not a problem, "
          "just unfinished.", "panel-clay", age_body)}
+{retired_section}
 {"" if serve else section("Watchlist health", len(data["watchlist"]),
          "Every fetched source and what came back. Email-borne alerts "
          "arrive through the inbox workflow instead and are not listed "

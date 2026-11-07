@@ -90,7 +90,9 @@ def rescore_opportunities(conn, config, usage_total) -> tuple[int, int]:
     # combined, because combined is history now and nothing new writes it.
     rows = conn.execute(
         "SELECT * FROM opportunities WHERE tier IS NULL"
-        " AND acknowledged_at IS NULL").fetchall()
+        " AND acknowledged_at IS NULL"
+        " AND closed_at IS NULL AND dismissed_at IS NULL"
+        " AND expired_at IS NULL").fetchall()
     return _rescore_rows(conn, config, usage_total, rows)
 
 
@@ -109,10 +111,14 @@ def regate_backlog(conn, config, usage_total, cap: int, dry_run: bool = False):
     """
     rows = conn.execute(
         "SELECT * FROM opportunities WHERE tier IS NULL"
-        " AND acknowledged_at IS NULL ORDER BY id LIMIT ?", (cap,)).fetchall()
+        " AND acknowledged_at IS NULL"
+        " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
+        " ORDER BY id LIMIT ?", (cap,)).fetchall()
     remaining = conn.execute(
         "SELECT COUNT(*) FROM opportunities WHERE tier IS NULL"
-        " AND acknowledged_at IS NULL").fetchone()[0] - len(rows)
+        " AND acknowledged_at IS NULL"
+        " AND closed_at IS NULL AND dismissed_at IS NULL"
+        " AND expired_at IS NULL").fetchone()[0] - len(rows)
     if dry_run:
         return {"examined": len(rows), "rescored": 0, "failed": 0,
                 "remaining": max(0, remaining + len(rows)), "dry_run": True,
@@ -134,11 +140,13 @@ def rescore_stale_cv(conn, config, usage_total, cap: int) -> tuple[int, int, int
     rows = conn.execute(
         "SELECT * FROM opportunities WHERE combined IS NOT NULL"
         " AND acknowledged_at IS NULL"
+        " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
         " AND COALESCE(cv_version, '') <> ?"
         " ORDER BY combined DESC LIMIT ?", (current, cap)).fetchall()
     remaining = conn.execute(
         "SELECT COUNT(*) FROM opportunities WHERE combined IS NOT NULL"
-        " AND acknowledged_at IS NULL AND COALESCE(cv_version, '') <> ?",
+        " AND acknowledged_at IS NULL AND COALESCE(cv_version, '') <> ?"
+        " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL",
         (current,)).fetchone()[0] - len(rows)
     fixed, failed = _rescore_rows(conn, config, usage_total, rows)
     return fixed, failed, max(0, remaining)
