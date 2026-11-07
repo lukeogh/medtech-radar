@@ -24,7 +24,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -141,6 +141,18 @@ _MIGRATIONS = (
     # reading 1, the one sighting their first_seen already records.
     ("opportunities", "last_seen", "TEXT"),
     ("opportunities", "seen_count", "INTEGER NOT NULL DEFAULT 1"),
+    # Closure detection, stage two. The lifecycle stamps, all nullable,
+    # NULL meaning it has not happened. closed_source says who confirmed
+    # the close, manual or page_check, because no row is ever marked
+    # closed without confirmation. The last_check pair belongs to the
+    # stage three page checker and lands now so one migration carries
+    # the whole lifecycle.
+    ("opportunities", "closed_at", "TEXT"),
+    ("opportunities", "closed_source", "TEXT"),
+    ("opportunities", "dismissed_at", "TEXT"),
+    ("opportunities", "expired_at", "TEXT"),
+    ("opportunities", "last_checked_at", "TEXT"),
+    ("opportunities", "last_check_result", "TEXT"),
 )
 
 
@@ -199,6 +211,36 @@ def _migrate(conn: sqlite3.Connection) -> None:
         recompute_regions(conn, load_config())
     except Exception:                              # noqa: BLE001
         pass
+
+
+LIVE_WINDOW_DAYS = 7
+
+
+def life_state(row, now: str | None = None) -> str:
+    """Live, unknown or closed for one opportunity row. Derived, never stored.
+
+    Closed is a confirmed stamp and outranks everything, including a
+    fresh sighting. Live is any sighting, or a live page check, inside
+    the window. Everything else is unknown, and the page shows the age
+    plainly rather than guessing. Accepts a dict or sqlite3.Row; a
+    missing column reads as empty, so a legacy row judges on first_seen
+    alone.
+    """
+    def field(key):
+        try:
+            return row[key]
+        except (KeyError, IndexError):
+            return None
+
+    if field("closed_at"):
+        return "closed"
+    moment = datetime.strptime(now or now_iso(), "%Y-%m-%dT%H:%M:%SZ")
+    cutoff = ((moment - timedelta(days=LIVE_WINDOW_DAYS))
+              .strftime("%Y-%m-%dT%H:%M:%SZ"))
+    checked = (field("last_checked_at") or ""
+               if field("last_check_result") == "live" else "")
+    newest = max(field("last_seen") or field("first_seen") or "", checked)
+    return "live" if newest >= cutoff else "unknown"
 
 
 def normalise_company(name) -> str:

@@ -295,6 +295,51 @@ def set_acknowledged(item_id: int, on: bool) -> dict:
         conn.close()
 
 
+def set_lifecycle(item_id: int, action: str) -> dict:
+    """close, unclose, dismiss or undismiss on one opportunity row.
+
+    The two human verdicts the lifecycle takes: the role is confirmed
+    gone, or it is not for me. Either takes the row out of every working
+    view, never out of the database. A hand close stamps closed_source
+    manual, the confirmation the closed state demands, and unclose
+    clears a page-check close too, the human outranking the checker.
+    Same writable-connection manners as set_acknowledged.
+    """
+    statements = {
+        "close": ("UPDATE opportunities SET closed_at = ?,"
+                  " closed_source = 'manual'"
+                  " WHERE id = ? AND closed_at IS NULL", True),
+        "unclose": ("UPDATE opportunities SET closed_at = NULL,"
+                    " closed_source = NULL"
+                    " WHERE id = ? AND closed_at IS NOT NULL", False),
+        "dismiss": ("UPDATE opportunities SET dismissed_at = ?"
+                    " WHERE id = ? AND dismissed_at IS NULL", True),
+        "undismiss": ("UPDATE opportunities SET dismissed_at = NULL"
+                      " WHERE id = ? AND dismissed_at IS NOT NULL", False),
+    }
+    if action not in statements:
+        return {"ok": False, "note": f"unknown action {action}"}
+    sql, stamps = statements[action]
+    try:
+        conn = radar_common.get_db(db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    try:
+        params = ((radar_common.now_iso(), item_id) if stamps
+                  else (item_id,))
+        cur = conn.execute(sql, params)
+        conn.commit()
+        if cur.rowcount == 0:
+            return {"ok": False,
+                    "note": f"no opportunity {item_id} in the state that "
+                            "action expects, maybe already handled"}
+        return {"ok": True, "id": item_id, "action": action}
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    finally:
+        conn.close()
+
+
 CV_SCRIPT = """
 (function () {
   var input = document.getElementById('cv-file');
@@ -722,6 +767,18 @@ class Handler(BaseHTTPRequestHandler):
                            "application/json")
                 return
             result = set_acknowledged(item_id, path == "/ack")
+            self._send(200 if result["ok"] else 409,
+                       json.dumps(result).encode(), "application/json")
+            return
+        if path in ("/close", "/unclose", "/dismiss", "/undismiss"):
+            body = self._read_json_body()
+            item_id = body.get("id") if isinstance(body, dict) else None
+            # Integers only, for the same bool-subclass reason as /ack.
+            if not isinstance(item_id, int) or isinstance(item_id, bool):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            result = set_lifecycle(item_id, path[1:])
             self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
             return

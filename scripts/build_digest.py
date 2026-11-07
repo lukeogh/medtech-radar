@@ -191,17 +191,20 @@ def collect(conn, config: dict) -> dict:
         "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
         " AND tier IN ('top','question') AND thread_type = 'inbound'"
         " AND acknowledged_at IS NULL"
+        " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
         " ORDER BY CASE tier WHEN 'top' THEN 0 ELSE 1 END, cv_match DESC",
         (last_ts,))]
     opp_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
         " AND tier IN ('top','question') AND thread_type = 'signal'"
         " AND acknowledged_at IS NULL"
+        " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
         " ORDER BY CASE tier WHEN 'top' THEN 0 ELSE 1 END, cv_match DESC",
         (last_ts,))]
     reading_count = conn.execute(
         "SELECT COUNT(*) n FROM opportunities WHERE status = 'new'"
-        " AND first_seen > ? AND tier = 'reading' AND acknowledged_at IS NULL",
+        " AND first_seen > ? AND tier = 'reading' AND acknowledged_at IS NULL"
+        " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL",
         (last_ts,)).fetchone()["n"]
     table_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM signals WHERE status = 'new' AND first_seen > ?"
@@ -221,6 +224,7 @@ def collect(conn, config: dict) -> dict:
     for row in conn.execute(
             "SELECT * FROM opportunities WHERE status IN ('new','digested')"
             " AND acknowledged_at IS NULL"
+            " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
             " AND combined IS NOT NULL AND combined >= ?"
             " AND COALESCE(status_changed_at, first_seen) <= ?"
             " ORDER BY COALESCE(status_changed_at, first_seen)",
@@ -245,6 +249,7 @@ def collect(conn, config: dict) -> dict:
             "SELECT title, company, notes FROM opportunities"
             " WHERE tier IS NULL AND status = 'new' AND first_seen > ?"
             " AND acknowledged_at IS NULL"
+            " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
             " ORDER BY first_seen", (last_ts,))
     ] + [
         {"label": r["headline"] or "Signal", "company": r["company"] or "",
