@@ -87,6 +87,23 @@ def main() -> int:
           and radar_common.band_for(599.999, 650.0) == "below",
           "the close band edge sits exactly £50 under the floor")
 
+    # ----- url hashing, the dedupe key's normalisation
+    bare = radar_common.url_hash(
+        "https://www.linkedin.com/comm/jobs/view/4447159213")
+    check(radar_common.url_hash(
+        "https://www.linkedin.com/comm/jobs/view/4447159213/"
+        "?trackingId=abc&refId=def&lipi=urn%3Ali&midToken=AQF"
+        "&midSig=0EzJQat&trk=eml-x&trkEmail=eml-y&eid=3cvk&otpToken=MDEw")
+        == bare,
+        "every LinkedIn tracking parameter strips, midSig included")
+    check(radar_common.url_hash(
+        "https://www.linkedin.com/comm/jobs/view/4447159213?midSig=other")
+        == bare,
+        "a per-email midSig never splits the dedupe key")
+    check(radar_common.url_hash("https://example.com/page?q=term&utm_source=x")
+          == radar_common.url_hash("https://EXAMPLE.com/page/?q=term"),
+          "case, trailing slash and utm noise normalise away, the real query stays")
+
     # ----- the floor line, real file then loud failure
     try:
         floor = radar_common.read_rate_floor(CFG)

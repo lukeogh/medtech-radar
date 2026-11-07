@@ -37,7 +37,7 @@ ENV_PATH = REPO_ROOT / ".env"
 # Query parameters that carry tracking noise, stripped before hashing a URL.
 _TRACKING_PARAMS = re.compile(
     r"^(utm_|trk|trackingid|refid|ref|mkt_tok|gclid|fbclid|li_|midtoken|"
-    r"eid|otpToken|lipi)", re.IGNORECASE
+    r"midsig|eid|otpToken|lipi)", re.IGNORECASE
 )
 
 
