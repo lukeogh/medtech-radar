@@ -179,6 +179,22 @@ def main() -> int:
     veltrix = conn.execute("SELECT COUNT(*) AS c FROM opportunities"
                            " WHERE company LIKE 'Veltrix%'").fetchone()["c"]
     check(veltrix == 1, "the duplicated role is stored exactly once")
+    # Closure detection stage one. The repeat email is a sighting of the
+    # stored row, not a discard.
+    veltrix_seen = conn.execute(
+        "SELECT first_seen, last_seen, seen_count FROM opportunities"
+        " WHERE company LIKE 'Veltrix%'").fetchone()
+    check(veltrix_seen["seen_count"] >= 2
+          and veltrix_seen["last_seen"] >= veltrix_seen["first_seen"],
+          "the repeat sighting bumped last_seen and seen_count on the"
+          " stored row")
+    unseen = conn.execute("SELECT COUNT(*) AS c FROM opportunities"
+                          " WHERE last_seen IS NULL").fetchone()["c"]
+    check(unseen == 0, "every stored row carries a last_seen")
+    sightings = conn.execute(
+        "SELECT SUM(seen_count) AS s FROM opportunities").fetchone()["s"]
+    check(sightings == total_in,
+          f"seen_count totals every card processed ({sightings} of {total_in})")
     # The sanitiser guarantee, unit style. A deliberately offending string,
     # built from today's live Meridian line, comes out clean and natural.
     offending = ("No action needed — the rate is less than half the floor; "
@@ -377,6 +393,16 @@ def main() -> int:
     rerun = parse_step(proc, "stdin re-run")
     check(rerun["new"] == 0 and rerun["duplicates"] == rerun["processed"],
           "re-run is idempotent, every item reported as a duplicate")
+    # The sighting ledger reconciles across the whole suite. Since the
+    # first sum: one unscorable row stored, then every re-fed card bumped.
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    sightings_after = conn.execute(
+        "SELECT SUM(seen_count) AS s FROM opportunities").fetchone()["s"]
+    conn.close()
+    check(sightings_after == sightings + 1 + rerun["processed"],
+          "every re-run duplicate recorded as a sighting"
+          f" ({sightings_after} from {sightings} + 1 + {rerun['processed']})")
 
     print()
     if failures:
