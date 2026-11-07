@@ -260,6 +260,18 @@ def main() -> int:
         flag = conn.execute("SELECT value FROM meta WHERE"
                             " key = 'migrated_retirement'").fetchone()
         check(flag is not None, "the mapping sets its once-only flag")
+        # Closure detection stage one. A legacy row opens with its sighting
+        # columns filled, last seen when first seen, counted once.
+        row = conn.execute("SELECT first_seen, last_seen, seen_count"
+                           " FROM opportunities"
+                           " WHERE url_hash = 'lg2'").fetchone()
+        check(row["last_seen"] == row["first_seen"] and row["seen_count"] == 1,
+              "the sighting backfill reads a legacy row as last seen when"
+              " first seen, counted once")
+        seen_flag = conn.execute("SELECT value FROM meta WHERE"
+                                 " key = 'migrated_last_seen'").fetchone()
+        check(seen_flag is not None,
+              "the sighting backfill sets its once-only flag")
         # The undo-survival regression, through the real /unack write.
         # Undo must clear the stamp, return the legacy status to
         # machine-owned 'new' so the digest, ageing and backfill can see

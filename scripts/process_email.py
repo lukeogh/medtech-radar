@@ -262,14 +262,14 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
     # honest answer, and the page reads a missing tier as needs review.
     conn.execute(
         "INSERT OR IGNORE INTO opportunities"
-        " (url_hash, first_seen, source, company, title, location, salary_rate,"
+        " (url_hash, first_seen, last_seen, source, company, title, location, salary_rate,"
         "  source_url, thread_type, cv_match, want_match, combined, one_line_why,"
         "  red_flags, suggested_action, act_by, status, status_changed_at, notes,"
         "  pay_currency, pay_period, pay_min, pay_max, day_rate, rate_band,"
         "  cv_version, buying_window, company_id, region,"
         "  gate_sector, gate_sector_note, gate_cv, gate_cv_note, gate_location, gate_location_note, gate_rate, gate_rate_note, tier, failed_gates, question_text, filter_reason, rate_stated, rate_value, rate_basis, ir35, location_class)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (h, now, source,
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (h, now, now, source,
          scored["company"] or opp.get("company", ""),
          scored["role_title"] or opp.get("title", ""),
          scored["location"] or opp.get("location", ""),
@@ -373,6 +373,14 @@ def main(argv=None) -> int:
         already = h in seen_hashes or conn.execute(
             "SELECT 1 FROM opportunities WHERE url_hash = ?", (h,)).fetchone()
         if already:
+            # A duplicate card is still a sighting. The bump is the only
+            # liveness the alert stream can give, and absence proves
+            # nothing under the six-card digest cap, so only "seen again"
+            # is ever recorded.
+            conn.execute(
+                "UPDATE opportunities SET last_seen = ?,"
+                " seen_count = seen_count + 1 WHERE url_hash = ?",
+                (now, h))
             dup_count += 1
             items.append({"company": opp.get("company", ""),
                           "title": opp.get("title", ""),

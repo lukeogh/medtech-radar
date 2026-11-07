@@ -134,6 +134,13 @@ _MIGRATIONS = (
     ("opportunities", "rate_basis", "TEXT"),
     ("opportunities", "ir35", "TEXT"),
     ("opportunities", "location_class", "TEXT"),
+    # Closure detection, stage one. A duplicate card in an alert is a
+    # sighting of a live advert, so the row keeps the latest date and a
+    # count instead of discarding them at the door. seen_count carries its
+    # DEFAULT so the ALTER lands on a populated table, existing rows
+    # reading 1, the one sighting their first_seen already records.
+    ("opportunities", "last_seen", "TEXT"),
+    ("opportunities", "seen_count", "INTEGER NOT NULL DEFAULT 1"),
 )
 
 
@@ -173,6 +180,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
         backfill_companies(conn)
         conn.execute("INSERT OR IGNORE INTO meta (key, value)"
                      " VALUES ('migrated_companies', '1')")
+    # Closure detection stage one. Rows stored before sightings were
+    # recorded read as last seen when they were first seen, the only honest
+    # date on file. The UPDATE is idempotent, the flag only keeps the open
+    # cheap, matching the pattern above.
+    done_seen = conn.execute(
+        "SELECT value FROM meta WHERE key = 'migrated_last_seen'").fetchone()
+    if not done_seen:
+        conn.execute("UPDATE opportunities SET last_seen = first_seen"
+                     " WHERE last_seen IS NULL")
+        conn.execute("INSERT OR IGNORE INTO meta (key, value)"
+                     " VALUES ('migrated_last_seen', '1')")
     # Regions are a cache of a config rule, so they are recomputed whenever
     # that rule changes and skipped entirely when it has not. Wrapped
     # because a malformed regions block must not make the database
