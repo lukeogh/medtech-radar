@@ -46,7 +46,8 @@ import radar_common
 
 OUT_DEFAULT = radar_common.REPO_ROOT / "dashboard.html"
 WATCHLIST_PATH = radar_common.REPO_ROOT / "config" / "watchlist.yaml"
-AGEING_DAYS = 14
+AGEING_DAYS = 30          # a role unknown this long is ageing (J16)
+SIGNAL_AGEING_DAYS = 14   # watcher signals keep their fortnight
 
 _UNITS = ("no", "one", "two", "three", "four", "five", "six", "seven",
           "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
@@ -366,8 +367,11 @@ def collect(conn, config) -> dict:
     except RuntimeError:
         floor = None
     now = datetime.now(timezone.utc)
+    now_s = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     age_cutoff = (now - timedelta(days=AGEING_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    sig_age_cutoff = (now - timedelta(days=SIGNAL_AGEING_DAYS)
+                      ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     all_opportunities = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities"
@@ -413,16 +417,19 @@ def collect(conn, config) -> dict:
            ORDER BY (t.next_action_date IS NULL), t.next_action_date""")]
 
     def is_ageing_opp(o) -> bool:
+        # J16. Unknown and first seen over a month ago, from any tier
+        # the page shows as rows. Filtered rows stay collapsed in their
+        # roll-up, and a live role stays put however old it is.
         return (not o.get("acknowledged_at")
-                and o["status"] in ("new", "digested")
-                and (o["combined"] or 0) >= threshold
-                and (o["status_changed_at"] or o["first_seen"] or "9999") <= age_cutoff)
+                and (o.get("tier") or "") != "filtered"
+                and (o["first_seen"] or "9999") <= age_cutoff
+                and radar_common.life_state(o, now_s) == "unknown")
 
     def is_ageing_sig(s) -> bool:
         return (not s.get("acknowledged_at")
                 and s["status"] in ("new", "digested")
                 and (s["relevance"] or 0) >= threshold
-                and (s["first_seen"] or "9999") <= age_cutoff)
+                and (s["first_seen"] or "9999") <= sig_age_cutoff)
 
     ageing = ([{**o, "kind": "opportunity"} for o in opportunities if is_ageing_opp(o)]
               + [{**s, "kind": "signal"} for s in signals if is_ageing_sig(s)])
@@ -1580,8 +1587,8 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
          "The latest touch per company with a next step still open, from "
          "the tracker.", "panel-sage", thr_body)}
 {section("Ageing", 0 if fresh else len(data["ageing"]),
-         "Above the bar, older than two weeks, hasn't moved. Not a problem, "
-         "just unfinished.", "panel-clay", age_body)}
+         "Adverts unknown for a month, signals above the bar for a "
+         "fortnight. Not a problem, just unfinished.", "panel-clay", age_body)}
 {retired_section}
 {"" if serve else section("Watchlist health", len(data["watchlist"]),
          "Every fetched source and what came back. Email-borne alerts "
@@ -2651,8 +2658,9 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
     if ageing:
         body += section(
             "Ageing", len(ageing),
-            "Above the bar and sitting still for over a fortnight. Retire "
-            "them with touch.py mark or acknowledge them.",
+            "Unknown for over a month, no sighting and no live check. "
+            "Close them, dismiss them, or leave them for the forty-five "
+            "day expiry.",
             "panel-stone", tier_rows(ageing))
 
     if filtered:

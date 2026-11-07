@@ -6,8 +6,9 @@ Contract (build conventions, Workstream 1):
 - Selects everything at or above score_threshold since the last digest.
   Inbound opportunities first, then Signals. Signals combine opportunities
   with thread_type signal and rows from the signals table, sorted by score.
-- An ageing section lists flagged items older than two weeks whose status has
-  not moved (status new or digested), so nothing rots quietly.
+- An ageing section lists adverts unknown for over a month, no sighting and
+  no live check, plus signals above the bar for a fortnight, so nothing rots
+  quietly.
 - A threads awaiting action section reads the touches table, the latest touch
   per company with a next action set, same query as touch.py pending.
 - Ends with one line of pipeline stats from the runs table, covering the
@@ -51,7 +52,8 @@ import radar_common
 
 TEST_DIR = radar_common.REPO_ROOT / "test"
 EPOCH = "1970-01-01T00:00:00Z"
-AGEING_DAYS = 14
+AGEING_DAYS = 30          # a role unknown this long is ageing (J16)
+SIGNAL_AGEING_DAYS = 14   # watcher signals keep their fortnight
 
 
 def get_meta(conn, key: str):
@@ -183,6 +185,9 @@ def collect(conn, config: dict) -> dict:
     last_ts = get_meta(conn, "last_digest_ts") or EPOCH
     age_cutoff = (datetime.now(timezone.utc)
                   - timedelta(days=AGEING_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    sig_age_cutoff = (datetime.now(timezone.utc)
+                      - timedelta(days=SIGNAL_AGEING_DAYS)
+                      ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Phase three. Tiers, not a combined bar. digest_min_want retired with
     # the additive score it was a second bar on top of.
@@ -221,21 +226,25 @@ def collect(conn, config: dict) -> dict:
     used_sig_ids = {s["id"] for s in table_signals}
 
     ageing = []
+    # J16. An advert ages when it is unknown, no sighting and no live
+    # check in a week, and first seen over a month ago, whatever its
+    # tier bar the filtered roll-up. The combined bar is history.
     for row in conn.execute(
-            "SELECT * FROM opportunities WHERE status IN ('new','digested')"
-            " AND acknowledged_at IS NULL"
+            "SELECT * FROM opportunities WHERE acknowledged_at IS NULL"
             " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
-            " AND combined IS NOT NULL AND combined >= ?"
-            " AND COALESCE(status_changed_at, first_seen) <= ?"
-            " ORDER BY COALESCE(status_changed_at, first_seen)",
-            (threshold, age_cutoff)):
-        if row["id"] not in used_opp_ids:
-            ageing.append({**dict(row), "kind": "opportunity"})
+            " AND COALESCE(tier, '') <> 'filtered'"
+            " AND first_seen <= ?"
+            " ORDER BY first_seen", (age_cutoff,)):
+        if row["id"] in used_opp_ids:
+            continue
+        if radar_common.life_state(dict(row)) != "unknown":
+            continue
+        ageing.append({**dict(row), "kind": "opportunity"})
     for row in conn.execute(
             "SELECT * FROM signals WHERE status IN ('new','digested')"
             " AND acknowledged_at IS NULL"
             " AND relevance IS NOT NULL AND relevance >= ? AND first_seen <= ?"
-            " ORDER BY first_seen", (threshold, age_cutoff)):
+            " ORDER BY first_seen", (threshold, sig_age_cutoff)):
         if row["id"] not in used_sig_ids:
             ageing.append({**dict(row), "kind": "signal"})
 
@@ -361,7 +370,7 @@ def render_text(data: dict, today_label: str) -> str:
         lines.append(rate_legend(data["floor"]))
 
     lines.append("")
-    lines.append("Ageing. Flagged items older than two weeks with no movement.")
+    lines.append("Ageing. Adverts unknown for a month, signals quiet for a fortnight.")
     if ageing:
         for a in ageing:
             label = (f"{a['title']}, {a['company']}" if a["kind"] == "opportunity"
