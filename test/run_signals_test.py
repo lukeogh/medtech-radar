@@ -175,6 +175,44 @@ def main() -> int:
         check(not _re.search(r"[£€$]\s?\d", textv),
               f"{label} carries no priced amount")
 
+    # Doctrine, extended to the drafts. These are words that will be sent
+    # to a founder under Luke's name, so they are held to the same rules as
+    # the playbook step and then some. Runs in mock and live alike.
+    print("\nDraft doctrine checks. Words a human will send, held to the playbook.")
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import draft_outreach
+    drafted = conn.execute(
+        "SELECT company, draft_comment, draft_note, draft_source FROM signals"
+        " WHERE draft_comment IS NOT NULL OR draft_note IS NOT NULL").fetchall()
+    check(True, f"{len(drafted)} signal(s) carried drafts")
+    for d in drafted:
+        who = d["company"] or "unknown"
+        problems = draft_outreach.doctrine_problems(
+            d["draft_comment"] or "", d["draft_note"] or "")
+        check(not problems, f"{who} drafts obey the doctrine ({'; '.join(problems) or 'clean'})")
+        if d["draft_note"]:
+            check(len(d["draft_note"]) <= 300,
+                  f"{who} connection note is inside the 300 character limit "
+                  f"(got {len(d['draft_note'])})")
+        if d["draft_comment"]:
+            low = d["draft_comment"].lower()
+            check("62304" not in low and "13485" not in low,
+                  f"{who} comment names no standards, they belong in the note")
+            check("?" not in d["draft_comment"],
+                  f"{who} comment asks nothing, the first touch has no ask")
+        check(d["draft_source"] in ("article", "headline"),
+              f"{who} drafts record what they were written from "
+              f"(got {d['draft_source']!r})")
+
+    # The guard itself must catch what it claims to catch.
+    for bad_comment, bad_note, why in (
+            ("Congratulations. Happy to help with the regulatory side.", "", "an offer"),
+            ("", "My rate is £700 per day if useful.", "a price"),
+            ("Congratulations. See https://example.com for my services.", "", "a link and a service"),
+            ("", "x" * 340, "an over-long note")):
+        check(bool(draft_outreach.doctrine_problems(bad_comment, bad_note)),
+              f"the doctrine guard catches {why}")
+
     print("\nIdempotency checks. Injecting all three again.")
     rerun_dupes = 0
     for name in ("marginal", "irrelevant", "perfect"):

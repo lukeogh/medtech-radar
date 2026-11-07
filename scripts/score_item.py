@@ -58,6 +58,63 @@ def _fixture_allowed(config: dict) -> bool:
             or bool(config.get("allow_fixture_profile", False)))
 
 
+
+# ---------------------------------------------------------------- gates
+
+MOVABLE_GATES = ("location", "rate")   # one conversation can shift these
+FIXED_GATES = ("sector", "cv")         # no question turns a software house into an IVD firm
+CV_PASS = 70
+CV_FLOOR_FOR_READING = 40
+
+
+def derive_tier(gates: dict, rate_basis: str = "", cv_match=None,
+                is_real_role: bool = True) -> dict:
+    """Turn four gate results into a tier. Code decides this, never the model.
+
+    The gates are not equal. Location and rate are movable, one conversation
+    can shift a hybrid pattern or restate a recruiter's number. Sector and CV
+    are fixed, no question turns a generic software house into an IVD company
+    and the CV number is about Luke rather than them. One question away leans
+    entirely on that split.
+    """
+    failed = [name for name in ("sector", "cv", "location", "rate")
+              if gates.get(name) is False]
+    out = {"tier": "reading", "failed_gates": failed, "filter_reason": None}
+
+    if cv_match is not None and cv_match < CV_FLOOR_FOR_READING:
+        out.update(tier="filtered", filter_reason="cv match under 40")
+        return out
+    if not is_real_role:
+        out.update(tier="filtered", filter_reason="not a real leadership role")
+        return out
+
+    if not failed:
+        # Nothing published blocks it. An unstated rate sits here carrying its
+        # flag, because that is missing information rather than a blocker.
+        out["tier"] = "top"
+        return out
+
+    if len(failed) == 1:
+        only = failed[0]
+        if only in MOVABLE_GATES:
+            # A rate fail that came from a salary conversion does not belong
+            # here. Permanent packages do not restate the way day rates do.
+            if only == "rate" and rate_basis == "converted-salary":
+                return out
+            out["tier"] = "question"
+            return out
+    return out
+
+
+def question_for(gates: dict, notes: dict) -> str:
+    """The one question a conversation could settle, for the question tier."""
+    if gates.get("location") is False:
+        return "Would they go remote"
+    if gates.get("rate") is False:
+        return "Would they move on the rate"
+    return ""
+
+
 def assert_profile_ready(config: dict) -> None:
     """Fail before any API call when live scoring would use the fixture CV.
 
@@ -239,9 +296,15 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
     if parsed is None:
         return None, usage, note
 
-    cv = _pct(parsed.get("cv_match_pct"))
+    # Phase three. The gates are the score. cv_match_pct is still read for a
+    # v1 response so an old fixture does not explode, but nothing new writes
+    # combined, because the additive score is what guaranteed the bar could
+    # never be cleared.
+    cv = _pct(parsed.get("cv_match")) 
+    if cv is None:
+        cv = _pct(parsed.get("cv_match_pct"))
     want = _pct(parsed.get("want_match_pct"))
-    combined = round((cv + want) / 2) if cv is not None and want is not None else None
+    combined = None
 
     red_flags = parsed.get("red_flags") or []
     if not isinstance(red_flags, list):
@@ -265,9 +328,58 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
         "suggested_action": sanitise(str(parsed.get("suggested_action", "")).strip()),
         "act_by": sanitise(str(parsed.get("act_by", "")).strip()),
     }
-    if combined is None:
-        return scored, usage, "scorer returned non numeric percentages"
+
+    def gate(key, default=None):
+        v = parsed.get(key, default)
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str) and v.strip().lower() in ("true", "false"):
+            return v.strip().lower() == "true"
+        return None
+
+    gates = {"sector": gate("gate_sector"),
+             "cv": (cv >= CV_PASS) if cv is not None else None,
+             "location": gate("gate_location"),
+             "rate": gate("gate_rate")}
+    rate_basis = str(parsed.get("rate_basis") or "").strip()
+    # A role is real when it is software, quality or regulatory leadership in a
+    # regulated or deep-tech sector, or anything at all in medtech and IVD. The
+    # sector gate plus a non-trivial CV number is the closest honest proxy the
+    # rubric gives us without a fifth question.
+    is_real = bool(gates["sector"]) or (cv is not None and cv >= CV_FLOOR_FOR_READING)
+    tier_info = derive_tier(gates, rate_basis, cv, is_real)
+
+    scored.update({
+        "gate_sector": None if gates["sector"] is None else int(gates["sector"]),
+        "gate_sector_note": sanitise(str(parsed.get("gate_sector_note", "")).strip()),
+        "gate_cv": None if gates["cv"] is None else int(gates["cv"]),
+        "gate_cv_note": sanitise(str(parsed.get("gate_cv_note", "")).strip()),
+        "gate_location": None if gates["location"] is None else int(gates["location"]),
+        "gate_location_note": sanitise(str(parsed.get("gate_location_note", "")).strip()),
+        "gate_rate": None if gates["rate"] is None else int(gates["rate"]),
+        "gate_rate_note": sanitise(str(parsed.get("gate_rate_note", "")).strip()),
+        "tier": tier_info["tier"],
+        "failed_gates": json.dumps(tier_info["failed_gates"]),
+        "filter_reason": tier_info["filter_reason"],
+        "question_text": (sanitise(str(parsed.get("question_text") or "").strip())
+                          or question_for(gates, {})) if tier_info["tier"] == "question" else None,
+        "rate_stated": (None if parsed.get("rate_stated") is None
+                        else int(bool(parsed.get("rate_stated")))),
+        "rate_value": _num(parsed.get("rate_value")),
+        "rate_basis": rate_basis or None,
+        "ir35": (str(parsed.get("ir35") or "").strip().lower() or None),
+        "location_class": (str(parsed.get("location_class") or "").strip().lower() or None),
+    })
+    if cv is None:
+        return scored, usage, "scorer returned no usable cv match"
     return scored, usage, None
+
+
+def _num(value):
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def main(argv=None) -> int:

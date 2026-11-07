@@ -47,6 +47,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -105,6 +106,141 @@ def render(page_name: str = "archive") -> bytes:
     else:
         page = build_dashboard.render_home_page(data, config, db_label)
     return page.encode("utf-8")
+
+
+def render_company(company_id: int):
+    """The dossier for one company, or None when there is no such id."""
+    config = radar_common.load_config()
+    dbp = Path(ARGS.db).resolve() if ARGS.db else radar_common.DB_PATH
+    conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        try:
+            db_label = dbp.relative_to(REPO_ROOT).as_posix()
+        except ValueError:
+            db_label = str(dbp)
+        page = build_dashboard.render_company_page(conn, company_id, config,
+                                                   db_label)
+    finally:
+        conn.close()
+    return page.encode("utf-8") if page else None
+
+
+def set_company_state(company_id: int, state: str, confirmed: bool) -> dict:
+    """Set one of the three states a human owns, and log why.
+
+    The machine never calls this. Setting a state also writes a touch, so
+    six months later the timeline says who decided and when, rather than
+    the state having simply appeared.
+    """
+    if state not in ("in-conversation", "client", "dead"):
+        return {"ok": False, "note": f"{state!r} is not a state a human sets here"}
+    if state == "dead" and not confirmed:
+        return {"ok": False, "note": "dead outranks every other state, confirm first"}
+    try:
+        conn = radar_common.get_db(db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    try:
+        row = conn.execute("SELECT display_name, state FROM companies"
+                           " WHERE id = ?", (company_id,)).fetchone()
+        if row is None:
+            return {"ok": False, "note": f"no company {company_id}"}
+        now = radar_common.now_iso()
+        conn.execute("UPDATE companies SET state = ?, state_changed_at = ?"
+                     " WHERE id = ?", (state, now, company_id))
+        note = radar_common.sanitise_free_text(
+            f"State set to {state.replace('-', ' ')}"
+            + (f" from {row['state'].replace('-', ' ')}." if row["state"] else "."))
+        conn.execute(
+            "INSERT INTO touches (company, touched_at, channel, note, company_id)"
+            " VALUES (?,?,?,?,?)",
+            (row["display_name"], now, "other", note, company_id))
+        conn.commit()
+        return {"ok": True, "id": company_id, "state": state,
+                "showing": radar_common.company_state(conn, company_id)}
+    finally:
+        conn.close()
+
+
+def set_touch_outcome(touch_id: int, outcome: str) -> dict:
+    """Record what came back from one touch. Human-set, never inferred."""
+    if outcome not in ("none", "reply", "conversation"):
+        return {"ok": False, "note": f"{outcome!r} is not an outcome"}
+    try:
+        conn = radar_common.get_db(db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    try:
+        cur = conn.execute("UPDATE touches SET outcome = ? WHERE id = ?",
+                           (outcome, touch_id))
+        conn.commit()
+        if cur.rowcount == 0:
+            return {"ok": False, "note": f"no touch {touch_id}"}
+        return {"ok": True, "id": touch_id, "outcome": outcome}
+    finally:
+        conn.close()
+
+
+def health_payload() -> tuple[int, dict]:
+    """Is the machine alive, as JSON, for something else to watch.
+
+    Exists so that silence means quiet rather than broken. Nobody opens a
+    dashboard at three in the morning, and a pipeline that stopped at
+    midnight looks exactly like a pipeline with nothing to say until
+    somebody looks. This is the thing Uptime Kuma can look at instead.
+
+    Degraded rather than dead is a real state and gets its own answer. The
+    database being reachable while the inbox has not run for a day is not
+    an outage, it is a fact worth a nudge.
+    """
+    out = {"database": "unreachable", "inbox_last_run": None,
+           "signals_last_run": None, "status": "down"}
+    try:
+        dbp = db_path()
+        conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            for key, workflow in (("inbox_last_run", "inbox"),
+                                  ("signals_last_run", "signals")):
+                row = conn.execute(
+                    "SELECT MAX(ts) t FROM runs WHERE workflow = ?",
+                    (workflow,)).fetchone()
+                out[key] = row["t"] if row else None
+            out["opportunities"] = conn.execute(
+                "SELECT COUNT(*) n FROM opportunities").fetchone()["n"]
+            out["signals"] = conn.execute(
+                "SELECT COUNT(*) n FROM signals").fetchone()["n"]
+        finally:
+            conn.close()
+        out["database"] = "ok"
+    except Exception as err:                       # noqa: BLE001
+        out["note"] = f"{type(err).__name__}"
+        return 503, out
+
+    now = datetime.now(timezone.utc)
+    def hours_since(iso):
+        if not iso:
+            return None
+        try:
+            when = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return round((now - when).total_seconds() / 3600, 1)
+
+    out["inbox_hours_ago"] = hours_since(out["inbox_last_run"])
+    out["signals_hours_ago"] = hours_since(out["signals_last_run"])
+    # The schedules are hourly and two-hourly. Triple them before calling
+    # anything wrong, because one missed run is a blip and a watchdog that
+    # cries at blips gets muted.
+    stale = [name for name, hrs, limit in
+             (("inbox", out["inbox_hours_ago"], 3),
+              ("signals", out["signals_hours_ago"], 6))
+             if hrs is None or hrs > limit]
+    out["status"] = "ok" if not stale else "degraded"
+    if stale:
+        out["stale"] = stale
+    return (200 if out["status"] == "ok" else 503), out
 
 
 def db_path() -> Path:
@@ -332,6 +468,30 @@ def _infer_channel(step: str) -> str:
     return "engagement"
 
 
+# Step 3 of playbook/announcement-day.md. Around three weeks after the
+# announcement, one genuine engagement, brief, no standards and no ask.
+WEEK_THREE_ACTION = "Week three. One genuine engagement with their content, brief."
+WEEK_THREE_DAYS = 21
+
+
+def week_three_booking(channel: str, now: datetime | None = None):
+    """The next action to book after a touch, or nothing at all.
+
+    Only the announcement-day channels book week three. A comment or a
+    connection note is the first contact, so the playbook's next event is
+    ours to make and it belongs in the diary. An engagement already is week
+    three, and an artefact send is the buying-window move whose next event
+    belongs to them, a reply or silence, both fine. Booking a date on either
+    would invent a chase the doctrine explicitly forbids.
+
+    Returns (action, YYYY-MM-DD) or (None, None).
+    """
+    if channel not in ("comment", "connection-note"):
+        return None, None
+    when = (now or datetime.now(timezone.utc)) + timedelta(days=WEEK_THREE_DAYS)
+    return WEEK_THREE_ACTION, when.strftime("%Y-%m-%d")
+
+
 def set_signal_state(item_id: int, action: str) -> dict:
     """done, ack or unack on one signal row.
 
@@ -360,12 +520,17 @@ def set_signal_state(item_id: int, action: str) -> dict:
                          " WHERE id = ?", (item_id,))
             channel = _infer_channel(row["playbook_step"])
             note = f"Did the suggestion. {row['headline'] or 'Signal'}."
+            next_action, next_date = week_three_booking(channel)
             conn.execute(
-                "INSERT INTO touches (company, touched_at, channel, note)"
-                " VALUES (?,?,?,?)",
-                (row["company"] or "Unknown company", now, channel, note))
+                "INSERT INTO touches (company, touched_at, channel, note,"
+                " next_action, next_action_date) VALUES (?,?,?,?,?,?)",
+                (row["company"] or "Unknown company", now, channel, note,
+                 next_action, next_date))
             conn.commit()
-            return {"ok": True, "id": item_id, "channel": channel}
+            out = {"ok": True, "id": item_id, "channel": channel}
+            if next_date:
+                out["week_three"] = next_date
+            return out
         if action == "ack":
             cur = conn.execute(
                 "UPDATE signals SET acknowledged_at = ? WHERE id = ?"
@@ -465,6 +630,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")
             return
+        if path == "/health":
+            code, payload = health_payload()
+            self._send(code, json.dumps(payload).encode(), "application/json")
+            return
+        if path.startswith("/company/"):
+            raw = path[len("/company/"):].strip("/")
+            if not raw.isdigit():
+                self._send(404, b"Company ids are numbers.",
+                           "text/plain; charset=utf-8")
+                return
+            try:
+                page = render_company(int(raw))
+            except Exception as err:  # noqa: BLE001
+                self._send(500, f"Render failed. {type(err).__name__}: {err}"
+                           .encode(), "text/plain; charset=utf-8")
+                return
+            if page is None:
+                self._send(404, b"No company with that id.",
+                           "text/plain; charset=utf-8")
+                return
+            self._send(200, page, "text/html; charset=utf-8")
+            return
         if path in ("/insights", "/jobs", "/archive"):
             try:
                 self._send(200, render(path.lstrip("/")),
@@ -552,6 +739,30 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(422, json.dumps(
                     {"ok": False, "note": str(err)}).encode(),
                     "application/json")
+            return
+        if path == "/touch/outcome":
+            body = self._read_json_body()
+            tid = body.get("id") if isinstance(body, dict) else None
+            if not isinstance(tid, int) or isinstance(tid, bool):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            result = set_touch_outcome(tid, str(body.get("outcome") or ""))
+            self._send(200 if result["ok"] else 409,
+                       json.dumps(result).encode(), "application/json")
+            return
+        if path == "/company/state":
+            body = self._read_json_body()
+            cid = body.get("id") if isinstance(body, dict) else None
+            state = body.get("state") if isinstance(body, dict) else None
+            if not isinstance(cid, int) or isinstance(cid, bool):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            result = set_company_state(cid, str(state or ""),
+                                       bool(body.get("confirm")))
+            self._send(200 if result["ok"] else 409,
+                       json.dumps(result).encode(), "application/json")
             return
         if path == "/jobs/source":
             body = self._read_json_body()

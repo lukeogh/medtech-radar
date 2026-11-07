@@ -122,6 +122,130 @@ stored why text alone. Database columns migrate automatically the first
 time any writer opens the file, and a timestamped copy under
 `db/backups/` before the first run of the new version is cheap insurance.
 
+## Backups, and how to restore
+
+Two things here cannot be rebuilt. `db/radar.sqlite` is the business memory,
+the touch log, the buying-window history and the dedupe record that stops the
+same advert being scored twice forever. `config/profile/` holds the CV versions
+every score was made against, is gitignored by design, and exists on the n8n
+host and nowhere else. Losing it turns every `cv_version` stamp in the database
+into a pointer at nothing.
+
+`scripts/backup_radar.sh` takes both. The database is copied with `VACUUM INTO`
+and never with `cp`, because three workflows overlap on one file in WAL mode and
+a plain copy can catch a write in progress, producing a file that opens cleanly
+and is quietly missing the last transaction. That is the worst kind of backup,
+the kind that looks fine. The script proves the snapshot opens and carries rows
+before reporting success, and rotates its own local copies.
+
+Getting the copies off the host is deliberately a separate job, because a backup
+that lives beside the thing it protects is not a backup. On this homelab that is
+`/home/keoghpi/medtech-radar-offsite.sh` on the Pi, run by the
+`medtech-radar-backup.timer` systemd timer at 02:37 nightly with `Persistent=true`
+so a machine that was off overnight still takes its backup on the next boot. It
+runs the repo script inside the container, copies the artefacts out through the
+Proxmox node, verifies the copy that landed rather than the one at source, and
+keeps 14 daily and 8 weekly under `/mnt/ssd3/backups/medtech-radar/`. It uses
+only credentials that already existed, and in particular the container was not
+given an SSH key to the Pi to make it work.
+
+### Restoring
+
+```bash
+# 1. Pick a copy. Newest first.
+ls -1t /mnt/ssd3/backups/medtech-radar/daily/radar-*.sqlite | head
+
+# 2. Restore to a scratch path and open it there first. Never restore
+#    straight over a live database.
+cp /mnt/ssd3/backups/medtech-radar/daily/radar-<stamp>.sqlite /tmp/restored.sqlite
+python3 -c "import sqlite3;c=sqlite3.connect('file:/tmp/restored.sqlite?mode=ro',uri=True);\
+print(c.execute('PRAGMA integrity_check').fetchone()[0]);\
+print([c.execute(f'select count(*) from {t}').fetchone()[0] for t in ('opportunities','signals','touches')])"
+
+# 3. Compare against live before deciding anything.
+sudo -u radar sqlite3 /opt/biz-admin/medtech-radar/db/radar.sqlite \
+  "select count(*) from opportunities; select count(*) from signals; select count(*) from touches;"
+
+# 4. Only when the numbers make sense, stop the dashboard, move the live
+#    file aside rather than deleting it, and put the restored copy in place
+#    owned by uid 1000.
+```
+
+The profile archive restores with `tar xzf profile-<stamp>.tar.gz -C <target>`,
+which recreates `config/profile/`. Restore it alongside the database from the
+same night, because a database whose scores were made against a CV you no longer
+have is only half a restore.
+
+Restore was proved on 2 August 2026 from the off-host copy, matching live at 190
+opportunities, 34 signals and 0 touches, integrity ok, with `cv.txt` and
+`preferences.md` intact in the archive.
+
+
+## The companies model, added August 2026
+
+The landscape is companies, not rows. `companies` is keyed on the normalised
+name, lowercase and collapsed whitespace and nothing cleverer, because suffix
+stripping would let a different Veltrix inherit a touch history it never earned.
+`opportunities`, `signals` and `touches` all carry `company_id`, and they keep
+their name columns too, because those are what the page shows and what a
+restored row still has if a join ever breaks.
+
+Relationship states are split by who owns them, and that split is the point.
+**Seen, touched and window open are derived at read time** from facts already
+stored, an item exists, a touch exists, a job-advert signal exists. **In
+conversation, client and dead are stored** and only ever set by a human, through
+`touch.py state` or the dossier. A stored copy of a derivable fact is a second
+source of truth that eventually disagrees with the first. Dead outranks
+everything including client, because a human said so.
+
+**Enrichment** runs once per company, ever, at first sight, capped by
+`enrich_cap_per_run` and logged as its own `enrich` line in the runs table. It
+makes one polite fetch of the company site only where the item names one, and
+guesses no domain from a company name, because guessing a domain and knocking on
+it is how a polite watcher stops being one. LinkedIn heads a list of hosts never
+treated as a company site. Empty fields are the honest answer and the common
+one, and the prompt is told so twice.
+
+**Regions** group the Insights page as Local, UK, Europe and Elsewhere, ordered
+in `radar.yaml` where Luke edits the Local list. The region is a cache, computed
+from country and city and mirrored onto every row so grouping is a column read.
+The rules carry a fingerprint, and a company with no region is itself reason to
+recompute, which is the lesson of 3 August when enrichment filled in 39
+countries and the page did not move because only the rules were being watched.
+
+**The dossier** at `/company/<id>` is one screen per company, the timeline
+interleaving adverts, insights and touches newest first. It is read-only except
+the three human states and the touch outcomes.
+
+**Drafts** are written at push time for the announcement-day step only, stored on
+the signal, and never sent by anything. Every draft is checked before storing and
+refused outright on failure, because a bad draft is worse than none, it is
+sitting there ready to send.
+
+**Tripwires** route a first quality or regulatory hire at an untouched medtech
+company down the signal path under `qa-tripwire`, with no fixed relevance, so
+the rubric judges it. Three gates, title, sector and not-already-touched, and
+the sector exclusion beats the inclusion so a hospital QA post never fires.
+
+**Traction** on Home measures whether the doctrine is being worked rather than
+whether the market moved. Outcomes on touches, none, reply or conversation, are
+set by hand only.
+
+## The renderer, and the one page to trust
+
+`serve_dashboard.py` is canonical. It re-renders from the database on every load
+and takes the writes. `build_dashboard.py` is the rendering library it imports,
+and its command line still writes a static archive page but prints a deprecation
+note when it does. A file written this morning is a photograph of a database
+that has moved on, and two surfaces disagreeing is worse than having one.
+
+`GET /health` returns JSON for something else to watch, last inbox run, last
+signals run, database reachability and row counts, with a 200 when fresh and a
+503 when the database is unreachable or a pipeline has gone quiet for more than
+triple its schedule. It exists so that silence means quiet rather than broken,
+because nobody opens a dashboard at three in the morning and a pipeline that
+stopped at midnight looks exactly like one with nothing to say.
+
 ## The fallback
 
 If putting Python next to n8n ever becomes a nuisance, the scripts do not need n8n at all. Run `process_email.py`, `check_signals.py` and `build_digest.py` by cron on any box that has the repo and the key. In that setup n8n keeps only the jobs that genuinely need its credentials, reading Gmail and sending the digest email. Everything else is just Python, SQLite and a schedule.

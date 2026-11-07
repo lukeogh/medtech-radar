@@ -84,8 +84,56 @@ _MIGRATIONS = (
     ("opportunities", "rate_band", "TEXT"),
     ("opportunities", "acknowledged_at", "TEXT"),
     ("opportunities", "cv_version", "TEXT"),
+    # Set in code at store time, never by a model. NOT NULL carries its
+    # DEFAULT so the ALTER lands on a populated table without rewriting it,
+    # existing rows read as 0, which is the honest answer for adverts
+    # stored before the touch log was ever consulted.
+    ("opportunities", "buying_window", "INTEGER NOT NULL DEFAULT 0"),
     ("signals", "cv_version", "TEXT"),
     ("signals", "acknowledged_at", "TEXT"),
+    # Phase two. Every stored row points at the company it belongs to. The
+    # name columns stay where they are, because they are what the page
+    # shows and what a restored-from-backup row still has if the join ever
+    # breaks. Nullable on purpose, a row that arrives before its company
+    # can be resolved is still a row worth keeping.
+    ("opportunities", "company_id", "INTEGER"),
+    ("signals", "company_id", "INTEGER"),
+    ("touches", "company_id", "INTEGER"),
+    # Phase two task three. The company's region, mirrored onto the rows so
+    # grouping the page is a column read rather than a join on every render.
+    # recompute_regions keeps the mirror honest when the rules change.
+    ("opportunities", "region", "TEXT"),
+    ("signals", "region", "TEXT"),
+    # Phase two task five. Drafts written at push time and stored on the
+    # signal, so the words are waiting when the phone is picked up. Never
+    # sent by anything, only copied by a human.
+    ("signals", "draft_comment", "TEXT"),
+    ("signals", "draft_note", "TEXT"),
+    ("signals", "draft_source", "TEXT"),   # article | headline, what it drafted from
+    ("signals", "drafted_at", "TEXT"),
+    # Phase two task seven. What came back from a touch. Replies were
+    # happening and going uncounted, so the doctrine could not be measured.
+    ("touches", "outcome", "TEXT"),
+    # Phase three. The four gates, their notes, and the tier derived from
+    # them. Nullable throughout, because a row scored before the gates
+    # existed has no honest answer and inventing one would be worse.
+    ("opportunities", "gate_sector", "INTEGER"),
+    ("opportunities", "gate_sector_note", "TEXT"),
+    ("opportunities", "gate_cv", "INTEGER"),
+    ("opportunities", "gate_cv_note", "TEXT"),
+    ("opportunities", "gate_location", "INTEGER"),
+    ("opportunities", "gate_location_note", "TEXT"),
+    ("opportunities", "gate_rate", "INTEGER"),
+    ("opportunities", "gate_rate_note", "TEXT"),
+    ("opportunities", "tier", "TEXT"),
+    ("opportunities", "failed_gates", "TEXT"),
+    ("opportunities", "question_text", "TEXT"),
+    ("opportunities", "filter_reason", "TEXT"),
+    ("opportunities", "rate_stated", "INTEGER"),
+    ("opportunities", "rate_value", "REAL"),
+    ("opportunities", "rate_basis", "TEXT"),
+    ("opportunities", "ir35", "TEXT"),
+    ("opportunities", "location_class", "TEXT"),
 )
 
 
@@ -114,6 +162,241 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # not die on the primary key.
         conn.execute("INSERT OR IGNORE INTO meta (key, value)"
                      " VALUES ('migrated_retirement', '1')")
+    # Phase two. Give every row already stored a company to belong to, once
+    # per database, behind its own flag for the same reason as above. New
+    # rows resolve their company at store time and never come through here.
+    # The backfill itself is idempotent, so a hand re-run after the flag is
+    # set is harmless, it simply finds nothing to do.
+    done_co = conn.execute(
+        "SELECT value FROM meta WHERE key = 'migrated_companies'").fetchone()
+    if not done_co:
+        backfill_companies(conn)
+        conn.execute("INSERT OR IGNORE INTO meta (key, value)"
+                     " VALUES ('migrated_companies', '1')")
+    # Regions are a cache of a config rule, so they are recomputed whenever
+    # that rule changes and skipped entirely when it has not. Wrapped
+    # because a malformed regions block must not make the database
+    # unopenable, the page degrades to Elsewhere instead.
+    try:
+        recompute_regions(conn, load_config())
+    except Exception:                              # noqa: BLE001
+        pass
+
+
+def normalise_company(name) -> str:
+    """A company name reduced to something two spellings can agree on.
+
+    Lowercase and collapsed whitespace only. Deliberately not clever, no
+    suffix stripping, because turning "Veltrix Diagnostics" into "veltrix"
+    would let a different Veltrix borrow a touch history it never earned.
+
+    This is the natural key for the companies table, so changing this rule
+    changes which rows are the same company. Do not change it casually.
+    """
+    return " ".join(str(name or "").lower().split())
+
+
+def resolve_company(conn, display_name, now: str | None = None):
+    """The id of the company row for this name, creating it if new.
+
+    Idempotent. Two workflows racing on the same new company both end up
+    pointing at one row, because the insert is OR IGNORE against the unique
+    normalised name and the read that follows is what decides the answer.
+
+    Returns None for an empty name rather than inventing a company, since
+    an unnamed advert is a real thing and a company called "" is not.
+    """
+    key = normalise_company(display_name)
+    if not key:
+        return None
+    conn.execute(
+        "INSERT OR IGNORE INTO companies (norm_name, display_name, first_seen)"
+        " VALUES (?,?,?)",
+        (key, str(display_name).strip(), now or now_iso()))
+    row = conn.execute(
+        "SELECT id FROM companies WHERE norm_name = ?", (key,)).fetchone()
+    return row["id"] if row else None
+
+
+def backfill_companies(conn) -> dict:
+    """Give every stored item and touch a company row. Safe to re-run.
+
+    Adds and annotates only. It never rewrites a name, never merges two
+    companies, and never clears a company_id that is already set, so a
+    second run over a populated database is a no-op that costs one scan.
+    """
+    made = 0
+    linked = {"opportunities": 0, "signals": 0, "touches": 0}
+    for table in ("opportunities", "signals", "touches"):
+        rows = conn.execute(
+            f"SELECT DISTINCT company FROM {table}"
+            " WHERE company IS NOT NULL AND TRIM(company) <> ''"
+            "   AND company_id IS NULL").fetchall()
+        for r in rows:
+            key = normalise_company(r["company"])
+            if not key:
+                continue
+            before = conn.execute(
+                "SELECT COUNT(*) AS n FROM companies WHERE norm_name = ?",
+                (key,)).fetchone()["n"]
+            cid = resolve_company(conn, r["company"])
+            if cid is None:
+                continue
+            if not before:
+                made += 1
+            # Exact match on the stored spelling, because the loop is over
+            # distinct stored spellings. Two spellings of one firm both
+            # resolve to the same id above, so they meet at the company row
+            # without SQL ever needing to know the normalising rule.
+            cur = conn.execute(
+                f"UPDATE {table} SET company_id = ?"
+                f" WHERE company_id IS NULL AND company = ?",
+                (cid, r["company"]))
+            linked[table] += cur.rowcount
+    return {"companies_created": made, "linked": linked}
+
+
+# Relationship states. The three a human sets are stored on the company
+# row. The rest are facts already in the database and are read, not kept.
+# Strength order, weakest first. dead is not in this list because it is
+# not a rung on the ladder, it ends the climb.
+_STATE_ORDER = ("seen", "touched", "window open", "in conversation", "client")
+
+
+def company_display_state(stored, has_items: bool, has_touches: bool,
+                          has_window: bool) -> str:
+    """The one state to show for a company. The strongest that applies.
+
+    dead trumps everything, including client, because a human said so and
+    no amount of derived activity should argue with them. Otherwise the
+    strongest rung wins, and a company with nothing at all reads as new.
+    """
+    if stored == "dead":
+        return "dead"
+    candidates = []
+    if has_items:
+        candidates.append("seen")
+    if has_touches:
+        candidates.append("touched")
+    if has_window:
+        candidates.append("window open")
+    if stored == "in-conversation":
+        candidates.append("in conversation")
+    if stored == "client":
+        candidates.append("client")
+    if not candidates:
+        return "new"
+    return max(candidates, key=_STATE_ORDER.index)
+
+
+def company_state(conn, company_id) -> str:
+    """company_display_state for one company, reading the facts itself."""
+    row = conn.execute("SELECT state FROM companies WHERE id = ?",
+                       (company_id,)).fetchone()
+    stored = row["state"] if row else None
+    def any_row(sql):
+        return conn.execute(sql, (company_id,)).fetchone() is not None
+    return company_display_state(
+        stored,
+        any_row("SELECT 1 FROM opportunities WHERE company_id = ? LIMIT 1")
+        or any_row("SELECT 1 FROM signals WHERE company_id = ? LIMIT 1"),
+        any_row("SELECT 1 FROM touches WHERE company_id = ? LIMIT 1"),
+        any_row("SELECT 1 FROM signals WHERE company_id = ?"
+                " AND source_id = 'job-advert' LIMIT 1"))
+
+
+_REGION_FALLBACK = "Elsewhere"
+
+
+def _norm_place(value) -> str:
+    return " ".join(str(value or "").lower().split())
+
+
+def region_for(country, city, config: dict) -> str:
+    """Which group an insight belongs to. First rule that matches wins.
+
+    The last group catches everything left, including a company nobody has
+    enriched yet, because a company with no country must still land
+    somewhere. Vanishing off the page is the one outcome a grouping rule
+    must never produce.
+    """
+    groups = config.get("regions") or []
+    if not groups:
+        return _REGION_FALLBACK
+    c_country, c_city = _norm_place(country), _norm_place(city)
+    for g in groups:
+        how = str(g.get("match") or "").lower()
+        if how == "places":
+            places = {_norm_place(p) for p in (g.get("local_places") or [])}
+            if (c_city and c_city in places) or (c_country and c_country in places):
+                return str(g.get("name") or _REGION_FALLBACK)
+        elif how == "countries":
+            names = {_norm_place(n) for n in (g.get("countries") or [])}
+            if c_country and c_country in names:
+                return str(g.get("name") or _REGION_FALLBACK)
+        elif how == "rest":
+            return str(g.get("name") or _REGION_FALLBACK)
+    last = groups[-1]
+    return str(last.get("name") or _REGION_FALLBACK)
+
+
+def region_group_names(config: dict) -> list:
+    """Group names in configured order, for rendering and for the digest."""
+    return [str(g.get("name")) for g in (config.get("regions") or [])
+            if g.get("name")] or [_REGION_FALLBACK]
+
+
+def regions_fingerprint(config: dict) -> str:
+    """A stable hash of the region rules, so a config edit can be noticed."""
+    return hashlib.sha256(
+        json.dumps(config.get("regions") or [], sort_keys=True,
+                   ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
+def recompute_regions(conn, config: dict, force: bool = False) -> dict:
+    """Recompute company regions when the rules change, and mirror them.
+
+    The region is stored on companies and mirrored onto opportunities and
+    signals so the page groups by reading a column rather than joining on
+    every render. That mirror is a cache, and this is what keeps a cache
+    honest when the thing it copies moves.
+
+    Cheap when nothing changed. The fingerprint of the rules is kept in
+    meta, and an unchanged fingerprint means an early return.
+    """
+    fp = regions_fingerprint(config)
+    row = conn.execute(
+        "SELECT value FROM meta WHERE key = 'regions_fingerprint'").fetchone()
+    # The rules changing is not the only way this cache goes stale. Enrichment
+    # fills in a country long after the company row was created, and a company
+    # created since the last pass has no region at all. Either leaves rows
+    # grouped as Elsewhere while the database plainly knows better, which is
+    # exactly what happened on 3 August, so an unplaced row is also a reason
+    # to do the work.
+    unplaced = conn.execute(
+        "SELECT 1 FROM companies WHERE region IS NULL LIMIT 1").fetchone()
+    if not force and row and row["value"] == fp and not unplaced:
+        return {"changed": False, "companies": 0}
+    updated = 0
+    for co in conn.execute(
+            "SELECT id, country, city FROM companies").fetchall():
+        want = region_for(co["country"], co["city"], config)
+        cur = conn.execute(
+            "UPDATE companies SET region = ? WHERE id = ? AND"
+            " (region IS NOT ? OR region IS NULL)", (want, co["id"], want))
+        updated += cur.rowcount
+        conn.execute("UPDATE opportunities SET region = ? WHERE company_id = ?",
+                     (want, co["id"]))
+        conn.execute("UPDATE signals SET region = ? WHERE company_id = ?",
+                     (want, co["id"]))
+    # Rows with no company at all still need a group, and Elsewhere is the
+    # honest one. A row with no region reads as a bug on the page.
+    fallback = region_group_names(config)[-1]
+    for t in ("opportunities", "signals"):
+        conn.execute(f"UPDATE {t} SET region = ? WHERE region IS NULL", (fallback,))
+    conn.execute("INSERT INTO meta (key, value) VALUES ('regions_fingerprint', ?)"
+                 " ON CONFLICT(key) DO UPDATE SET value = excluded.value", (fp,))
+    return {"changed": True, "companies": updated}
 
 
 def get_db(db_path: Path | None = None) -> sqlite3.Connection:

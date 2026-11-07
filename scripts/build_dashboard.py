@@ -1,11 +1,22 @@
-"""Render the read-only Radar dashboard from the database.
+"""Render the Radar pages from the database. The renderer, not a product.
 
-Implements the First Light design system's dashboard kit
-(ui_kits/medtech-radar-dashboard in the design project). The archive.
-Everything the machine has on file, read on purpose rather than out of
-habit. One self-contained file, no server, no external requests.
+DEPRECATED AS A COMMAND, 3 August 2026. Still the rendering library, and
+serve_dashboard.py imports every page from here, so nothing about this file
+is going away. What ended is the habit of writing a static copy of a page
+that a running server already renders live.
 
-    python scripts/build_dashboard.py
+The served page is canonical. It re-renders from the database on every
+load, it takes the writes, and it is the only surface that can be trusted
+to be current. A file written to disk this morning is a photograph of a
+database that has moved on, and the two disagreeing is worse than only
+having one. First Light lives in one place now.
+
+The command below still works and still writes the archive page, because
+removing a thing someone might have in a cron job is a rude way to make a
+point. It prints a deprecation note when it runs.
+
+    python scripts/build_dashboard.py        # archive export, deprecated
+    python scripts/serve_dashboard.py        # the real thing
 
 Design decisions carried over from the kit, in brief. No score meters, no
 stat tiles, no pipeline table, no tinted hot rows. A standing line orients,
@@ -149,6 +160,201 @@ def week_usage(conn, since_iso) -> tuple[int, float]:
 
 # ------------------------------------------------------------------ collect
 
+def _median(values):
+    """Median without pulling in statistics for one call. None when empty."""
+    vals = sorted(v for v in values if v is not None)
+    if not vals:
+        return None
+    mid = len(vals) // 2
+    if len(vals) % 2:
+        return vals[mid]
+    return (vals[mid - 1] + vals[mid]) / 2
+
+
+def rate_metrics(conn, floor, days: int = 90) -> dict:
+    """What the market actually paid, over the trailing window.
+
+    Reads the banded rows only. An advert with no stated pay says nothing
+    about the market, so counting it in a median would drag the answer
+    toward whatever the silent adverts happen to be, and silence is not a
+    number. The share that stayed silent is reported beside the median
+    instead, because that share is itself the most honest thing on the
+    panel, and on this data it is most of it.
+    """
+    since = (datetime.now(timezone.utc)
+             - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [dict(r) for r in conn.execute(
+        "SELECT day_rate, rate_band, first_seen FROM opportunities"
+        " WHERE first_seen > ?", (since,))]
+    banded = [r for r in rows if (r.get("rate_band") or "unstated") != "unstated"
+              and r.get("day_rate") is not None]
+    rates = [r["day_rate"] for r in banded]
+    by_month = {}
+    for r in banded:
+        by_month.setdefault((r["first_seen"] or "")[:7], []).append(r["day_rate"])
+    return {
+        "days": days,
+        "total": len(rows),
+        "stated": len(banded),
+        "unstated": len(rows) - len(banded),
+        "median": _median(rates),
+        "low": min(rates) if rates else None,
+        "high": max(rates) if rates else None,
+        "floor": floor,
+        "above_floor": sum(1 for v in rates if floor is not None and v >= floor),
+        "by_month": sorted(((m, _median(v), len(v))
+                            for m, v in by_month.items() if m), key=lambda x: x[0]),
+    }
+
+
+def source_yield(conn, threshold: int, fast: int) -> dict:
+    """Arrivals and hits per source, over 30 and 90 days.
+
+    The point is that the next source going quiet, or going noisy, is
+    visible without anyone counting by hand. Boards are read from
+    opportunities.source and watched sources from signals.source_id,
+    because they are different pipelines that happen to end in the same
+    database.
+    """
+    now = datetime.now(timezone.utc)
+    windows = {d: (now - timedelta(days=d)).strftime("%Y-%m-%dT%H:%M:%SZ")
+               for d in (30, 90)}
+    out = {"boards": {}, "watched": {}}
+    for days, since in windows.items():
+        for r in conn.execute(
+                "SELECT COALESCE(source,'unknown') s, COUNT(*) n,"
+                " SUM(CASE WHEN combined >= ? THEN 1 ELSE 0 END) hits"
+                " FROM opportunities WHERE first_seen > ? GROUP BY s",
+                (threshold, since)):
+            out["boards"].setdefault(r["s"], {})[days] = {
+                "arrivals": r["n"], "hits": r["hits"] or 0}
+        for r in conn.execute(
+                "SELECT COALESCE(source_id,'unknown') s, COUNT(*) n,"
+                " SUM(CASE WHEN relevance >= ? THEN 1 ELSE 0 END) hits"
+                " FROM signals WHERE first_seen > ? GROUP BY s",
+                (threshold, since)):
+            out["watched"].setdefault(r["s"], {})[days] = {
+                "arrivals": r["n"], "hits": r["hits"] or 0}
+    return out
+
+
+def deaths_by_gate(conn, days: int = 90) -> dict:
+    """Which gate killed what, over the trailing window.
+
+    Replaces the score histogram, which retired with the additive score. It
+    is also the first instrument for the skills question, because a CV gate
+    that keeps firing on the same kind of role names a gap long before any
+    ledger exists to hold it.
+    """
+    since = (datetime.now(timezone.utc)
+             - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    counts = {"sector": 0, "cv": 0, "location": 0, "rate": 0}
+    gated = 0
+    for r in conn.execute(
+            "SELECT failed_gates FROM opportunities WHERE first_seen > ?"
+            " AND tier IS NOT NULL", (since,)):
+        gated += 1
+        try:
+            for g in json.loads(r["failed_gates"] or "[]"):
+                if g in counts:
+                    counts[g] += 1
+        except (ValueError, TypeError):
+            continue
+    return {"days": days, "gated": gated,
+            "counts": sorted(counts.items(), key=lambda kv: -kv[1])}
+
+
+def score_histogram(conn, threshold: int, days: int = 90, bucket: int = 10):
+    """Combined scores in buckets, so the bar's placement can be judged.
+
+    A threshold is a guess until you can see the shape it cuts through.
+    """
+    since = (datetime.now(timezone.utc)
+             - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    buckets = {}
+    for r in conn.execute(
+            "SELECT combined FROM opportunities WHERE first_seen > ?"
+            " AND combined IS NOT NULL", (since,)):
+        b = min(int(r["combined"]) // bucket * bucket, 90)
+        buckets[b] = buckets.get(b, 0) + 1
+    return {"bucket": bucket, "threshold": threshold, "days": days,
+            "buckets": [(b, buckets.get(b, 0)) for b in range(0, 100, bucket)]}
+
+
+def traction_metrics(conn, config: dict) -> dict:
+    """Whether the doctrine is being worked, as opposed to whether the
+    market moved.
+
+    Every other panel on these pages measures the world. This one measures
+    Luke, which is the harder and more useful question, and it reads only
+    what he already logged.
+    """
+    now = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+    by_month = {}
+    for r in conn.execute(
+            "SELECT substr(touched_at,1,7) m, COALESCE(channel,'other') c,"
+            " COUNT(*) n FROM touches GROUP BY m, c"):
+        by_month.setdefault(r["m"], {})[r["c"]] = r["n"]
+
+    outcomes = {"none": 0, "reply": 0, "conversation": 0}
+    for r in conn.execute(
+            "SELECT COALESCE(NULLIF(outcome,''),'none') o, COUNT(*) n"
+            " FROM touches GROUP BY o"):
+        outcomes[r["o"]] = outcomes.get(r["o"], 0) + r["n"]
+
+    booked = conn.execute(
+        "SELECT COUNT(*) n FROM touches WHERE next_action IS NOT NULL"
+    ).fetchone()["n"]
+    due = conn.execute(
+        "SELECT COUNT(*) n FROM touches WHERE next_action IS NOT NULL"
+        " AND next_action_date IS NOT NULL AND substr(next_action_date,1,10) <= ?",
+        (today,)).fetchone()["n"]
+    # Done is inferred rather than stored. A booked week three is done when
+    # a later touch exists against that company, because that later touch is
+    # the engagement the booking asked for. Nothing new needs writing down.
+    done = conn.execute(
+        "SELECT COUNT(*) n FROM touches t WHERE t.next_action IS NOT NULL"
+        " AND EXISTS (SELECT 1 FROM touches later WHERE later.company = t.company"
+        "             AND later.id > t.id)").fetchone()["n"]
+    windows = conn.execute(
+        "SELECT COUNT(*) n FROM signals WHERE source_id IN"
+        " ('job-advert','qa-tripwire')").fetchone()["n"]
+
+    return {"by_month": sorted(by_month.items()), "outcomes": outcomes,
+            "booked": booked, "due": due, "done": done, "windows": windows,
+            "total": sum(outcomes.values())}
+
+
+def connector_circle(conn, config: dict) -> dict:
+    """Connectors nobody has spoken to lately. A reminder, never a workflow.
+
+    The names come from radar.yaml because they are people Luke knows and
+    no scraper should be inventing that list. Nothing here drafts, pushes
+    or acts. It counts days and says a number out loud.
+    """
+    names = [str(n).strip() for n in (config.get("connectors") or []) if str(n).strip()]
+    # Not `or 60`. A configured zero is a real setting and `or` would throw
+    # it away for being falsy, which is how a config value gets silently
+    # ignored and nobody finds out until they wonder why nothing changed.
+    raw = config.get("connector_quiet_days")
+    quiet_days = int(raw) if raw is not None else 60
+    if not names:
+        return {"configured": 0, "quiet": [], "quiet_days": quiet_days}
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(days=quiet_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    last = {}
+    for r in conn.execute(
+            "SELECT company, MAX(touched_at) t FROM touches GROUP BY company"):
+        last[radar_common.normalise_company(r["company"])] = r["t"]
+    quiet = []
+    for name in names:
+        seen = last.get(radar_common.normalise_company(name))
+        if seen is None or seen < cutoff:
+            quiet.append({"name": name, "last": seen})
+    return {"configured": len(names), "quiet": quiet, "quiet_days": quiet_days}
+
+
 def collect(conn, config) -> dict:
     threshold = int(config.get("score_threshold", 70))
     fast = int(config.get("fast_signal_threshold", 75))
@@ -182,7 +388,8 @@ def collect(conn, config) -> dict:
     # The latest touch per company, whatever the channel, so a story about
     # a company Luke already spoke to says so on its card.
     touch_map = {r["company"].lower(): dict(r) for r in conn.execute(
-        """SELECT t.company, t.touched_at, t.channel FROM touches t
+        """SELECT t.company, t.touched_at, t.channel, t.next_action,
+                  t.next_action_date FROM touches t
            JOIN (SELECT company, MAX(id) AS mid FROM touches
                  GROUP BY company) l ON t.id = l.mid""")}
     threads = [dict(r) for r in conn.execute(
@@ -327,6 +534,14 @@ def collect(conn, config) -> dict:
         "threshold": threshold, "fast": fast, "floor": floor, "fresh": fresh,
         "opportunities": opportunities, "acknowledged": acknowledged,
         "signals": signals, "dismissed_signals": dismissed_signals,
+        "traction": traction_metrics(conn, config),
+        "connectors": connector_circle(conn, config),
+        "rate_metrics": rate_metrics(conn, floor),
+        "source_yield": source_yield(conn, threshold, fast),
+        "deaths_by_gate": deaths_by_gate(conn),
+        "tiers": {t: [o for o in opportunities if (o.get("tier") or "") == t]
+                  for t in ("top", "question", "reading", "filtered")},
+        "ungated": [o for o in opportunities if not o.get("tier")],
         "touch_map": touch_map,
         "threads": threads, "ageing": ageing,
         "ageing_opp_ids": {a["id"] for a in ageing if a["kind"] == "opportunity"},
@@ -420,9 +635,15 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
         out.append(f'<span class="row-why">{esc(sentence(why))}</span>')
     out.append("</span>")
 
+    # The buying window is a fact about our own history, so it shows on both
+    # branches. An advert that could not be scored still tells us the company
+    # is hiring, and that is the whole of the signal.
+    window_chip = ('<span class="chip">buying window</span>'
+                   if o.get("buying_window") else "")
     if review:
         out.append('<span class="col-score">&ndash;</span>')
         out.append(rate_cell(o))
+        out.append(window_chip)
         if not acked:
             out.append('<span class="chip chip-fail">review</span>')
     else:
@@ -431,11 +652,18 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
                    f'<span class="col-want">{o["want_match"]}</span>'
                    f'<span class="col-score{hot}">{o["combined"]}</span>')
         out.append(rate_cell(o))
+        out.append(window_chip)
     if acked:
         out.append(f'<span class="chip">seen {fmt_day(o.get("acknowledged_at"))}</span>')
     out.append(f'<span class="col-when">{fmt_day(o.get("first_seen"))}</span>')
 
     parts = [labelled("Rate", rate_detail(o))]
+    if o.get("buying_window"):
+        parts.append(labelled(
+            "Buying window",
+            "This company is already in the touch log, so the advert is the "
+            "playbook's buying-window moment whatever the job score says. "
+            "The insight, and the move to make, wait on the Insights page."))
     flags = []
     try:
         flags = [str(f) for f in json.loads(o.get("red_flags") or "[]")]
@@ -459,6 +687,10 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
     if o.get("cv_version"):
         parts.append(f'<div class="row-sub">Scored against {esc(o["cv_version"])}.</div>')
     parts.append(f'<div class="row-sub">Via {esc(via(o.get("source")))}.</div>')
+    if o.get("company_id") and o.get("company"):
+        parts.append(f'<div class="row-sub"><a href="/company/'
+                     f'{int(o["company_id"])}">Everything on file for '
+                     f'{esc(o["company"])}</a></div>')
     link = source_link(o.get("source_url"), "View the advert")
     if link:
         parts.append(link)
@@ -1299,10 +1531,15 @@ def _story_card(s: dict, data: dict, lead: bool = False,
     state chooses the action row. "active" offers I did it and Dismiss,
     "followed" shows when it was done, "dismissed" offers the undo.
     """
-    kicker_bits = [b for b in (s.get("company"),) if b]
+    # The company name is a door to its dossier wherever it appears.
+    name = s.get("company")
+    if name and s.get("company_id"):
+        kicker_bits = [f'<a href="/company/{int(s["company_id"])}">{esc(name)}</a>']
+    else:
+        kicker_bits = [esc(b) for b in (name,) if b]
     if s.get("source_id"):
-        kicker_bits.append(f"via {s['source_id']}")
-    kicker = " &middot; ".join(esc(b) for b in kicker_bits)
+        kicker_bits.append(esc(f"via {s['source_id']}"))
+    kicker = " &middot; ".join(kicker_bits)
     relevance = s.get("relevance")
     meta_bits = [f"Relevance {relevance}" if relevance is not None
                  else "Awaiting a score"]
@@ -1324,6 +1561,37 @@ def _story_card(s: dict, data: dict, lead: bool = False,
         touch_line = (f'<p class="touch-note">You last touched this company '
                       f'{esc(fmt_day(touch.get("touched_at")))} via '
                       f'{esc(touch.get("channel") or "other")}.</p>')
+        # A booked next move belongs beside the last one, so the card
+        # answers "what now" without a trip to the tracker.
+        if touch.get("next_action"):
+            due = touch.get("next_action_date")
+            when = f" Due {esc(fmt_day(due))}." if due else ""
+            touch_line += (f'<p class="touch-note">Booked. '
+                           f'{esc(sentence(touch["next_action"]))}{when}</p>')
+    # Drafts sit on the card, ready to copy. Nothing sends them.
+    drafts_html = ""
+    if s.get("draft_comment") or s.get("draft_note"):
+        src = s.get("draft_source") or "headline"
+        pieces = []
+        for label, key in (("Comment", "draft_comment"),
+                           ("Connection note", "draft_note")):
+            val = s.get(key)
+            if not val:
+                continue
+            pieces.append(
+                f'<div class="row-sub"><span class="detail-label">{label}</span>'
+                f'<span class="detail-body">{esc(val)}</span></div>'
+                f'<button type="button" class="act-btn" data-copy="{esc(val)}">'
+                f'Copy the {label.lower()}</button>')
+        drafts_html = (
+            '<div class="widget" style="margin-top:12px">'
+            '<h4>Drafts, yours to edit'
+            + info_tip("Written when the signal cleared the bar, from the "
+                       f"{esc(src)} text. Nothing is ever posted by the "
+                       "machine. Read them, change what does not sound like "
+                       "you, and send them yourself.")
+            + '</h4>' + "".join(pieces) + '</div>')
+
     actions = ""
     if state == "active":
         actions = (f'<p class="story-actions">'
@@ -1338,6 +1606,7 @@ def _story_card(s: dict, data: dict, lead: bool = False,
                    f'</button></p>')
     why = esc(sentence(s.get("why") or ""))
     headline = esc(s.get("headline") or s.get("company") or "Signal")
+    actions = drafts_html + actions
     if lead:
         return (f'<article class="lead"><p class="kicker">{kicker}</p>'
                 f"<h3>{headline}</h3>"
@@ -1439,20 +1708,51 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
         + quiet_items + "</ul></div>")
     widgets.append("</div>")
 
+    # Grouped by where it happened, in the order radar.yaml lists. The lead
+    # stays above the groups, because the strongest story of the week is the
+    # strongest story wherever it happened and a front page has one of those.
+    # Within a group the fresh and earlier split is exactly as it was.
+    group_order = radar_common.region_group_names(config)
+    fallback = group_order[-1]
+
+    def grouped(rows):
+        out = {}
+        for row in rows:
+            out.setdefault(row.get("region") or fallback, []).append(row)
+        return out
+
+    fresh_by = grouped(fresh_rest)
+    earlier_by = grouped(earlier_rest)
+
     if lead:
         front = (f'<div class="front">{_story_card(lead, data, lead=True)}'
                  + "".join(widgets) + "</div>")
         body = front
-        if fresh_rest:
-            body += ('<p class="section-rule">Also fresh this week</p>'
-                     '<div class="stories">'
-                     + "".join(_story_card(s, data) for s in fresh_rest)
-                     + "</div>")
-        if earlier_rest:
-            body += ('<p class="section-rule">Earlier, still on file</p>'
-                     '<div class="stories">'
-                     + "".join(_story_card(s, data) for s in earlier_rest)
-                     + "</div>")
+        for gname in group_order:
+            g_fresh = fresh_by.get(gname) or []
+            g_earlier = earlier_by.get(gname) or []
+            if not g_fresh and not g_earlier:
+                continue          # an empty group stays off the page entirely
+            # One rule per run of cards, naming both the place and the
+            # freshness. Emitting the group name on its own line put a
+            # heading above nothing, with the cards appearing under the
+            # next heading down, which reads as an empty section.
+            tip = info_tip(
+                "Grouped by where the company is, read from the country and "
+                "city the enricher found and the rules in radar.yaml. A "
+                "company nobody has enriched yet lands in "
+                f"{esc(fallback)} rather than disappearing.")
+            if g_fresh:
+                body += (f'<p class="section-rule">{esc(gname)}. Fresh this '
+                         f'week{tip}</p><div class="stories">'
+                         + "".join(_story_card(s, data) for s in g_fresh)
+                         + "</div>")
+            if g_earlier:
+                body += (f'<p class="section-rule">{esc(gname)}. Earlier, '
+                         f'still on file{tip if not g_fresh else ""}</p>'
+                         '<div class="stories">'
+                         + "".join(_story_card(s, data) for s in g_earlier)
+                         + "</div>")
     else:
         body = ('<div class="front"><div class="lead"><h3>Nothing checked '
                 "and relevant yet.</h3><p class=\"standfirst\">The watcher "
@@ -1514,7 +1814,7 @@ like a front page. Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
 {body}
 {sources_fold}
 </main>
-<script>{SCRIPT}{INSIGHTS_SCRIPT}</script>
+<script>{SCRIPT}{INSIGHTS_SCRIPT}{COPY_SCRIPT}</script>
 </body>
 </html>"""
 
@@ -1623,245 +1923,13 @@ HOME_SCRIPT = """
 """
 
 
-def render_home_page(data: dict, config: dict, db_label: str) -> str:
-    """Home as the entrance. Cards to the pages, trends, the scoring panel.
+def telemetry_html(data: dict, config: dict) -> str:
+    """The machine, the flow and board freshness, as one strip.
 
-    The working tables live on their own pages now, Jobs, Insights and
-    the full archive at /archive. Home answers the walking-past
-    questions: is it running, what came in, how is the market moving,
-    and what is the scorer actually judging me against.
+    Moved off Jobs on 3 August. It is operating telemetry, and a person
+    opening Jobs came for roles rather than for whether cron ran. Home
+    is where the heartbeat already lives, so it belongs beside it.
     """
-    data["serve"] = True
-    now = radar_common.now_iso()
-
-    active = data["opportunities"]
-    week_ago = (datetime.now(timezone.utc)
-                - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    new_this_week = [o for o in active
-                     if (o.get("first_seen") or "") >= week_ago]
-    live_signals = [s for s in data["signals"] if s.get("status") == "new"
-                    and s.get("relevance") is not None]
-    fresh_signals = [s for s in live_signals
-                     if (s.get("first_seen") or "") >= week_ago]
-    cv_label = "the built-in cv.txt"
-    try:
-        import cv_store
-        import score_item
-        cv_label = score_item.get_cv_version(config)
-    except Exception:  # noqa: BLE001  the card degrades, never breaks Home
-        pass
-
-    cards = f"""<div class="entrance">
-<a class="card card-jobs" href="/jobs">{ICON_JOBS}<span class="card-title">Jobs</span>
-<span class="card-sub">{len(active)} {"role" if len(active) == 1 else "roles"} in play, {len(new_this_week)} new this week</span></a>
-<a class="card card-insights" href="/insights">{ICON_INSIGHTS}<span class="card-title">Insights</span>
-<span class="card-sub">{len(live_signals)} live, {len(fresh_signals)} fresh this week</span></a>
-<a class="card card-cv" href="/cv">{ICON_CV}<span class="card-title">CV</span>
-<span class="card-sub">Scoring against {esc(cv_label)}</span></a>
-</div>"""
-
-    def hours_since(iso):
-        try:
-            then = datetime.strptime(str(iso)[:16], "%Y-%m-%dT%H:%M")
-        except (ValueError, TypeError):
-            return None
-        return max(0.0, (datetime.now(timezone.utc)
-                         - then.replace(tzinfo=timezone.utc)
-                         ).total_seconds() / 3600)
-
-    inbox_hours = hours_since(data["inbox_ts"])
-    if inbox_hours is None:
-        sync_dot, sync_word = "red", "never run"
-    elif inbox_hours <= 2:
-        sync_dot, sync_word = "green", "on schedule"
-    elif inbox_hours <= 6:
-        sync_dot, sync_word = "amber", "running late"
-    else:
-        sync_dot, sync_word = "red", "stalled"
-    sync_when = (f", last sync {fmt_day_time(data['inbox_ts'])}"
-                 if data["inbox_ts"] else "")
-
-    wp = data["weekly_prospects"]
-    this_wk = wp[-1][1] if wp else 0
-    last_wk = wp[-2][1] if len(wp) > 1 else 0
-    if this_wk > last_wk:
-        wk_verdict = "more than last week, the market is giving"
-    elif this_wk < last_wk:
-        wk_verdict = "down on last week"
-    else:
-        wk_verdict = "level with last week"
-    top_w = max((c for _, c in wp), default=0) or 1
-    wp_bars = "".join(
-        ('<i class="none" title="none in the week of '
-         f'{esc(fmt_day(wk))}"></i>') if c == 0 else
-        (f'<i class="{"today" if i == len(wp) - 1 else ""}" '
-         f'style="height:{max(4, round(46 * c / top_w))}px" '
-         f'title="{c} in the week of {esc(fmt_day(wk))}"></i>')
-        for i, (wk, c) in enumerate(wp))
-    mp = data["month_prospects"]
-
-    overview = f"""<div class="metrics">
-<div class="widget"><h4>Right now{info_tip("The inbox light judges its hourly schedule. Green ran within two hours, amber within six, red stalled or never run. The counts are the last seven days.")}</h4><ul>
-<li><span class="dot dot-{sync_dot}" title="{esc(sync_word)}"></span>Inbox {esc(sync_word)}{esc(sync_when)}</li>
-<li><span class="num">{len(new_this_week)}</span>new {"job" if len(new_this_week) == 1 else "jobs"} this week</li>
-<li><span class="num">{data["week_new"]}</span>through the pipeline, {max(0, data["week_seen"] - data["week_new"])} duplicates skipped</li>
-</ul></div>
-<div class="widget"><h4>Top prospects, week on week{info_tip(f"A top prospect scores {data['threshold']} or higher combined, the digest bar. Bars are Monday-to-Sunday weeks, and the month figures sit beneath for the slower trend.")}</h4>
-<div class="bars">{wp_bars}</div>
-<p class="bars-label"><span>eight weeks ago</span><span>this week</span></p>
-<ul style="margin-top:8px">
-<li><span class="num">{this_wk}</span>this week, {last_wk} last week, {esc(wk_verdict)}</li>
-<li><span class="num">{mp["this"]}</span>this month, {mp["last"]} last month</li>
-</ul></div>
-<div class="widget"><h4>Insight activity, the year{info_tip(f"Only medtech events scoring {data['threshold']} or higher count, the ones that could need your input. Peaks say the ecosystem is announcing, troughs say go quiet and build.")}</h4>
-{_line_chart(data["monthly_signals"], "Relevant medtech signals per month over twelve months")}
-</div>
-</div>"""
-
-    floor_val = data["floor"]
-    title_val = radar_common.read_pref_line("target_title", config) or ""
-    keywords_val = radar_common.read_pref_line("keywords", config) or ""
-    keyword_chips = "".join(
-        f'<span class="chip">{esc(k.strip())}</span>'
-        for k in keywords_val.split(",") if k.strip())
-    profile = f"""<section class="section">
-<div class="section-head"><h2>What the scorer judges against</h2></div>
-<p class="section-note">Capability comes from the CV, desire from the
-preferences file, and these are the file's machine-readable lines, edited
-in place. Everything saved here is in the scorer's next system prompt.</p>
-<div class="panel panel-sage" style="padding:16px">
-<div class="pref-grid">
-<label>Title<input type="text" id="pref-target_title"
- value="{esc(title_val)}" placeholder="e.g. Fractional software director, medtech and IVD">
-<button type="button" class="act-btn" data-pref-save="target_title">Save</button></label>
-<label>Day-rate floor, GBP<input type="text" id="pref-day_rate_floor_gbp"
- value="{esc('' if floor_val is None else f'{floor_val:g}')}" placeholder="650">
-<button type="button" class="act-btn" data-pref-save="day_rate_floor_gbp">Save</button></label>
-<label>Keywords, comma separated<input type="text" id="pref-keywords"
- value="{esc(keywords_val)}" placeholder="IEC 62304, ISO 13485, IVD, fractional">
-<button type="button" class="act-btn" data-pref-save="keywords">Save</button></label>
-</div>
-<p class="board-note" id="pref-note"></p>
-<div style="margin-top:10px">{keyword_chips}</div>
-<p class="legend">Also in the judging set. The active CV,
-{esc(cv_label)}, changed at <a href="/cv">the CV page</a>. The engagement
-types, location and sector rules live as prose in
-config/profile/preferences.md, edited by hand, this panel never touches
-them. The rate floor drives the Rate bands everywhere at once.</p>
-</div>
-</section>"""
-
-    n_threads = len(data["threads"])
-    n_age = len(data["ageing"])
-    n_review = sum(1 for o in active if o.get("combined") is None)
-    attention_bits = []
-    if n_threads:
-        attention_bits.append(
-            f'<li><span class="num">{n_threads}</span>'
-            f'{"thread" if n_threads == 1 else "threads"} awaiting your '
-            'next move</li>')
-    if n_age:
-        attention_bits.append(
-            f'<li><span class="num">{n_age}</span>above the bar and '
-            'sitting still over a fortnight</li>')
-    if n_review:
-        attention_bits.append(
-            f'<li><span class="num">{n_review}</span>awaiting a score, '
-            'rescore.py clears them</li>')
-    attention = ""
-    if attention_bits:
-        attention = ('<section class="section">'
-                     '<div class="section-head"><h2>Needs you</h2></div>'
-                     '<div class="widget" style="margin-top:12px"><ul>'
-                     + "".join(attention_bits)
-                     + '</ul><p class="board-note">The detail lives in '
-                     '<a href="/archive">the full archive</a>.</p>'
-                     "</div></section>")
-
-    return f"""<!doctype html>
-<html lang="en-GB" data-appearance="auto">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MedTech Radar</title>
-<link rel="icon" href="{FAVICON}">
-<style>{CSS}</style>
-</head>
-<body>
-<main class="page">
-<header class="masthead">
-<div>
-<div class="brand">{MARK_SVG}<h1>MedTech Radar</h1></div>
-<p class="masthead-sub">Generated {esc(fmt_long(now))} from {esc(db_label)}. The page re-renders on every load.</p>
-</div>
-<div class="controls">
-<nav class="tabs" aria-label="Pages"><a href="/" aria-current="page">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav>
-<span class="segmented" role="group" aria-label="Appearance">
-<button type="button" data-appearance-set="light" aria-pressed="false">Light</button>
-<button type="button" data-appearance-set="auto" aria-pressed="true">Auto</button>
-<button type="button" data-appearance-set="dark" aria-pressed="false">Dark</button>
-</span>
-</div>
-</header>
-<section class="standing">{standing_line(data)}</section>
-{cards}
-{overview}
-{profile}
-{attention}
-<footer class="heartbeat">
-<ul class="heartbeat-facts">{heartbeat_facts(data)}</ul>
-{sparkline(data)}
-<ul class="outlinks"><li><a href="/archive">The full archive, every row on file</a></li><li><a href="/cv">Update the CV the scorer reads</a></li></ul>
-<p class="end">Buttons write, everything else reads. Regenerate the static fallback with <code>python scripts/build_dashboard.py</code>.</p>
-</footer>
-</main>
-<script>{SCRIPT}{HOME_SCRIPT}</script>
-</body>
-</html>"""
-
-
-JOBS_SCRIPT = """
-(function () {
-  var addBtn = document.getElementById('src-add');
-  var nameIn = document.getElementById('src-name');
-  var senderIn = document.getElementById('src-sender');
-  var urlIn = document.getElementById('src-url');
-  var note = document.getElementById('src-note');
-  if (!addBtn) return;
-  addBtn.addEventListener('click', function () {
-    addBtn.disabled = true;
-    fetch('/jobs/source', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: nameIn.value, sender: senderIn.value,
-                            url: urlIn ? urlIn.value : '' })
-    }).then(function (r) { return r.json(); })
-      .then(function (j) {
-        if (j && j.ok === false) {
-          addBtn.disabled = false;
-          note.textContent = j.note || 'That did not stick. Try again.';
-          return;
-        }
-        location.reload();
-      })
-      .catch(function () { addBtn.disabled = false;
-                           note.textContent = 'The server did not answer.'; });
-  });
-})();
-"""
-
-
-def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
-    """The Jobs page. Top prospects first, then one section per board.
-
-    Every board gets its section whether or not it has sent anything,
-    because an empty section under a board's own name says "subscribe the
-    inbox there" louder than absence ever could. The metrics strip at the
-    top exists to build trust that the machinery is alive, last run, this
-    week's flow, and the freshness of each board's most recent email.
-    """
-    data["serve"] = True
-    now = radar_common.now_iso()
     active = data["opportunities"]
     everything = active + (data.get("acknowledged") or [])
 
@@ -2014,6 +2082,330 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
                       if any_red_board else "")
                    + "</ul></div>")
     metrics.append("</div>")
+    return "".join(metrics)
+
+
+def render_home_page(data: dict, config: dict, db_label: str) -> str:
+    """Home as the entrance. Cards to the pages, trends, the scoring panel.
+
+    The working tables live on their own pages now, Jobs, Insights and
+    the full archive at /archive. Home answers the walking-past
+    questions: is it running, what came in, how is the market moving,
+    and what is the scorer actually judging me against.
+    """
+    data["serve"] = True
+    now = radar_common.now_iso()
+
+    active = data["opportunities"]
+    week_ago = (datetime.now(timezone.utc)
+                - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new_this_week = [o for o in active
+                     if (o.get("first_seen") or "") >= week_ago]
+    live_signals = [s for s in data["signals"] if s.get("status") == "new"
+                    and s.get("relevance") is not None]
+    fresh_signals = [s for s in live_signals
+                     if (s.get("first_seen") or "") >= week_ago]
+    cv_label = "the built-in cv.txt"
+    try:
+        import cv_store
+        import score_item
+        cv_label = score_item.get_cv_version(config)
+    except Exception:  # noqa: BLE001  the card degrades, never breaks Home
+        pass
+
+    cards = f"""<div class="entrance">
+<a class="card card-jobs" href="/jobs">{ICON_JOBS}<span class="card-title">Jobs</span>
+<span class="card-sub">{len(active)} {"role" if len(active) == 1 else "roles"} in play, {len(new_this_week)} new this week</span></a>
+<a class="card card-insights" href="/insights">{ICON_INSIGHTS}<span class="card-title">Insights</span>
+<span class="card-sub">{len(live_signals)} live, {len(fresh_signals)} fresh this week</span></a>
+<a class="card card-cv" href="/cv">{ICON_CV}<span class="card-title">CV</span>
+<span class="card-sub">Scoring against {esc(cv_label)}</span></a>
+</div>"""
+
+    def hours_since(iso):
+        try:
+            then = datetime.strptime(str(iso)[:16], "%Y-%m-%dT%H:%M")
+        except (ValueError, TypeError):
+            return None
+        return max(0.0, (datetime.now(timezone.utc)
+                         - then.replace(tzinfo=timezone.utc)
+                         ).total_seconds() / 3600)
+
+    inbox_hours = hours_since(data["inbox_ts"])
+    if inbox_hours is None:
+        sync_dot, sync_word = "red", "never run"
+    elif inbox_hours <= 2:
+        sync_dot, sync_word = "green", "on schedule"
+    elif inbox_hours <= 6:
+        sync_dot, sync_word = "amber", "running late"
+    else:
+        sync_dot, sync_word = "red", "stalled"
+    sync_when = (f", last sync {fmt_day_time(data['inbox_ts'])}"
+                 if data["inbox_ts"] else "")
+
+    wp = data["weekly_prospects"]
+    this_wk = wp[-1][1] if wp else 0
+    last_wk = wp[-2][1] if len(wp) > 1 else 0
+    if this_wk > last_wk:
+        wk_verdict = "more than last week, the market is giving"
+    elif this_wk < last_wk:
+        wk_verdict = "down on last week"
+    else:
+        wk_verdict = "level with last week"
+    top_w = max((c for _, c in wp), default=0) or 1
+    wp_bars = "".join(
+        ('<i class="none" title="none in the week of '
+         f'{esc(fmt_day(wk))}"></i>') if c == 0 else
+        (f'<i class="{"today" if i == len(wp) - 1 else ""}" '
+         f'style="height:{max(4, round(46 * c / top_w))}px" '
+         f'title="{c} in the week of {esc(fmt_day(wk))}"></i>')
+        for i, (wk, c) in enumerate(wp))
+    mp = data["month_prospects"]
+
+    overview = f"""<div class="metrics">
+<div class="widget"><h4>Right now{info_tip("The inbox light judges its hourly schedule. Green ran within two hours, amber within six, red stalled or never run. The counts are the last seven days.")}</h4><ul>
+<li><span class="dot dot-{sync_dot}" title="{esc(sync_word)}"></span>Inbox {esc(sync_word)}{esc(sync_when)}</li>
+<li><span class="num">{len(new_this_week)}</span>new {"job" if len(new_this_week) == 1 else "jobs"} this week</li>
+<li><span class="num">{data["week_new"]}</span>through the pipeline, {max(0, data["week_seen"] - data["week_new"])} duplicates skipped</li>
+</ul></div>
+<div class="widget"><h4>Top prospects, week on week{info_tip(f"A top prospect scores {data['threshold']} or higher combined, the digest bar. Bars are Monday-to-Sunday weeks, and the month figures sit beneath for the slower trend.")}</h4>
+<div class="bars">{wp_bars}</div>
+<p class="bars-label"><span>eight weeks ago</span><span>this week</span></p>
+<ul style="margin-top:8px">
+<li><span class="num">{this_wk}</span>this week, {last_wk} last week, {esc(wk_verdict)}</li>
+<li><span class="num">{mp["this"]}</span>this month, {mp["last"]} last month</li>
+</ul></div>
+<div class="widget"><h4>Insight activity, the year{info_tip(f"Only medtech events scoring {data['threshold']} or higher count, the ones that could need your input. Peaks say the ecosystem is announcing, troughs say go quiet and build.")}</h4>
+{_line_chart(data["monthly_signals"], "Relevant medtech signals per month over twelve months")}
+</div>
+</div>"""
+
+    floor_val = data["floor"]
+    title_val = radar_common.read_pref_line("target_title", config) or ""
+    keywords_val = radar_common.read_pref_line("keywords", config) or ""
+    keyword_chips = "".join(
+        f'<span class="chip">{esc(k.strip())}</span>'
+        for k in keywords_val.split(",") if k.strip())
+    profile = f"""<section class="section">
+<div class="section-head"><h2>What the scorer judges against</h2></div>
+<p class="section-note">Capability comes from the CV, desire from the
+preferences file, and these are the file's machine-readable lines, edited
+in place. Everything saved here is in the scorer's next system prompt.</p>
+<div class="panel panel-sage" style="padding:16px">
+<div class="pref-grid">
+<label>Title<input type="text" id="pref-target_title"
+ value="{esc(title_val)}" placeholder="e.g. Fractional software director, medtech and IVD">
+<button type="button" class="act-btn" data-pref-save="target_title">Save</button></label>
+<label>Day-rate floor, GBP<input type="text" id="pref-day_rate_floor_gbp"
+ value="{esc('' if floor_val is None else f'{floor_val:g}')}" placeholder="650">
+<button type="button" class="act-btn" data-pref-save="day_rate_floor_gbp">Save</button></label>
+<label>Keywords, comma separated<input type="text" id="pref-keywords"
+ value="{esc(keywords_val)}" placeholder="IEC 62304, ISO 13485, IVD, fractional">
+<button type="button" class="act-btn" data-pref-save="keywords">Save</button></label>
+</div>
+<p class="board-note" id="pref-note"></p>
+<div style="margin-top:10px">{keyword_chips}</div>
+<p class="legend">Also in the judging set. The active CV,
+{esc(cv_label)}, changed at <a href="/cv">the CV page</a>. The engagement
+types, location and sector rules live as prose in
+config/profile/preferences.md, edited by hand, this panel never touches
+them. The rate floor drives the Rate bands everywhere at once.</p>
+</div>
+</section>"""
+
+    n_threads = len(data["threads"])
+    n_age = len(data["ageing"])
+    n_review = sum(1 for o in active if o.get("combined") is None)
+    # A booked date that has arrived is the difference between a thread
+    # waiting and a thread late. Today counts as due, not overdue.
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    n_due = sum(1 for t in data["threads"]
+                if (t.get("next_action_date") or "") and
+                str(t["next_action_date"])[:10] <= today)
+    attention_bits = []
+    if n_threads:
+        due_note = f", {n_due} due or overdue" if n_due else ""
+        attention_bits.append(
+            f'<li><span class="num">{n_threads}</span>'
+            f'{"thread" if n_threads == 1 else "threads"} awaiting your '
+            f'next move{due_note}</li>')
+    if n_age:
+        attention_bits.append(
+            f'<li><span class="num">{n_age}</span>above the bar and '
+            'sitting still over a fortnight</li>')
+    if n_review:
+        attention_bits.append(
+            f'<li><span class="num">{n_review}</span>awaiting a score, '
+            'rescore.py clears them</li>')
+    # ---- Is the doctrine being worked. Everything else measures the market.
+    tr = data.get("traction") or {}
+    oc = tr.get("outcomes") or {}
+    months = "".join(
+        f'<li><span class="num">{sum(ch.values())}</span>{esc(m)}, '
+        + esc(", ".join(f"{n} {c}" for c, n in sorted(ch.items())))
+        + '</li>' for m, ch in (tr.get("by_month") or [])[-4:])
+    traction = ""
+    if tr.get("total") or tr.get("windows"):
+        traction = (
+            '<section class="section"><div class="section-head">'
+            '<h2>Traction</h2></div><div class="widget" style="margin-top:12px">'
+            '<h4>The doctrine, as worked'
+            + info_tip(
+                "Counted from the touch log and nothing else. Done is "
+                "inferred, a booked next action counts as done once a later "
+                "touch exists against that company, because that later touch "
+                "is the engagement the booking asked for. Outcomes are set by "
+                "hand, since only a human can tell a polite acknowledgement "
+                "from the start of a conversation.")
+            + '</h4><ul>'
+            + f'<li><span class="num">{tr.get("total", 0)}</span>touches logged'
+              f' in all</li>'
+            + f'<li><span class="num">{tr.get("done", 0)} of {tr.get("booked", 0)}'
+              f'</span>booked next actions followed through, '
+              f'{tr.get("due", 0)} due or overdue</li>'
+            + f'<li><span class="num">{oc.get("reply", 0)} / '
+              f'{oc.get("conversation", 0)}</span>replies and conversations, '
+              f'from {tr.get("total", 0)} touches</li>'
+            + f'<li><span class="num">{tr.get("windows", 0)}</span>buying '
+              f'windows and tripwires opened</li>'
+            + '</ul>'
+            + (f'<p class="legend">By month, and by channel.</p><ul>{months}</ul>'
+               if months else "")
+            + '</div></section>')
+
+    # ---- The connector circle. A reminder, never a workflow.
+    cc = data.get("connectors") or {}
+    connectors = ""
+    if cc.get("configured"):
+        quiet = cc.get("quiet") or []
+        if quiet:
+            names = ", ".join(esc(q["name"]) for q in quiet[:8])
+            connectors = (
+                f'<section class="section"><div class="section-head">'
+                f'<h2>The circle</h2></div><div class="widget" '
+                f'style="margin-top:12px"><ul><li><span class="num">'
+                f'{len(quiet)}</span>of {cc["configured"]} connectors have not '
+                f'heard from you in {cc["quiet_days"]} days. {names}</li></ul>'
+                + info_tip("Names come from connectors in radar.yaml, which "
+                           "Luke fills in. Nothing automated ever touches "
+                           "them. This line counts days and says so, and that "
+                           "is the whole of it.")
+                + '</div></section>')
+        else:
+            connectors = (
+                f'<section class="section"><div class="section-head">'
+                f'<h2>The circle</h2></div><div class="widget" '
+                f'style="margin-top:12px"><ul><li><span class="num">'
+                f'{cc["configured"]}</span>connectors, all spoken to inside '
+                f'{cc["quiet_days"]} days</li></ul></div></section>')
+
+    attention = ""
+    if attention_bits:
+        attention = ('<section class="section">'
+                     '<div class="section-head"><h2>Needs you</h2></div>'
+                     '<div class="widget" style="margin-top:12px"><ul>'
+                     + "".join(attention_bits)
+                     + '</ul><p class="board-note">The detail lives in '
+                     '<a href="/archive">the full archive</a>.</p>'
+                     "</div></section>")
+
+    # Operating telemetry, moved here from Jobs on 3 August. It sits with
+    # the heartbeat because that is what it is, and a person opening Jobs
+    # came for roles rather than for whether cron ran.
+    try:
+        telemetry = telemetry_html(data, config)
+    except Exception:                              # noqa: BLE001
+        telemetry = ""   # a broken light must never cost the page
+
+    return f"""<!doctype html>
+<html lang="en-GB" data-appearance="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MedTech Radar</title>
+<link rel="icon" href="{FAVICON}">
+<style>{CSS}</style>
+</head>
+<body>
+<main class="page">
+<header class="masthead">
+<div>
+<div class="brand">{MARK_SVG}<h1>MedTech Radar</h1></div>
+<p class="masthead-sub">Generated {esc(fmt_long(now))} from {esc(db_label)}. The page re-renders on every load.</p>
+</div>
+<div class="controls">
+<nav class="tabs" aria-label="Pages"><a href="/" aria-current="page">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav>
+<span class="segmented" role="group" aria-label="Appearance">
+<button type="button" data-appearance-set="light" aria-pressed="false">Light</button>
+<button type="button" data-appearance-set="auto" aria-pressed="true">Auto</button>
+<button type="button" data-appearance-set="dark" aria-pressed="false">Dark</button>
+</span>
+</div>
+</header>
+<section class="standing">{standing_line(data)}</section>
+{cards}
+{overview}
+{profile}
+{telemetry}{attention}{traction}{connectors}
+<footer class="heartbeat">
+<ul class="heartbeat-facts">{heartbeat_facts(data)}</ul>
+{sparkline(data)}
+<ul class="outlinks"><li><a href="/archive">The full archive, every row on file</a></li><li><a href="/cv">Update the CV the scorer reads</a></li></ul>
+<p class="end">Buttons write, everything else reads. Regenerate the static fallback with <code>python scripts/build_dashboard.py</code>.</p>
+</footer>
+</main>
+<script>{SCRIPT}{HOME_SCRIPT}</script>
+</body>
+</html>"""
+
+
+JOBS_SCRIPT = """
+(function () {
+  var addBtn = document.getElementById('src-add');
+  var nameIn = document.getElementById('src-name');
+  var senderIn = document.getElementById('src-sender');
+  var urlIn = document.getElementById('src-url');
+  var note = document.getElementById('src-note');
+  if (!addBtn) return;
+  addBtn.addEventListener('click', function () {
+    addBtn.disabled = true;
+    fetch('/jobs/source', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: nameIn.value, sender: senderIn.value,
+                            url: urlIn ? urlIn.value : '' })
+    }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok === false) {
+          addBtn.disabled = false;
+          note.textContent = j.note || 'That did not stick. Try again.';
+          return;
+        }
+        location.reload();
+      })
+      .catch(function () { addBtn.disabled = false;
+                           note.textContent = 'The server did not answer.'; });
+  });
+})();
+"""
+
+
+def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
+    """The Jobs page. Top prospects first, then one section per board.
+
+    Every board gets its section whether or not it has sent anything,
+    because an empty section under a board's own name says "subscribe the
+    inbox there" louder than absence ever could. The metrics strip at the
+    top exists to build trust that the machinery is alive, last run, this
+    week's flow, and the freshness of each board's most recent email.
+    """
+    data["serve"] = True
+    now = radar_common.now_iso()
+    active = data["opportunities"]
+    week_ago = (datetime.now(timezone.utc)
+                - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    everything = active + (data.get("acknowledged") or [])
+
 
     counter = 0
     scored = [o for o in active if o.get("combined") is not None]
@@ -2027,48 +2419,209 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
     else:
         prospects_body = ('<p class="empty">Nothing scored yet. The top of '
                           'the pile appears here as roles land.</p>')
-    body = "".join(metrics)
-    body += section(
-        "Top prospects", len(prospects),
-        "The highest combined scores still in play, whatever the board. "
-        "Acknowledged roles live behind the toggle on Home.",
-        "panel-blue", prospects_body, legend=rate_legend(data["floor"]))
+    # ---- What the market paid, and what the machine is judging it against.
+    rm = data.get("rate_metrics") or {}
+    def money(v):
+        return f"£{v:,.0f}" if isinstance(v, (int, float)) else "not known"
+    share = (f"{round(100 * rm.get('unstated', 0) / rm['total'])}%"
+             if rm.get("total") else "no data")
+    months = "".join(
+        f'<li><span class="num">{money(med)}</span>{esc(m)}, {n} stated</li>'
+        for m, med, n in (rm.get("by_month") or [])[-4:])
+    rates_panel = (
+        '<section class="section"><div class="section-head"><h2>Rates</h2></div>'
+        '<div class="widget" style="margin-top:12px"><h4>The trailing 90 days'
+        + info_tip(
+            "Median and range of the converted day rate, over adverts that "
+            "actually stated pay. Adverts that stated none are counted but "
+            "never averaged, because silence is not a number and folding it "
+            "into a median would drag the answer toward whatever the quiet "
+            "adverts happen to be.")
+        + '</h4><ul>'
+        + f'<li><span class="num">{money(rm.get("median"))}</span>median day '
+          f'rate, against a floor of {money(rm.get("floor"))}</li>'
+        + f'<li><span class="num">{money(rm.get("low"))} to {money(rm.get("high"))}'
+          f'</span>the spread</li>'
+        + f'<li><span class="num">{rm.get("stated", 0)}</span>adverts stated a '
+          f'rate, {rm.get("above_floor", 0)} of them at or above the floor</li>'
+        + f'<li><span class="num">{share}</span>said nothing about pay at all, '
+          f'{rm.get("unstated", 0)} of {rm.get("total", 0)}</li>'
+        + '</ul>'
+        + (f'<p class="legend">By month, median of what was stated.</p><ul>{months}</ul>'
+           if months else "")
+        + '</div></section>')
 
-    def board_section(s) -> str:
+    # ---- Where the work is coming from, and whether any of it clears the bar.
+    sy = data.get("source_yield") or {}
+    def yield_rows(group, label):
+        rows = []
+        for name, w in sorted(group.items(),
+                              key=lambda kv: -(kv[1].get(90, {}).get("arrivals", 0))):
+            a30 = w.get(30, {}).get("arrivals", 0)
+            a90 = w.get(90, {}).get("arrivals", 0)
+            h90 = w.get(90, {}).get("hits", 0)
+            rows.append(f'<li><span class="num">{a30} / {a90}</span>'
+                        f'{esc(name)}, {h90} at or above the bar</li>')
+        return (f'<h4>{label}' + info_tip(
+            "Arrivals in the last 30 days and the last 90, then how many of "
+            "the 90 cleared the digest bar. A source that stops arriving and "
+            "a source that arrives constantly and never clears the bar are "
+            "different problems, and this is where both become visible "
+            "without counting by hand.")
+            + f'</h4><ul>{"".join(rows)}</ul>') if rows else ""
+
+    yield_panel = (
+        '<section class="section"><div class="section-head"><h2>Source yield'
+        '</h2></div><div class="widget" style="margin-top:12px">'
+        + yield_rows(sy.get("boards") or {}, "Job boards")
+        + yield_rows(sy.get("watched") or {}, "Watched sources")
+        + '</div></section>')
+
+    # ---- The shape the bar cuts through.
+    hg = data.get("score_histogram") or {}
+    hb = hg.get("buckets") or []
+    peak = max((n for _, n in hb), default=0)
+    bars = "".join(
+        f'<li><span class="num">{n}</span>{b} to {b + hg.get("bucket", 10) - 1}'
+        + (' <b>&larr; the bar</b>' if b <= hg.get("threshold", 70)
+           < b + hg.get("bucket", 10) else '')
+        + '</li>' for b, n in hb if n or b >= 40)
+    hist_panel = (
+        '<section class="section"><div class="section-head">'
+        '<h2>Score distribution</h2></div>'
+        '<div class="widget" style="margin-top:12px"><h4>Combined scores, 90 days'
+        + info_tip(
+            f"Every scored advert bucketed by ten. The digest bar sits at "
+            f"{hg.get('threshold', 70)}, and a bar is a guess until you can "
+            "see the shape it cuts through.")
+        + f'</h4><ul>{bars}</ul></div></section>') if peak else ""
+
+    # ---- The page opens on the tiers. Nothing renders above them. The
+    # machine, the flow and board freshness are operating telemetry and
+    # live on Home beside the heartbeat, because a person opening Jobs
+    # came for roles, not for whether cron ran.
+    tiers = data.get("tiers") or {}
+    ungated = data.get("ungated") or []
+
+    def by_cv(rows):
+        return sorted(rows, key=lambda o: -(o.get("cv_match") or 0))
+
+    def tier_rows(rows):
         nonlocal counter
-        rows_for = [o for o in active
-                    if (o.get("source") or "email-other") == s["id"]]
-        rows_for.sort(key=lambda o: (o.get("combined") is None,
-                                     -(o.get("combined") or 0)))
-        seen = last_by_source.get(s["id"])
-        note = (f"Last email {fmt_day_time(seen)}." if seen else
-                (f"No roles yet from {esc(s['name'])}. Subscribe "
-                 f"{esc(config.get('aggregator_email', 'the aggregator inbox'))} "
-                 "to its alerts and they land here."
-                 if s.get("sender_contains")
-                 else "Alerts from senders no board claims land here, "
-                      "still extracted, still scored."))
-        if rows_for:
-            rows = [opp_head_html()]
-            for o in rows_for:
-                counter += 1
-                rows.append(render_opportunity(o, data, counter))
-            body_html = "".join(rows)
-        else:
-            body_html = f'<p class="empty">{note}</p>'
-        return section(s["name"], len(rows_for), note if rows_for else "",
-                       "panel-stone", body_html,
-                       title_html=board_title_html(s))
+        out = [opp_head_html()]
+        for o in by_cv(rows):
+            counter += 1
+            out.append(render_opportunity(o, data, counter))
+        return "".join(out)
 
-    known = [s for s in registry if s["id"] in known_ids]
-    catch_all = [s for s in registry if s["id"] not in known_ids]
-    for s in known:
-        body += board_section(s)
+    top = by_cv(tiers.get("top") or [])
+    question = by_cv(tiers.get("question") or [])
+    reading = by_cv(tiers.get("reading") or [])
+    filtered = tiers.get("filtered") or []
 
-    # The add-source strip. It sits where the next board's section would
-    # appear, quiet, footer weight, no tinted panel. The receipt line only
-    # earns ink once a custom source exists, there is no delete button on
-    # purpose, removal is a hand-edit of config/job_sources.yaml.
+    # Top prospects never backfills. With nothing through all four gates it
+    # says so and shows nothing, rather than falling back to the best of a
+    # bad week, because a page that always finds something to be excited
+    # about teaches you to stop believing it.
+    if top:
+        top_body = tier_rows(top)
+    else:
+        top_body = ('<p class="empty">Nothing to get excited about this week.</p>')
+    body = section(
+        "Top prospects", len(top),
+        "All four gates passed. An unstated rate sits here carrying its flag, "
+        "because missing information is not a blocker.",
+        "panel-blue", top_body, legend=rate_legend(data["floor"]))
+
+    # Opportunities the extractor read as signals rather than jobs for Luke,
+    # held here this week because they arrived down the inbound path.
+    held = [o for o in (data.get("opportunities") or [])
+            if (o.get("thread_type") == "signal")
+            and (o.get("first_seen") or "") >= week_ago]
+    if held:
+        body += section(
+            "Signals held this week", len(held),
+            "Arrived as adverts, read as news about a company rather than a "
+            "job. The Insights page carries the watcher's own signals.",
+            "panel-stone", tier_rows(held))
+
+    if question:
+        body += section(
+            "One question away", len(question),
+            "Exactly one movable gate failed. The question a conversation "
+            "could settle leads each row.",
+            "panel-stone", tier_rows(question))
+
+    if reading:
+        body += section(
+            "Reading", len(reading),
+            "Real roles that did not gate. The failed gate is the verdict. "
+            "Market intel for the field notes.",
+            "panel-stone", tier_rows(reading))
+
+    if ungated:
+        body += section(
+            "Needs review", len(ungated),
+            "Scored before the gates existed, or the scorer could not judge "
+            "them. Run rescore.py.",
+            "panel-stone", tier_rows(ungated))
+
+    # The ageing list carries two kinds of row, adverts and watcher
+    # signals, because the archive renders both. Jobs is for roles, so
+    # only the adverts belong here, and tier_rows reads o["combined"],
+    # which a signal never has. The signals already sit on Insights
+    # under "earlier".
+    ageing = [a for a in (data.get("ageing") or [])
+              if a.get("kind") == "opportunity"]
+    if ageing:
+        body += section(
+            "Ageing", len(ageing),
+            "Above the bar and sitting still for over a fortnight. Retire "
+            "them with touch.py mark or acknowledge them.",
+            "panel-stone", tier_rows(ageing))
+
+    if filtered:
+        reasons = {}
+        for o in filtered:
+            reasons[o.get("filter_reason") or "filtered"] = \
+                reasons.get(o.get("filter_reason") or "filtered", 0) + 1
+        roll = ", ".join(f"{n} {esc(r)}" for r, n in
+                         sorted(reasons.items(), key=lambda kv: -kv[1]))
+        body += (f'<p class="legend" style="margin-top:24px">Filtered, '
+                 f'{len(filtered)}. {roll}. Full records keep a filter reason '
+                 f'so the filter can be audited.</p>')
+
+    # ---- The analysis earns a place below the tiers, collapsed. Market
+    # intel for a longer break, not something to read every morning.
+    dg = data.get("deaths_by_gate") or {}
+    gate_rows = "".join(
+        f'<li><span class="num">{n}</span>{esc(g)}</li>'
+        for g, n in (dg.get("counts") or []) if n)
+    deaths_panel = (
+        '<div class="widget" style="margin-top:12px"><h4>Deaths by gate, 90 days'
+        + info_tip(
+            "Which gate killed what. A gate that keeps firing on the same "
+            "kind of role names a recurring gap, which is the first "
+            "instrument for the skills question and needs no ledger to be "
+            "useful.")
+        + f'</h4><ul>{gate_rows}</ul>'
+          f'<p class="legend">{dg.get("gated", 0)} roles gated in the window.</p>'
+          '</div>') if gate_rows else ""
+
+    body += (f'<details class="sources-fold"><summary>Analysis. Rates, source '
+             f'yield and deaths by gate.</summary>'
+             f'{rates_panel}{yield_panel}{deaths_panel}</details>')
+
+    # The registry, only for the add-source strip's receipt line now that
+    # board sections are gone and the freshness lights live on Home.
+    registry = [dict(x) for x in radar_common.load_job_sources()]
+    _builtin = {x["id"] for x in radar_common.BUILTIN_JOB_SOURCES}
+    customs = [x for x in registry
+               if x["id"] not in _builtin and x.get("sender_contains")]
+
+    # The add-source strip keeps its footer weight at the very bottom. The
+    # receipt line only earns ink once a custom source exists, and there is
+    # no delete button on purpose, removal is a hand-edit of the yaml.
     customs_line = ""
     if customs:
         named = ", ".join(
@@ -2076,6 +2629,7 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
             for s in customs)
         customs_line = (f'<p class="legend">Added so far: {named}. Edit or '
                         "remove them by hand in config/job_sources.yaml.</p>")
+
     body += f"""<div class="add-source-strip">
 <p class="section-rule">Add a job source</p>
 <div class="add-source">
@@ -2092,8 +2646,10 @@ senders are scored anyway under Other email alerts.</p>
 {customs_line}
 </div>
 """
-    for s in catch_all:
-        body += board_section(s)
+    # Board grouping died as an organising principle on 3 August. A role's
+    # board is one fact on its row, and board freshness is telemetry that
+    # belongs on Home. No section per board, no empty shelves inviting
+    # subscriptions, and no role rendered twice.
 
     return f"""<!doctype html>
 <html lang="en-GB" data-appearance="auto">
@@ -2171,6 +2727,10 @@ def main(argv=None) -> int:
         db_label = str(db_path)
 
     out = Path(args.out).resolve() if args.out else OUT_DEFAULT
+    print("NOTE. Writing a static archive page is deprecated. The served "
+          "dashboard re-renders from the database on every load and takes "
+          "the writes, so it is the page to trust. This file is a snapshot "
+          "of a database that has already moved on.", file=sys.stderr)
     out.write_text(render_page(data, config, db_label, out), encoding="utf-8")
     if not args.quiet:
         print(json.dumps({"out": str(out), "fresh": data["fresh"],
@@ -2183,3 +2743,244 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+COPY_SCRIPT = """
+(function () {
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-copy]');
+    if (!btn) return;
+    var text = btn.getAttribute('data-copy') || '';
+    var done = function () {
+      var was = btn.textContent;
+      btn.textContent = 'Copied';
+      setTimeout(function () { btn.textContent = was; }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, done);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (err) {}
+      document.body.removeChild(ta); done();
+    }
+  });
+})();
+"""
+
+
+COMPANY_SCRIPT = """
+(function () {
+  document.addEventListener('click', function (e) {
+    var oBtn = e.target.closest('[data-outcome]');
+    if (oBtn) {
+      var was = oBtn.textContent;
+      oBtn.disabled = true; oBtn.textContent = 'Working';
+      fetch('/touch/outcome', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: Number(oBtn.dataset.touchId),
+                               outcome: oBtn.dataset.outcome })
+      }).then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (j && j.ok === false) {
+            oBtn.disabled = false; oBtn.textContent = was;
+            window.alert(j.note || 'That did not stick.');
+            return;
+          }
+          location.reload();
+        }).catch(function () { location.reload(); });
+      return;
+    }
+    var btn = e.target.closest('[data-set-state]');
+    if (!btn) return;
+    var state = btn.dataset.setState;
+    var id = btn.dataset.companyId;
+    if (state === 'dead' && !window.confirm(
+        'Dead outranks every other state, including client. The company stays '
+        + 'in the database and keeps deduping. Mark it dead?')) return;
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Working';
+    fetch('/company/state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: Number(id), state: state, confirm: true })
+    }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok === false) {
+          btn.disabled = false;
+          btn.textContent = label;
+          window.alert(j.note || 'That did not stick. Try again.');
+          return;
+        }
+        location.reload();
+      })
+      .catch(function () { location.reload(); });
+  });
+})();
+"""
+
+HUMAN_STATES = (("in-conversation", "In conversation"),
+                ("client", "Client"),
+                ("dead", "Dead"))
+
+
+def render_company_page(conn, company_id: int, config: dict,
+                        db_label: str) -> str:
+    """One company, everything known about it, before a call.
+
+    The timeline interleaves adverts, insights and touches newest first,
+    because the question this page answers is "what has happened with these
+    people", and that question does not care which table the answer is in.
+    """
+    co = conn.execute("SELECT * FROM companies WHERE id = ?",
+                      (company_id,)).fetchone()
+    if co is None:
+        return None
+    now = radar_common.now_iso()
+    state = radar_common.company_state(conn, company_id)
+
+    events = []
+    for r in conn.execute(
+            "SELECT id, first_seen, title, company, combined, rate_band,"
+            " source, source_url, buying_window, acknowledged_at"
+            " FROM opportunities WHERE company_id = ?", (company_id,)):
+        events.append({"when": r["first_seen"], "kind": "advert", "row": r})
+    for r in conn.execute(
+            "SELECT id, first_seen, headline, why, relevance, source_id,"
+            " source_url, playbook_step, status FROM signals"
+            " WHERE company_id = ?", (company_id,)):
+        events.append({"when": r["first_seen"], "kind": "insight", "row": r})
+    for r in conn.execute(
+            "SELECT id, touched_at, channel, note, next_action,"
+            " next_action_date FROM touches WHERE company_id = ?",
+            (company_id,)):
+        events.append({"when": r["touched_at"], "kind": "touch", "row": r})
+    events.sort(key=lambda e: e["when"] or "", reverse=True)
+
+    pending = conn.execute(
+        "SELECT next_action, next_action_date FROM touches"
+        " WHERE company_id = ? AND next_action IS NOT NULL"
+        " ORDER BY id DESC LIMIT 1", (company_id,)).fetchone()
+
+    # Enrichment summary. Empty fields are shown as unknown rather than
+    # hidden, because a blank the enricher honestly left is information.
+    def fact(label, value):
+        return (f'<div class="row-sub"><span class="detail-label">{esc(label)}'
+                f'</span><span class="detail-body">{esc(value or "not known")}'
+                f'</span></div>')
+
+    people_bits = []
+    try:
+        for p in json.loads(co["people"] or "[]"):
+            people_bits.append(f'{p.get("name","")} ({p.get("role","").upper()})')
+    except (ValueError, TypeError):
+        pass
+
+    facts = (fact("What they build", co["what_they_build"])
+             + fact("Software content", co["software_content"])
+             + fact("Stage", co["stage"])
+             + fact("Where", ", ".join(x for x in (co["city"], co["country"]) if x))
+             + fact("Region", co["region"])
+             + fact("Ecosystem", co["ecosystem"])
+             + fact("Published people", ", ".join(people_bits))
+             + fact("Enriched", f'{fmt_day(co["enriched_at"])}. {co["enrich_status"] or ""}'
+                    if co["enriched_at"] else None))
+
+    controls = "".join(
+        f'<button type="button" class="act-btn" data-set-state="{k}" '
+        f'data-company-id="{company_id}"{" disabled" if co["state"] == k else ""}>'
+        f'{esc(label)}</button>' for k, label in HUMAN_STATES)
+
+    timeline = []
+    for e in events:
+        r, when = e["row"], fmt_day(e["when"])
+        if e["kind"] == "advert":
+            chip = ('<span class="chip">buying window</span>'
+                    if r["buying_window"] else "")
+            timeline.append(
+                f'<li><span class="col-when">{esc(when)}</span>'
+                f'<span class="row-title">{esc(r["title"] or "Untitled role")}</span>'
+                f'{chip}<span class="row-sub">Advert via {esc(via(r["source"]))}. '
+                f'Score {r["combined"] if r["combined"] is not None else "unscored"}. '
+                f'Rate {esc(r["rate_band"] or "unstated")}.</span></li>')
+        elif e["kind"] == "insight":
+            timeline.append(
+                f'<li><span class="col-when">{esc(when)}</span>'
+                f'<span class="row-title">{esc(r["headline"] or "Insight")}</span>'
+                f'<span class="row-sub">Insight via {esc(r["source_id"] or "watcher")}. '
+                f'Relevance {r["relevance"] if r["relevance"] is not None else "unscored"}.'
+                f'</span>'
+                + (f'<span class="row-why">{esc(sentence(r["why"]))}</span>'
+                   if r["why"] else "") + '</li>')
+        else:
+            nxt = (f' Next. {esc(sentence(r["next_action"]))}'
+                   + (f' Due {esc(fmt_day(r["next_action_date"]))}.'
+                      if r["next_action_date"] else "")
+                   if r["next_action"] else "")
+            cur = (r["outcome"] or "none") if "outcome" in r.keys() else "none"
+            picks = "".join(
+                f'<button type="button" class="act-btn" data-outcome="{o}" '
+                f'data-touch-id="{r["id"]}"{" disabled" if cur == o else ""}>'
+                f'{o.capitalize()}</button>' for o in ("none", "reply", "conversation"))
+            timeline.append(
+                f'<li><span class="col-when">{esc(when)}</span>'
+                f'<span class="row-title">Touch, {esc(r["channel"] or "other")}'
+                f'</span><span class="row-sub">{esc(r["note"] or "")}{nxt}</span>'
+                f'<span class="row-sub">Outcome, {esc(cur)}. {picks}</span></li>')
+
+    body = (f'<section class="section"><div class="section-head">'
+            f'<h2>{esc(co["display_name"])}</h2>'
+            f'<span class="chip">{esc(state)}</span></div>'
+            f'<div class="widget" style="margin-top:12px">{facts}</div>'
+            f'<p class="legend">The state shown is the strongest that applies. '
+            f'Seen, touched and window open are read from what is already '
+            f'stored. In conversation, client and dead are set here by hand '
+            f'and never by the machine. Dead outranks everything.</p>'
+            f'<p class="story-actions">{controls}</p></section>')
+
+    if pending and pending["next_action"]:
+        due = (f' Due {esc(fmt_day(pending["next_action_date"]))}.'
+               if pending["next_action_date"] else " No date set.")
+        body += (f'<section class="section"><div class="section-head">'
+                 f'<h2>Next move</h2></div><div class="widget" '
+                 f'style="margin-top:12px"><p>{esc(sentence(pending["next_action"]))}'
+                 f'{due}</p></div></section>')
+
+    body += ('<section class="section"><div class="section-head">'
+             '<h2>Timeline</h2></div>'
+             + (f'<ul class="flags" style="margin-top:12px">{"".join(timeline)}</ul>'
+                if timeline else
+                '<p class="legend">Nothing recorded yet. The timeline fills as '
+                'adverts arrive, the watcher finds insights and touches are '
+                'logged.</p>')
+             + '</section>')
+
+    return f"""<!doctype html>
+<html lang="en" data-appearance="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MedTech Radar. {esc(co["display_name"])}.</title>
+<link rel="icon" href="{FAVICON}">
+<style>{CSS}</style>
+</head>
+<body>
+<main class="page">
+<header class="masthead">
+<div>
+<div class="brand">{MARK_SVG}<h1>{esc(co["display_name"])}</h1></div>
+<p class="masthead-sub">Everything on file, before the call. Generated
+{esc(fmt_long(now))} from {esc(db_label)}.</p>
+</div>
+<div class="controls">
+<nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav>
+</div>
+</header>
+{body}
+<footer class="foot"><p>Read only except the three states above. Back to
+<a href="/insights">Insights</a>.</p></footer>
+</main>
+<script>{SCRIPT}{COMPANY_SCRIPT}</script>
+</body>
+</html>"""

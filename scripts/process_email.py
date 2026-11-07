@@ -36,8 +36,169 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import enrich_company
 import radar_common
 import score_item
+import tripwire
+
+# The buying-window signal is written by code, not scored by a model, so it
+# needs a relevance of its own. 90 sits deliberately above the fast signal
+# threshold, which is 75 in radar.yaml, because the doctrine treats the
+# first QA, regulatory or software hire at a touched company as the moment
+# worth interrupting the day for. Nothing here pushes. The catch-up sweep in
+# check_signals.py collects any new unacknowledged signal at or above the
+# fast bar within 24 hours of first_seen on the next armed run, so arming
+# semantics stay exactly where they were.
+BUYING_WINDOW_RELEVANCE = 90
+
+# Step 4 of playbook/announcement-day.md, compressed to one instruction.
+BUYING_WINDOW_STEP = (
+    "Send the compliance-cost article, or the gap assessment one-pager if "
+    "the article is not published yet. The note stays short, and the paid "
+    "assessment earns one line at the very end, never earlier."
+)
+
+
+# The rule moved to radar_common in phase two, because it is now the
+# natural key of the companies table and three writers need the same
+# answer. Re-exported here so callers and tests that knew it by this name
+# keep working.
+normalise_company = radar_common.normalise_company
+
+
+def touched_companies(conn) -> set[str]:
+    """Every company in the touch log, normalised, as a set.
+
+    Read once per run rather than per advert. The log is small and the
+    inbox loop is hot.
+    """
+    return {normalise_company(r["company"])
+            for r in conn.execute("SELECT company FROM touches")
+            if normalise_company(r["company"])}
+
+
+def record_buying_window(conn, company: str, title: str, url: str,
+                         h: str, now: str, company_id=None) -> bool:
+    """Write the buying-window insight for one advert. True if written.
+
+    One per company, ever. A company hiring three QA people in a week is
+    one buying window, not three, and the second advert must not re-open a
+    conversation the first already started. The check is on existing
+    job-advert signals rather than on a flag somewhere, so it survives a
+    database restored from backup.
+
+    Idempotent on reruns through the advert's own url_hash and INSERT OR
+    IGNORE, matching how opportunities dedupe.
+    """
+    key = normalise_company(company)
+    if not key:
+        return False
+    seen = {normalise_company(r["company"]) for r in conn.execute(
+        "SELECT company FROM signals WHERE source_id = 'job-advert'")}
+    if key in seen:
+        return False
+    headline = radar_common.sanitise_free_text(
+        f"Buying window. {company} is hiring")
+    why = radar_common.sanitise_free_text(
+        f"They advertised {title or 'a role'}, and the playbook reads the "
+        "first QA, regulatory or software hire at a company already touched "
+        "as the week the standards stop being abstract.")
+    conn.execute(
+        "INSERT OR IGNORE INTO signals"
+        " (url_hash, first_seen, source_id, company, headline, summary,"
+        "  source_url, relevance, why, playbook_step, pushed, status,"
+        "  company_id)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,0,'new',?)",
+        (h, now, "job-advert", company, headline, None, url or "",
+         BUYING_WINDOW_RELEVANCE, why,
+         radar_common.sanitise_free_text(BUYING_WINDOW_STEP),
+         company_id))
+    return True
+
+
+def fire_tripwire(conn, company: str, title: str, url: str, h: str,
+                  now: str, opp: dict, config: dict, company_id) -> dict:
+    """Score a first-hire advert with the signal rubric and store it.
+
+    The signal scorer, not the job scorer, and no fixed relevance. An
+    untouched company deserves the rubric's judgement, and a number chosen
+    in advance would be the code deciding what the rubric is for.
+
+    Never raises. The advert is already stored and scored as an
+    opportunity by the time this runs, and a tripwire that fails must not
+    cost the row it was derived from.
+    """
+    out = {"fired": False, "note": None, "usage": {}}
+    try:
+        import check_signals
+
+        # A distinct hash, because the same advert is legitimately both an
+        # opportunity and a signal and they must not dedupe against each
+        # other in the signals table.
+        sig_hash = radar_common.url_hash(f"radar-tripwire://{h}")
+        if conn.execute("SELECT 1 FROM signals WHERE url_hash = ?",
+                        (sig_hash,)).fetchone():
+            out["note"] = "already stored"
+            return out
+
+        rubric = check_signals.RUBRIC_PATH.read_text(encoding="utf-8")
+        system_blocks = [{"type": "text", "text": rubric,
+                          "cache_control": {"type": "ephemeral"}}]
+        mock_fn = None
+        if radar_common.mock_mode_active():
+            sys.path.insert(0, str(SCRIPT_DIR.parent / "test"))
+            import mocks_signals
+            mock_fn = mocks_signals.mock_signal_scorer
+
+        where = str(opp.get("location") or "").strip()
+        item = {
+            "source_id": tripwire.SOURCE_ID,
+            "source_name": "First hire tripwire",
+            "url": url or f"radar-tripwire://{h}",
+            "headline": f"{company} is hiring for {title}",
+            "date": None,
+            "text": (f"{company} advertised the role {title}"
+                     + (f" in {where}" if where else "")
+                     + ". A first quality or regulatory hire is the point a "
+                       "medical device company starts needing IEC 62304 and "
+                       "ISO 13485 in practice rather than in principle."),
+        }
+        parsed, usage = check_signals.score_item(item, system_blocks, config,
+                                                 mock_fn)
+        radar_common.add_usage(out["usage"], usage)
+        if parsed is None:
+            out["note"] = "signal scorer returned unparseable output"
+            return out
+
+        try:
+            relevance = max(0, min(100, int(parsed.get("relevance", 0))))
+        except (TypeError, ValueError):
+            relevance = 0
+        conn.execute(
+            "INSERT OR IGNORE INTO signals"
+            " (url_hash, first_seen, source_id, company, headline, summary,"
+            "  source_url, relevance, why, playbook_step, pushed, status,"
+            "  company_id, region)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,0,'new',?,?)",
+            # The advert names the company outright, so that is what is
+            # stored. The scorer is reading a headline this code wrote and
+            # its guess at the company cannot be better than the fact.
+            (sig_hash, now, tripwire.SOURCE_ID, company,
+             radar_common.sanitise_free_text(
+                 str(parsed.get("headline") or item["headline"])),
+             item["text"][:500], url or "", relevance,
+             radar_common.sanitise_free_text(str(parsed.get("why") or "")),
+             radar_common.sanitise_free_text(str(parsed.get("playbook_step") or "")),
+             company_id,
+             conn.execute("SELECT region FROM companies WHERE id=?",
+                          (company_id,)).fetchone()["region"]
+             if company_id else None))
+        out["fired"] = True
+        out["relevance"] = relevance
+        return out
+    except Exception as err:                       # noqa: BLE001
+        out["note"] = f"failed, {type(err).__name__}"
+        return out
 
 
 def detect_source(from_field: str) -> str:
@@ -82,7 +243,10 @@ def pay_columns(opp: dict, config: dict, floor: float) -> dict:
 
 def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
                        scored: dict | None, note: str | None,
-                       pay: dict, cv_version: str | None = None) -> None:
+                       pay: dict, cv_version: str | None = None,
+                       buying_window: int = 0,
+                       company_id: int | None = None,
+                       region: str | None = None) -> None:
     if scored is None:
         scored = {
             "company": opp.get("company", ""),
@@ -94,14 +258,17 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
             "one_line_why": None, "red_flags": [],
             "suggested_action": None, "act_by": None,
         }
+    # A row that could not be scored has no gates and no tier. Nulls are the
+    # honest answer, and the page reads a missing tier as needs review.
     conn.execute(
         "INSERT OR IGNORE INTO opportunities"
         " (url_hash, first_seen, source, company, title, location, salary_rate,"
         "  source_url, thread_type, cv_match, want_match, combined, one_line_why,"
         "  red_flags, suggested_action, act_by, status, status_changed_at, notes,"
         "  pay_currency, pay_period, pay_min, pay_max, day_rate, rate_band,"
-        "  cv_version)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "  cv_version, buying_window, company_id, region,"
+        "  gate_sector, gate_sector_note, gate_cv, gate_cv_note, gate_location, gate_location_note, gate_rate, gate_rate_note, tier, failed_gates, question_text, filter_reason, rate_stated, rate_value, rate_basis, ir35, location_class)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (h, now, source,
          scored["company"] or opp.get("company", ""),
          scored["role_title"] or opp.get("title", ""),
@@ -114,7 +281,9 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
          scored["suggested_action"], scored["act_by"],
          "new", now, note,
          pay["pay_currency"], pay["pay_period"], pay["pay_min"],
-         pay["pay_max"], pay["day_rate"], pay["rate_band"], cv_version))
+         pay["pay_max"], pay["day_rate"], pay["rate_band"], cv_version,
+         buying_window, company_id, region,
+         scored.get("gate_sector"), scored.get("gate_sector_note"), scored.get("gate_cv"), scored.get("gate_cv_note"), scored.get("gate_location"), scored.get("gate_location_note"), scored.get("gate_rate"), scored.get("gate_rate_note"), scored.get("tier"), scored.get("failed_gates"), scored.get("question_text"), scored.get("filter_reason"), scored.get("rate_stated"), scored.get("rate_value"), scored.get("rate_basis"), scored.get("ir35"), scored.get("location_class")))
 
 
 def main(argv=None) -> int:
@@ -180,6 +349,19 @@ def main(argv=None) -> int:
 
     source = detect_source(email.get("from", ""))
     now = radar_common.now_iso()
+    # The touch log, read once. Every advert is checked against it, so the
+    # doctrine's reading of a company survives whatever the job scorer makes
+    # of the role itself.
+    touched = touched_companies(conn)
+    # Enrichment is capped for the whole run, not per item, so one busy
+    # email cannot spend the day's budget. Reaching the cap is not an
+    # error, the rest wait for backfill_enrich.py or the next run.
+    enrich_budget = enrich_company.new_budget(config)
+    enrich_usage: dict = {}
+    enriched_count = 0
+    tripwire_usage: dict = {}
+    tripwire_count = 0
+    notes_extra: list = []
     system_blocks = None  # built lazily, only when something new needs scoring
     seen_hashes: set[str] = set()
     items, new_count, dup_count = [], 0, 0
@@ -204,8 +386,68 @@ def main(argv=None) -> int:
             opp, system_blocks, config, mock_fn=score_fn)
         radar_common.add_usage(usage_total, s_usage)
 
+        # The doctrine's reading of this advert, taken before anything is
+        # stored and deliberately independent of the score. scored is None
+        # when scoring failed, and a failed score must not cost us the
+        # buying window, so every field falls back to the extraction.
+        company = (str((scored or {}).get("company") or "").strip()
+                   or str(opp.get("company", "")).strip())
+        role_title = (str((scored or {}).get("role_title") or "").strip()
+                      or str(opp.get("title", "")).strip())
+        advert_url = (str((scored or {}).get("source_url") or "").strip()
+                      or str(opp.get("source_url", "")).strip())
+        is_window = normalise_company(company) in touched
+        item_tripwire = False
+
+        # The company row is resolved before the item is stored, so every
+        # row lands already pointing at the company it belongs to and the
+        # backfill only ever has legacy rows to find.
+        company_id = radar_common.resolve_company(conn, company, now)
+        # First sight of a company earns one description, ever. It runs
+        # after the row is resolved and before nothing at all, because a
+        # failure here must not cost the advert. enrich_company never
+        # raises for that reason.
+        if company_id is not None:
+            er = enrich_company.enrich_company(
+                conn, company_id,
+                f"{role_title}. {opp.get('location','')}. {advert_url}",
+                config, enrich_budget)
+            radar_common.add_usage(enrich_usage, er.get("usage") or {})
+            if er.get("enriched"):
+                enriched_count += 1
+
+        # The region is mirrored onto the row at store time so grouping the
+        # page is a column read. Enrichment may have just filled the
+        # country, so this is read after it rather than before.
+        region = None
+        if company_id is not None:
+            co = conn.execute("SELECT country, city FROM companies WHERE id=?",
+                              (company_id,)).fetchone()
+            region = radar_common.region_for(co["country"], co["city"], config) if co else None
+
         insert_opportunity(conn, h, now, source, opp, scored, s_note,
-                           pay_columns(opp, config, floor), cv_version)
+                           pay_columns(opp, config, floor), cv_version,
+                           buying_window=int(is_window),
+                           company_id=company_id, region=region)
+        if is_window:
+            record_buying_window(conn, company, role_title, advert_url, h, now,
+                                 company_id=company_id)
+        else:
+            # Not a touched company, so no buying window. If this is a first
+            # quality or regulatory hire at a medtech firm it is still news
+            # about them, and the signal rubric should judge it rather than
+            # the job scorer deciding Luke does not want to be a QA manager.
+            fire, why_not = tripwire.should_trip(
+                conn, company, role_title, opp.get("location"), touched)
+            if fire:
+                tw = fire_tripwire(conn, company, role_title, advert_url, h,
+                                   now, opp, config, company_id)
+                radar_common.add_usage(tripwire_usage, tw.get("usage") or {})
+                if tw.get("fired"):
+                    tripwire_count += 1
+                    item_tripwire = True
+                elif tw.get("note"):
+                    notes_extra.append(f"tripwire for {company}: {tw['note']}")
         new_count += 1
         item = {"company": opp.get("company", ""),
                 "title": opp.get("title", ""),
@@ -219,13 +461,32 @@ def main(argv=None) -> int:
                 "combined": scored["combined"],
                 "one_line_why": scored["one_line_why"],
             })
+        if is_window:
+            item["buying_window"] = True
+        if item_tripwire:
+            item["tripwire"] = True
         if s_note:
             item["note"] = s_note
         items.append(item)
 
     conn.commit()
     mode = "mock" if radar_common.mock_mode_active() else "live"
-    note_parts = [source] + ([extract_note] if extract_note else [])
+    note_parts = [source] + ([extract_note] if extract_note else []) + notes_extra
+    # Enrichment is its own line in the runs table. Folding its tokens into
+    # the inbox row would hide a cost that behaves differently, one pass per
+    # company ever rather than one per advert.
+    if tripwire_usage or tripwire_count:
+        radar_common.log_run(conn, "tripwire", mode=mode,
+                             items_in=tripwire_count, items_new=tripwire_count,
+                             model=config.get("claude_model_score"),
+                             usage=tripwire_usage,
+                             note="first QA or regulatory hire, untouched company")
+    if enrich_usage or enriched_count:
+        radar_common.log_run(conn, "enrich", mode=mode,
+                             items_in=enriched_count, items_new=enriched_count,
+                             model=config.get("claude_model_extract"),
+                             usage=enrich_usage,
+                             note=f"first sight, cap {enrich_budget['cap']}")
     radar_common.log_run(conn, "inbox", mode=mode,
                          items_in=len(opps), items_new=new_count,
                          model=config.get("claude_model_score"),

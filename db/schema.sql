@@ -33,7 +33,67 @@ CREATE TABLE IF NOT EXISTS opportunities (
   -- A human said "seen it". The row leaves the default view, the digest and
   -- the ageing section, but never the database, so dedupe keeps rejecting it.
   acknowledged_at   TEXT,
-  cv_version        TEXT               -- CV file label the score was made against
+  cv_version        TEXT,              -- CV file label the score was made against
+  -- The doctrine's buying window. Set in code at store time by matching the
+  -- advert's company against the touch log, never by a model, because it is
+  -- a fact about our own history and not a judgement about the role. A low
+  -- job score does not clear it, a generic advert at a company already
+  -- touched is still the week the standards stop being abstract for them.
+  buying_window     INTEGER NOT NULL DEFAULT 0,
+  -- Phase three. Excitement does not add up, it gates. Four gates, each a
+  -- boolean with a one-line note, and a tier derived from them. combined and
+  -- want_match stay for history and nothing new reads them.
+  gate_sector       INTEGER,          -- 1 pass, 0 fail, NULL not yet gated
+  gate_sector_note  TEXT,
+  gate_cv           INTEGER,
+  gate_cv_note      TEXT,
+  gate_location     INTEGER,
+  gate_location_note TEXT,
+  gate_rate         INTEGER,
+  gate_rate_note    TEXT,
+  tier              TEXT CHECK (tier IS NULL OR
+                                tier IN ('top','question','reading','filtered')),
+  failed_gates      TEXT,             -- JSON array of gate names as text
+  question_text     TEXT,             -- the one question, question tier only
+  filter_reason     TEXT,             -- why it was filtered, auditable
+  rate_stated       INTEGER,          -- 1 the advert stated pay, 0 silent
+  rate_value        REAL,             -- the gating figure, a day rate in GBP
+  rate_basis        TEXT,             -- day-rate | converted-salary
+  ir35              TEXT,             -- inside | outside, recorded never gated
+  location_class    TEXT              -- remote | hybrid | local | relocation | onsite-far
+);
+
+-- The landscape is companies, not rows. One row per company, keyed on the
+-- normalised name so two spellings of the same firm meet here rather than
+-- living as strangers in three tables.
+--
+-- Enrichment fills the descriptive columns once, at first sight. They stay
+-- NULL until then and nothing depends on them being present.
+--
+-- state holds only the three a human sets, and only ever by hand. The other
+-- states, seen and touched and window open, are facts already in the
+-- database and are derived at read time rather than stored, because a
+-- stored copy of a derivable fact is a second source of truth that will
+-- eventually disagree with the first.
+CREATE TABLE IF NOT EXISTS companies (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  norm_name        TEXT NOT NULL UNIQUE,   -- normalise_company(display_name), the natural key
+  display_name     TEXT NOT NULL,          -- as first seen, for the page
+  country          TEXT,
+  region           TEXT,                   -- computed from country and city, phase two task three
+  city             TEXT,
+  ecosystem        TEXT,                   -- imec, Ghent, KU Leuven, and the like
+  stage            TEXT,                   -- seed, series A, and the like
+  what_they_build  TEXT,
+  software_content TEXT,
+  people           TEXT,                   -- JSON array, only where the company published them
+  first_seen       TEXT NOT NULL,
+  enriched_at      TEXT,
+  enrich_status    TEXT,                   -- ok | text-only | failed, with the reason
+  state            TEXT CHECK (state IS NULL OR
+                               state IN ('in-conversation','client','dead')),
+  state_changed_at TEXT,
+  notes            TEXT
 );
 
 CREATE TABLE IF NOT EXISTS signals (
@@ -82,7 +142,13 @@ CREATE TABLE IF NOT EXISTS touches (
   channel          TEXT,               -- comment | connection-note | engagement | artefact | other
   note             TEXT,
   next_action      TEXT,
-  next_action_date TEXT
+  next_action_date TEXT,
+  -- What came back. NULL and 'none' both mean nothing yet, which is the
+  -- honest default and the common case. A human sets this, never the
+  -- machine, because only a human can tell a polite acknowledgement from
+  -- the start of a conversation.
+  outcome          TEXT CHECK (outcome IS NULL OR
+                               outcome IN ('none','reply','conversation'))
 );
 
 -- Run log with token usage. One row per script run. Cost guardrail.

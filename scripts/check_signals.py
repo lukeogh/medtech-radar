@@ -39,6 +39,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
+import draft_outreach
 import radar_common as rc  # noqa: E402
 
 WATCHLIST_PATH = REPO_ROOT / "config" / "watchlist.yaml"
@@ -47,6 +48,9 @@ DRY_RUN_PAYLOAD_PATH = REPO_ROOT / "test" / "last_signal.txt"
 
 MAX_NEW_ITEMS_PER_SOURCE = 5     # cost guardrail per check
 MAX_SEEN_IDS = 200               # rolling memory per source
+# A sitemap is a complete list rather than a stream, so its seen-set is
+# sized to hold all of it. Cheap, a few hundred urls is tens of kilobytes.
+MAX_SITEMAP_IDS = 5000
 MAX_ITEM_TEXT = 4000             # chars of body text sent to the scorer
 
 
@@ -232,6 +236,114 @@ def check_rss(source: dict, state: dict | None, config: dict, conn, notes: list)
     _save_state(
         conn, source, last_checked=checked, last_status=str(status),
         last_seen_ids=json.dumps(merged[:MAX_SEEN_IDS]),
+        etag=headers.get("ETag"), last_modified=headers.get("Last-Modified"),
+    )
+    return items
+
+
+def check_sitemap(source: dict, state: dict | None, config: dict, conn,
+                  notes: list):
+    """Read a sitemap and treat URLs never seen before as new items.
+
+    Some sites build their listing page with JavaScript, which a plain
+    fetcher cannot read, while publishing the same content as a sitemap that
+    is server-rendered XML. imec is the case that mattered. Reading the
+    sitemap avoids a headless browser entirely, and a browser is a large
+    thing to run for a small thing to read.
+
+    New URLs are the signal, not lastmod. A site rebuild can restamp
+    lastmod across hundreds of entries at once, which would look like a
+    hundred announcements, so the dates are ignored for detection and the
+    URL set is what decides.
+
+    include_patterns and exclude_patterns filter URLs by substring, include
+    acting as a whitelist when present. A sitemap is the whole site and most
+    of a site is not news. imec's carries 279 job vacancies and 240 research
+    papers beside its 301 press releases, and only the last are the company
+    events this radar is for.
+    """
+    url = source.get("sitemap_url") or source.get("url")
+    status, headers, body = rc.http_get(
+        url, config,
+        etag=state.get("etag") if state else None,
+        last_modified=state.get("last_modified") if state else None,
+    )
+    checked = rc.now_iso()
+    if status == 999:
+        notes.append(f"{source['id']}: blocked by robots.txt")
+        _save_state(conn, source, last_checked=checked,
+                    last_status="robots-blocked")
+        return []
+    if status == 304:
+        _save_state(conn, source, last_checked=checked, last_status="304")
+        return []
+    if status != 200 or not body:
+        notes.append(f"{source['id']}: sitemap fetch failed with status {status}")
+        _save_state(conn, source, last_checked=checked, last_status=str(status))
+        return []
+
+    locs = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", body)
+    includes = [str(x).lower() for x in (source.get("include_patterns") or [])]
+    excludes = [str(x).lower() for x in (source.get("exclude_patterns") or [])]
+    kept = []
+    dropped = 0
+    for loc in locs:
+        low = loc.lower()
+        # Include first, and when a source names one it is a whitelist. A
+        # sitemap is the whole site, and most of a site is not news. imec's
+        # carries 279 job vacancies and 240 research papers beside its 301
+        # press releases, and only the press releases are company events.
+        if includes and not any(x in low for x in includes):
+            dropped += 1
+            continue
+        if any(x in low for x in excludes):
+            dropped += 1
+            continue
+        kept.append(loc)
+    if dropped:
+        notes.append(f"{source['id']}: {dropped} sitemap urls filtered, "
+                     f"{len(kept)} kept")
+
+    # Remember every url the sitemap lists, not a window of them. A feed is
+    # a stream and a window over it is fine, but a sitemap is a complete
+    # list, and remembering only part of a complete list means the part
+    # outside the window is permanently unseen and is rediscovered as new on every
+    # run, refetching the same articles forever. Bounded by the sitemap.
+    current_ids = kept[-MAX_SITEMAP_IDS:]
+
+    previous = set()
+    first_run = state is None or not state.get("last_seen_ids")
+    if not first_run:
+        try:
+            previous = set(json.loads(state["last_seen_ids"]))
+        except (ValueError, TypeError):
+            first_run = True
+
+    items = []
+    if first_run:
+        notes.append(f"{source['id']}: first run, baselined "
+                     f"{len(current_ids)} sitemap urls")
+    else:
+        for loc in reversed(kept):
+            if loc in previous:
+                continue
+            text = fetch_article_text(loc, config)
+            slug = loc.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").strip()
+            items.append({
+                "source_id": source["id"],
+                "source_name": source.get("name", source["id"]),
+                "url": loc,
+                "headline": (text.split(". ")[0][:120] if text else slug) or slug,
+                "date": None,
+                "text": text,
+            })
+            if len(items) >= MAX_NEW_ITEMS_PER_SOURCE:
+                break
+
+    merged = current_ids + [i for i in previous if i not in current_ids]
+    _save_state(
+        conn, source, last_checked=checked, last_status=str(status),
+        last_seen_ids=json.dumps(merged[:MAX_SITEMAP_IDS]),
         etag=headers.get("ETag"), last_modified=headers.get("Last-Modified"),
     )
     return items
@@ -424,13 +536,22 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
     except (TypeError, ValueError):
         relevance = 0
 
+    # Resolve the company before storing, so the signal lands already
+    # pointing at it. "Unknown company" is a real stored name here, and
+    # normalise_company keeps it as one row rather than many.
+    company_id = rc.resolve_company(conn, company)
+    co = conn.execute("SELECT country, city FROM companies WHERE id=?",
+                      (company_id,)).fetchone() if company_id else None
+    region = rc.region_for(co["country"], co["city"], config) if co else \
+        rc.region_group_names(config)[-1]
     conn.execute(
         "INSERT INTO signals (url_hash, first_seen, source_id, company,"
-        " headline, summary, source_url, relevance, why, playbook_step)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?)",
+        " headline, summary, source_url, relevance, why, playbook_step,"
+        " company_id, region)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (h, rc.now_iso(), item["source_id"], company, headline,
          (item.get("text") or "")[:500], item["url"], relevance,
-         why, playbook_step),
+         why, playbook_step, company_id, region),
     )
     conn.commit()
     result["items_new"] += 1
@@ -439,12 +560,25 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
     if relevance < threshold:
         return
 
+    # Drafts at push time, and only for the announcement-day step. The
+    # words are what turns a notification into a two minute job, so they
+    # are written before the push rather than after it.
+    drafts = {"drafted": False}
+    if draft_outreach.wants_drafts(playbook_step):
+        drafts = draft_outreach.generate_drafts(
+            conn, h, company, headline, item.get("text") or "", config)
+        rc.add_usage(result["usage"], drafts.get("usage") or {})
+        conn.commit()
+        if drafts.get("note"):
+            result["notes"].append(f"drafts for {company}: {drafts['note']}")
+
     title = f"Radar signal. {company}"
     message = (
         f"{headline}\n"
         f"Why it matters. {why}\n"
         f"Do today. {playbook_step}\n"
-        f"{item['url']}"
+        + ("Drafts ready on the Insights page.\n" if drafts.get("drafted") else "")
+        + f"{item['url']}"
     )
     if push_live:
         # A failed push must not kill the rest of the run. The pushed flag
@@ -592,6 +726,9 @@ def main(argv=None) -> int:
             result["sources_checked"] += 1
             if source.get("method") == "rss" and source.get("rss_url"):
                 items = check_rss(source, state, config, conn, result["notes"])
+            elif source.get("method") == "sitemap":
+                items = check_sitemap(source, state, config, conn,
+                                      result["notes"])
             else:
                 items = check_diff(source, state, config, conn, result["notes"])
             for item in items:

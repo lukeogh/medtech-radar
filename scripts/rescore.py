@@ -52,19 +52,28 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
         scored, usage, note = scoring.score_opportunity(
             opp, system_blocks, config, mock_fn=score_fn)
         radar_common.add_usage(usage_total, usage)
-        if scored is None or scored.get("combined") is None:
+        # Phase three. A row is scored when it has a tier. Gating on
+        # combined here marked every row failed and left tier null, so the
+        # backlog never shrank and a live run would have looped for ever
+        # spending money on the same hundred rows.
+        if scored is None or scored.get("tier") is None:
             failed += 1
             continue
+        gate_cols = ("gate_sector", "gate_sector_note", "gate_cv", "gate_cv_note",
+                     "gate_location", "gate_location_note", "gate_rate",
+                     "gate_rate_note", "tier", "failed_gates", "question_text",
+                     "filter_reason", "rate_stated", "rate_value", "rate_basis",
+                     "ir35", "location_class")
         conn.execute(
-            "UPDATE opportunities SET cv_match = ?, want_match = ?,"
-            " combined = ?, one_line_why = ?, red_flags = ?,"
-            " suggested_action = ?, act_by = ?, thread_type = ?, notes = NULL,"
-            " cv_version = ?"
-            " WHERE id = ?",
-            (scored["cv_match"], scored["want_match"], scored["combined"],
-             scored["one_line_why"], json.dumps(scored["red_flags"]),
-             scored["suggested_action"], scored["act_by"],
-             scored["thread_type"], cv_version, row["id"]))
+            "UPDATE opportunities SET cv_match = ?, one_line_why = ?,"
+            " red_flags = ?, suggested_action = ?, act_by = ?, thread_type = ?,"
+            " notes = NULL, cv_version = ?, "
+            + ", ".join(f"{c} = ?" for c in gate_cols)
+            + " WHERE id = ?",
+            (scored["cv_match"], scored["one_line_why"],
+             json.dumps(scored["red_flags"]), scored["suggested_action"],
+             scored["act_by"], scored["thread_type"], cv_version)
+            + tuple(scored.get(c) for c in gate_cols) + (row["id"],))
         # Commit per row. Python's sqlite3 opens an implicit write
         # transaction at the first UPDATE, and holding it across the next
         # live model call would starve every other writer past the busy
@@ -77,10 +86,40 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
 def rescore_opportunities(conn, config, usage_total) -> tuple[int, int]:
     # Acknowledged rows are dismissed, re-scoring them would spend tokens
     # on something a human already waved past.
+    # Phase three. An unscored row is one with no tier, not one with no
+    # combined, because combined is history now and nothing new writes it.
     rows = conn.execute(
-        "SELECT * FROM opportunities WHERE combined IS NULL"
+        "SELECT * FROM opportunities WHERE tier IS NULL"
         " AND acknowledged_at IS NULL").fetchall()
     return _rescore_rows(conn, config, usage_total, rows)
+
+
+def regate_backlog(conn, config, usage_total, cap: int, dry_run: bool = False):
+    """Re-score the back catalogue against the four gates.
+
+    The whole point of phase three is that the additive score guaranteed its
+    own bar could never be cleared, so every row scored under it needs
+    judging again. Capped per run like every other model call here, and it
+    refuses to touch a row a human already acknowledged.
+
+    dry_run scores nothing and writes nothing. It reports what would change,
+    which is the review gate the spec asks for, because 211 rows of the
+    stronger model is a real bill and a tiering change nobody has eyeballed
+    is a bad thing to spend it on.
+    """
+    rows = conn.execute(
+        "SELECT * FROM opportunities WHERE tier IS NULL"
+        " AND acknowledged_at IS NULL ORDER BY id LIMIT ?", (cap,)).fetchall()
+    remaining = conn.execute(
+        "SELECT COUNT(*) FROM opportunities WHERE tier IS NULL"
+        " AND acknowledged_at IS NULL").fetchone()[0] - len(rows)
+    if dry_run:
+        return {"examined": len(rows), "rescored": 0, "failed": 0,
+                "remaining": max(0, remaining + len(rows)), "dry_run": True,
+                "would_examine": [dict(r) for r in rows]}
+    fixed, failed = _rescore_rows(conn, config, usage_total, rows)
+    return {"examined": len(rows), "rescored": fixed, "failed": failed,
+            "remaining": max(0, remaining), "dry_run": False}
 
 
 def rescore_stale_cv(conn, config, usage_total, cap: int) -> tuple[int, int, int]:
@@ -165,6 +204,10 @@ def main(argv=None) -> int:
 
     parser = argparse.ArgumentParser(
         description="Re-score rows with null scores, in place.")
+    parser.add_argument("--regate", action="store_true",
+                        help="re-score the back catalogue against the four gates")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="with --regate, report what would change and spend nothing")
     parser.add_argument("--stale-cv", action="store_true",
                         help="instead re-score scored rows whose stamp "
                              "predates the active CV, capped")
@@ -192,6 +235,30 @@ def main(argv=None) -> int:
 
     usage_total: dict = {}
     mode = "mock" if radar_common.mock_mode_active() else "live"
+
+    if args.regate:
+        res = regate_backlog(conn, config, usage_total, args.cap, args.dry_run)
+        if res["dry_run"]:
+            # Nothing scored, nothing written, nothing logged to runs. A dry
+            # run that left a trace would be a run.
+            rows = res.pop("would_examine")
+            conn.close()
+            if not args.quiet:
+                print(json.dumps({**res, "sample": [
+                    {"id": r["id"], "company": r["company"], "title": r["title"],
+                     "old_combined": r["combined"], "old_cv": r["cv_match"],
+                     "salary_rate": r["salary_rate"], "location": r["location"]}
+                    for r in rows[:5]]}))
+            return 0
+        radar_common.log_run(conn, "rescore", mode=mode,
+                             items_in=res["examined"], items_new=res["rescored"],
+                             model=config.get("claude_model_score"),
+                             usage=usage_total,
+                             note=f"regate, {res['remaining']} still ungated")
+        conn.close()
+        if not args.quiet:
+            print(json.dumps(res))
+        return 0
 
     if args.stale_cv:
         fixed, failed, remaining = rescore_stale_cv(conn, config, usage_total,

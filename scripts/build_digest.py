@@ -184,16 +184,25 @@ def collect(conn, config: dict) -> dict:
     age_cutoff = (datetime.now(timezone.utc)
                   - timedelta(days=AGEING_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # Phase three. Tiers, not a combined bar. digest_min_want retired with
+    # the additive score it was a second bar on top of.
+
     inbound = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
-        " AND combined IS NOT NULL AND combined >= ? AND thread_type = 'inbound'"
+        " AND tier IN ('top','question') AND thread_type = 'inbound'"
         " AND acknowledged_at IS NULL"
-        " ORDER BY combined DESC, first_seen", (last_ts, threshold))]
+        " ORDER BY CASE tier WHEN 'top' THEN 0 ELSE 1 END, cv_match DESC",
+        (last_ts,))]
     opp_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
-        " AND combined IS NOT NULL AND combined >= ? AND thread_type = 'signal'"
+        " AND tier IN ('top','question') AND thread_type = 'signal'"
         " AND acknowledged_at IS NULL"
-        " ORDER BY combined DESC, first_seen", (last_ts, threshold))]
+        " ORDER BY CASE tier WHEN 'top' THEN 0 ELSE 1 END, cv_match DESC",
+        (last_ts,))]
+    reading_count = conn.execute(
+        "SELECT COUNT(*) n FROM opportunities WHERE status = 'new'"
+        " AND first_seen > ? AND tier = 'reading' AND acknowledged_at IS NULL",
+        (last_ts,)).fetchone()["n"]
     table_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM signals WHERE status = 'new' AND first_seen > ?"
         " AND relevance IS NOT NULL AND relevance >= ?"
@@ -230,8 +239,11 @@ def collect(conn, config: dict) -> dict:
         {"label": r["title"] or "Untitled role", "company": r["company"] or "",
          "note": r["notes"] or "scoring failed"}
         for r in conn.execute(
+            # Needs review means ungated now. combined is history and is
+            # null on every new row, so testing it here would have put the
+            # whole week in the review pile for ever.
             "SELECT title, company, notes FROM opportunities"
-            " WHERE combined IS NULL AND status = 'new' AND first_seen > ?"
+            " WHERE tier IS NULL AND status = 'new' AND first_seen > ?"
             " AND acknowledged_at IS NULL"
             " ORDER BY first_seen", (last_ts,))
     ] + [
@@ -268,7 +280,11 @@ def collect(conn, config: dict) -> dict:
 
     return {"threshold": threshold, "floor": floor, "last_ts": last_ts,
             "inbound": inbound, "signals": signals, "ageing": ageing,
-            "threads": threads, "needs_review": needs_review, "stats": stats}
+            "threads": threads, "needs_review": needs_review, "stats": stats,
+            "reading_count": reading_count,
+            "top_count": sum(1 for x in inbound + signals if x.get("tier") == "top"),
+            "question_count": sum(1 for x in inbound + signals
+                                  if x.get("tier") == "question")}
 
 
 def stats_line(stats: dict) -> str:
@@ -414,8 +430,12 @@ def render_html(data: dict, today_label: str) -> str:
                 why = f"<br><em>{esc(sentence(s['why']))}</em>" if s.get("why") else ""
                 step = (f"<br>Playbook step. {esc(sentence(s['playbook_step']))}"
                         if s.get("playbook_step") else "")
+                # The group name as a plain prefix, nothing more. The
+                # digest is a list to read on a phone, not a page to browse,
+                # so geography earns three words and no headings.
+                where = f"{esc(s.get('region'))}. " if s.get("region") else ""
                 parts.append(
-                    f"<li><strong>{esc(s['headline'] or s['company'])}</strong><br>"
+                    f"<li><strong>{where}{esc(s['headline'] or s['company'])}</strong><br>"
                     f"Relevance {s['score']}. {esc(s['company'])}.{why}{step}{link}</li>")
             else:
                 parts.append(
@@ -510,15 +530,47 @@ def main(argv=None) -> int:
     data = collect(conn, config)
     now = radar_common.now_iso()
     today_label = fmt_date(now)
-    text = render_text(data, today_label)
-    html = render_html(data, today_label)
+    # Phase three. The email shrinks to the counts and a link through to the
+    # page, because mail clients cannot collapse and expand, Gmail included,
+    # and a wall of roles in an inbox is a wall nobody reads. The verdict is
+    # in the subject and the detail is one tap away.
+    top_n = data.get("top_count", 0)
+    q_n = data.get("question_count", 0)
+    read_n = data.get("reading_count", 0)
+    page_url = str(config.get("dashboard_url")
+                   or "https://medtech-radar.keogh.cloud") + "/jobs"
+    counts = [f"{top_n} top prospect" + ("" if top_n == 1 else "s"),
+              f"{q_n} one question away",
+              f"{read_n} for reading"]
+    text = ("Radar, week to " + today_label + ".\n\n"
+            + "\n".join("  " + c for c in counts)
+            + f"\n\nThe roles are on the page, sorted and gated.\n{page_url}\n"
+            + ("\nNothing cleared all four gates this week.\n" if not top_n else ""))
+    html = (f'<div style="font:15px/1.5 -apple-system,Segoe UI,sans-serif">'
+            f'<p>Radar, week to {esc(today_label)}.</p><ul>'
+            + "".join(f"<li>{esc(c)}</li>" for c in counts)
+            + f'</ul><p><a href="{esc(page_url)}">Open the roles</a>, sorted and '
+              f'gated.</p>'
+            + ("<p>Nothing cleared all four gates this week.</p>" if not top_n else "")
+            + "</div>")
     item_count = len(data["inbound"]) + len(data["signals"])
-    n_sig = len(data["signals"])
-    if item_count == 0:
-        subject = f"Radar digest. A quiet week, nothing new. {today_label}."
+
+    # The subject lands the verdict before the open, because most weeks the
+    # subject is the whole email as far as a phone lock screen is concerned.
+    def plural_n(n, word):
+        return f"{n} {word}" + ("" if n == 1 else "s")
+
+    if top_n:
+        bits = [plural_n(top_n, "top prospect")]
     else:
-        subject = (f"Radar digest. {len(data['inbound'])} inbound, "
-                   f"{n_sig} {plural(n_sig, 'signal', 'signals')}. {today_label}.")
+        bits = ["Nothing exciting"]
+    if q_n:
+        bits.append(f"{q_n} one question away")
+    if read_n:
+        bits.append(f"{read_n} for reading")
+    subject = "Radar. " + ", ".join(bits)
+    if item_count == 0 and not read_n:
+        subject = f"Radar. A quiet week, nothing new. {today_label}."
 
     # Record the exact built set under a one-use token. The commit step marks
     # this set and nothing else, so an item that arrives between build and
@@ -562,6 +614,7 @@ def main(argv=None) -> int:
                           "ageing_count": len(data["ageing"]),
                           "thread_count": len(data["threads"]),
                           "needs_review_count": len(data["needs_review"]),
+                          "reading_count": data.get("reading_count", 0),
                           "token": token, "send": send,
                           "to": config.get("digest_to", "")}))
     return 0

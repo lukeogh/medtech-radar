@@ -70,8 +70,9 @@ medtech-radar/
    page re-renders from the database on every load, the Refresh button
    reloads it, Check now runs the signals watcher on demand, and it reloads
    itself every fifteen minutes while n8n keeps feeding the database on its
-   own schedule. `python scripts/build_dashboard.py` still writes the plain
-   static file. Both are read only against the database. If you serve it
+   own schedule. `python scripts/build_dashboard.py` still writes a static archive
+   file but is deprecated and says so, because the served page re-renders
+   from the database on every load and is the one to trust. If you serve it
    beyond this machine, put it behind the reverse proxy with authentication,
    the page carries scored opportunities and names.
 7. When a thread is handled or has gone nowhere, retire it so the ageing
@@ -445,6 +446,32 @@ needs him. The old archive page kept every row and moved to /archive,
 linked from the footer. The working tables live where the work lives,
 Home just tells the truth quickly.
 
+1 August 2026. The buying window stopped being doctrine and became
+machinery. Every advert that arrives is now matched in code against the
+touch log, and one from a company already spoken to is flagged on the
+row and written up as its own insight, source id job-advert, relevance
+90, the playbook's step four carried on its back. The match is a fact
+about our own history, so it is decided at store time and never by a
+model, and a job score has no vote. A generic role at a touched
+seed-stage company used to score low on want match by design and sink
+without trace. It now surfaces as what it actually is, the week IEC
+62304 and ISO 13485 stop being abstract for them. One window per company
+ever, checked against the job-advert signals themselves so a restore
+from backup cannot re-open a conversation, and idempotent on the
+advert's own url hash. Nothing here pushes. The catch-up sweep already
+collects any new unacknowledged signal above the fast bar within a day,
+so arming semantics did not move.
+
+Week three books itself the same day. Marking an insight done through
+the page already logged the touch, and now the announcement-day channels
+book the follow-up too, twenty-one days out with the action named. Only
+comment and connection-note book anything. An engagement already is week
+three, and an artefact send is the buying-window move whose next event
+belongs to them, a reply or silence, both fine, so booking a date on
+either would invent the chase the playbook forbids. The Insights card
+carries the booking under the last touch, and Home counts what has come
+due, because a thread waiting and a thread late are not the same thread.
+
 31 July 2026, later. The insight line stretched to a rolling year, months
 as buckets, and learned two kinds of honesty. Only signals at or above
 the digest bar count now, the rubric's own judgement of a medtech event
@@ -453,3 +480,487 @@ rather than ecosystem chatter. And months before the earliest signal on
 file draw nothing at all, with a note naming when recording began,
 because a gap in the radar's life must never read as a quiet market. The
 annual shape earns itself month by month from here.
+
+2 August 2026. The dashboard stopped answering the internet. radar.yaml has
+said since the day it was written that this page is LAN or tailnet only by
+design, and it was not. Nginx Proxy Manager served it on a hostname whose
+ports 80 and 443 are open on the router, with no access list, no
+authentication and nothing between a stranger and every scored opportunity,
+every company name, the CV upload at /cv and the endpoints that spend
+Anthropic tokens. Proved rather than assumed. A request to the WAN address
+carrying the right host header returned 200 on every page, and nginx logged
+it against the public IP, which is exactly what an outside client looks
+like. The fix is an allow list on the proxy host, LAN and both Tailscale
+ranges and nothing else, scoped to location / so the ACME challenge path is
+untouched and the wildcard certificate keeps renewing on its DNS challenge.
+After it, the same WAN request gets 403 on every page and on /ack and
+/unack, and the LAN still gets 200. The denied writes changed no rows.
+
+The scan that found it found more, and none of the rest was touched. Twenty
+five proxy hosts, every one enabled, every one with no access list, and no
+access lists defined at all. Among them the proxy's own admin page, the
+hypervisor console, the password vault, the DNS server and an n8n that can
+run shell next to the API key. That list is in MORNING_REPORT.md with a
+decision to make, because closing another man's door without asking is how
+you lock him out of his own house. Public DNS for the domain also points at
+an address this network no longer holds, which is the only reason the open
+door was not being walked through, and correcting it before the doors are
+shut would make the exposure immediate rather than theoretical.
+
+gitleaks over all fifty seven commits found one real secret, an Anthropic
+key committed to .env.example on 29 July and removed from the working tree
+the same day. History keeps it. The key in that commit is not the key in
+use, compared by fingerprint without either value being printed, so the
+rotation already happened and what remains is revoking the old one. Nothing
+was fixed silently and nothing was rewritten.
+
+2 August 2026, later. The rest of the doors were shut. Twenty five hostnames
+were being served to the open internet with no access list and no
+authentication, and after the dashboard came the proxy's own admin page, the
+hypervisor console, the vault, the DNS server, Home Assistant and two vhosts
+carrying personal financial records that the earlier count had missed
+entirely, because that count read NPM's database and the database is not the
+authority, the generated config is. Two rows in it have no conf file and were
+never served at all. Twenty four of the twenty five now refuse anything that
+is not the LAN or the tailnet. ntfy stays public on purpose, deny-all with
+token auth, and the phone needs it.
+
+The first attempt was an allow list per host and it left jellyfin open. A
+return inside a location runs in the rewrite phase, before the access phase
+where allow and deny are read, so the redirect at location = / answered
+strangers happily while the allow list sat underneath it doing nothing. The
+fix refuses in the same phase the redirect lives in. A geo block names who is
+local, a map names the exceptions in one readable place, and a two line
+include that NPM already writes into every server block it generates does the
+refusing. That last detail is the point. A proxy host created next month
+inherits the deny without anyone remembering to apply it, which is the only
+kind of rule that survives a busy week.
+
+One path stays open from the WAN by choice. Two onlyoffice certificates still
+renew over HTTP-01, so the ACME challenge directory is exempt and was proved
+still reachable. Move those two to the DNS challenge and the exemption can go.
+Nothing else was touched, LAN access was checked host by host afterwards, and
+the two that answer 403 there were answering 403 before, from the applications
+themselves, proved by going straight to their backends with the proxy out of
+the path.
+
+2 August 2026, later still. The deny got a watchdog, because a rule nobody
+checks is a rule that has already failed quietly. A weekly job asks the
+question from outside, resolving every hostname to the WAN address the way a
+stranger would, and calls anything that is not a refusal what it is. It reads
+the host list from the live nginx config rather than a list of its own, so a
+proxy host added next month is checked without anyone remembering, and it
+reads the deliberately-public exceptions from the same file that enforces
+them, so the check and the rule cannot drift apart. All three of its verdicts
+were exercised before it was trusted, the pass, the failure with a host opened
+on purpose to see the alarm work, and the inconclusive that fires when the
+proxy cannot be read at all. That last one matters most. A check that cannot
+see the estate must never report it safe.
+
+2 August 2026, last of the day. The watchdog got a voice. It publishes to
+ntfy on failure and on the inconclusive verdict, and stays silent on a pass,
+because an alarm that fires weekly when nothing is wrong gets muted and a
+muted alarm is worse than none. Four paths were exercised rather than two.
+The pass sends nothing, the failure publishes and the message was read back
+off the server to prove it arrived, the unreadable-proxy case sends its own
+warning, and a destination that refuses the message records that refusal in
+the report instead of swallowing it, because a notification path that has
+quietly died looks exactly like a week with no problems. The destination
+lives in a config file rather than the script, so a token never lands in
+version control and the target can move without an edit. It currently points
+at the homelab ntfy, which asks for no token and cannot do phone push. The
+server that can is deny-all and wants a credential, and credentials are not
+ours to mint.
+2 August 2026, backups. The two things that cannot be rebuilt now leave the
+machine that holds them. The database is the business memory, the touch log
+and the buying-window history and the dedupe record, and config/profile/ is
+the CV versions every score was made against, gitignored by design and
+existing on one host and nowhere else. Neither survived that host dying.
+
+The database is copied with VACUUM INTO and never with cp. Three workflows
+overlap on one file in WAL mode, and a plain copy can catch a write in
+flight and produce a file that opens cleanly while quietly missing the last
+transaction, which is the worst kind of backup because it looks like a good
+one. The script proves the snapshot opens and counts its rows before calling
+itself finished, and a snapshot that will not open is deleted rather than
+kept, because a file that cannot be read is not a backup and should not
+occupy the slot of one.
+
+Getting the copies away is a separate job on purpose, since a backup beside
+the thing it protects is not one. A timer on the Pi runs at 02:37 nightly,
+persistent so a machine that was off overnight still takes its copy on the
+next boot, reaches into the container through the node, and verifies the
+copy that landed here rather than the one at source. Fourteen daily and
+eight weekly on the NAS drives, a different machine and different disks.
+It mints no credentials to do it, and the container was deliberately not
+given a key to the Pi.
+
+Then it was restored, because a backup nobody has restored is a rumour. The
+off-host copy opened at 190 opportunities, 34 signals and 0 touches against
+a live database reading exactly the same, integrity ok, with the CV and the
+preferences intact in the archive beside it. The procedure is written down
+in docs/architecture.md with the warning that matters most, restore to a
+scratch path and compare before anything goes near the live file.
+
+2 August 2026, companies. The landscape stopped being rows and became
+companies. One table keyed on the normalised name, so two spellings of one
+firm meet in a single row instead of living as strangers in three tables,
+and company_id on opportunities, signals and touches pointing at it. The
+name columns stay exactly where they were, because they are what the page
+shows and what a row restored from a backup still carries if a join ever
+breaks. The normalising rule moved out of the inbox script into
+radar_common, since it is now the natural key of a table and three writers
+need the same answer to the same question.
+
+The states are split by who owns them. Seen, touched and window open are
+facts already in the database, an item exists, a touch exists, a job-advert
+signal exists, and they are derived when the page asks rather than stored,
+because a written-down copy of a derivable fact is a second source of truth
+that eventually disagrees with the first. In conversation, client and dead
+are stored, and only a human ever sets them, through touch.py state today
+and the dossier later. The strongest that applies is the one shown, except
+dead, which is not a rung on that ladder but the end of the climb and
+outranks even client, because a human said so and no amount of derived
+activity should argue.
+
+The migration ran against a real copy before it ran anywhere else. A
+hundred and forty five companies out of a hundred and ninety opportunities
+and thirty four signals, every named row linked, nothing named left
+unlinked, and the thirty four adverts that never carried a company name
+left pointing at nothing rather than at an invented company called nothing.
+Opened three times over and hand-run a fourth, it creates nothing the
+second time. The backfill adds and annotates only. It never rewrites a
+name, never merges two companies and never clears an id already set, so
+the worst a stray re-run can do is cost one scan.
+
+2 August 2026, enrichment. A company earns one description the first time it
+is seen, so the same-day package never needs a research step. One fast-model
+pass, capped for the whole run rather than per item so a busy email cannot
+spend the day's budget, and logged as its own line in the runs table because
+a cost that happens once per company behaves nothing like one that happens
+once per advert and hiding them together would make both unreadable.
+
+The prompt is told, twice, that it is describing what the evidence says and
+not recalling a company it may have read about. Empty is a correct answer and
+the common one, since most first sightings are a name, a city and a round.
+Filling what_they_build with a plausible guess is worse than leaving it
+blank, because the blank is honest and the guess gets believed. People are
+kept only where the company published the name itself, so a founder quoted by
+a journalist does not become a stored contact.
+
+One polite fetch of the company site where the item names one, robots
+deciding, and a disallow means no fetch and a status that says so. Nothing is
+guessed from the company name, because guessing a domain and knocking on it
+is how a polite watcher stops being one, and LinkedIn heads a list of hosts
+that are never treated as a company site whatever the item says. A failed
+fetch, an unparseable answer and an unknown company all end the same way, a
+status written down and the advert stored and scored regardless, because
+enrichment is a description and the record does not depend on it.
+
+Proved against the real copy. A hundred and forty five stored companies
+drained in three capped runs with no failures, and a re-run of the same email
+enriched nothing, because a company already described is never described
+again however often it turns up.
+
+2 August 2026, geography. Insights group as Local, UK, Europe and
+Elsewhere, in the order radar.yaml lists them, and the order is the config's
+to decide rather than the code's. The lead story stays above the groups,
+because the strongest story of the week is the strongest wherever it
+happened and a front page has exactly one of those. Inside a group the fresh
+and earlier split is untouched. An empty group is not rendered at all, so a
+quiet month in Europe leaves no empty shelf on the page.
+
+The catch-all earns its place. A company nobody has enriched has no country,
+and a grouping rule that cannot place a row must put it somewhere rather
+than drop it, because a row that vanishes from a page is indistinguishable
+from a row that was never collected. Every unenriched company lands in
+Elsewhere and says so, and the test that pins this asserts no signal is ever
+left without a group.
+
+The region is a cache. It is computed from the country and city the enricher
+found, stored on the company and mirrored onto every opportunity and signal,
+so grouping the page is a column read rather than a join on every render.
+Caches go stale, so the rules carry a fingerprint and any edit to them
+recomputes every row on the next database open. Editing the Local list is
+therefore a config change and nothing more, no migration and no redeploy,
+which is the point, because that list is a guess about where Luke will
+travel and it should be cheap to correct.
+
+The digest gets the group name as a plain prefix and nothing else. It is a
+list read on a phone, not a page to browse, and geography earns three words
+there rather than headings of its own.
+
+2 August 2026, the dossier. One screen per company, at /company/ and its
+id, reached by clicking the company name anywhere it appears. The timeline
+interleaves adverts, insights and touches newest first, because the question
+this page answers is what has happened with these people, and that question
+does not care which table the answer is in. Above it sit the enrichment
+summary, the region, the relationship state and the next move with its date.
+
+Empty fields are shown as not known rather than hidden. A blank the
+enricher honestly left is information, and hiding it would make a company
+nobody has looked at yet indistinguishable from one that was studied and
+found plain.
+
+Three buttons and no more. In conversation, client and dead are the states a
+human owns, and the page refuses anything else outright, including the
+derived ones, so seen and touched and window open cannot be forced by a
+POST. Dead sits behind a confirm because it outranks every other state
+including client. Every accepted change writes a touch saying what it was
+and what it became, so six months later the timeline explains itself rather
+than the state having simply appeared. The notes go through the sanitiser
+like every other generated line, and a test pins that.
+
+Read only otherwise, and behind nothing of its own. It is served by the same
+process as every other page, so it sits behind the same LAN and tailnet
+restriction that closed the estate this morning, which is the whole reason
+that work came first.
+
+2 August 2026, the drafts. When a signal clears the fast bar and its step
+is the announcement-day comment and connection note, both are written at
+push time and stored on the signal, so the phone buzzing becomes a two
+minute editing job rather than a blank page. The push says drafts are ready
+and stays short. Nothing is ever posted by the machine, and the words sit
+there until a human copies them.
+
+The comment must earn its specificity. It is drafted from the fetched
+article where there is one and from the headline where there is not, and
+the row records which, because a comment written from a headline is a
+weaker thing and the page should not pretend otherwise. When the text is
+too thin to say something that could not be pasted under another company's
+announcement, the drafter returns an empty comment on purpose. Silence
+under a founder's post is better than enthusiasm that reads as automated.
+
+Every draft is checked before it is stored and refused outright if it
+fails, because a bad draft is worse than none, it is sitting there ready to
+send. A price, a link, a named service, an offer, an ask, standards in the
+comment where they belong only in the note, or a note over the three
+hundred character limit, any of those and nothing is stored and the run
+says why. The doctrine tests now cover the drafts in both modes and also
+prove the guard catches what it claims to, by feeding it four drafts that
+should fail and checking each one does.
+
+3 August 2026. The backfill enriched every stored company and the page did
+not move, which is how a bug in the region cache announced itself. The cache
+was recomputed only when the rules changed, and the rules had not. What had
+changed was the evidence, because enrichment fills a country in long after
+the company row was created, so thirty nine companies whose country the
+database plainly knew sat grouped as Elsewhere, and one company created
+since the last pass had no group at all.
+
+Two causes, two fixes. Enrichment now decides the region at the moment the
+country becomes known, which is the natural place for it, and a company
+with no region is now itself a reason to recompute rather than something the
+fingerprint check silently steps over. The live rows were corrected first
+and the code second, so the page told the truth before the fix shipped. A
+regression test pins both, a late-arriving company forcing a recompute and a
+country learned after the fact regrouping its rows.
+
+The backfill itself, for the record. A hundred and fifty seven companies,
+none failed, a hundred and fifty three thousand input tokens on the fast
+model and seven thousand out, which is pennies. The yield is honest and
+thin, thirty nine countries, forty six cities, seventeen descriptions of
+what a company builds and two of its software. That is not the enricher
+underperforming. Most of these companies arrived as job adverts carrying a
+title, a location and a board URL, and there is nothing else in that to
+know. The companies that arrive as news will read better, and the empty
+fields are the prompt doing as it was told rather than inventing.
+
+3 August 2026, later. The group headings were showing an empty shelf. Each
+group emitted its name as a rule of its own and then the fresh and earlier
+rules underneath, so the eye read a heading called UK with nothing beneath
+it and the stories apparently belonging to the next heading down. One rule
+per run of cards now, naming both the place and the freshness, UK. Fresh
+this week. The information icon rides on the first rule of each group rather
+than repeating.
+
+3 August 2026, the last of the trade press. Silicon Semiconductor and PIC
+Magazine follow Electronics Weekly and Semiconductor Digest off the
+watchlist, and for the same reason, which is that they cannot produce what
+the radar is looking for. The story that made the case was a Scottish
+Enterprise grant to Cirrus Logic for smart metering silicon, which arrived
+on a page meant to find European medtech companies who might need software
+help. The rubric scored it 8 and was right. The source was still wrong.
+
+Four trade feeds parked in three days, and the arithmetic behind all four is
+the same. Every one of them averaged between 2 and 6 on the rubric and none
+ever came within sixty points of the digest bar, while optics.org averages
+17 and stays. PIC Magazine is the one exception to the evidence rule, having
+produced nothing at all, so it is parked on category rather than on measure.
+Photonic integrated circuits are a component industry, and this radar wants
+the companies building diagnostics with them rather than the fabs.
+
+What is left is thin on purpose. Fourteen tier 1 origin sources that are
+quiet by nature and valuable when they speak, optics.org, Startups Magazine
+and a New Electronics entry that robots has kept dark since July. A page
+that shows four relevant things a month is worth more than one showing
+thirty five irrelevant ones, and the quiet is the system working rather than
+the system broken.
+
+3 August 2026, the net comes in. Startups Magazine follows the other four
+off the watchlist. Four scored signals, average relevance 2.0, best 2, and
+it is the most instructive of the five because it sounds like a fit and is
+not. A general UK startup feed spends its volume on everything that is not
+European medtech, and covering the target by accident once a quarter is not
+coverage.
+
+The tier 2 safety net is now optics.org and a New Electronics entry that
+robots has kept dark since July. Fourteen origin sources remain, the press
+desks and the investors and the accelerators, which is what the watchlist
+was for before the trade press was added to it as insurance. That insurance
+cost five sources worth of scoring calls and returned nothing above 22 on a
+bar of 70, so it has been cancelled.
+
+The page will get quieter, not better looking, and the thirty stories
+already sitting in Elsewhere are history rather than a feed. Parking a
+source stops new arrivals, it does not retract what is stored. If the quiet
+reads as breakage rather than discipline, the display floor is the smaller
+change and it is still on the table.
+
+3 August 2026, imec starts speaking. The most important origin source on the
+watchlist had produced nothing in a fortnight, and the reason was known and
+written down, its listing builds itself in the browser and a plain fetcher
+sees an empty shelf. The upgrade path on file proposed changedetection.io
+with a real browser for exactly this. It was not needed. imec publishes
+sitemap_press.xml, server-rendered XML, robots-allowed, eight hundred and
+twenty one urls, and three hundred and one of them are press releases. A
+sitemap reader is a much smaller thing to build and run than Chrome.
+
+So check_signals.py has a third method beside rss and diff. Two lessons are
+baked into it. A sitemap is the whole site rather than a news feed, so
+include_patterns whitelists the part that is news, imec's carrying two
+hundred and seventy nine job vacancies and two hundred and forty research
+papers beside the press. Filtering by words in the slug was tried first and
+was wrong, flagging real announcements as vacancies, because the path is the
+honest signal and the slug is not. And lastmod is partly rebuild-driven,
+hundreds of entries restamped in one day, so detection ignores dates and
+keys on urls never seen before.
+
+One bug of its own found and fixed before it shipped. The seen-set was a
+rolling window of two hundred while three hundred urls passed the filter, so
+the hundred outside the window would have been rediscovered as new on every
+run for ever, refetching the same articles until someone noticed the noise.
+A stream deserves a window. A complete list deserves to be remembered
+completely. Baseline then immediately re-run now finds nothing, which is the
+test that would have caught it and now does.
+
+3 August 2026, the metrics. Three panels on Jobs, all reading what was
+already stored and judging nothing. Rates gives the median converted day
+rate over ninety days against the floor, with the spread and the share that
+said nothing at all, and that last figure is the honest one, eighty five per
+cent of adverts state no pay. Adverts with no stated rate are counted and
+never averaged, because silence is not a number and folding it into a median
+drags the answer toward whatever the quiet adverts happen to be. Source
+yield gives arrivals over thirty and ninety days per board and per watched
+source with how many cleared the bar, so the next source to go quiet, or to
+arrive constantly and never land, is visible without counting by hand.
+
+The score histogram was the stretch goal and it turned out to be the most
+useful thing built today, because a bar is a guess until you can see the
+shape it cuts through. The shape is this. Two hundred and eleven roles
+scored, the highest is fifty, nothing in the sixties, nothing above. The
+digest bar sits at seventy. It has never been cleared by anything, and the
+same holds on the signals side where the best relevance on file is
+twenty two. That is not a fault in the scorer or the sources. It is a
+threshold set for a market that has not turned up at this volume, and it is
+now a number Luke can judge rather than assume. It sits in the morning
+report as a decision, not a fix.
+
+digest_min_want joins radar.yaml at zero, off. It adds a second bar on the
+desire half alone, for the role the CV can clearly do and the preferences
+plainly do not want, which combined scoring hides by averaging. Built as an
+optional SQL fragment rather than a comparison against zero, so that with
+the flag off the query is character for character the one that shipped and
+the Monday email cannot quietly change shape. Three tests pin that, the flag
+absent, the flag explicitly zero and the flag at fifty, and the first two
+must agree exactly.
+
+3 August 2026, tripwires. A first quality or regulatory hire at a company
+nobody has spoken to used to sink. It arrived as an advert, the job scorer
+correctly decided Luke does not want to be a QA manager, and it scored low
+and disappeared. That was the wrong reading of the right fact. The advert is
+not an opportunity for Luke, it is news about a company that has just
+started caring about IEC 62304 and ISO 13485 in practice rather than in
+principle, which is the buying window by another name.
+
+So a copy now goes down the signal path with its own source id, and the
+signal rubric judges it. No fixed relevance. A touched company already gets
+a buying window at ninety, chosen deliberately, but an untouched one has
+earned nothing yet and deserves the rubric's opinion rather than a number
+picked in advance by the code that spotted it.
+
+Three gates, all of which must pass, and none of which costs a model call to
+decide whether to spend a model call. The title reads as quality or
+regulatory. The advert reads as medtech or IVD from the fields the extractor
+already returns. And the company is not in the touch log, because a touched
+company gets the buying window and having both would be the same event
+recorded twice. The exclusion beats the inclusion, so a quality manager at
+an NHS trust advertising for medical devices work is a hospital job and stays
+one. Hospitals always have quality people. That is not news.
+
+One per company ever, checked against the stored signals rather than a flag,
+so a restore from backup cannot re-open one, and the advert still stores and
+scores as an opportunity exactly as before. The tripwire is additional, never
+a replacement.
+
+A test fixture carries both halves of the case, a Belgian diagnostics firm
+advertising a QA manager and an NHS trust advertising a sterile services
+one. The first fires and scores 65. The second does not fire at all.
+
+3 August 2026, traction. Every panel built so far measures the market. This
+one measures whether the doctrine is being worked, which is the harder
+question and the more useful one. Touches by month and channel, booked next
+actions against how many were followed through, replies and conversations,
+and the count of buying windows and tripwires opened. All of it read from
+the touch log, none of it inferred except one thing, and that one is worth
+saying out loud. A booked next action counts as done when a later touch
+exists against that company, because that later touch is the engagement the
+booking asked for. Nothing new had to be written down to know it.
+
+Outcomes are the missing half of the loop. Replies were happening and going
+uncounted, so a touch now carries none, reply or conversation, set by hand
+through touch.py or the buttons on the dossier and never by the machine,
+because only a human can tell a polite acknowledgement from the beginning of
+a conversation.
+
+The connector circle is a list of names in radar.yaml and a line on Home
+counting the days. It ships empty, because these are people Luke knows and
+no scraper should be inventing that list. Nothing automated touches them, no
+draft, no push, no scheduled follow-up. The line says how many have not heard
+from him in sixty days and names them, and that is the whole of it. A circle
+you do not work is a list of names, and a reminder is not a workflow.
+
+One bug of the kind that hides. connector_quiet_days read through
+`int(cfg.get(key, 60) or 60)`, which throws away a configured zero for the
+crime of being falsy and silently substitutes the default. Nobody would have
+found it, because the wrong number looks exactly like the right one. It is
+fixed, and the test asserts the configured value comes back rather than
+merely that the behaviour looks sensible.
+
+3 August 2026, consolidation. Two surfaces rendered the same First Light
+pages and only one of them could ever be right. The served dashboard
+re-renders from the database on every load and takes the writes, so it is
+canonical, and the static export is deprecated and says so when it runs. It
+still writes its file, because removing something a person might have put in
+a cron job is a rude way to make a point, but a file written this morning is
+a photograph of a database that has moved on and two surfaces disagreeing is
+worse than having one. Nothing was deleted. build_dashboard.py remains the
+rendering library that serve_dashboard imports every page from, which is why
+folding it away entirely was never on the table.
+
+A health endpoint joins the served page, returning last inbox run, last
+signals run, database reachability and row counts as JSON, with a 200 when
+fresh and a 503 when the database cannot be read or a pipeline has been
+quiet for more than triple its schedule. Triple, deliberately, because one
+missed run is a blip and a watchdog that cries at blips gets muted. It
+exists so silence means quiet rather than broken. Nobody opens a dashboard
+at three in the morning, and a pipeline that stopped at midnight looks
+exactly like a pipeline with nothing to say until somebody looks.
+
+docs/architecture.md now describes the system that exists rather than the
+one that shipped in July. The companies model and why derived states are not
+stored, enrichment and why empty is the honest answer, regions and why the
+cache watches the evidence as well as the rules, the dossier, drafts and why
+a bad one is worse than none, tripwires and why the sector exclusion beats
+the inclusion, and the renderer question settled. Phase two ends with the
+docs true.

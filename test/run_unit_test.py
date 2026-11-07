@@ -15,13 +15,17 @@ from __future__ import annotations
 import argparse
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+import enrich_company
+import process_email
 import radar_common
+import serve_dashboard
 
 failures: list[str] = []
 
@@ -481,38 +485,43 @@ def main() -> int:
         jobs_page = build_dashboard.render_jobs_page(data, config, "t")
         check("Top prospects" in jobs_page,
               "the Jobs page leads with top prospects")
+        # Board grouping retired on 3 August. A role's board is one fact on
+        # its row, and board freshness is telemetry that moved to Home.
+        # These asserted the sections that no longer exist.
         for board in ("LinkedIn", "Reed", "Indeed", "CV-Library"):
-            check(f">{board}</span>" in jobs_page,
-                  f"{board} gets a section of its own")
-        check("board-badge" in jobs_page,
-              "board sections carry their badge tiles")
-        check('class="ext"' in jobs_page
-              and "https://www.linkedin.com/jobs/" in jobs_page,
-              "the open-the-site arrow links out from the heading")
-        check("The machine" in jobs_page and "Board freshness" in jobs_page,
-              "the trust metrics render at the top")
-        check(jobs_page.count('class="info"') >= 3,
-              "each Jobs widget rule sits behind an info icon")
-        check("The flow, last fourteen days" in jobs_page
-              and 'class="bars"' in jobs_page,
-              "the fortnight flow chart renders")
-        check("dot-green" in jobs_page,
+            check(f">{board}</span>" not in jobs_page,
+                  f"{board} no longer gets a section of its own")
+        check('class="board-badge"' not in jobs_page,
+              "no board badge tiles, and so no empty shelves inviting signup")
+        check("Score distribution" not in jobs_page,
+              "the score histogram retired with the additive score")
+        # Deaths by gate needs gated rows to have anything to say, and this
+        # fixture predates the gates, so its absence here is correct.
+        check(jobs_page.index("Top prospects") < jobs_page.index("Analysis."),
+              "the page opens on the tiers, analysis sits below them")
+        # The telemetry moved to Home on 3 August. These facts still matter,
+        # they are just no longer on the page a person opens for roles, so
+        # the checks follow them rather than being deleted.
+        home_page = build_dashboard.render_home_page(data, config, "t")
+        check("The flow, last fourteen days" in home_page
+              and 'class="bars"' in home_page,
+              "the fortnight flow chart renders, on Home")
+        check("dot-green" in home_page,
               "a board that heard from its sender today shows a green light")
-        check("dot-grey" in jobs_page,
+        check("dot-grey" in home_page,
               "a board never heard from shows the hollow waiting light")
-        check("dot-red" in jobs_page and "Inbox never run" in jobs_page,
-              "an inbox that has never run wears the red light honestly")
+        check("dot-red" in home_page and "Inbox never run" in home_page,
+              "an inbox that has never run wears the red light honestly, on Home")
+        check("The flow, last fourteen days" not in jobs_page
+              and "Board freshness" not in jobs_page,
+              "and none of it clutters Jobs any more")
         check('id="src-add"' in jobs_page and "Add a job source" in jobs_page,
               "the add-a-source form renders")
         check("None yet" not in jobs_page
               and "job_sources.yaml" not in jobs_page,
               "no custom-source receipt renders while there are none")
-        i_cv = jobs_page.index(">CV-Library</span>")
-        i_add = jobs_page.index("Add a job source")
-        i_other = jobs_page.index(">Other email alerts</span>")
-        check(i_cv < i_add < i_other,
-              "the add-source strip sits after the boards, before the "
-              "catch-all")
+        # The board-order assertion went with the board sections. Ordering
+        # boards on a page that no longer groups by board tested nothing.
         saved_reg3 = radar_common.JOB_SOURCES_PATH
         try:
             radar_common.JOB_SOURCES_PATH = reg_path
@@ -524,13 +533,14 @@ def main() -> int:
               in jobs_with_custom
               and "job_sources.yaml" in jobs_with_custom,
               "an added source earns its one-line receipt, with the edit path")
-        check(">Technojobs</span>" in jobs_with_custom,
-              "an added source gets its own board section")
-        check("https://technojobs.co.uk" in jobs_with_custom,
-              "a custom board with a site gets the arrow too")
-        check(jobs_with_custom.index(">Technojobs</span>")
-              < jobs_with_custom.index("Add a job source"),
-              "a custom board's section sits above the add-source strip")
+        # A custom source no longer earns a section, because no source does.
+        # What it earns is the receipt line above, which is the honest
+        # acknowledgement that the radar now watches for its sender.
+        check(">Technojobs</span>" not in jobs_with_custom,
+              "an added source gets no board section, because none exist")
+        check(jobs_with_custom.index("Added so far: Technojobs")
+              > jobs_with_custom.index("Top prospects"),
+              "its receipt sits at the foot of the page, below the tiers")
         check('href="/jobs" aria-current="page"' in jobs_page,
               "the Jobs tab marks itself current")
         check(f'data-ack="{ids["Keepit Ltd"]}"' in jobs_page,
@@ -594,12 +604,20 @@ def main() -> int:
         check('href="/archive"' in home,
               "the full archive stays reachable from the footer")
 
+        # Phase three. The digest selects on tier, so the fixtures need one.
+        # Everything unacknowledged is gated top here, which is what makes
+        # the acknowledged-row exclusion below a real test rather than a
+        # tautology about an empty list.
+        w = sqlite3.connect(db)
+        w.execute("UPDATE opportunities SET tier = 'top'"
+                  " WHERE acknowledged_at IS NULL")
+        w.commit()
+        w.close()
+
         digest_data = build_digest.collect(read, config)
-        digest_text = build_digest.render_text(digest_data, "unit day")
-        check("Rate Above." in digest_text,
-              "the digest renders the band word on the item line")
-        check("Rate bands. Above meets the" in digest_text,
-              "the digest renders the rate legend under the inbound table")
+        # The email no longer renders roles, so the band word and the rate
+        # legend went with the table that carried them. What the email says
+        # now is counts and a link, and the page says the rest.
         # A week with no inbound but a scored signal-kind role still gets
         # the legend next to its rate words.
         sig_only = dict(digest_data)
@@ -609,9 +627,7 @@ def main() -> int:
             "company": "Sig Ltd", "location": "Ghent", "combined": 80,
             "cv_match": 80, "want_match": 80, "one_line_why": "Fits.",
             "source_url": "", "rate_band": "above"}]
-        sig_text = build_digest.render_text(sig_only, "unit day")
-        check("Rate bands. Above meets the" in sig_text,
-              "a signals-only digest still carries the legend")
+        check(True, "the rate legend retired with the email's inbound table")
         digest_ids = [o["id"] for o in digest_data["inbound"]]
         check(ids["Seenit Ltd"] not in digest_ids
               and ids["Keepit Ltd"] in digest_ids,
@@ -1020,6 +1036,701 @@ def main() -> int:
                   "Note the company and revisit."):
         check(radar_common.sanitise_free_text(probe) == probe,
               f"idempotent on {probe[:24]!r}")
+
+    # Buying window. The doctrine's reading of an advert, decided in code
+    # against the touch log, never by a model.
+    check(process_email.normalise_company("  Veltrix   Diagnostics  ")
+          == "veltrix diagnostics",
+          "company names normalise for case and spacing")
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "buying_window.sqlite")
+        conn.execute(
+            "INSERT INTO touches (company, touched_at, channel, note)"
+            " VALUES (?,?,?,?)",
+            ("Veltrix Diagnostics", "2026-07-01T09:00:00Z", "comment",
+             "congrats comment on seed post"))
+        conn.commit()
+        touched = process_email.touched_companies(conn)
+        check(process_email.normalise_company("VELTRIX   diagnostics") in touched,
+              "touch-log matching survives case and spacing")
+        check(process_email.normalise_company("Untouched Ltd") not in touched,
+              "an untouched company never matches the touch log")
+
+        wrote = process_email.record_buying_window(
+            conn, "Veltrix Diagnostics", "QA Manager",
+            "https://example.test/jobs/1", "hash-one", "2026-07-20T09:00:00Z")
+        conn.commit()
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM signals WHERE source_id = 'job-advert'")]
+        check(wrote and len(rows) == 1,
+              "the first advert from a touched company writes one signal")
+        row = rows[0] if rows else {}
+        check(row.get("relevance") == process_email.BUYING_WINDOW_RELEVANCE
+              and (row.get("relevance") or 0) >= 75,
+              "the buying-window signal clears the fast push bar")
+        check(row.get("pushed") == 0,
+              "the buying-window signal is written unpushed")
+        check("QA Manager" in (row.get("why") or ""),
+              "the why names the advert that opened the window")
+        built = " ".join(str(row.get(f) or "") for f in
+                         ("headline", "why", "playbook_step"))
+        check(":" not in built and ";" not in built,
+              "the built text carries no colons and no semicolons")
+
+        again = process_email.record_buying_window(
+            conn, "veltrix  DIAGNOSTICS", "Regulatory Lead",
+            "https://example.test/jobs/2", "hash-two", "2026-07-21T09:00:00Z")
+        conn.commit()
+        count = conn.execute(
+            "SELECT COUNT(*) AS n FROM signals"
+            " WHERE source_id = 'job-advert'").fetchone()["n"]
+        check(not again and count == 1,
+              "a second advert from the same company writes nothing")
+        conn.close()
+
+    # The companies table. The landscape is companies, not rows.
+    check(radar_common.normalise_company("  Nordic  BioSystems ")
+          == "nordic biosystems",
+          "the company key normalises case and spacing")
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "companies.sqlite")
+        now = radar_common.now_iso()
+
+        a = radar_common.resolve_company(conn, "Veltrix Diagnostics", now)
+        b = radar_common.resolve_company(conn, "  VELTRIX   diagnostics ", now)
+        check(a is not None and a == b,
+              "two spellings of one company resolve to one row")
+        check(radar_common.resolve_company(conn, "   ", now) is None,
+              "an empty name gets no company row rather than an empty one")
+        check(conn.execute("select display_name from companies where id=?",
+                           (a,)).fetchone()["display_name"] == "Veltrix Diagnostics",
+              "the first spelling seen is kept for display")
+
+        # Legacy rows, stored before company_id existed. The backfill is
+        # what turns a populated database into a companies-shaped one.
+        conn.execute("INSERT INTO opportunities (url_hash, first_seen, company,"
+                     " title, thread_type, status) VALUES ('u1',?, 'Caldora Medical',"
+                     " 'Head of Software', 'inbound', 'new')", (now,))
+        conn.execute("INSERT INTO opportunities (url_hash, first_seen, company,"
+                     " title, thread_type, status) VALUES ('u2',?, 'caldora  MEDICAL',"
+                     " 'QA Lead', 'inbound', 'new')", (now,))
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status) VALUES ('s1',?,'imec-press',"
+                     " 'Caldora Medical', 'Caldora raises', 'new')", (now,))
+        conn.execute("INSERT INTO touches (company, touched_at, channel)"
+                     " VALUES ('Caldora Medical', ?, 'comment')", (now,))
+        conn.commit()
+
+        res = radar_common.backfill_companies(conn)
+        conn.commit()
+        cid = radar_common.resolve_company(conn, "Caldora Medical")
+        linked = conn.execute(
+            "select count(*) from opportunities where company_id=?",
+            (cid,)).fetchone()[0]
+        check(linked == 2,
+              f"both spellings of a legacy company link to one row (got {linked})")
+        check(res["companies_created"] >= 1, "the backfill creates missing companies")
+        again = radar_common.backfill_companies(conn)
+        conn.commit()
+        check(again["companies_created"] == 0
+              and sum(again["linked"].values()) == 0,
+              "the backfill is idempotent, a second run finds nothing to do")
+        dupes = conn.execute(
+            "select count(*) from (select norm_name from companies"
+            " group by norm_name having count(*)>1)").fetchone()[0]
+        check(dupes == 0, "no company is stored twice under one key")
+
+        # Derived states, read from facts rather than stored.
+        check(radar_common.company_state(conn, cid) == "touched",
+              "items plus a touch reads as touched, the stronger rung")
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status, company_id)"
+                     " VALUES ('s2',?,'job-advert','Caldora Medical',"
+                     " 'Buying window. Caldora Medical is hiring','new',?)",
+                     (now, cid))
+        conn.commit()
+        check(radar_common.company_state(conn, cid) == "window open",
+              "a job-advert signal opens the window, the strongest derived rung")
+        conn.execute("UPDATE companies SET state='client' WHERE id=?", (cid,))
+        check(radar_common.company_state(conn, cid) == "client",
+              "a stored client state outranks every derived one")
+        conn.execute("UPDATE companies SET state='dead' WHERE id=?", (cid,))
+        check(radar_common.company_state(conn, cid) == "dead",
+              "dead trumps everything, including client")
+        conn.close()
+
+    # Enrichment. One pass per company ever, capped, and never fatal.
+    check(enrich_company.candidate_site(
+        "See https://www.linkedin.com/company/veltrix and https://veltrix.example/about")
+        == "https://veltrix.example/about",
+        "a LinkedIn URL is never taken as the company site")
+    check(enrich_company.candidate_site(
+        "via https://optics.org/news/story https://reed.co.uk/jobs/1") is None,
+        "a news outlet and a job board are not company sites")
+    check(enrich_company.candidate_site("no urls here at all") is None,
+          "no site is guessed from the company name")
+
+    import os as _os
+    _os.environ["RADAR_MOCK"] = "1"
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "enrich.sqlite")
+        cfg = {"claude_model_extract": "claude-haiku-4-5", "enrich_cap_per_run": 2}
+        cid = radar_common.resolve_company(conn, "Veltrix Diagnostics")
+        r1 = enrich_company.enrich_company(conn, cid, "Ghent, Belgium.", cfg,
+                                           enrich_company.new_budget(cfg))
+        check(r1["enriched"] is True, "a new company is enriched at first sight")
+        row = conn.execute("select country, city, stage, people, enrich_status"
+                           " from companies where id=?", (cid,)).fetchone()
+        check(row["country"] == "Belgium" and row["city"] == "Ghent",
+              f"country and city are stored for the region mapping (got {row['country']}, {row['city']})")
+        check("ceo" in (row["people"] or "") and "cto" in (row["people"] or ""),
+              "published CEO and CTO are kept")
+        check(row["enrich_status"].startswith("text-only"),
+              f"a company with no site fetched says so in enrich_status (got {row['enrich_status']})")
+
+        r2 = enrich_company.enrich_company(conn, cid, "Ghent, Belgium.", cfg,
+                                           enrich_company.new_budget(cfg))
+        check(r2["enriched"] is False and r2["status"] == "already enriched",
+              "a company is never enriched twice, however often it is seen")
+
+        budget = {"spent": 0, "cap": 1}
+        a = radar_common.resolve_company(conn, "Alpha Diagnostics")
+        b = radar_common.resolve_company(conn, "Beta Diagnostics")
+        ra = enrich_company.enrich_company(conn, a, "x", cfg, budget)
+        rb = enrich_company.enrich_company(conn, b, "x", cfg, budget)
+        check(ra["enriched"] is True and rb["enriched"] is False
+              and rb["status"] == "cap reached this run",
+              "the per-run cap stops the second company, and says why")
+
+        # A broken company id must not raise into the caller's pipeline.
+        rc_ = enrich_company.enrich_company(conn, 999999, "x", cfg, None)
+        check(rc_["enriched"] is False and rc_["status"] == "no such company",
+              "an unknown company is reported, never raised")
+        conn.close()
+    _os.environ.pop("RADAR_MOCK", None)
+
+    # Phase three. The tier ladder, and a fixture set that covers all four
+    # tiers, because a tiering change that only ever sees one shape is
+    # untested. The spec asks for this before any backfill runs.
+    import score_item as _si
+
+    G = lambda **k: {"sector": True, "cv": True, "location": True, "rate": True, **k}
+    for label, gates, basis, cv, real, want in (
+            ("all four gates pass", G(), "", 84, True, "top"),
+            ("all pass, rate unstated", G(), "", 84, True, "top"),
+            ("location alone fails", G(location=False), "", 84, True, "question"),
+            ("stated day rate alone fails", G(rate=False), "day-rate", 84, True, "question"),
+            ("rate from a salary alone fails", G(rate=False), "converted-salary", 84, True, "reading"),
+            ("sector alone fails", G(sector=False), "", 84, True, "reading"),
+            ("cv alone fails", G(cv=False), "", 68, True, "reading"),
+            ("two gates fail", G(location=False, rate=False), "", 84, True, "reading"),
+            ("cv under forty", G(cv=False), "", 22, True, "filtered"),
+            ("not a real role", G(), "", 84, False, "filtered")):
+        got = _si.derive_tier(gates, basis, cv, real)["tier"]
+        check(got == want, f"{label} lands in {want} (got {got})")
+
+    check(_si.derive_tier(G(sector=False), "", 84, True)["failed_gates"] == ["sector"],
+          "the failed gate is recorded as the verdict")
+    check(_si.derive_tier(G(cv=False), "", 22, True)["filter_reason"] == "cv match under 40",
+          "a filtered row records why, so the filter can be audited")
+    check(_si.question_for(G(location=False), {}) == "Would they go remote",
+          "the location question is the one a conversation could settle")
+    check(_si.question_for(G(rate=False), {}) == "Would they move on the rate",
+          "the rate question likewise")
+
+    # Traction and the connector circle. Counting rules, pinned, because a
+    # metric nobody has checked the arithmetic of is a rumour with a number.
+    import build_dashboard as _bdash
+
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "traction.sqlite")
+        now = radar_common.now_iso()
+        old = "2026-01-05T09:00:00Z"
+
+        def touch(company, channel, when, nxt=None, when_due=None, outcome=None):
+            conn.execute(
+                "INSERT INTO touches (company, touched_at, channel, note,"
+                " next_action, next_action_date, outcome)"
+                " VALUES (?,?,?,?,?,?,?)",
+                (company, when, channel, "n", nxt, when_due, outcome))
+
+        touch("Alpha Dx", "comment", old, "week three", "2026-01-26")
+        touch("Alpha Dx", "engagement", now, outcome="conversation")
+        touch("Beta Bio", "connection-note", now, "week three", "2099-01-01",
+              outcome="reply")
+        touch("Gamma Ltd", "artefact", now)
+        conn.commit()
+
+        tr = _bdash.traction_metrics(conn, {})
+        check(tr["total"] == 4, f"every touch is counted (got {tr['total']})")
+        check(tr["outcomes"] == {"none": 2, "reply": 1, "conversation": 1},
+              f"outcomes count, with unset reading as none (got {tr['outcomes']})")
+        check(tr["booked"] == 2, f"two next actions are booked (got {tr['booked']})")
+        check(tr["due"] == 1,
+              f"only the past-dated booking is due (got {tr['due']})")
+        check(tr["done"] == 1,
+              f"a booking is done when a later touch exists for that company "
+              f"(got {tr['done']})")
+        months = dict(tr["by_month"])
+        check(months.get("2026-01", {}).get("comment") == 1,
+              f"touches bucket by month and channel (got {tr['by_month']})")
+
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status) VALUES"
+                     " ('w1',?, 'job-advert','Alpha Dx','x','new')", (now,))
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status) VALUES"
+                     " ('w2',?, 'qa-tripwire','Beta Bio','y','new')", (now,))
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status) VALUES"
+                     " ('w3',?, 'imec-press','Gamma Ltd','z','new')", (now,))
+        conn.commit()
+        tr = _bdash.traction_metrics(conn, {})
+        check(tr["windows"] == 2,
+              f"windows count buying windows and tripwires, not ordinary news "
+              f"(got {tr['windows']})")
+
+        # The circle. Names from config, days from the touch log, nothing else.
+        cc = _bdash.connector_circle(conn, {})
+        check(cc["configured"] == 0 and cc["quiet"] == [],
+              "no configured connectors means no circle line at all")
+        cfg_c = {"connectors": ["Alpha Dx", "Never Spoken Ltd"],
+                 "connector_quiet_days": 60}
+        cc = _bdash.connector_circle(conn, cfg_c)
+        quiet = [q["name"] for q in cc["quiet"]]
+        check(cc["configured"] == 2 and quiet == ["Never Spoken Ltd"],
+              f"a connector touched today is not quiet, one never touched is "
+              f"(got {quiet})")
+        # A configured zero must survive being falsy. This read 60 until
+        # 3 August, because `int(cfg.get(k, 60) or 60)` throws away a real
+        # zero for the crime of being falsy, and nobody would have noticed
+        # except that the number is reported back.
+        cc_zero = _bdash.connector_circle(conn, {**cfg_c, "connector_quiet_days": 0})
+        check(cc_zero["quiet_days"] == 0,
+              f"a configured zero is honoured, not swapped for the default "
+              f"(got {cc_zero['quiet_days']})")
+        # And the threshold genuinely moves. Yesterday's touch is quiet at
+        # zero days and not quiet at sixty.
+        conn.execute("INSERT INTO touches (company, touched_at, channel)"
+                     " VALUES ('Yesterday Ltd', ?, 'comment')",
+                     ((datetime.now(timezone.utc) - timedelta(days=1))
+                      .strftime("%Y-%m-%dT%H:%M:%SZ"),))
+        conn.commit()
+        cfg_y = {"connectors": ["Yesterday Ltd"]}
+        at_zero = _bdash.connector_circle(conn, {**cfg_y, "connector_quiet_days": 0})
+        at_sixty = _bdash.connector_circle(conn, {**cfg_y, "connector_quiet_days": 60})
+        check(len(at_zero["quiet"]) == 1 and len(at_sixty["quiet"]) == 0,
+              "the quiet threshold moves with the configured number")
+        conn.close()
+
+    # The Jobs page and the ageing list. collect() builds data["ageing"] from
+    # two kinds of row, adverts and watcher signals, because the archive
+    # renders both. Jobs is for roles, so its Ageing section carries the
+    # adverts only and never hands a signal to render_opportunity, which
+    # reads o["combined"], a key a signal does not have. The live trigger
+    # was eight signals above the bar, status new, older than a fortnight,
+    # and /jobs answered "Render failed. KeyError: combined".
+    import re as _re
+
+    def _section_count(page: str, title: str):
+        m = _re.search(r"<h2>" + _re.escape(title)
+                       + r"</h2>.*?<span class=\"section-count\">(\d+)</span>",
+                       page, _re.S)
+        return int(m.group(1)) if m else None
+
+    config_j = radar_common.load_config()
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "jobs_ageing.sqlite")
+        now = radar_common.now_iso()
+        stale = (datetime.now(timezone.utc)
+                 - timedelta(days=_bdash.AGEING_DAYS + 1)
+                 ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        conn.execute(
+            "INSERT INTO opportunities (url_hash, first_seen, company, title,"
+            " thread_type, status, cv_match, want_match, combined, tier,"
+            " one_line_why) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            ("age-opp", stale, "Stale Dx", "Stale Director Role", "inbound",
+             "new", 88, 88, 88, "top", "Sat still for a fortnight."))
+        conn.execute(
+            "INSERT INTO signals (url_hash, first_seen, source_id, company,"
+            " headline, summary, source_url, relevance, status)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            ("age-sig", stale, "imec-news", "Stale Photonics",
+             "Stale Photonics closes a seed round nobody acted on",
+             "Funding note.", "https://example.invalid/stale", 85, "new"))
+        conn.commit()
+        data_j = _bdash.collect(conn, config_j)
+        kinds = sorted(a["kind"] for a in data_j["ageing"])
+        check(kinds == ["opportunity", "signal"],
+              f"collect() ages the advert and the signal together (got {kinds})")
+        try:
+            jobs_j = _bdash.render_jobs_page(data_j, config_j, "t")
+            n_age = _section_count(jobs_j, "Ageing")
+            check(n_age == 1,
+                  f"the Jobs Ageing section counts the advert only (got {n_age})")
+            check("Stale Director Role" in jobs_j
+                  and "Stale Photonics closes a seed round" not in jobs_j,
+                  "the Jobs Ageing section lists the advert and not the signal")
+        except Exception as err:  # noqa: BLE001
+            check(False, "the Jobs page renders with a watcher signal in the "
+                         f"ageing list (raised {type(err).__name__}: {err})")
+        archive_j = _bdash.render_page(data_j, config_j, "t",
+                                       Path(tmp) / "dash.html", serve=True)
+        check(_section_count(archive_j, "Ageing") == 2
+              and "Stale Photonics closes a seed round" in archive_j,
+              "the archive still lists the signal in its ageing rows")
+        conn.close()
+
+        # Signals held this week. An advert the extractor read as news about
+        # a company rather than a job for Luke, inside the last seven days.
+        # The block compared first_seen against week_ago, a name never
+        # defined in render_jobs_page, so the first such advert would have
+        # taken the page down with a NameError.
+        conn = radar_common.get_db(Path(tmp) / "jobs_held.sqlite")
+        conn.execute(
+            "INSERT INTO opportunities (url_hash, first_seen, company, title,"
+            " thread_type, status, cv_match, want_match, combined,"
+            " one_line_why) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("held-sig", now, "Newsworthy Ltd",
+             "Newsworthy Ltd opens a Ghent office", "signal", "new",
+             70, 70, 70, "News, not a role."))
+        conn.commit()
+        data_h = _bdash.collect(conn, config_j)
+        try:
+            jobs_h = _bdash.render_jobs_page(data_h, config_j, "t")
+            held_at = jobs_h.find("Signals held this week")
+            check(held_at >= 0
+                  and "Newsworthy Ltd opens a Ghent office" in jobs_h[held_at:],
+                  "a fresh signal-kind advert renders under Signals held this week")
+        except Exception as err:  # noqa: BLE001
+            check(False, "the Jobs page renders with a signal-kind advert "
+                         f"this week (raised {type(err).__name__}: {err})")
+        conn.close()
+
+    # Tripwires. A first quality or regulatory hire at an untouched medtech
+    # company is news about them, not a job for Luke.
+    import tripwire as _tw
+
+    for title, want in (("Quality Assurance Manager, ISO 13485", True),
+                        ("Regulatory Affairs Specialist", True),
+                        ("Head of Quality", True),
+                        ("QA Engineer", True),
+                        ("Senior Software Engineer", False),
+                        ("Account Executive", False),
+                        ("Quantitative Analyst", False)):
+        got = _tw.is_first_hire_title(title)
+        check(got is want,
+              f"{title!r} reads as a first quality hire: {want} (got {got})")
+
+    for company, title, loc, want in (
+            ("Cantilex Diagnostics", "Quality Assurance Manager", "Leuven", True),
+            ("Veltrix", "QA Manager, IVD platform", "Ghent", True),
+            ("Acme Medical Device Ltd", "Head of Quality", "Surrey", True),
+            ("NHS Berkshire Hospitals Trust", "Quality Manager", "Reading", False),
+            ("Guildford Hospital", "Regulatory Affairs, medical devices", "Surrey", False),
+            ("Bigg Foods Ltd", "Quality Manager", "Leeds", False),
+            ("Generic Software Co", "QA Manager", "London", False)):
+        got = _tw.reads_as_medtech(company, title, loc)
+        check(got is want,
+              f"{company!r} reads as medtech: {want} (got {got})")
+    check(_tw.reads_as_medtech("NHS Trust", "QA, medical devices", None) is False,
+          "a hospital wins over the words medical devices, it is the stronger fact")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "tripwire.sqlite")
+        touched = {"veltrix diagnostics"}
+
+        fire, why = _tw.should_trip(conn, "Cantilex Diagnostics",
+                                    "QA Manager, ISO 13485", "Leuven", touched)
+        check(fire is True, f"an untouched medtech first hire fires (got {why})")
+
+        fire, why = _tw.should_trip(conn, "Veltrix Diagnostics",
+                                    "QA Manager, IVD", "Ghent", touched)
+        check(fire is False and "touch log" in why,
+              f"a touched company gets a buying window instead, not a tripwire (got {why})")
+
+        fire, why = _tw.should_trip(conn, "Cantilex Diagnostics",
+                                    "Senior Software Engineer", "Leuven", touched)
+        check(fire is False and "quality or regulatory" in why,
+              f"an ordinary role does not fire (got {why})")
+
+        fire, why = _tw.should_trip(conn, "NHS Berkshire Trust",
+                                    "Quality Manager", "Reading", touched)
+        check(fire is False and "medtech" in why,
+              f"a hospital QA role never fires (got {why})")
+
+        fire, why = _tw.should_trip(conn, "", "QA Manager, IVD", None, touched)
+        check(fire is False, "an advert with no company cannot fire")
+
+        # One per company, ever, checked against the signals themselves.
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status) VALUES"
+                     " ('tw1',?,?, 'cantilex  DIAGNOSTICS', 'x', 'new')",
+                     (radar_common.now_iso(), _tw.SOURCE_ID))
+        conn.commit()
+        check(_tw.already_tripped(conn, "Cantilex Diagnostics") is True,
+              "the one-per-company check ignores case and spacing")
+        fire, why = _tw.should_trip(conn, "Cantilex Diagnostics",
+                                    "Regulatory Affairs Lead", "Leuven", touched)
+        check(fire is False and "already tripped" in why,
+              f"a second first-hire advert from the same company does not fire (got {why})")
+        conn.close()
+
+    # digest_min_want retired on 3 August with the additive score it sat on
+    # top of. What replaced it is the tier, and the digest now selects on
+    # that, so the flag has nothing left to be a second bar above.
+    import build_digest as _bd
+
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "digest.sqlite")
+        now = radar_common.now_iso()
+        for h, title, cv, tier in (("dw1", "Gated role", 90, "top"),
+                                   ("dw2", "One question away", 84, "question"),
+                                   ("dw3", "Reading only", 72, "reading"),
+                                   ("dw4", "Filtered out", 20, "filtered")):
+            conn.execute(
+                "INSERT INTO opportunities (url_hash, first_seen, company, title,"
+                " cv_match, tier, thread_type, status)"
+                " VALUES (?,?,?,?,?,?,'inbound','new')",
+                (h, now, "Acme Dx", title, cv, tier))
+        conn.commit()
+        d = _bd.collect(conn, {"score_threshold": 70,
+                               "prefs_file": "config/profile/preferences.md"})
+        titles = sorted(x["title"] for x in d["inbound"])
+        check(titles == ["Gated role", "One question away"],
+              f"the digest carries the top and question tiers only (got {titles})")
+        check(d["reading_count"] == 1,
+              f"reading is counted, not carried (got {d['reading_count']})")
+        check(d["top_count"] == 1 and d["question_count"] == 1,
+              "the counts that drive the subject line are separated")
+        check(all("Filtered out" != x["title"] for x in d["inbound"]),
+              "a filtered role never reaches the email")
+        conn.close()
+
+    # The sitemap watcher. Reads a complete list, not a stream, so the
+    # rules that matter are what it filters and what it remembers.
+    import check_signals as _cs
+
+    SITEMAP = """<?xml version="1.0"?><urlset>
+      <url><loc>https://x.test/en/press/alpha-raises-seed</loc><lastmod>2026-08-03</lastmod></url>
+      <url><loc>https://x.test/en/press/beta-spins-out</loc><lastmod>2026-08-03</lastmod></url>
+      <url><loc>https://x.test/en/work-at-imec/job-opportunities/researcher</loc><lastmod>2026-08-03</lastmod></url>
+      <url><loc>https://x.test/en/articles/a-paper-about-waveguides</loc><lastmod>2026-08-03</lastmod></url>
+    </urlset>"""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "sitemap.sqlite")
+        src = {"id": "x-press", "name": "X press", "tier": 1,
+               "url": "https://x.test/news", "method": "sitemap",
+               "sitemap_url": "https://x.test/sitemap.xml",
+               "check_interval_hours": 6, "status": "live",
+               "include_patterns": ["/en/press/"]}
+        real_get, real_article = _cs.rc.http_get, _cs.fetch_article_text
+        _cs.rc.http_get = lambda url, cfg=None, etag=None, last_modified=None: (
+            200, {}, SITEMAP)
+        _cs.fetch_article_text = lambda url, cfg: f"body text for {url}"
+        try:
+            notes = []
+            items = _cs.check_sitemap(src, None, {}, conn, notes)
+            conn.commit()
+            check(items == [],
+                  "the first run baselines and returns nothing to score")
+            check(any("2 sitemap urls filtered" in n for n in notes),
+                  f"the whitelist drops the vacancy and the paper (notes {notes})")
+            state = _cs._get_state(conn, "x-press")
+            remembered = json_mod.loads(state["last_seen_ids"])
+            check(len(remembered) == 2 and all("/en/press/" in u for u in remembered),
+                  f"only whitelisted urls are remembered (got {remembered})")
+
+            items = _cs.check_sitemap(src, state, {}, conn, notes)
+            conn.commit()
+            check(items == [],
+                  "an unchanged sitemap yields nothing on the next run")
+
+            # A genuinely new press release arrives.
+            grown = SITEMAP.replace("</urlset>",
+                "<url><loc>https://x.test/en/press/gamma-series-a</loc>"
+                "<lastmod>2026-08-04</lastmod></url></urlset>")
+            _cs.rc.http_get = lambda url, cfg=None, etag=None, last_modified=None: (
+                200, {}, grown)
+            state = _cs._get_state(conn, "x-press")
+            items = _cs.check_sitemap(src, state, {}, conn, notes)
+            conn.commit()
+            check(len(items) == 1 and items[0]["url"].endswith("gamma-series-a"),
+                  f"a new press url is found and only that one (got {len(items)})")
+            check(items[0]["text"].startswith("body text"),
+                  "the article body is fetched so the scorer reads prose, not a slug")
+
+            # robots refusal must be honoured and must not raise.
+            _cs.rc.http_get = lambda url, cfg=None, etag=None, last_modified=None: (
+                999, {}, "")
+            notes2 = []
+            items = _cs.check_sitemap(src, _cs._get_state(conn, "x-press"), {},
+                                      conn, notes2)
+            check(items == [] and any("robots" in n for n in notes2),
+                  "a robots refusal yields nothing and says so")
+            check(_cs._get_state(conn, "x-press")["last_status"] == "robots-blocked",
+                  "the robots refusal is recorded on the source state")
+        finally:
+            _cs.rc.http_get, _cs.fetch_article_text = real_get, real_article
+            conn.close()
+
+    # Regions. The rules live in config, the answer lives on the row.
+    rcfg = radar_common.load_config()
+    check(radar_common.region_group_names(rcfg)[-1] == "Elsewhere",
+          "the last configured group is the catch-all")
+    for country, city, want in (
+            ("United Kingdom", "Guildford", "Local"),
+            ("United Kingdom", "Manchester", "UK"),
+            ("Belgium", "Ghent", "Europe"),
+            ("United States", "Boston", "Elsewhere"),
+            (None, None, "Elsewhere"),
+            ("", "", "Elsewhere")):
+        got = radar_common.region_for(country, city, rcfg)
+        check(got == want,
+              f"{country or 'no country'}/{city or 'no city'} groups as {want} (got {got})")
+    check(radar_common.region_for("  belgium  ", "  GHENT ", rcfg) == "Europe",
+          "region matching ignores case and spacing like every other name rule")
+    check(radar_common.region_for("United Kingdom", None, rcfg) == "UK",
+          "a UK company with no city is still UK, not Local")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "regions.sqlite")
+        cid = radar_common.resolve_company(conn, "Northvale Bio")
+        conn.execute("UPDATE companies SET country='United Kingdom',"
+                     " city='Guildford' WHERE id=?", (cid,))
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status, company_id)"
+                     " VALUES ('rg1',?,'imec-press','Northvale Bio','x','new',?)",
+                     (radar_common.now_iso(), cid))
+        conn.commit()
+        radar_common.recompute_regions(conn, rcfg, force=True)
+        conn.commit()
+        got = conn.execute("select region from signals where url_hash='rg1'"
+                           ).fetchone()["region"]
+        check(got == "Local",
+              f"the region is mirrored onto the signal row (got {got})")
+
+        # A company nobody enriched must still land somewhere.
+        orphan = radar_common.resolve_company(conn, "Unknown Origins Ltd")
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status, company_id)"
+                     " VALUES ('rg2',?,'imec-press','Unknown Origins Ltd','y','new',?)",
+                     (radar_common.now_iso(), orphan))
+        conn.commit()
+        radar_common.recompute_regions(conn, rcfg, force=True)
+        conn.commit()
+        got = conn.execute("select region from signals where url_hash='rg2'"
+                           ).fetchone()["region"]
+        check(got == "Elsewhere",
+              f"an unenriched company lands in the catch-all, never nowhere (got {got})")
+        check(conn.execute("select count(*) from signals where region is null"
+                           ).fetchone()[0] == 0,
+              "no signal is left without a group")
+
+        # The bug of 3 August. Enrichment fills a country long after the
+        # company row exists, and the fingerprint alone said nothing had
+        # changed, so 39 companies with a known country stayed grouped as
+        # Elsewhere. An unplaced company is now reason enough to do the work.
+        late = radar_common.resolve_company(conn, "Late Arrival Ltd")
+        conn.execute("INSERT INTO signals (url_hash, first_seen, source_id,"
+                     " company, headline, status, company_id)"
+                     " VALUES ('rg3',?,'imec-press','Late Arrival Ltd','z','new',?)",
+                     (radar_common.now_iso(), late))
+        conn.commit()
+        res_late = radar_common.recompute_regions(conn, rcfg)
+        conn.commit()
+        check(res_late["changed"] is True,
+              "a company with no region is reason enough to recompute")
+        conn.execute("UPDATE companies SET country='Belgium', city='Ghent'"
+                     " WHERE id=?", (late,))
+        conn.execute("UPDATE companies SET region=NULL WHERE id=?", (late,))
+        conn.commit()
+        radar_common.recompute_regions(conn, rcfg)
+        conn.commit()
+        got = conn.execute("select region from signals where url_hash='rg3'"
+                           ).fetchone()["region"]
+        check(got == "Europe",
+              f"a country learned after the fact regroups the row (got {got})")
+
+        # The mirror is a cache, so it must follow the rules when they move.
+        again = radar_common.recompute_regions(conn, rcfg)
+        check(again["changed"] is False,
+              "an unchanged rules block costs nothing on the next open")
+        moved = dict(rcfg)
+        moved["regions"] = [dict(g) for g in rcfg["regions"]]
+        moved["regions"][0] = {**moved["regions"][0], "local_places": ["Nowhere"]}
+        radar_common.recompute_regions(conn, moved, force=False)
+        conn.commit()
+        got = conn.execute("select region from signals where url_hash='rg1'"
+                           ).fetchone()["region"]
+        check(got == "UK",
+              f"editing the local list moves the row on the next open (got {got})")
+        conn.close()
+
+    # The dossier's state writes. Only the three a human owns, dead behind
+    # a confirm, and every change leaves a touch explaining itself.
+    with tempfile.TemporaryDirectory() as tmp:
+        dbp = Path(tmp) / "dossier.sqlite"
+        conn = radar_common.get_db(dbp)
+        cid = radar_common.resolve_company(conn, "Dossier Diagnostics")
+        conn.commit()
+        conn.close()
+        serve_dashboard.ARGS = type("A", (), {"db": str(dbp)})()
+
+        r = serve_dashboard.set_company_state(cid, "in-conversation", False)
+        check(r["ok"] and r["showing"] == "in conversation",
+              "a human state is set and shows as the strongest that applies")
+        r = serve_dashboard.set_company_state(cid, "dead", False)
+        check(r["ok"] is False and "confirm" in r["note"],
+              "dead needs confirming, it outranks every other state")
+        r = serve_dashboard.set_company_state(cid, "dead", True)
+        check(r["ok"] and r["showing"] == "dead",
+              "dead sticks once confirmed")
+        for bad in ("seen", "touched", "window open", "client-ish", ""):
+            r = serve_dashboard.set_company_state(cid, bad, True)
+            check(r["ok"] is False,
+                  f"{bad!r} is refused, the machine never sets a derived state")
+        r = serve_dashboard.set_company_state(999999, "client", True)
+        check(r["ok"] is False, "an unknown company is refused, never invented")
+
+        c2 = radar_common.get_db(dbp)
+        notes = [x["note"] for x in c2.execute(
+            "select note from touches where company_id=? order by id", (cid,))]
+        check(len(notes) == 2 and all("State set to" in n for n in notes),
+              f"every accepted state change logs a touch that explains it (got {len(notes)})")
+        check(all(":" not in n and ";" not in n for n in notes),
+              "the logged notes obey the voice rules")
+        c2.close()
+
+    # The state ladder in isolation, so a regression names the rung it broke.
+    for stored, items, touches, window, want in (
+            (None,  False, False, False, "new"),
+            (None,  True,  False, False, "seen"),
+            (None,  True,  True,  False, "touched"),
+            (None,  True,  True,  True,  "window open"),
+            ("in-conversation", True, True, True, "in conversation"),
+            ("client", True, True, True, "client"),
+            ("dead",   True, True, True, "dead"),
+            ("dead",   False, False, False, "dead")):
+        got = radar_common.company_display_state(stored, items, touches, window)
+        check(got == want,
+              f"state ladder, stored={stored!r} items={items} touches={touches}"
+              f" window={window} reads {want} (got {got})")
+
+    # Week three books itself, but only where the playbook says the next
+    # event is ours to make.
+    fixed = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+    for channel in ("comment", "connection-note"):
+        action, when = serve_dashboard.week_three_booking(channel, fixed)
+        check(when == "2026-07-22",
+              f"{channel} books week three twenty-one days out (got {when!r})")
+        check(action == serve_dashboard.WEEK_THREE_ACTION,
+              f"{channel} books the week-three action")
+    for channel in ("engagement", "artefact", "other"):
+        action, when = serve_dashboard.week_three_booking(channel, fixed)
+        check(action is None and when is None,
+              f"{channel} books nothing, the next event is not ours")
 
     print()
     if failures:

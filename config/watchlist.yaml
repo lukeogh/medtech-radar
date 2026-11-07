@@ -26,14 +26,29 @@ sources:
     name: imec press releases
     tier: 1
     url: "https://www.imec-int.com/en/reading-room?type=press"
-    method: diff
+    method: sitemap
+    sitemap_url: "https://www.imec-int.com/sitemap_press.xml"
     check_interval_hours: 6
     status: live
+    include_patterns:
+      - "/en/press/"
     notes: >
-      Press releases live under /en/press/<slug>; the listing is the reading room
-      filtered to type=press. Page fetches OK but the list items are populated
-      client-side via JS, so a plain HTTP diff may see little or no change. No RSS
-      feed found. If this source stays silent, the Tier 2 net and email alerts cover it.
+      Switched from diff to sitemap on 3 August 2026. The reading-room listing
+      populates client-side, so a plain fetch saw almost nothing and this
+      source produced not one signal in a fortnight. docs/upgrade-paths.md
+      proposed changedetection.io with a real browser for exactly this, but
+      imec publishes sitemap_press.xml, which is server-rendered XML, 821
+      urls, robots-allowed, and needs no browser at all. Reading that is a
+      much smaller thing than running Chrome.
+      Two quirks worth knowing. The file is the whole site, not a press
+      feed, 301 press releases beside 279 job vacancies and 240 research
+      papers, so include_patterns whitelists /en/press/ and everything else
+      is dropped before a single scoring call is made. Filtering by slug
+      words was tried first and was wrong, it flagged real announcements
+      like imec-researcher-receives-erc-advanced-grant as vacancies. The
+      path is the honest signal, the slug is not. And lastmod is partly
+      rebuild-driven, hundreds of entries restamped the same day, so
+      detection ignores dates entirely and keys on urls never seen before.
 
   - id: imec-xpand
     name: imec.xpand
@@ -155,6 +170,11 @@ sources:
       semiconductors, quantum, photonics and biomedical. SharePoint site. The feed
       URL embeds a GUID widget id that could change if the site is rebuilt, so keep
       the press-releases listing page above as the fallback diff target.
+      Since at least 1 August 2026 the watcher records this source as
+      robots-blocked, so nothing is being read from it. That is the politeness
+      gate working, not a fault, and it is left in place deliberately. Coverage
+      dashboard names it as the one source gone dark. Revisit only if CEA-Leti
+      publishes a feed its robots.txt permits.
 
   - id: fraunhofer-venture
     name: Fraunhofer Venture news
@@ -193,38 +213,70 @@ sources:
   - id: optics-org
     name: optics.org
     tier: 2
-    url: "https://optics.org/news"
+    url: "https://optics.org/"
     method: diff
     check_interval_hours: 24
     status: live
     notes: >
-      Server-rendered listing of roughly twenty dated photonics industry articles.
-      No RSS feed (/rss 404s).
+      Watches the homepage, which carries the current article links, because
+      every news listing path on this site started hanging on 1 August 2026.
+      /news, /news/ and all four category pages time out with zero bytes,
+      /news.xml 301s to /news and hangs with it, while the homepage answers in
+      0.7s and individual articles in 0.8s. Not our end. A browser user agent
+      hangs the same way, so does a second machine on a different route out,
+      robots allows both paths and robots.txt is itself a 404 page. Index
+      generation failing server-side while static pages render is their bug to
+      fix. The homepage carries more churn than a clean listing, promo blocks
+      and sidebars, but the link differ ignores repeats it has already seen,
+      the same trade already accepted for startups-magazine. Still no RSS
+      (/rss and /feed both 404). If the listing recovers, /news is the better
+      target and this should go back to it.
 
-  - id: pic-magazine
-    name: PIC Magazine
-    tier: 2
-    url: "https://picmagazine.net/news/list/1"
-    method: diff
-    check_interval_hours: 24
-    status: live
-    notes: >
-      Chronological photonic integrated circuit industry news, server-rendered.
-      No RSS feed (/rss 404s). Minor JS loading elements but the core list is
-      plain HTML.
+  # Parked 3 August 2026 alongside silicon-semiconductor. It had produced
+  # nothing at all by this date, so unlike the others this is a decision on
+  # category rather than on measured yield. Photonic integrated circuits are
+  # a component industry, and the radar wants companies building diagnostics
+  # with them, not the fabs. optics.org stays and covers the same ground far
+  # better, averaging 17.0 against the 2 to 6 of every trade feed parked so
+  # far. Re-enable if the origin sources stay quiet and a safety net is
+  # wanted back.
+  #- id: pic-magazine
+  #  name: PIC Magazine
+  #  tier: 2
+  #  url: "https://picmagazine.net/news/list/1"
+  #  method: diff
+  #  check_interval_hours: 24
+  #  status: live
+  #  notes: >
+  #    Chronological photonic integrated circuit industry news, server-rendered.
+  #    No RSS feed (/rss 404s). Minor JS loading elements but the core list is
+  #    plain HTML.
 
-  - id: electronics-weekly
-    name: Electronics Weekly
-    tier: 2
-    url: "https://www.electronicsweekly.com/news"
-    method: rss
-    rss_url: "https://www.electronicsweekly.com/feed/"
-    check_interval_hours: 24
-    status: live
-    notes: >
-      Valid RSS 2.0 feed updated same-day covering funding, semiconductors and
-      markets. No hard paywall. Category feeds likely exist if the firehose proves
-      noisy.
+  # Parked 1 August 2026 after the first fortnight of real scores. Kept in
+  # full, commented rather than deleted, because the verification work above
+  # is still true and re-enabling is a matter of removing the hashes.
+  #
+  # The evidence. Electronics Weekly produced 8 of the first 26 scored
+  # signals at an average relevance of 2.3, best score 5, and nothing within
+  # sixty points of the digest bar. What it actually delivered was Apple's
+  # results call, Amazon's quarterly sales, a Samsung profit line and a fable
+  # about research advice. The firehose the note below anticipated arrived,
+  # and the category feeds it suggested were never narrow enough to be worth
+  # finding. The rubric was right every time, so this is not a scoring fault,
+  # it is a source that cannot produce what the radar is looking for.
+  #
+  # - id: electronics-weekly
+  #   name: Electronics Weekly
+  #   tier: 2
+  #   url: "https://www.electronicsweekly.com/news"
+  #   method: rss
+  #   rss_url: "https://www.electronicsweekly.com/feed/"
+  #   check_interval_hours: 24
+  #   status: live
+  #   notes: >
+  #     Valid RSS 2.0 feed updated same-day covering funding, semiconductors and
+  #     markets. No hard paywall. Category feeds likely exist if the firehose proves
+  #     noisy.
 
   - id: new-electronics
     name: New Electronics
@@ -239,40 +291,135 @@ sources:
       exists but no working URL was verifiable. A watcher would need browser-like
       headers or JS rendering. Skipped on normal runs, spot-check with --source.
 
-  - id: semiconductor-digest
-    name: Semiconductor Digest
+  # Parked 1 August 2026 on the same evidence, same terms. Semiconductor
+  # Digest was the loudest source on the watchlist, 10 of the first 26 scored
+  # signals, average relevance 3.0, best 12, none near the bar. Fab capacity,
+  # sealing production lines and x86 licensing are real semiconductor news
+  # and none of it is a European medtech company that might need software
+  # help. Photonics coverage stays through optics.org and PIC Magazine, which
+  # score an order of magnitude better on the same rubric.
+  #
+  # - id: semiconductor-digest
+  #   name: Semiconductor Digest
+  #   tier: 2
+  #   url: "https://www.semiconductor-digest.com/"
+  #   method: rss
+  #   rss_url: "https://www.semiconductor-digest.com/feed/"
+  #   check_interval_hours: 24
+  #   status: live
+  #   notes: >
+  #     WordPress /feed/ is a valid RSS 2.0 feed updated same-day. Homepage is
+  #     JS-heavy with a cookie banner, so RSS is the right method here.
+
+  # Parked 3 August 2026, on its own numbers and on what it delivered.
+  # Two scored signals, average relevance 6.0, best 8, nothing within sixty
+  # points of the digest bar. One of the two was a Scottish Enterprise grant
+  # to Cirrus Logic for smart metering silicon, which is a real story about a
+  # real company and has nothing whatever to do with medical devices. That is
+  # the shape of what this source produces. Kept commented, the verification
+  # below still holds and re-enabling is deleting hashes.
+  #- id: silicon-semiconductor
+  #  name: Silicon Semiconductor
+  #  tier: 2
+  #  url: "https://www.siliconsemiconductor.net/news/list/1"
+  #  method: diff
+  #  check_interval_hours: 24
+  #  status: live
+  #  notes: >
+  #    Combined news listing with roughly twenty five dated items, newest first.
+  #    No RSS feed (/rss 404s). Plain HTML renders fine.
+
+  # Parked 3 August 2026, the fifth and last of the tier 2 net. Four scored
+  # signals, average relevance 2.0, best 2, nothing within sixty-eight points
+  # of the digest bar. It covers UK startups broadly, which sounds close to
+  # the target and is not, because the radar wants European medtech and IVD
+  # specifically and a general startup feed spends its volume on everything
+  # else. Kept commented like the rest, the verification below still holds.
+  #- id: startups-magazine
+  #  name: Startups Magazine
+  #  tier: 2
+  #  url: "https://startupsmagazine.co.uk/articles/news"
+  #  method: diff
+  #  check_interval_hours: 24
+  #  status: live
+  #  notes: >
+  #    Server-rendered dated news listing. No RSS feed (/rss.xml 404s). Trending
+  #    and events sidebars may cause minor churn, the link differ ignores repeats
+  #    it has already seen.
+
+  # ---- Tier 2 additions, verified 5 November 2026. Medtech trade press and
+  # ---- general news, added so the news page carries industry news rather
+  # ---- than relying on the photonics and semiconductor titles alone.
+  - id: medtech-dive
+    name: MedTech Dive
     tier: 2
-    url: "https://www.semiconductor-digest.com/"
+    url: "https://www.medtechdive.com/topic/medical-devices/"
     method: rss
-    rss_url: "https://www.semiconductor-digest.com/feed/"
+    rss_url: "https://www.medtechdive.com/feeds/news/"
     check_interval_hours: 24
     status: live
     notes: >
-      WordPress /feed/ is a valid RSS 2.0 feed updated same-day. Homepage is
-      JS-heavy with a cookie banner, so RSS is the right method here.
+      Industry Dive trade title for medical devices. /feeds/news/ is a valid
+      RSS 2.0 feed ("MedTech Dive - Latest News") with same-day items,
+      verified 5 November 2026. The feed is the whole-site firehose and
+      covers the medical devices topic page given as url.
 
-  - id: silicon-semiconductor
-    name: Silicon Semiconductor
+  - id: massdevice
+    name: MassDevice
     tier: 2
-    url: "https://www.siliconsemiconductor.net/news/list/1"
+    url: "https://www.massdevice.com/"
+    method: rss
+    rss_url: "https://www.massdevice.com/feed/"
+    check_interval_hours: 24
+    status: unverified
+    notes: >
+      WordPress /feed/ exists but returned HTTP 403 to the radar's own user
+      agent on 5 November 2026, edge bot-blocking, same situation as
+      new-electronics. Skipped on normal runs. Spot-check with --source from
+      the box, a different egress address may be treated differently.
+
+  - id: businesswire-medical
+    name: Business Wire medical devices
+    tier: 2
+    url: "https://www.businesswire.com/newsroom/industry/health/medical-devices"
     method: diff
     check_interval_hours: 24
     status: live
     notes: >
-      Combined news listing with roughly twenty five dated items, newest first.
-      No RSS feed (/rss 404s). Plain HTML renders fine.
+      Press release wire filtered to medical devices. Returned HTTP 200 with
+      server-rendered HTML to the radar's user agent on 5 November 2026, and
+      the link differ extracted ten same-day /news/ press release links from
+      it. No direct RSS feed advertised, only a feed-options help page.
+      Next.js site, so if the differ ever reports page changes with no new
+      article links, check whether the listing moved client-side.
 
-  - id: startups-magazine
-    name: Startups Magazine
+  - id: reuters-medtech
+    name: Reuters medtech
     tier: 2
-    url: "https://startupsmagazine.co.uk/articles/news"
+    url: "https://www.reuters.com/business/healthcare-pharmaceuticals/medtech/"
     method: diff
+    check_interval_hours: 24
+    status: unverified
+    notes: >
+      robots.txt disallows this page for the radar's crawler-style user agent
+      (checked 5 November 2026), so the polite fetcher refuses it and would
+      record 999 robots-blocked. Reuters retired its public RSS feeds years
+      ago. Left unverified so normal runs skip it rather than knock on a door
+      the site has closed. Their stories reach the net through the other
+      trade feeds anyway.
+
+  - id: bbc-medical-technology
+    name: BBC News medical technology
+    tier: 2
+    url: "https://www.bbc.co.uk/news/topics/cx1m7zg0w38t"
+    method: rss
+    rss_url: "https://feeds.bbci.co.uk/news/topics/cx1m7zg0w38t/rss.xml"
     check_interval_hours: 24
     status: live
     notes: >
-      Server-rendered dated news listing. No RSS feed (/rss.xml 404s). Trending
-      and events sidebars may cause minor churn, the link differ ignores repeats
-      it has already seen.
+      The BBC News medical technology topic feed, valid RSS 2.0 with around
+      two dozen items, verified 5 November 2026. This is the feed that would
+      have carried the 25 September Nanopore rapid brain tumour test story.
 
   # ---- Tier 2 additions, verified 5 November 2026. Medtech trade press and
   # ---- general news, added so the news page carries industry news rather
