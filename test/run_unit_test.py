@@ -709,8 +709,10 @@ def main() -> int:
         check(digest_age == {old_unknown},
               f"the digest ages by the same rule (got {digest_age})")
         jobs_a = bd4.render_jobs_page(data_a, config_a, "t")
-        check("no sighting and no live check" in jobs_a,
-              "the Ageing note reads the new rule")
+        check("<h2>Ageing</h2>" not in jobs_a
+              and f'data-ack="{old_unknown}"' in jobs_a,
+              "Jobs has no Ageing section, the aged row stays in its tier"
+              " with its state on the row (J16)")
         conn.close()
 
     # ----- one role, one row. The collapse, the chain verdicts and the
@@ -757,6 +759,104 @@ def main() -> int:
               "the detail carries the sightings and the repost count")
         check("Would they move on the rate" in jobs5,
               "the question leads the one-question-away row")
+
+        # Brief B. One collapse across every tier, the badges, the
+        # percentage, the filter, the lead line, and what left the page.
+        import re as _re5
+        key_span = radar_common.role_key("Head of Regulatory", "Spanner Dx")
+        key_filt = radar_common.role_key("Tester", "Filt Co")
+        key_unsc = radar_common.role_key("Mystery Role", "Nullco")
+        span_old = put5("c4", days5(30), days5(30), title="Head of Regulatory",
+                        company="Spanner Dx", tier="reading", role_key=key_span,
+                        engagement_type="permanent", region="UK")
+        span_new = put5("c5", days5(3), days5(1), title="Head of Regulatory",
+                        company="Spanner Dx", tier="question", role_key=key_span,
+                        question_text="Would they go remote",
+                        engagement_type="permanent", region="UK",
+                        location_class="hybrid")
+        top_id = put5("c6", days5(2), days5(2), title="Director of Software",
+                      company="Topper Dx", tier="top",
+                      role_key=radar_common.role_key("Director of Software", "Topper Dx"),
+                      rate_band="unstated", one_line_why="The scorer had its own line.",
+                      engagement_type="contract", cv_match=88, region="Europe",
+                      location_class="remote")
+        put5("c7", days5(50), days5(50), title="Tester", company="Filt Co",
+             tier="filtered", role_key=key_filt, filter_reason="cv match under 40")
+        put5("c8", days5(45), days5(45), title="Tester", company="Filt Co",
+             tier="filtered", role_key=key_filt, filter_reason="cv match under 40")
+        put5("c9", days5(45), days5(45), title="Analyst", company="Filt Co",
+             tier="filtered", role_key=radar_common.role_key("Analyst", "Filt Co"),
+             filter_reason="not a real leadership role")
+        put5("c10", days5(60), days5(60), title="Mystery Role", company="Nullco",
+             tier=None, role_key=key_unsc)
+        put5("c11", days5(55), days5(55), title="Mystery Role", company="Nullco",
+             tier=None, role_key=key_unsc)
+        conn.commit()
+        data6 = bd4.collect(conn, config5)
+        jobs6 = bd4.render_jobs_page(data6, config5, "t")
+        home6 = bd4.render_home_page(data6, config5, "t")
+
+        def sec_count(page, title):
+            m = _re5.search(r"<h2>" + _re5.escape(title)
+                            + r"</h2>.*?<span class=\"section-count\">(\d+)</span>",
+                            page, _re5.S)
+            return int(m.group(1)) if m else None
+
+        acks = _re5.findall(r'data-ack="(\d+)"', jobs6)
+        key_of = {r["id"]: r["role_key"] for r in
+                  conn.execute("SELECT id, role_key FROM opportunities")}
+        keys = [key_of[int(a)] for a in acks]
+        check(acks and len(keys) == len(set(keys)),
+              f"no role_key renders twice on the page ({len(acks)} rows)")
+        check(f'data-ack="{span_new}"' in jobs6
+              and f'data-ack="{span_old}"' not in jobs6
+              and sec_count(jobs6, "One question away") == 2
+              and sec_count(jobs6, "Reading") == 1,
+              "a chain spanning tiers appears once, in the tier of its"
+              " freshest advert")
+        check("Filtered, 2 roles. 1 cv match under 40, 1 not a real"
+              " leadership role." in jobs6
+              and "so the filter can be audited" not in jobs6,
+              "the Filtered count is roles after collapse, with the reason"
+              " roll-up and no audit sentence")
+        check("<h2>Ageing</h2>" not in jobs6 and "<h2>Needs review</h2>" not in jobs6
+              and f'data-ack="{top_id}"' in jobs6,
+              "Ageing and Needs review have left Jobs")
+        check("1 role unscored, run rescore.py" in home6
+              or '<span class="num">1</span>role unscored, run rescore.py' in home6,
+              "the unscored count sits on Home, as roles")
+        for word in ("Contract", "Permanent", "Unknown"):
+            check(f'chip-engagement chip-{word.lower()}">{word}</span>' in jobs6,
+                  f"the {word} badge renders from engagement_type")
+        check(jobs6.count("chip-engagement") == len(acks),
+              "every row carries an engagement badge")
+        check('<span class="col-cv">88%</span>' in jobs6
+              and _re5.search(r'col-cv">\d+</span>', jobs6) is None,
+              "CV match shows a % sign on every row")
+        check('id="loc-filter"' in jobs6 and 'data-loc="remote"' in jobs6
+              and 'data-loc="elsewhere"' in jobs6
+              and "radar-location" in jobs6
+              and 'data-region="europe" data-remote="1"' in jobs6,
+              "the location filter control, its script and the row data"
+              " attributes are present")
+        check("Rate not stated, ask before anything else." in jobs6
+              and "had its own line" not in jobs6,
+              "a Top row with an unstated rate leads with the rate line")
+        check('<span class="badge-rate">Rate not stated</span>' in jobs6
+              and '<span class="chip">rate not stated</span>' not in jobs6,
+              "rate not stated is a badge with the weight of the State cell")
+        check(jobs6.count('<details class="section fold">') == 2
+              and '<summary class="section-head"><h2>One question away</h2>' in jobs6
+              and '<div class="section-head"><h2>Top prospects</h2>' in jobs6,
+              "Top is open, One question away and Reading fold with their counts")
+        check("Scored against" not in jobs6 and "row-sub\">Via " not in jobs6
+              and "scripts/rescore.py" not in jobs6
+              and "Add a job source" not in jobs6,
+              "the detail drops the CV stamp, the source line and the rescore"
+              " code, and the source strip is gone from Jobs")
+        check('<span class="h-pay">Rate</span>' in jobs6
+              and '<span class="h-type">Type</span>' in jobs6,
+              "the column header names the Rate and Type cells")
         check(">Live<" in jobs5 and "state-live" in jobs5,
               "a chain seen this week reads Live on the row")
         check(">Unknown<" in jobs5, "a silent role reads Unknown")
@@ -765,10 +865,10 @@ def main() -> int:
               "the headers read Role, CV match, State, Last seen")
         check("a day converted" not in jobs5,
               "no estimated day rate anywhere on the page")
-        check(">rate not stated<" in jobs5,
+        check(">Rate not stated<" in jobs5,
               "silence about pay carries its prominent flag")
         check(jobs5.index("One question away") < jobs5.index("Reading")
-              < jobs5.index("Ageing"),
+              and "<h2>Ageing</h2>" not in jobs5,
               "the sections run in the draft's order, Ageing after Reading")
 
         import serve_dashboard as serve5
@@ -1216,32 +1316,34 @@ def main() -> int:
         check("The flow, last fourteen days" not in jobs_page
               and "Board freshness" not in jobs_page,
               "and none of it clutters Jobs any more")
-        check('id="src-add"' in jobs_page and "Add a job source" in jobs_page,
-              "the add-a-source form renders")
-        check("None yet" not in jobs_page
-              and "job_sources.yaml" not in jobs_page,
+        check('id="src-add"' not in jobs_page
+              and "Add a job source" not in jobs_page
+              and 'id="src-add"' in home_page and "Add a job source" in home_page,
+              "the add-a-source form renders on Home, not on Jobs (J11)")
+        check("None yet" not in home_page
+              and "job_sources.yaml" not in home_page,
               "no custom-source receipt renders while there are none")
         # The board-order assertion went with the board sections. Ordering
         # boards on a page that no longer groups by board tested nothing.
         saved_reg3 = radar_common.JOB_SOURCES_PATH
         try:
             radar_common.JOB_SOURCES_PATH = reg_path
-            jobs_with_custom = build_dashboard.render_jobs_page(
+            home_with_custom = build_dashboard.render_home_page(
                 data, config, "t")
         finally:
             radar_common.JOB_SOURCES_PATH = saved_reg3
         check("Added so far: Technojobs (matches technojobs)"
-              in jobs_with_custom
-              and "job_sources.yaml" in jobs_with_custom,
-              "an added source earns its one-line receipt, with the edit path")
+              in home_with_custom
+              and "job_sources.yaml" in home_with_custom,
+              "an added source earns its one-line receipt on Home, with the edit path")
         # A custom source no longer earns a section, because no source does.
         # What it earns is the receipt line above, which is the honest
         # acknowledgement that the radar now watches for its sender.
-        check(">Technojobs</span>" not in jobs_with_custom,
+        check(">Technojobs</span>" not in home_with_custom,
               "an added source gets no board section, because none exist")
-        check(jobs_with_custom.index("Added so far: Technojobs")
-              > jobs_with_custom.index("Top prospects"),
-              "its receipt sits at the foot of the page, below the tiers")
+        check(home_with_custom.index("Added so far: Technojobs")
+              > home_with_custom.index('class="entrance"'),
+              "its receipt sits at the foot of Home, below the cards")
         check('href="/jobs" aria-current="page"' in jobs_page,
               "the Jobs tab marks itself current")
         check(f'data-ack="{ids["Keepit Ltd"]}"' in jobs_page,
@@ -2318,12 +2420,13 @@ def main() -> int:
               f"collect() ages the advert and the signal together (got {kinds})")
         try:
             jobs_j = _bdash.render_jobs_page(data_j, config_j, "t")
-            n_age = _section_count(jobs_j, "Ageing")
-            check(n_age == 1,
-                  f"the Jobs Ageing section counts the advert only (got {n_age})")
+            check(_section_count(jobs_j, "Ageing") is None
+                  and "<h2>Ageing</h2>" not in jobs_j,
+                  "Jobs has no Ageing section (J16)")
             check("Stale Director Role" in jobs_j
                   and "Stale Photonics closes a seed round" not in jobs_j,
-                  "the Jobs Ageing section lists the advert and not the signal")
+                  "the stale advert sits in its tier with its age on the row,"
+                  " and the watcher signal is not on Jobs")
         except Exception as err:  # noqa: BLE001
             check(False, "the Jobs page renders with a watcher signal in the "
                          f"ageing list (raised {type(err).__name__}: {err})")
