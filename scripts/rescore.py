@@ -47,6 +47,10 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
             "location": row["location"] or "",
             "salary_rate": row["salary_rate"] or "",
             "source_url": row["source_url"] or "",
+            # The stored pay columns ride along so the code gate judges
+            # the figure against its floor, exactly as on first arrival.
+            "pay_currency": row["pay_currency"], "pay_period": row["pay_period"],
+            "pay_min": row["pay_min"], "pay_max": row["pay_max"],
             "rescore": True,
         }
         scored, usage, note = scoring.score_opportunity(
@@ -63,7 +67,7 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
                      "gate_location", "gate_location_note", "gate_rate",
                      "gate_rate_note", "tier", "failed_gates", "question_text",
                      "filter_reason", "rate_stated", "rate_value", "rate_basis",
-                     "ir35", "location_class")
+                     "ir35", "location_class", "engagement_type", "engagement_note")
         conn.execute(
             "UPDATE opportunities SET cv_match = ?, one_line_why = ?,"
             " red_flags = ?, suggested_action = ?, act_by = ?, thread_type = ?,"

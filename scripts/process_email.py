@@ -218,12 +218,14 @@ def detect_source(from_field: str) -> str:
     return "email-other"
 
 
-def pay_columns(opp: dict, config: dict, floor: float) -> dict:
+def pay_columns(opp: dict, config: dict, floors: dict) -> dict:
     """Structured pay for one extracted opportunity, judged in code.
 
     The extractor reports what the advert said, currency, period and the
-    stated amounts. Conversion and banding happen here, deterministically,
-    so the same advert always lands in the same band.
+    stated amounts. day_rate is the market panel's comparison column and
+    still converts a salary at 220 days. The band is the gate's band: a
+    day rate against the day floor, a salary against the salary floor,
+    no conversion, so the same advert always lands in the same band.
     """
     def num(value):
         try:
@@ -236,9 +238,11 @@ def pay_columns(opp: dict, config: dict, floor: float) -> dict:
     pay_min, pay_max = num(opp.get("pay_min")), num(opp.get("pay_max"))
     day_rate = radar_common.convert_to_day_rate(
         currency, period, pay_min, pay_max, config)
+    gate = radar_common.gate_pay(currency, period, pay_min, pay_max,
+                                 floors, config)
     return {"pay_currency": currency, "pay_period": period,
             "pay_min": pay_min, "pay_max": pay_max, "day_rate": day_rate,
-            "rate_band": radar_common.band_for(day_rate, floor)}
+            "rate_band": gate["band"]}
 
 
 def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
@@ -269,8 +273,9 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
         "  red_flags, suggested_action, act_by, status, status_changed_at, notes,"
         "  pay_currency, pay_period, pay_min, pay_max, day_rate, rate_band,"
         "  cv_version, buying_window, company_id, region, role_key,"
-        "  gate_sector, gate_sector_note, gate_cv, gate_cv_note, gate_location, gate_location_note, gate_rate, gate_rate_note, tier, failed_gates, question_text, filter_reason, rate_stated, rate_value, rate_basis, ir35, location_class)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "  gate_sector, gate_sector_note, gate_cv, gate_cv_note, gate_location, gate_location_note, gate_rate, gate_rate_note, tier, failed_gates, question_text, filter_reason, rate_stated, rate_value, rate_basis, ir35, location_class,"
+        "  engagement_type, engagement_note)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (h, now, now, source,
          stored_company,
          stored_title,
@@ -286,7 +291,8 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
          pay["pay_max"], pay["day_rate"], pay["rate_band"], cv_version,
          buying_window, company_id, region,
          radar_common.role_key(stored_title, stored_company),
-         scored.get("gate_sector"), scored.get("gate_sector_note"), scored.get("gate_cv"), scored.get("gate_cv_note"), scored.get("gate_location"), scored.get("gate_location_note"), scored.get("gate_rate"), scored.get("gate_rate_note"), scored.get("tier"), scored.get("failed_gates"), scored.get("question_text"), scored.get("filter_reason"), scored.get("rate_stated"), scored.get("rate_value"), scored.get("rate_basis"), scored.get("ir35"), scored.get("location_class")))
+         scored.get("gate_sector"), scored.get("gate_sector_note"), scored.get("gate_cv"), scored.get("gate_cv_note"), scored.get("gate_location"), scored.get("gate_location_note"), scored.get("gate_rate"), scored.get("gate_rate_note"), scored.get("tier"), scored.get("failed_gates"), scored.get("question_text"), scored.get("filter_reason"), scored.get("rate_stated"), scored.get("rate_value"), scored.get("rate_basis"), scored.get("ir35"), scored.get("location_class"),
+         scored.get("engagement_type"), scored.get("engagement_note")))
 
 
 def main(argv=None) -> int:
@@ -309,9 +315,9 @@ def main(argv=None) -> int:
     # Refuse to run a live pipeline that would score against the fixture CV.
     # This fires before the extraction call, so no tokens are spent either.
     score_item.assert_profile_ready(config)
-    # The rate floor fails loudly here, before any token is spent, when the
-    # preferences file has lost its machine-readable line.
-    floor = radar_common.read_rate_floor(config)
+    # The two rate floors fail loudly here, before any token is spent, when
+    # the preferences file has lost either machine-readable line.
+    floors = radar_common.read_rate_floors(config)
     # Every stored score is stamped with the CV version that shaped it, so
     # a score that predates a CV change is obvious at a glance.
     cv_version = score_item.get_cv_version(config)
@@ -409,7 +415,7 @@ def main(argv=None) -> int:
         if system_blocks is None:
             system_blocks = score_item.build_scorer_system(config)
         scored, s_usage, s_note = score_item.score_opportunity(
-            opp, system_blocks, config, mock_fn=score_fn)
+            opp, system_blocks, config, mock_fn=score_fn, floors=floors)
         radar_common.add_usage(usage_total, s_usage)
 
         # The doctrine's reading of this advert, taken before anything is
@@ -452,7 +458,7 @@ def main(argv=None) -> int:
             region = radar_common.region_for(co["country"], co["city"], config) if co else None
 
         insert_opportunity(conn, h, now, source, opp, scored, s_note,
-                           pay_columns(opp, config, floor), cv_version,
+                           pay_columns(opp, config, floors), cv_version,
                            buying_window=int(is_window),
                            company_id=company_id, region=region)
         if is_window:

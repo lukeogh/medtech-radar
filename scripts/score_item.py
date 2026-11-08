@@ -31,6 +31,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import radar_common
 import cv_store
+import engagement
 
 REPO_ROOT = radar_common.REPO_ROOT
 PROMPTS_DIR = REPO_ROOT / "prompts"
@@ -67,15 +68,16 @@ CV_PASS = 70
 CV_FLOOR_FOR_READING = 40
 
 
-def derive_tier(gates: dict, rate_basis: str = "", cv_match=None,
-                is_real_role: bool = True) -> dict:
+def derive_tier(gates: dict, cv_match=None, is_real_role: bool = True) -> dict:
     """Turn four gate results into a tier. Code decides this, never the model.
 
     The gates are not equal. Location and rate are movable, one conversation
     can shift a hybrid pattern or restate a recruiter's number. Sector and CV
     are fixed, no question turns a generic software house into an IVD company
     and the CV number is about Luke rather than them. One question away leans
-    entirely on that split.
+    entirely on that split. A rate fail is a rate fail whatever its basis:
+    a salary under the salary floor is as movable as a day rate under the
+    day floor, so both land one question away.
     """
     failed = [name for name in ("sector", "cv", "location", "rate")
               if gates.get(name) is False]
@@ -97,13 +99,18 @@ def derive_tier(gates: dict, rate_basis: str = "", cv_match=None,
     if len(failed) == 1:
         only = failed[0]
         if only in MOVABLE_GATES:
-            # A rate fail that came from a salary conversion does not belong
-            # here. Permanent packages do not restate the way day rates do.
-            if only == "rate" and rate_basis == "converted-salary":
-                return out
             out["tier"] = "question"
             return out
     return out
+
+
+def rate_gate_note(pay: dict) -> str:
+    """One plain line saying what the code judged and against which floor."""
+    words = {"day-rate": "day rate", "salary": "salary",
+             "hourly": "hourly rate, times eight"}
+    verdict = "at or above" if pay["gate"] else "below"
+    return (f"Stated {words.get(pay['basis'], pay['basis'])} £{pay['figure']:,.0f}"
+            f" against the £{pay['floor']:,.0f} floor, {verdict}, judged in code.")
 
 
 def question_for(gates: dict, notes: dict) -> str:
@@ -284,11 +291,15 @@ def _pct(value):
     return max(0, min(100, number))
 
 
-def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None):
+def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None,
+                      floors: dict | None = None):
     """Score one opportunity. Returns (normalised_dict_or_None, usage, note).
 
     The normalised dict uses the database column names. combined is
     round((cv_match + want_match) / 2), computed here, never by the model.
+    The rate gate is judged in code from the extractor's pay columns
+    wherever a figure was stored, against the floor of its own basis; the
+    model's gate_rate stands only when nothing usable was stated.
     """
     user = "Score this opportunity.\n\n" + json.dumps(opp, ensure_ascii=False)
     parsed, usage, note = _call_for_json(config["claude_model_score"],
@@ -342,12 +353,27 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
              "location": gate("gate_location"),
              "rate": gate("gate_rate")}
     rate_basis = str(parsed.get("rate_basis") or "").strip()
+    rate_value = _num(parsed.get("rate_value"))
+    rate_stated = (None if parsed.get("rate_stated") is None
+                   else int(bool(parsed.get("rate_stated"))))
+    gate_rate_note = sanitise(str(parsed.get("gate_rate_note", "")).strip())
+    # The rate gate is code's call wherever the extractor stored a figure.
+    # Two floors, no conversion between them. The model's verdict stands
+    # only for an advert that stated nothing usable, where it reads pass.
+    floors = floors or radar_common.read_rate_floors(config)
+    pay = radar_common.gate_pay(opp.get("pay_currency"), opp.get("pay_period"),
+                                opp.get("pay_min"), opp.get("pay_max"),
+                                floors, config)
+    if pay["gate"] is not None:
+        gates["rate"] = pay["gate"]
+        rate_basis, rate_value, rate_stated = pay["basis"], pay["figure"], 1
+        gate_rate_note = rate_gate_note(pay)
     # A role is real when it is software, quality or regulatory leadership in a
     # regulated or deep-tech sector, or anything at all in medtech and IVD. The
     # sector gate plus a non-trivial CV number is the closest honest proxy the
     # rubric gives us without a fifth question.
     is_real = bool(gates["sector"]) or (cv is not None and cv >= CV_FLOOR_FOR_READING)
-    tier_info = derive_tier(gates, rate_basis, cv, is_real)
+    tier_info = derive_tier(gates, cv, is_real)
 
     scored.update({
         "gate_sector": None if gates["sector"] is None else int(gates["sector"]),
@@ -357,18 +383,21 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
         "gate_location": None if gates["location"] is None else int(gates["location"]),
         "gate_location_note": sanitise(str(parsed.get("gate_location_note", "")).strip()),
         "gate_rate": None if gates["rate"] is None else int(gates["rate"]),
-        "gate_rate_note": sanitise(str(parsed.get("gate_rate_note", "")).strip()),
+        "gate_rate_note": gate_rate_note,
         "tier": tier_info["tier"],
         "failed_gates": json.dumps(tier_info["failed_gates"]),
         "filter_reason": tier_info["filter_reason"],
         "question_text": (sanitise(str(parsed.get("question_text") or "").strip())
                           or question_for(gates, {})) if tier_info["tier"] == "question" else None,
-        "rate_stated": (None if parsed.get("rate_stated") is None
-                        else int(bool(parsed.get("rate_stated")))),
-        "rate_value": _num(parsed.get("rate_value")),
+        "rate_stated": rate_stated,
+        "rate_value": rate_value,
         "rate_basis": rate_basis or None,
         "ir35": (str(parsed.get("ir35") or "").strip().lower() or None),
         "location_class": (str(parsed.get("location_class") or "").strip().lower() or None),
+        # Off the advert, clamped to the three allowed words. The note is
+        # the phrase that decided it, "fixed term" kept for a fixed term.
+        "engagement_type": engagement.normalise(parsed.get("engagement_type")),
+        "engagement_note": sanitise(str(parsed.get("engagement_note") or "").strip()) or None,
     })
     if cv is None:
         return scored, usage, "scorer returned no usable cv match"

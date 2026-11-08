@@ -46,18 +46,29 @@ Also return location_class, one of remote, hybrid, local, relocation, onsite-far
 
 ## Gate four. Rate
 
-The floor is in the preferences file. Judge against it:
+Two floors are in the preferences file, day_rate_floor_gbp and
+salary_floor_gbp. Each stated figure meets the floor of its own kind. Never
+convert one into the other:
 
-- Stated at or above the floor, pass.
-- Stated below the floor, fail.
+- A stated **day rate** gates against the day floor. rate_basis day-rate.
+- A stated **annual salary** gates against the salary floor, as stated, never
+  divided into a day rate. rate_basis salary.
+- A stated **hourly rate** times eight gates against the day floor. rate_basis
+  hourly.
+- Stated at or above its floor, pass. Stated below its floor, fail.
 - A **range** gates on its **top** figure, and the entry shows the whole range.
-- A **salary** divides by 220 for a day-rate equivalent and gates on the same
-  floor. Most permanent packages will not clear it. Set rate_basis to
-  converted-salary.
-- **Unstated passes**, and the note reads exactly, rate unstated, that's your
-  first question.
+- **Unstated passes**, rate_basis unstated, and the note reads exactly, rate
+  unstated, that's your first question.
 
 Record ir35 as inside or outside where the advert states it, and never gate on it.
+
+## Engagement type
+
+Read it off the advert, one of contract, permanent or unknown. A day rate,
+interim, inside or outside IR35, or the word contract means contract. A
+salaried permanent post means permanent. A fixed term post reads as
+permanent, with engagement_note set to fixed term. Never guess. When the
+advert says none of these, return unknown and an empty note.
 
 ## The verdict
 
@@ -80,4 +91,5 @@ commentary.
  "gate_location": true, "gate_location_note": "", "location_class": "",
  "gate_rate": true, "gate_rate_note": "", "rate_stated": true,
  "rate_value": null, "rate_basis": "", "ir35": "",
+ "engagement_type": "", "engagement_note": "",
  "one_line_why": "", "question_text": "", "suggested_action": "", "act_by": ""}

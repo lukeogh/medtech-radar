@@ -27,6 +27,7 @@ if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import radar_common
+import engagement
 
 URL_RE = re.compile(r"https?://\S+")
 CURRENCY_RE = re.compile(r"[£€$]\s?\d")
@@ -197,15 +198,18 @@ def mock_scorer(user_content: str) -> str:
     per_day = "per day" in salary.lower() or "day rate" in salary.lower()
     digits = "".join(ch if ch.isdigit() else " " for ch in salary).split()
     amount = max((float(d) for d in digits), default=None) if digits else None
+    # Two floors, no conversion, mirroring the prompt. The code gate
+    # overrides this wherever the extractor stored a figure, so this is
+    # the fallback a silent advert falls through to.
     if not stated:
-        rate_pass, basis, value = True, "", None
+        rate_pass, basis, value = True, "unstated", None
     elif per_day:
         value, basis = amount, "day-rate"
-        rate_pass = amount is not None and amount >= 650
+        rate_pass = amount is not None and amount >= 750
     else:
-        value = round(amount / 220) if amount else None
-        basis = "converted-salary"
-        rate_pass = value is not None and value >= 650
+        value, basis = amount, "salary"
+        rate_pass = amount is not None and amount >= 100000
+    engagement_type, engagement_note = engagement.classify(f"{title} {salary}")
 
     return _json.dumps({
         "company": company, "role_title": title, "location": location,
@@ -226,6 +230,7 @@ def mock_scorer(user_content: str) -> str:
                            else f"{'at or above' if rate_pass else 'below'} the floor"),
         "rate_stated": stated, "rate_value": value, "rate_basis": basis,
         "ir35": "outside" if "outside ir35" in salary.lower() else "",
+        "engagement_type": engagement_type, "engagement_note": engagement_note,
         "one_line_why": "Judged against the four gates.",
         "question_text": "", "suggested_action": "Read it and decide.",
         "act_by": "",

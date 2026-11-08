@@ -83,7 +83,7 @@ def main(argv=None) -> int:
         os.environ["RADAR_MOCK"] = "1"
     radar_common.load_env()
     config = radar_common.load_config()
-    floor = radar_common.read_rate_floor(config)  # loud failure before any call
+    floors = radar_common.read_rate_floors(config)  # loud failure before any call
 
     conn = radar_common.get_db(Path(args.db).resolve() if args.db else None)
     rows = conn.execute(
@@ -117,7 +117,7 @@ def main(argv=None) -> int:
                 failed += 1
                 continue
 
-        pay = process_email.pay_columns(parsed, config, floor)
+        pay = process_email.pay_columns(parsed, config, floors)
         conn.execute(
             "UPDATE opportunities SET pay_currency = ?, pay_period = ?,"
             " pay_min = ?, pay_max = ?, day_rate = ?, rate_band = ?"
