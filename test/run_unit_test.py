@@ -1620,6 +1620,146 @@ def main() -> int:
         check(radar_common.sanitise_free_text(probe) == probe,
               f"idempotent on {probe[:24]!r}")
 
+    # A sighting revives an expired role. The dedupe path clears expired_at
+    # when a retired advert is seen again, and never touches a closed or a
+    # dismissed row. Three one-role emails through the real pipeline in
+    # mock mode, each stamped by hand, each fed again.
+    with tempfile.TemporaryDirectory() as tmp:
+        import base64 as b64_mod
+        import contextlib
+        import io as io_mod
+        import json as json_mod
+        import os as os_mod
+
+        import cv_store
+        import score_item
+
+        base = Path(tmp)
+        cv_md = base / "cv-20260101-000000.md"
+        cv_md.write_text("Software director, IVD, 62304.\n", encoding="utf-8")
+        (base / cv_store.MARKER_NAME).write_text(cv_md.name, encoding="utf-8")
+        db_r = base / "revive.sqlite"
+
+        def feed(company: str, slug: str) -> dict:
+            email = {"subject": "One new role", "from": "alerts@jobs.example",
+                     "date": "2026-07-29",
+                     "body_text": ("Fractional Software Director, IVD\n"
+                                   f"{company} · Ghent, Belgium (Hybrid)\n"
+                                   "€900 per day\n"
+                                   f"https://example.invalid/{slug}\n"),
+                     "body_html": ""}
+            payload = b64_mod.b64encode(
+                json_mod.dumps(email).encode("utf-8")).decode("ascii")
+            saved_dir = score_item.PROFILE_DIR
+            saved_mock = os_mod.environ.get("RADAR_MOCK")
+            captured = io_mod.StringIO()
+            try:
+                score_item.PROFILE_DIR = base
+                os_mod.environ["RADAR_MOCK"] = "1"
+                with contextlib.redirect_stdout(captured):
+                    code = process_email.main(["--b64", payload, "--db",
+                                               str(db_r), "--mock"])
+            finally:
+                score_item.PROFILE_DIR = saved_dir
+                if saved_mock is None:
+                    os_mod.environ.pop("RADAR_MOCK", None)
+                else:
+                    os_mod.environ["RADAR_MOCK"] = saved_mock
+            check(code == 0, f"the {company} run exits 0")
+            return json_mod.loads(captured.getvalue().strip().splitlines()[-1])
+
+        def row_for(company: str) -> dict:
+            conn = sqlite3.connect(db_r)
+            conn.row_factory = sqlite3.Row
+            got = conn.execute(
+                "SELECT last_seen, seen_count, expired_at, closed_at,"
+                " dismissed_at FROM opportunities WHERE company = ?",
+                (company,)).fetchone()
+            conn.close()
+            return dict(got) if got else {}
+
+        def last_inbox_note() -> str:
+            conn = sqlite3.connect(db_r)
+            conn.row_factory = sqlite3.Row
+            got = conn.execute(
+                "SELECT note FROM runs WHERE workflow = 'inbox'"
+                " ORDER BY id DESC LIMIT 1").fetchone()
+            conn.close()
+            return (got["note"] if got else "") or ""
+
+        fixtures = (("Revive Dx", "revive-role", "expired_at"),
+                    ("Shut Dx", "shut-role", "closed_at"),
+                    ("Waved Dx", "waved-role", "dismissed_at"))
+        first = {}
+        for company, slug, _stamp in fixtures:
+            first[company] = feed(company, slug)
+        check(all(first[c]["new"] == 1 and first[c]["revived"] == 0
+                  for c, _s, _t in fixtures),
+              "each fixture role stores once, nothing revived on first sight")
+        stamp = "2026-09-01T09:00:00Z"
+        conn = sqlite3.connect(db_r)
+        for company, _slug, column in fixtures:
+            conn.execute(f"UPDATE opportunities SET {column} = ?"
+                         " WHERE company = ?", (stamp, company))
+        conn.commit()
+        conn.close()
+        before = {c: row_for(c) for c, _s, _t in fixtures}
+
+        again = feed("Revive Dx", "revive-role")
+        after = row_for("Revive Dx")
+        check(again["duplicates"] == 1 and again["new"] == 0,
+              "the expired role's repeat card is a duplicate, not a new row")
+        check(after["expired_at"] is None,
+              "a sighting clears expired_at on an expired row")
+        check(after["last_seen"] >= before["Revive Dx"]["last_seen"]
+              and after["last_seen"] > stamp,
+              "the revived row's last_seen is bumped to now")
+        check(after["seen_count"] == before["Revive Dx"]["seen_count"] + 1,
+              "the revived row's seen_count goes up by one")
+        check(again["revived"] == 1,
+              f"the run record counts one revival (got {again['revived']})")
+        check(again["items"][0].get("revived") is True
+              and again["items"][0]["status"] == "duplicate",
+              "the item is reported as a duplicate that revived")
+        check("1 revived" in last_inbox_note(),
+              f"the runs row notes the revival ({last_inbox_note()!r})")
+        check(radar_common.life_state(after) == "live",
+              "the revived row reads live again")
+
+        again = feed("Shut Dx", "shut-role")
+        after = row_for("Shut Dx")
+        check(after["closed_at"] == stamp,
+              "a closed row stays closed when its card is seen again")
+        check(after["seen_count"] == before["Shut Dx"]["seen_count"] + 1
+              and again["duplicates"] == 1,
+              "the closed row's sighting is still counted")
+        check(again["revived"] == 0 and "revived" not in again["items"][0],
+              "a closed row is never reported as revived")
+        check("revived" not in last_inbox_note(),
+              "the runs row says nothing about revival when none happened")
+
+        again = feed("Waved Dx", "waved-role")
+        after = row_for("Waved Dx")
+        check(after["dismissed_at"] == stamp,
+              "a dismissed row stays dismissed when its card is seen again")
+        check(after["seen_count"] == before["Waved Dx"]["seen_count"] + 1
+              and again["duplicates"] == 1,
+              "the dismissed row's sighting is still counted")
+        check(again["revived"] == 0,
+              "a dismissed row is never reported as revived")
+
+        # The revived row is fresh, so the expiry pass leaves it alone and
+        # the page puts it back in its tier, out of the archive.
+        conn = radar_common.get_db(db_r)
+        conn.execute("UPDATE opportunities SET tier = 'top'"
+                     " WHERE company = 'Revive Dx'")
+        conn.commit()
+        dry_r = check_jobs.expire_stale(conn, write=False)
+        check(all(item["company"] != "Revive Dx" for item in dry_r["sample"])
+              and dry_r["expired"] == 0,
+              "expire_stale does not re-expire the revived row the same day")
+        conn.close()
+
     # Buying window. The doctrine's reading of an advert, decided in code
     # against the touch log, never by a model.
     check(process_email.normalise_company("  Veltrix   Diagnostics  ")

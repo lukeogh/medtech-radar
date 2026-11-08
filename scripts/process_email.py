@@ -10,7 +10,7 @@ Contract (build conventions, Workstream 1):
   dedupes on url_hash against SQLite BEFORE any scoring call, scores new items
   with the scorer prompt (sonnet, cached system block), writes rows.
 - Output, one JSON object on stdout:
-  {"processed": N, "new": N, "duplicates": N, "items": [...]}
+  {"processed": N, "new": N, "duplicates": N, "revived": N, "items": [...]}
   When extraction fails after its one retry the object also carries
   "extract_failed": true, a "note", the running "attempts" count for this
   email and "give_up": true once attempts reach three. The radar-inbox
@@ -367,7 +367,7 @@ def main(argv=None) -> int:
     notes_extra: list = []
     system_blocks = None  # built lazily, only when something new needs scoring
     seen_hashes: set[str] = set()
-    items, new_count, dup_count = [], 0, 0
+    items, new_count, dup_count, revived_count = [], 0, 0, 0
 
     for opp in opps:
         url = (opp.get("source_url") or "").strip()
@@ -380,14 +380,29 @@ def main(argv=None) -> int:
             # liveness the alert stream can give, and absence proves
             # nothing under the six-card digest cap, so only "seen again"
             # is ever recorded.
+            #
+            # A sighting is also proof of life. A row the forty-five day
+            # rule retired comes back to its tier when its advert is seen
+            # again, because expiry only ever meant silence. A row a hand
+            # or a page check closed, or a hand dismissed, stays retired,
+            # because those verdicts outrank the alert stream.
+            revived = conn.execute(
+                "UPDATE opportunities SET expired_at = NULL"
+                " WHERE url_hash = ? AND expired_at IS NOT NULL"
+                " AND closed_at IS NULL AND dismissed_at IS NULL",
+                (h,)).rowcount
             conn.execute(
                 "UPDATE opportunities SET last_seen = ?,"
                 " seen_count = seen_count + 1 WHERE url_hash = ?",
                 (now, h))
             dup_count += 1
-            items.append({"company": opp.get("company", ""),
-                          "title": opp.get("title", ""),
-                          "status": "duplicate"})
+            revived_count += revived
+            item = {"company": opp.get("company", ""),
+                    "title": opp.get("title", ""),
+                    "status": "duplicate"}
+            if revived:
+                item["revived"] = True
+            items.append(item)
             continue
         seen_hashes.add(h)
 
@@ -483,6 +498,9 @@ def main(argv=None) -> int:
     conn.commit()
     mode = "mock" if radar_common.mock_mode_active() else "live"
     note_parts = [source] + ([extract_note] if extract_note else []) + notes_extra
+    if revived_count:
+        # Revivals sit in the run record beside the sightings they came from.
+        note_parts.append(f"{dup_count} seen again, {revived_count} revived")
     # Enrichment is its own line in the runs table. Folding its tokens into
     # the inbox row would hide a cost that behaves differently, one pass per
     # company ever rather than one per advert.
@@ -505,7 +523,7 @@ def main(argv=None) -> int:
     conn.close()
 
     out = {"processed": len(opps), "new": new_count,
-           "duplicates": dup_count, "items": items}
+           "duplicates": dup_count, "revived": revived_count, "items": items}
     if extract_note:
         out["extract_failed"] = True
         out["note"] = extract_note
