@@ -16,8 +16,11 @@ Safety posture:
 - Dry run is the default. Fetches happen and the classifications print,
   nothing is written. Live stamps need an explicit --live.
 - Polite fetching. Sequential, 8 to 12 seconds apart, 20 second timeout,
-  no in-run retries, hard cap per run. A 429 ends the run, the rest of
-  the batch waits for tomorrow.
+  no in-run retries, hard cap per run. A 429 is a wait, not a stop: the
+  row is not stamped and stays due, the run backs off ten minutes and
+  carries on with the next row. The third 429 in one run ends it and
+  the rest of the batch waits for tomorrow. The study saw the limit
+  lift within seconds, so one 429 should never cost a day.
 - Honest verdicts. Body text, JSON-LD and the bare HTTP status each
   mislead on their own, the study showed it, so none of them decides
   anything alone. The default verdict is unknown.
@@ -28,6 +31,7 @@ Flags:
   --cap N     fetches per run, default 25
   --id N      spot-check one stored row, bypasses the due gate
   --db PATH   alternate database for test isolation
+  --backoff S seconds to wait after a 429 before the next row, default 600
 """
 
 from __future__ import annotations
@@ -54,6 +58,8 @@ CAP_DEFAULT = 25
 RECHECK_DAYS = 7                 # an answered page is not asked again inside a week
 EXPIRY_DAYS = 45                 # no sign of life this long retires the role (J17)
 SPACING_SECONDS = (8.0, 12.0)    # agent B hit one 429 in ten at five seconds
+BACKOFF_SECONDS = 600            # the wait after a 429, a run of 25 stays under half an hour
+MAX_429_PER_RUN = 3              # the third 429 ends the run
 FETCH_TIMEOUT = 20
 CHROME_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
              " (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
@@ -106,6 +112,19 @@ def _pause() -> None:
     if rc.mock_mode_active():
         return
     time.sleep(random.uniform(*SPACING_SECONDS))
+
+
+def _backoff(seconds: float) -> None:
+    """The wait after a 429. Skipped in mock mode, tests never wait."""
+    if rc.mock_mode_active() or seconds <= 0:
+        return
+    time.sleep(seconds)
+
+
+def _log(line: str) -> None:
+    """One line to stderr at the moment it happens, so a long run shows
+    its 429s in the n8n execution log as they land, not at the end."""
+    print(f"check_jobs: {line}", file=sys.stderr, flush=True)
 
 
 # ---------------------------------------------------------------- classifying
@@ -197,13 +216,20 @@ def due_candidates(conn, now: str | None = None) -> list[dict]:
 
 def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
                only_id: int | None = None, now: str | None = None,
-               pause=None) -> dict:
-    """Fetch, classify and (in live mode) stamp one capped batch."""
+               pause=None, backoff: float = BACKOFF_SECONDS,
+               wait=None) -> dict:
+    """Fetch, classify and (in live mode) stamp one capped batch.
+
+    backoff is the wait in seconds after a 429, wait is the function that
+    performs it. Tests pass a recorder and zero.
+    """
     now = now or rc.now_iso()
     pause = pause or _pause
+    wait = wait or _backoff
     result = {
         "mode": "live" if write else "dry-run",
         "due": 0, "checked": 0, "closed": 0,
+        "rate_limited": 0, "backoff_seconds": 0, "rate_limits": [],
         "verdicts": {}, "checks": [], "notes": [],
     }
 
@@ -217,8 +243,9 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
     else:
         rows = due_candidates(conn, now)
     result["due"] = len(rows)
+    batch = len(rows[:max(cap, 0)])
 
-    for index, row in enumerate(rows[:max(cap, 0)]):
+    for index, row in enumerate(rows[:batch]):
         if index:
             pause()
         jid = job_view_id(row.get("source_url") or "")
@@ -240,6 +267,32 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
             "id": row["id"], "title": row.get("title"), "status": status,
             "verdict": verdict, "reason": reason,
         })
+        if status == 429:
+            # A 429 says nothing about the page, so nothing is stamped and
+            # the row stays due, at the head of tomorrow's batch. The run
+            # waits out the limit and moves on to the next row. The same
+            # URL is never asked twice in one run. A third 429 means the
+            # limit is holding, so the run ends and the rest waits.
+            stamp = rc.now_iso()
+            result["rate_limited"] += 1
+            entry = {"ts": stamp, "id": row["id"], "fetch": index + 1,
+                     "waited": 0}
+            result["rate_limits"].append(entry)
+            if result["rate_limited"] >= MAX_429_PER_RUN:
+                line = (f"{stamp}: 429 on id {row['id']}, fetch {index + 1}"
+                        f" of {batch}, the third this run, run stopped,"
+                        f" {batch - index - 1} left due")
+                result["notes"].append(line)
+                _log(line)
+                break
+            entry["waited"] = backoff
+            result["backoff_seconds"] += backoff
+            line = (f"{stamp}: 429 on id {row['id']}, fetch {index + 1}"
+                    f" of {batch}, waiting {backoff:g}s, row left due")
+            result["notes"].append(line)
+            _log(line)
+            wait(backoff)
+            continue
         if write:
             conn.execute(
                 "UPDATE opportunities SET last_checked_at = ?,"
@@ -256,10 +309,6 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
             conn.commit()
         elif verdict in ("gone", "closed"):
             result["closed"] += 1
-        if status == 429:
-            result["notes"].append(
-                "429 from LinkedIn, the rest of the batch waits for tomorrow")
-            break
     return result
 
 
@@ -326,6 +375,10 @@ def main(argv=None) -> int:
     ap.add_argument("--id", type=int, metavar="N",
                     help="spot-check one stored row, bypasses the due gate")
     ap.add_argument("--db", metavar="PATH", help="alternate database path")
+    ap.add_argument("--backoff", type=float, default=BACKOFF_SECONDS,
+                    metavar="S",
+                    help="seconds to wait after a 429 before the next row,"
+                         f" default {BACKOFF_SECONDS}")
     args = ap.parse_args(argv)
 
     if args.dry_run and args.live:
@@ -336,7 +389,8 @@ def main(argv=None) -> int:
         print("No mode flag given, defaulting to dry run.", file=sys.stderr)
 
     conn = rc.get_db(Path(args.db)) if args.db else rc.get_db()
-    result = run_checks(conn, cap=args.cap, write=write, only_id=args.id)
+    result = run_checks(conn, cap=args.cap, write=write, only_id=args.id,
+                        backoff=args.backoff)
     if args.id is None:
         # The expiry pass rides on the daily run, never on a spot check.
         expiry = expire_stale(conn, write=write)
@@ -348,6 +402,12 @@ def main(argv=None) -> int:
     note = f"{result['due']} due, {result['checked']} checked"
     if verdicts:
         note += f", {verdicts}"
+    if result["rate_limited"]:
+        # The clock times of every 429 ride in the runs row, so a week of
+        # rows shows whether the limit has a pattern.
+        stamps = ", ".join(e["ts"][11:] for e in result["rate_limits"])
+        note += (f", {result['rate_limited']} rate limited, 429 at {stamps},"
+                 f" {result['backoff_seconds']:g}s backoff")
     if result.get("expired"):
         note += f", {result['expired']} expired"
     rc.log_run(conn, "check", mode=result["mode"],

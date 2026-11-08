@@ -450,34 +450,132 @@ def main() -> int:
             check(again["due"] == 0 and not calls,
                   "a second run finds nothing due, checked rows wait a week")
 
+            # A 429 is a wait, not a stop. Nothing is stamped, the row
+            # stays due, the run backs off and carries on. The third 429
+            # in one run ends it.
+            import contextlib
+            import io
+            import json
+            import re
             j = plant("1212", "question", "2026-09-01T00:00:00Z")
             k = plant("1313", "question", "2026-09-10T00:00:00Z")
+            m = plant("1414", "question", "2026-09-20T00:00:00Z")
             conn.commit()
-            responses["1212"] = (
-                429, "https://www.linkedin.com/jobs/view/1212/", "")
-            responses["1313"] = (
-                200, "https://www.linkedin.com/jobs/view/1313/",
-                pages["noh1"])
-            stopped = check_jobs.run_checks(conn, cap=25, write=True,
-                                            now=now_s, pause=no_pause)
-            check(stopped["due"] == 2 and stopped["checked"] == 1,
-                  "a 429 ends the run, the rest of the batch waits")
-            row_j = conn.execute(
-                "SELECT last_check_result FROM opportunities WHERE id = ?",
-                (j,)).fetchone()
+
+            def live_for(key):
+                return (200, f"https://www.linkedin.com/jobs/view/{key}/",
+                        pages["live"].replace(jid, key))
+
+            def limited(key):
+                return (429, f"https://www.linkedin.com/jobs/view/{key}/", "")
+
+            responses["1212"] = live_for("1212")
+            responses["1313"] = limited("1313")
+            responses["1414"] = live_for("1414")
+            waits = []
+
+            def fake_wait(seconds):
+                waits.append(seconds)
+
+            carried = check_jobs.run_checks(conn, cap=25, write=True,
+                                            now=now_s, pause=no_pause,
+                                            backoff=0, wait=fake_wait)
+            check(carried["due"] == 3 and carried["checked"] == 3
+                  and carried["verdicts"] == {"live": 2, "unknown": 1},
+                  "sequence 200, 429, 200: three rows processed, one"
+                  " unknown, the run completes")
+            check(carried["rate_limited"] == 1
+                  and carried["backoff_seconds"] == 0 and waits == [0],
+                  "one 429 is counted and the backoff is waited once")
             row_k = conn.execute(
+                "SELECT last_checked_at, last_check_result FROM"
+                " opportunities WHERE id = ?", (k,)).fetchone()
+            check(row_k["last_checked_at"] is None
+                  and row_k["last_check_result"] is None,
+                  "the rate-limited row is not stamped, it stays due")
+            beside = [conn.execute(
+                "SELECT last_check_result FROM opportunities WHERE id = ?",
+                (x,)).fetchone()["last_check_result"] for x in (j, m)]
+            check(beside == ["live", "live"],
+                  "the rows either side of the 429 are stamped live")
+            unknown_entry = [c for c in carried["checks"]
+                             if c["id"] == k][0]
+            check(unknown_entry["verdict"] == "unknown"
+                  and unknown_entry["reason"] == "rate limited, 429",
+                  "the 429 row is recorded unknown with its reason")
+            check(len(carried["rate_limits"]) == 1
+                  and carried["rate_limits"][0]["id"] == k
+                  and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ",
+                                   carried["rate_limits"][0]["ts"]),
+                  "every 429 is logged with a timestamp")
+            check(any(re.match(r"\d{4}-\d\d-\d\dT\S+ 429 on id", n)
+                      for n in carried["notes"]),
+                  "the run notes carry the 429 with its clock time")
+
+            p = plant("1515", "question", "2026-10-01T00:00:00Z")
+            r = plant("1616", "question", "2026-10-02T00:00:00Z")
+            q = plant("1717", "question", "2026-10-03T00:00:00Z")
+            conn.commit()
+            due_next = [row["id"] for row in
+                        check_jobs.due_candidates(conn, now_s)]
+            check(due_next == [k, p, r, q],
+                  "the 429 row is selected first by due_candidates on the"
+                  " next run")
+
+            responses["1515"] = limited("1515")
+            responses["1616"] = limited("1616")
+            responses["1717"] = live_for("1717")
+            waits.clear()
+            struck = check_jobs.run_checks(conn, cap=25, write=True,
+                                           now=now_s, pause=no_pause,
+                                           backoff=0, wait=fake_wait)
+            check(struck["due"] == 4 and struck["checked"] == 3
+                  and struck["rate_limited"] == 3,
+                  "sequence 429, 429, 429, 200: the run stops after the"
+                  " third 429")
+            check(len(waits) == 2,
+                  "the third 429 ends the run without another wait")
+            row_q = conn.execute(
                 "SELECT last_checked_at FROM opportunities WHERE id = ?",
-                (k,)).fetchone()
-            check(row_j["last_check_result"] == "unknown"
-                  and row_k["last_checked_at"] is None,
-                  "the rate-limited row stamps unknown, the next is untouched")
-            check(any("429" in n for n in stopped["notes"]),
-                  "the stop is named in the run notes")
+                (q,)).fetchone()
+            check(row_q["last_checked_at"] is None
+                  and q in [row["id"] for row in
+                            check_jobs.due_candidates(conn, now_s)],
+                  "the fourth row is untouched and still due")
+            check(any("run stopped" in n and "1 left due" in n
+                      for n in struck["notes"]),
+                  "the stop names how many rows were left")
+
+            waits.clear()
+            tallied = check_jobs.run_checks(conn, cap=25, write=False,
+                                            now=now_s, pause=no_pause,
+                                            backoff=7, wait=fake_wait)
+            check(tallied["backoff_seconds"] == 14 and waits == [7, 7],
+                  "the total backoff is the sum of the waits taken")
+
+            # The command line: the flag parses and the runs row carries
+            # the 429 count, the clock times and the backoff total.
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc_main = check_jobs.main(["--dry-run", "--db", str(db),
+                                           "--backoff", "0"])
+            printed = json.loads(buf.getvalue())
+            check(rc_main == 0 and printed["rate_limited"] == 3
+                  and printed["backoff_seconds"] == 0,
+                  "the run JSON carries the 429 count and the backoff total")
+            run_note = conn.execute(
+                "SELECT note FROM runs WHERE workflow = 'check'"
+                " ORDER BY id DESC LIMIT 1").fetchone()["note"]
+            check("3 rate limited, 429 at " in run_note
+                  and run_note.count("Z") == 3
+                  and "0s backoff" in run_note,
+                  "the runs row names the 429 count, times and backoff")
 
             responses["1313"] = (
                 0, "https://www.linkedin.com/jobs/view/1313/", "")
             failed = check_jobs.run_checks(conn, cap=25, write=True,
-                                           now=now_s, pause=no_pause)
+                                           now=now_s, pause=no_pause,
+                                           backoff=0, wait=fake_wait)
             still_k = conn.execute(
                 "SELECT last_checked_at FROM opportunities WHERE id = ?",
                 (k,)).fetchone()
