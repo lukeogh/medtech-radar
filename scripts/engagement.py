@@ -65,8 +65,10 @@ def classify(text: str) -> tuple[str, str]:
     for pattern, value, note in _RULES:
         match = pattern.search(text)
         if match:
-            if note == "IR35":
-                return value, match.group(0).strip()
+            if note == "IR35" and match.group(1):
+                # "outside IR35" or "inside IR35", the advert's word in
+                # lower case so two spellings count as one note.
+                return value, f"{match.group(1).lower()} IR35"
             return value, note
     return "unknown", ""
 
