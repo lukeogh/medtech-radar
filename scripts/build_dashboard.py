@@ -536,9 +536,10 @@ def status_chip(status) -> str:
     return f'<span class="chip{cls}">{esc(status or "new")}</span>'
 
 
-def row_open(detail_id: str, extra_class: str = "") -> str:
+def row_open(detail_id: str, extra_class: str = "", attrs: str = "") -> str:
     cls = f"row{' ' + extra_class if extra_class else ''}"
-    return (f'<div class="{cls}"><button type="button" class="row-summary"'
+    return (f'<div class="{cls}"{" " + attrs if attrs else ""}>'
+            f'<button type="button" class="row-summary"'
             f' aria-expanded="false" aria-controls="{detail_id}">'
             f'<span class="caret" aria-hidden="true"></span>')
 
@@ -644,12 +645,26 @@ def collapse_roles(rows: list) -> list:
     return out
 
 
+def engagement_chip(o: dict) -> str:
+    """Contract, Permanent or Unknown, off the stored engagement_type (J4)."""
+    word = str(o.get("engagement_type") or "unknown").strip().lower()
+    if word not in ("contract", "permanent"):
+        word = "unknown"
+    return (f'<span class="chip chip-engagement chip-{word}">'
+            f'{word.capitalize()}</span>')
+
+
 def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
     """One role, one row. Keyed on the tier and the derived state.
 
-    combined is history and shapes nothing here any more. A collapsed
-    repost chain hands its face row a _chain dict, locations rolled up
-    and the counts for the detail (J18).
+    A collapsed repost chain hands its face row a _chain dict, locations
+    rolled up and the counts for the detail (J18). The row carries its
+    region and remote flag as data attributes for the client-side
+    location filter (J6), an engagement badge (J4), the CV match as a
+    percentage (J5), and the State and Last seen cells that are the
+    row's age (J16). An unstated rate is a badge with the weight of the
+    State cell, and on a Top row it leads the row (J8). The lead line is
+    otherwise the question, or the scorer's own sentence (J9).
     """
     did = f"d-o{i}"
     chain = o.get("_chain") or {}
@@ -663,13 +678,17 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
     meta_bits = [b for b in (o.get("company"), loc_text,
                              o.get("salary_rate")) if b]
     meta = ". ".join(str(b) for b in meta_bits)
-    # The question a conversation could settle leads a question-tier row
-    # (J7, J8); everything else leads with the scorer's verdict.
+    unstated = (o.get("rate_band") or "unstated") == "unstated"
     if o.get("tier") == "question" and o.get("question_text"):
         why = o["question_text"]
+    elif o.get("tier") == "top" and unstated:
+        why = "Rate not stated, ask before anything else"
     else:
         why = o.get("one_line_why") or ""
-    out = [row_open(did, "row-acked" if acked else ""),
+    region = str(o.get("region") or "").strip().lower()
+    remote = "1" if str(o.get("location_class") or "").strip().lower() == "remote" else "0"
+    attrs = f'data-region="{esc(region)}" data-remote="{remote}"'
+    out = [row_open(did, "row-acked" if acked else "", attrs),
            '<span class="row-main"><span class="row-head">',
            f'<span class="row-title">{esc(o.get("title") or "Untitled role")}</span>']
     if meta:
@@ -680,11 +699,11 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
     out.append("</span>")
 
     if o.get("cv_match") is not None:
-        out.append(f'<span class="col-cv">{o["cv_match"]}</span>')
+        out.append(f'<span class="col-cv">{o["cv_match"]}%</span>')
     out.append(state_cell(o))
-    # The one prominent flag (J8): silence about pay is information.
-    if (o.get("rate_band") or "unstated") == "unstated":
-        out.append('<span class="chip">rate not stated</span>')
+    if unstated:
+        out.append('<span class="badge-rate">Rate not stated</span>')
+    out.append(engagement_chip(o))
     if acked:
         out.append(f'<span class="chip">seen {fmt_day(o.get("acknowledged_at"))}</span>')
     out.append(f'<span class="col-when">{esc(_ago(liveness_age_days(o)))}</span>')
@@ -701,6 +720,10 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
                  else "Failed " + ", ".join(failed) + "." if failed
                  else "No gate failed.")
         parts.append(labelled("Gates", gates))
+    if o.get("engagement_note"):
+        # The phrase that decided the badge, "fixed term" and the like.
+        word = str(o.get("engagement_type") or "unknown").capitalize()
+        parts.append(labelled("Type", f"{word}, {o['engagement_note']}"))
     flags = []
     try:
         flags = [str(f) for f in json.loads(o.get("red_flags") or "[]")]
@@ -710,21 +733,12 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
         items = "".join(f"<li>{esc(f)}</li>" for f in flags)
         parts.append(f'<span class="detail-label">Red flags</span>'
                      f'<ul class="flags">{items}</ul>')
-    if not o.get("tier"):
-        parts.append(labelled(
-            "Next step",
-            "Re-score it once the cause is fixed. It stays out of the digest "
-            "until then."))
-        parts.append("<code>python scripts/rescore.py</code>")
     if chain.get("adverts", 0) > 1:
         parts.append(
             f'<div class="row-sub">Seen {chain.get("sightings", 0)} times '
             f'across {chain["adverts"]} adverts since '
             f'{esc(fmt_day(chain.get("first")))}. A verdict here covers '
             'the whole chain.</div>')
-    if o.get("cv_version"):
-        parts.append(f'<div class="row-sub">Scored against {esc(o["cv_version"])}.</div>')
-    parts.append(f'<div class="row-sub">Via {esc(via(o.get("source")))}.</div>')
     if o.get("company_id") and o.get("company"):
         parts.append(f'<div class="row-sub"><a href="/company/'
                      f'{int(o["company_id"])}">Everything on file for '
@@ -1076,8 +1090,8 @@ a:hover{text-decoration-color:var(--accent)}
 .panel-clay{background:var(--tint-clay)}
 .row{border-top:1px solid var(--panel-rule);border-left:2px solid transparent}
 .panel-head + .row{border-top:none}
-.panel-head{display:grid;grid-template-columns:12px minmax(0,1fr) repeat(6, 88px);column-gap:var(--space-10);align-items:baseline;padding:var(--space-12) var(--space-4) var(--space-8) var(--space-8);border-bottom:1px solid var(--panel-rule);font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3)}
-.row-summary{display:grid;grid-template-columns:12px minmax(0,1fr) repeat(6, 88px);column-gap:var(--space-10);align-items:baseline;width:100%;background:none;border:none;border-radius:var(--radius-sm);padding:var(--space-12) var(--space-4) var(--space-12) var(--space-8);margin:0;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.panel-head{display:grid;grid-template-columns:12px minmax(0,1fr) repeat(5, 92px);column-gap:var(--space-10);align-items:baseline;padding:var(--space-12) var(--space-4) var(--space-8) var(--space-8);border-bottom:1px solid var(--panel-rule);font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3)}
+.row-summary{display:grid;grid-template-columns:12px minmax(0,1fr) repeat(5, 92px);column-gap:var(--space-10);align-items:baseline;width:100%;background:none;border:none;border-radius:var(--radius-sm);padding:var(--space-12) var(--space-4) var(--space-12) var(--space-8);margin:0;text-align:left;font:inherit;color:inherit;cursor:pointer}
 .row-summary[aria-expanded]:hover .row-title{color:var(--accent)}
 .row-summary:not([aria-expanded]){cursor:default}
 .caret{width:6px;height:6px;border-right:1.5px solid var(--ink-3);border-bottom:1.5px solid var(--ink-3);transform:rotate(-45deg) translateX(-1px);transform-origin:60% 60%;transition:transform var(--dur-fast) var(--ease)}
@@ -1091,14 +1105,14 @@ a:hover{text-decoration-color:var(--accent)}
 .row-sub{display:block;font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);margin-top:var(--space-4)}
 .row-detail{display:grid;gap:var(--space-12);padding:0 var(--space-8) var(--space-20) var(--space-32);max-width:var(--measure-read)}
 .row-detail[hidden]{display:none}
-.col-when{grid-column:8;font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:center}
+.col-when{grid-column:7;font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:center}
 .col-cv,.col-want,.col-score{font:var(--weight-medium) var(--text-sm)/1.55 var(--font-sans);font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:nowrap;text-align:center}
 .col-cv{grid-column:3}
 .col-want{grid-column:4}
 .col-score{grid-column:5}
 .col-score-hot{color:var(--ink-1);font-weight:var(--weight-strong)}
 .col-rate{grid-column:6;font:var(--weight-medium) var(--text-xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;white-space:nowrap;text-align:center;color:var(--ink-3)}
-.col-state{grid-column:5;font:var(--weight-medium) var(--text-xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;white-space:nowrap;text-align:center;color:var(--ink-3)}
+.col-state{grid-column:4;font:var(--weight-medium) var(--text-xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;white-space:nowrap;text-align:center;color:var(--ink-3)}
 .state-live{color:var(--ink-1);font-weight:var(--weight-strong)}
 .panel-head .h-rate{grid-column:6;text-align:center}
 .legend{font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);margin:var(--space-8) 0 0;max-width:none;text-wrap:pretty}
@@ -1183,13 +1197,23 @@ a:hover{text-decoration-color:var(--accent)}
 .act-btn:disabled{color:var(--ink-3);cursor:wait}
 .retired-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 2px;border-top:1px solid var(--hairline);color:var(--ink-2)}
 .retired-row:first-child{border-top:0}
-.row-summary > .chip{grid-column:7;justify-self:center}
+.row-summary > .chip{grid-column:6;justify-self:center}
+.badge-rate{grid-column:5;font:var(--weight-medium) var(--text-xs)/1.25 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;text-align:center;color:var(--ink-1)}
+.row[hidden]{display:none}
+.filterbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-12);margin-top:var(--space-24)}
+.filter-label{font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3)}
+details.fold > summary{list-style:none;cursor:pointer}
+details.fold > summary::-webkit-details-marker{display:none}
+details.fold > summary .section-count::after{content:", show";color:var(--ink-3)}
+details.fold[open] > summary .section-count::after{content:", hide"}
 .panel-head .h-cv{grid-column:3;text-align:center}
 .panel-head .h-want{grid-column:4;text-align:center}
 .panel-head .h-score{grid-column:5;text-align:center}
-.panel-head .h-state{grid-column:5;text-align:center}
-.panel-head .h-chip{grid-column:7;text-align:center}
-.panel-head .h-when{grid-column:8;text-align:center}
+.panel-head .h-state{grid-column:4;text-align:center}
+.panel-head .h-pay{grid-column:5;text-align:center}
+.panel-head .h-type{grid-column:6;text-align:center}
+.panel-head .h-chip{grid-column:6;text-align:center}
+.panel-head .h-when{grid-column:7;text-align:center}
 .chip{display:inline-block;font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);border-radius:var(--radius-pill);padding:1px 8px;border:1px solid var(--hairline-strong);color:var(--ink-3);white-space:nowrap}
 .chip-new{color:var(--accent);border-color:var(--accent-quiet)}
 .chip-actioned{color:var(--settled);border-color:var(--settled)}
@@ -1229,6 +1253,7 @@ code{font:400 var(--text-xs)/1.55 var(--font-mono);background:var(--surface);bor
   .col-score{grid-column:3;text-align:right}
   .col-score::before{content:"combined ";font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3)}
   .row-summary > .chip{grid-column:2;justify-self:start}
+  .badge-rate{grid-column:2;justify-self:start;text-align:left}
   .col-when{grid-column:3;text-align:right}
   .src-head{display:none}
   .src{grid-template-columns:minmax(0,1fr) auto;row-gap:var(--space-4)}
@@ -1392,14 +1417,22 @@ SERVE_SCRIPT = """
 
 def section(title: str, count, note: str, panel_class: str, body: str,
             legend: str = "", head_extra: str = "",
-            title_html: str | None = None) -> str:
+            title_html: str | None = None, fold: bool | None = None) -> str:
+    """One section. fold None is a plain section; True renders it as a
+    closed <details> with the count in its header, False an open one."""
     legend_html = f'\n<p class="legend">{esc(legend)}</p>' if legend else ""
-    return f"""<section class="section">
-<div class="section-head"><h2>{title_html or esc(title)}</h2>{head_extra}
-<span class="section-count">{count}</span></div>
-<p class="section-note">{esc(note)}</p>
+    note_html = f'\n<p class="section-note">{esc(note)}</p>' if note else ""
+    head = (f'<h2>{title_html or esc(title)}</h2>{head_extra}\n'
+            f'<span class="section-count">{count}</span>')
+    if fold is None:
+        return f"""<section class="section">
+<div class="section-head">{head}</div>{note_html}
 <div class="panel {panel_class}">{body}</div>{legend_html}
 </section>"""
+    return f"""<details class="section fold"{"" if fold else " open"}>
+<summary class="section-head">{head}</summary>{note_html}
+<div class="panel {panel_class}">{body}</div>{legend_html}
+</details>"""
 
 
 # The box-with-arrow glyph, the universal "this opens the website".
@@ -1440,11 +1473,7 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
     fresh = data["fresh"]
     data["serve"] = serve
 
-    opp_head = ('<div class="panel-head"><span></span><span>Role</span>'
-                '<span class="h-cv">CV match</span>'
-                '<span class="h-state">State</span>'
-                '<span class="h-chip"></span>'
-                '<span class="h-when">Last seen</span></div>')
+    opp_head = opp_head_html()
     sig_head = ('<div class="panel-head"><span></span><span>What happened</span>'
                 '<span class="h-score">Relevance</span>'
                 '<span class="h-chip">Push</span>'
@@ -2372,7 +2401,10 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
 
     n_threads = len(data["threads"])
     n_age = len(data["ageing"])
-    n_review = sum(1 for o in active if not o.get("tier"))
+    # Unscored roles, counted after the repost collapse, the count Jobs
+    # no longer shows. rescore.py clears them.
+    n_review = len({(o.get("role_key") or f"row-{o.get('id')}")
+                    for o in active if not o.get("tier")})
     # A booked date that has arrived is the difference between a thread
     # waiting and a thread late. Today counts as due, not overdue.
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -2392,8 +2424,9 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
             'month, the Ageing list</li>')
     if n_review:
         attention_bits.append(
-            f'<li><span class="num">{n_review}</span>awaiting a score, '
-            'rescore.py clears them</li>')
+            f'<li><span class="num">{n_review}</span>'
+            f'{"role" if n_review == 1 else "roles"} unscored, run '
+            'rescore.py</li>')
     # ---- Is the doctrine being worked. Everything else measures the market.
     tr = data.get("traction") or {}
     oc = tr.get("outcomes") or {}
@@ -2504,6 +2537,7 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
 {overview}
 {profile}
 {telemetry}{attention}{traction}{connectors}
+{add_source_strip_html(config)}
 <footer class="heartbeat">
 <ul class="heartbeat-facts">{heartbeat_facts(data)}</ul>
 {sparkline(data)}
@@ -2511,12 +2545,47 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
 <p class="end">Buttons write, everything else reads. Regenerate the static fallback with <code>python scripts/build_dashboard.py</code>.</p>
 </footer>
 </main>
-<script>{SCRIPT}{HOME_SCRIPT}</script>
+<script>{SCRIPT}{HOME_SCRIPT}{SOURCE_SCRIPT}</script>
 </body>
 </html>"""
 
 
-JOBS_SCRIPT = """
+def add_source_strip_html(config: dict) -> str:
+    """The add-a-source form, on Home since Brief B. Jobs is roles only (J11).
+
+    The receipt line only earns ink once a custom source exists, and there
+    is no delete button on purpose, removal is a hand-edit of the yaml.
+    """
+    registry = [dict(x) for x in radar_common.load_job_sources()]
+    builtin = {x["id"] for x in radar_common.BUILTIN_JOB_SOURCES}
+    customs = [x for x in registry
+               if x["id"] not in builtin and x.get("sender_contains")]
+    customs_line = ""
+    if customs:
+        named = ", ".join(
+            f"{esc(s['name'])} (matches {esc(s['sender_contains'])})"
+            for s in customs)
+        customs_line = (f'<p class="legend">Added so far: {named}. Edit or '
+                        "remove them by hand in config/job_sources.yaml.</p>")
+    return f"""<div class="add-source-strip">
+<p class="section-rule">Add a job source</p>
+<div class="add-source">
+<input type="text" id="src-name" placeholder="Board name, e.g. Technojobs">
+<input type="text" id="src-sender" placeholder="Sender contains, e.g. technojobs">
+<input type="text" id="src-url" placeholder="Site, optional, e.g. technojobs.co.uk">
+<button type="button" class="act-btn" id="src-add">Add the source</button>
+<span class="board-note" id="src-note"></span>
+</div>
+<p class="legend">A new board files its emails under its own name here.
+Subscribing {esc(config.get('aggregator_email', 'the aggregator inbox'))}
+to its alerts on the board itself is still yours to do, and unrecognised
+senders are scored anyway under Other email alerts.</p>
+{customs_line}
+</div>
+"""
+
+
+SOURCE_SCRIPT = """
 (function () {
   var addBtn = document.getElementById('src-add');
   var nameIn = document.getElementById('src-name');
@@ -2547,29 +2616,62 @@ JOBS_SCRIPT = """
 """
 
 
-def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
-    """The Jobs page. Tiers in the draft's order, one row per role.
+JOBS_SCRIPT = """
+(function () {
+  var group = document.getElementById('loc-filter');
+  if (!group) return;
+  var buttons = group.querySelectorAll('[data-loc]');
+  function apply(loc) {
+    document.querySelectorAll('.row[data-region]').forEach(function (row) {
+      var show = loc === 'all'
+        || (loc === 'remote' ? row.dataset.remote === '1' : row.dataset.region === loc);
+      row.hidden = !show;
+    });
+    document.querySelectorAll('.section').forEach(function (sec) {
+      var rows = sec.querySelectorAll('.row[data-region]');
+      var count = sec.querySelector('.section-count');
+      if (!rows.length || !count) return;
+      if (!count.dataset.total) count.dataset.total = count.textContent;
+      var shown = Array.prototype.filter.call(rows, function (r) { return !r.hidden; }).length;
+      count.textContent = loc === 'all' ? count.dataset.total : shown + ' of ' + count.dataset.total;
+    });
+    buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.loc === loc)); });
+    try { localStorage.setItem('radar-location', loc); } catch (err) {}
+  }
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () { apply(b.dataset.loc); });
+  });
+  var saved = 'all';
+  try { saved = localStorage.getItem('radar-location') || 'all'; } catch (err) {}
+  if (!Array.prototype.some.call(buttons, function (b) { return b.dataset.loc === saved; })) saved = 'all';
+  apply(saved);
+})();
+"""
 
-    Top prospects, One question away, Reading, Ageing, then Needs
-    review and the Filtered roll-up (J2). Within a tier the freshest
-    sighting leads (J3), a repost chain collapses to its newest advert
-    (J18), and every row carries Live or Unknown, never a closed role
-    (J12). Telemetry lives on Home, the market widgets on Insights;
-    this page is roles and the add-source strip (J11).
+LOCATION_FILTERS = (("all", "All"), ("local", "Local"), ("uk", "UK"),
+                    ("europe", "Europe"), ("elsewhere", "Elsewhere"),
+                    ("remote", "Remote"))
+
+
+def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
+    """The Jobs page. Tiers in the agreed order, one row per role.
+
+    Top prospects open, One question away and Reading folded with their
+    counts in the header, Filtered a count line (J1, J2). One collapse
+    across every tier, so a role whose adverts span tiers appears once,
+    in the tier of its freshest advert (J18). Freshest first within a
+    tier (J3). Age is the State and Last seen cells on the row, there is
+    no Ageing section (J16). Unscored roles are counted on Home, not
+    here. Roles only, the add-source strip lives on Home (J11). The
+    location filter is client side, remembered like the appearance
+    switcher (J6).
     """
     data["serve"] = True
     now = radar_common.now_iso()
     counter = 0
-    # ---- The page opens on the tiers. Nothing renders above them. The
-    # machine, the flow and board freshness are operating telemetry and
-    # live on Home beside the heartbeat, because a person opening Jobs
-    # came for roles, not for whether cron ran.
-    tiers = data.get("tiers") or {}
-    ungated = data.get("ungated") or []
 
     def by_fresh(rows):
-        # Newest sighting first within a tier (J3). cv_match had its
-        # day as the sort; the freshest sign of life matters more.
+        # Newest sighting first within a tier (J3).
         return sorted(rows, key=radar_common.latest_liveness, reverse=True)
 
     def tier_rows(rows):
@@ -2580,115 +2682,53 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
             out.append(render_opportunity(o, data, counter))
         return "".join(out)
 
-    top = by_fresh(collapse_roles(tiers.get("top") or []))
-    question = by_fresh(collapse_roles(tiers.get("question") or []))
-    reading = by_fresh(collapse_roles(tiers.get("reading") or []))
-    needs_look = by_fresh(collapse_roles(ungated))
-    filtered = tiers.get("filtered") or []
+    # One collapse over every open row, filtered and unscored included, so
+    # a role appears once on the page. Its face is its freshest advert and
+    # the face's tier is the tier it sits in.
+    faces = collapse_roles(data.get("opportunities") or [])
+    by_tier: dict = {}
+    for face in faces:
+        by_tier.setdefault(face.get("tier") or "", []).append(face)
+    top = by_fresh(by_tier.get("top") or [])
+    question = by_fresh(by_tier.get("question") or [])
+    reading = by_fresh(by_tier.get("reading") or [])
+    filtered = by_tier.get("filtered") or []
 
-    # Top prospects never backfills. With nothing through all four gates it
-    # says so and shows nothing, rather than falling back to the best of a
-    # bad week, because a page that always finds something to be excited
-    # about teaches you to stop believing it.
+    # Top prospects never backfills (J10).
     if top:
         top_body = tier_rows(top)
     else:
         top_body = ('<p class="empty">Nothing to get excited about this week.</p>')
-    body = section(
-        "Top prospects", len(top),
-        "All four gates passed. An unstated rate sits here carrying its flag, "
-        "because missing information is not a blocker.",
-        "panel-blue", top_body)
-
+    body = section("Top prospects", len(top), "All four gates passed.",
+                   "panel-blue", top_body)
     if question:
         body += section(
             "One question away", len(question),
-            "Exactly one movable gate failed. The question a conversation "
-            "could settle leads each row.",
-            "panel-stone", tier_rows(question))
-
+            "One movable gate failed. The question leads each row.",
+            "panel-stone", tier_rows(question), fold=True)
     if reading:
         body += section(
-            "Reading", len(reading),
-            "Real roles that did not gate. The failed gate is the verdict. "
-            "Market intel for the field notes.",
-            "panel-stone", tier_rows(reading))
-
-    # J2 fixes the order of the named sections, so Ageing follows
-    # Reading. Needs review is not a tier in the draft and waits its
-    # turn behind them. The ageing list carries adverts and watcher
-    # signals because the archive renders both; Jobs is for roles.
-    ageing = by_fresh(collapse_roles(
-        [a for a in (data.get("ageing") or [])
-         if a.get("kind") == "opportunity"]))
-    if ageing:
-        body += section(
-            "Ageing", len(ageing),
-            "Unknown for over a month, no sighting and no live check. "
-            "Close them, dismiss them, or leave them for the forty-five "
-            "day expiry.",
-            "panel-stone", tier_rows(ageing))
-
-    if needs_look:
-        body += section(
-            "Needs review", len(needs_look),
-            "Scored before the gates existed, or the scorer could not judge "
-            "them. Run rescore.py.",
-            "panel-stone", tier_rows(needs_look))
-
+            "Reading", len(reading), "Real roles that did not gate.",
+            "panel-stone", tier_rows(reading), fold=True)
     if filtered:
-        reasons = {}
+        reasons: dict = {}
         for o in filtered:
-            reasons[o.get("filter_reason") or "filtered"] = \
-                reasons.get(o.get("filter_reason") or "filtered", 0) + 1
+            reason = o.get("filter_reason") or "filtered"
+            reasons[reason] = reasons.get(reason, 0) + 1
         roll = ", ".join(f"{n} {esc(r)}" for r, n in
                          sorted(reasons.items(), key=lambda kv: -kv[1]))
         body += (f'<p class="legend" style="margin-top:24px">Filtered, '
-                 f'{len(filtered)}. {roll}. Full records keep a filter reason '
-                 f'so the filter can be audited.</p>')
+                 f'{len(filtered)} {"role" if len(filtered) == 1 else "roles"}.'
+                 f' {roll}.</p>')
 
-    # The analysis widgets moved to Insights with the market intel they
-    # are. Jobs carries roles, the roll-up and the add-source strip,
-    # nothing else (J11).
-
-    # The registry, only for the add-source strip's receipt line now that
-    # board sections are gone and the freshness lights live on Home.
-    registry = [dict(x) for x in radar_common.load_job_sources()]
-    _builtin = {x["id"] for x in radar_common.BUILTIN_JOB_SOURCES}
-    customs = [x for x in registry
-               if x["id"] not in _builtin and x.get("sender_contains")]
-
-    # The add-source strip keeps its footer weight at the very bottom. The
-    # receipt line only earns ink once a custom source exists, and there is
-    # no delete button on purpose, removal is a hand-edit of the yaml.
-    customs_line = ""
-    if customs:
-        named = ", ".join(
-            f"{esc(s['name'])} (matches {esc(s['sender_contains'])})"
-            for s in customs)
-        customs_line = (f'<p class="legend">Added so far: {named}. Edit or '
-                        "remove them by hand in config/job_sources.yaml.</p>")
-
-    body += f"""<div class="add-source-strip">
-<p class="section-rule">Add a job source</p>
-<div class="add-source">
-<input type="text" id="src-name" placeholder="Board name, e.g. Technojobs">
-<input type="text" id="src-sender" placeholder="Sender contains, e.g. technojobs">
-<input type="text" id="src-url" placeholder="Site, optional, e.g. technojobs.co.uk">
-<button type="button" class="act-btn" id="src-add">Add the source</button>
-<span class="board-note" id="src-note"></span>
-</div>
-<p class="legend">A new board files its emails under its own name here.
-Subscribing {esc(config.get('aggregator_email', 'the aggregator inbox'))}
-to its alerts on the board itself is still yours to do, and unrecognised
-senders are scored anyway under Other email alerts.</p>
-{customs_line}
-</div>
-"""
-    # Board grouping died as an organising principle on 3 August. A role's
-    # board is one fact on its row, and board freshness is telemetry that
-    # belongs on Home. No section per board, no empty shelves inviting
-    # subscriptions, and no role rendered twice.
+    filterbar = (
+        '<div class="filterbar"><span class="filter-label">Location</span>'
+        '<span class="segmented" role="group" aria-label="Location" id="loc-filter">'
+        + "".join(
+            f'<button type="button" data-loc="{key}" '
+            f'aria-pressed="{"true" if key == "all" else "false"}">{label}</button>'
+            for key, label in LOCATION_FILTERS)
+        + '</span></div>')
 
     return f"""<!doctype html>
 <html lang="en-GB" data-appearance="auto">
@@ -2716,6 +2756,7 @@ Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
 </span>
 </div>
 </header>
+{filterbar}
 {body}
 </main>
 <script>{SCRIPT}{SERVE_SCRIPT}{JOBS_SCRIPT}</script>
@@ -2727,7 +2768,8 @@ def opp_head_html() -> str:
     return ('<div class="panel-head"><span></span><span>Role</span>'
             '<span class="h-cv">CV match</span>'
             '<span class="h-state">State</span>'
-            '<span class="h-chip"></span>'
+            '<span class="h-pay">Rate</span>'
+            '<span class="h-type">Type</span>'
             '<span class="h-when">Last seen</span></div>')
 
 
