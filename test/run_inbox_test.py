@@ -274,8 +274,9 @@ def main() -> int:
     check(caldora_row is not None
           and caldora_row["pay_period"] == "year"
           and round(caldora_row["day_rate"]) == 432
-          and caldora_row["rate_band"] == "below",
-          "Caldora's salary converts by 220 working days and bands below"
+          and caldora_row["rate_band"] == "close",
+          "Caldora's £95,000 keeps its 220-day comparison column and bands"
+          " close against the £100,000 salary floor"
           + (f" (got {dict(caldora_row) if caldora_row else None})"))
     meridian_row = band_of("Meridian%")
     check(meridian_row is not None

@@ -105,30 +105,48 @@ def main() -> int:
           == radar_common.url_hash("https://EXAMPLE.com/page/?q=term"),
           "case, trailing slash and utm noise normalise away, the real query stays")
 
-    # ----- the floor line, real file then loud failure
+    # ----- the two floor lines, real file then loud failure
     try:
-        floor = radar_common.read_rate_floor(CFG)
-        check(floor == 650.0, f"the preferences floor line reads 650 (got {floor})")
+        floors = radar_common.read_rate_floors(CFG)
+        check(floors["day"] > 0 and floors["salary"] > floors["day"],
+              f"the preferences file carries both floors (got {floors})")
+        check(radar_common.read_rate_floor(CFG) == floors["day"],
+              "the day-floor reader returns the day line")
     except RuntimeError as err:
-        check(False, f"the preferences floor line reads without error ({err})")
+        check(False, f"the preferences floor lines read without error ({err})")
 
     with tempfile.TemporaryDirectory() as tmp:
+        both = Path(tmp) / "both.md"
+        both.write_text("# Preferences\n\nday_rate_floor_gbp: 750\n"
+                        "salary_floor_gbp: 100000\n", encoding="utf-8")
+        got = radar_common.read_rate_floors({"prefs_file": str(both.resolve())})
+        check(got == {"day": 750.0, "salary": 100000.0},
+              f"both lines parse to their numbers (got {got})")
         bare = Path(tmp) / "prefs.md"
         bare.write_text("# Preferences\n\nNo floor line here.\n", encoding="utf-8")
         rel = bare.resolve()
         try:
-            radar_common.read_rate_floor({"prefs_file": str(rel)})
-            check(False, "a preferences file without the floor line fails loudly")
+            radar_common.read_rate_floors({"prefs_file": str(rel)})
+            check(False, "a preferences file without the floor lines fails loudly")
         except RuntimeError as err:
             check("day_rate_floor_gbp" in str(err),
                   "the loud failure names the missing line and the fix")
+        day_only = Path(tmp) / "day.md"
+        day_only.write_text("day_rate_floor_gbp: 750\n", encoding="utf-8")
+        try:
+            radar_common.read_rate_floors({"prefs_file": str(day_only.resolve())})
+            check(False, "a file with only the day floor fails loudly")
+        except RuntimeError as err:
+            check("salary_floor_gbp" in str(err),
+                  "the loud failure names the missing salary line")
 
     # ----- the dashboard-editable preference lines, surgical and loud
     with tempfile.TemporaryDirectory() as tmp:
         prefs = Path(tmp) / "prefs.md"
         prefs.write_text(
             "# Preferences.\n\n## Rates.\n\nProse stays untouched.\n\n"
-            "day_rate_floor_gbp: 650\n\nMore prose after.\n",
+            "day_rate_floor_gbp: 650\nsalary_floor_gbp: 100000\n\n"
+            "More prose after.\n",
             encoding="utf-8")
         cfg2 = {"prefs_file": str(prefs)}
         check(radar_common.read_pref_line("day_rate_floor_gbp", cfg2) == "650",
@@ -207,9 +225,11 @@ def main() -> int:
                 conn.execute("SELECT * FROM opportunities")}
         check(rows["bf1"]["rate_band"] == "above",
               f"backfill bands the £800 day rate above (got {rows['bf1']['rate_band']})")
-        check(rows["bf2"]["rate_band"] == "below"
+        check(rows["bf2"]["rate_band"] == "close"
               and round(rows["bf2"]["day_rate"]) == 432,
-              "backfill converts the £95k salary and bands it below")
+              "backfill keeps the £95k salary's 220-day comparison column and"
+              " bands it close against the salary floor"
+              f" (got {rows['bf2']['rate_band']})")
         check(rows["bf2"]["one_line_why"] == "Kept prose about the fit.",
               "backfill leaves stored why text alone")
         check(rows["bf3"]["rate_band"] == "unstated",
@@ -1176,9 +1196,10 @@ def main() -> int:
         check(this_month_count == 1,
               f"a relevance-20 signal does not move the annual line "
               f"(this month counts {this_month_count})")
+        _floor_now = radar_common.read_rate_floor(CFG)
         check('id="pref-day_rate_floor_gbp"' in home
-              and 'value="650"' in home,
-              "the scoring panel shows the live floor")
+              and f'value="{_floor_now:g}"' in home,
+              f"the scoring panel shows the live floor, {_floor_now:g}")
         check('id="pref-target_title"' in home
               and 'id="pref-keywords"' in home,
               "title and keywords are editable from the panel")
@@ -1938,28 +1959,139 @@ def main() -> int:
     import score_item as _si
 
     G = lambda **k: {"sector": True, "cv": True, "location": True, "rate": True, **k}
-    for label, gates, basis, cv, real, want in (
-            ("all four gates pass", G(), "", 84, True, "top"),
-            ("all pass, rate unstated", G(), "", 84, True, "top"),
-            ("location alone fails", G(location=False), "", 84, True, "question"),
-            ("stated day rate alone fails", G(rate=False), "day-rate", 84, True, "question"),
-            ("rate from a salary alone fails", G(rate=False), "converted-salary", 84, True, "reading"),
-            ("sector alone fails", G(sector=False), "", 84, True, "reading"),
-            ("cv alone fails", G(cv=False), "", 68, True, "reading"),
-            ("two gates fail", G(location=False, rate=False), "", 84, True, "reading"),
-            ("cv under forty", G(cv=False), "", 22, True, "filtered"),
-            ("not a real role", G(), "", 84, False, "filtered")):
-        got = _si.derive_tier(gates, basis, cv, real)["tier"]
+    for label, gates, cv, real, want in (
+            ("all four gates pass", G(), 84, True, "top"),
+            ("all pass, rate unstated", G(rate=None), 84, True, "top"),
+            ("location alone fails", G(location=False), 84, True, "question"),
+            ("rate alone fails, whatever its basis", G(rate=False), 84, True, "question"),
+            ("sector alone fails", G(sector=False), 84, True, "reading"),
+            ("cv alone fails", G(cv=False), 68, True, "reading"),
+            ("two gates fail", G(location=False, rate=False), 84, True, "reading"),
+            ("cv under forty", G(cv=False), 22, True, "filtered"),
+            ("not a real role", G(), 84, False, "filtered")):
+        got = _si.derive_tier(gates, cv, real)["tier"]
         check(got == want, f"{label} lands in {want} (got {got})")
 
-    check(_si.derive_tier(G(sector=False), "", 84, True)["failed_gates"] == ["sector"],
+    check(_si.derive_tier(G(sector=False), 84, True)["failed_gates"] == ["sector"],
           "the failed gate is recorded as the verdict")
-    check(_si.derive_tier(G(cv=False), "", 22, True)["filter_reason"] == "cv match under 40",
+    check(_si.derive_tier(G(cv=False), 22, True)["filter_reason"] == "cv match under 40",
           "a filtered row records why, so the filter can be audited")
     check(_si.question_for(G(location=False), {}) == "Would they go remote",
           "the location question is the one a conversation could settle")
     check(_si.question_for(G(rate=False), {}) == "Would they move on the rate",
           "the rate question likewise")
+
+    # Two floors, no conversion. The rate gate is judged in code from the
+    # extractor's pay columns, each figure against the floor of its own
+    # kind, and the tier follows from the gate alone.
+    floors = {"day": 750.0, "salary": 100000.0}
+
+    def land(currency, period, lo, hi):
+        pay = radar_common.gate_pay(currency, period, lo, hi, floors, CFG)
+        gates = G(rate=pay["gate"])
+        return pay, _si.derive_tier(gates, 84, True)["tier"]
+
+    for label, args, want_gate, want_basis, want_tier in (
+            ("day rate 700 fails", ("GBP", "day", 700, 700), False, "day-rate", "question"),
+            ("day rate 750 passes", ("GBP", "day", 750, 750), True, "day-rate", "top"),
+            ("salary 95000 fails against the salary floor", ("GBP", "year", 95000, 95000), False, "salary", "question"),
+            ("salary 100000 passes, never divided by 220", ("GBP", "year", 100000, 100000), True, "salary", "top"),
+            ("hourly 90 is 720 a day and fails the 750 day floor", ("GBP", "hour", 90, 90), False, "hourly", "question"),
+            ("hourly 94 is 752 a day and passes", ("GBP", "hour", 94, 94), True, "hourly", "top"),
+            ("a salary range gates on its top figure", ("GBP", "year", 90000, 110000), True, "salary", "top"),
+            ("a euro day rate converts at 0.85 then meets the day floor", ("EUR", "day", 950, 1100), True, "day-rate", "top")):
+        pay, tier = land(*args)
+        check(pay["gate"] is want_gate and pay["basis"] == want_basis and tier == want_tier,
+              f"{label}, lands in {want_tier} (got gate {pay['gate']}, {pay['basis']}, {tier})")
+    pay, tier = land("", "", None, None)
+    check(pay["gate"] is None and pay["basis"] == "unstated" and tier == "top",
+          f"unstated passes as unknown and lands in top (got {pay}, {tier})")
+    pay, tier = land("USD", "year", 350000, 350000)
+    check(pay["gate"] is None and tier == "top",
+          "a currency with no conversion is unstated, never guessed")
+    pay, _ = land("GBP", "year", 96000, 96000)
+    check(pay["band"] == "close" and pay["floor"] == 100000.0,
+          "a salary within five thousand of its floor bands close")
+    pay, _ = land("GBP", "day", 700, 700)
+    check(pay["band"] == "close", "a day rate within fifty of its floor bands close")
+    pay, _ = land("GBP", "year", 60000, 60000)
+    check(pay["band"] == "below", "a salary well under its floor bands below")
+    note = _si.rate_gate_note(radar_common.gate_pay("GBP", "year", 95000, 95000, floors, CFG))
+    check(note == "Stated salary £95,000 against the £100,000 floor, below, judged in code.",
+          f"the code's rate note names the figure, the floor and the verdict (got {note!r})")
+
+    # The code gate overrides the model's rate verdict whenever a figure
+    # was stored, and leaves it alone for a silent advert.
+    _os.environ["RADAR_MOCK"] = "1"
+    try:
+        import mocks as _mocks
+        sys_blocks = [{"type": "text", "text": "rubric"}]
+        cfg_score = dict(CFG, claude_model_score="mock-scorer")
+        salaried = {"company": "Veltrix Diagnostics", "title": "Director of Software",
+                    "location": "Ghent, Belgium (Hybrid)", "salary_rate": "£95,000 per annum",
+                    "pay_currency": "GBP", "pay_period": "year", "pay_min": 95000, "pay_max": 95000,
+                    "source_url": "https://example.com/a"}
+        scored, _, _ = _si.score_opportunity(salaried, sys_blocks, cfg_score,
+                                             mock_fn=_mocks.mock_scorer, floors=floors)
+        check(scored["tier"] == "question" and scored["gate_rate"] == 0
+              and scored["rate_basis"] == "salary" and scored["rate_value"] == 95000.0
+              and scored["question_text"] == "Would they move on the rate"
+              and "judged in code" in scored["gate_rate_note"],
+              f"a salary under the salary floor lands one question away with the rate as the question (got {scored['tier']}, {scored['gate_rate_note']!r})")
+        silent = dict(salaried, salary_rate="", pay_currency="", pay_period="",
+                      pay_min=None, pay_max=None)
+        scored, _, _ = _si.score_opportunity(silent, sys_blocks, cfg_score,
+                                             mock_fn=_mocks.mock_scorer, floors=floors)
+        check(scored["tier"] == "top" and scored["gate_rate"] == 1
+              and scored["rate_basis"] == "unstated",
+              f"a silent advert keeps the model's pass and lands in top (got {scored['tier']})")
+    finally:
+        _os.environ.pop("RADAR_MOCK", None)
+
+    # Engagement type, one fixture per rule plus the no-match case.
+    import engagement as _eng
+    for text, want, want_note in (
+            ("Software Director, 6 month fixed term contract", "permanent", "fixed term"),
+            ("Head of Software (FTC)", "permanent", "fixed term"),
+            ("Interim Head of Quality", "contract", "interim"),
+            ("Principal Engineer £600 per day", "contract", "day rate"),
+            ("Day rate role, outside IR35", "contract", "day rate"),
+            ("Regulatory Lead, outside IR35", "contract", "outside IR35"),
+            ("QA Manager, contract", "contract", "contract"),
+            ("Software Director, permanent", "permanent", "permanent"),
+            ("Head of Software, perm role", "permanent", "permanent"),
+            ("Director of Engineering £120,000 per annum", "unknown", ""),
+            ("", "unknown", "")):
+        got, note = _eng.classify(text)
+        check(got == want and note == want_note,
+              f"engagement {text!r} reads {want} with note {want_note!r} (got {got}, {note!r})")
+    check(_eng.normalise("Permanent") == "permanent" and _eng.normalise("gig") == "unknown"
+          and _eng.normalise(None) == "unknown",
+          "a model answer is clamped to the three allowed words")
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "engage.sqlite")
+        for h, title, pay, ir35 in (("e1", "Interim CTO", "", None),
+                                    ("e2", "Head of QA", "£600 per day", None),
+                                    ("e3", "Software Director", "£120k", "outside"),
+                                    ("e4", "Software Director", "£120k", None)):
+            conn.execute("INSERT INTO opportunities (url_hash, first_seen, title,"
+                         " company, salary_rate, ir35) VALUES (?,?,?,?,?,?)",
+                         (h, "2026-11-01T00:00:00Z", title, "Co", pay, ir35))
+        conn.commit()
+        dry = _eng.backfill(conn, write=False)
+        check(dry["counts"] == {"contract": 3, "permanent": 0, "unknown": 1}
+              and conn.execute("SELECT COUNT(*) FROM opportunities WHERE"
+                               " engagement_type IS NOT NULL").fetchone()[0] == 0,
+              f"the dry backfill counts three contract and one unknown and writes nothing (got {dry['counts']})")
+        wet = _eng.backfill(conn, write=True)
+        stored = {r[0]: (r[1], r[2]) for r in conn.execute(
+            "SELECT url_hash, engagement_type, engagement_note FROM opportunities")}
+        check(stored == {"e1": ("contract", "interim"), "e2": ("contract", "day rate"),
+                         "e3": ("contract", "outside IR35"), "e4": ("unknown", None)},
+              f"the backfill writes the type and the deciding phrase (got {stored})")
+        check(_eng.backfill(conn, write=True)["examined"] == 0,
+              "a second backfill finds nothing left to set")
+        conn.close()
 
     # Traction and the connector circle. Counting rules, pinned, because a
     # metric nobody has checked the arithmetic of is a rumour with a number.

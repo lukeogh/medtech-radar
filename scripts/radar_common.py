@@ -134,6 +134,12 @@ _MIGRATIONS = (
     ("opportunities", "rate_basis", "TEXT"),
     ("opportunities", "ir35", "TEXT"),
     ("opportunities", "location_class", "TEXT"),
+    # Engagement type, contract or permanent or unknown, read off the
+    # advert by the scorer for new rows and by the regex backfill for the
+    # backlog. The note is the phrase that decided it, so nothing is
+    # asserted that the advert did not say.
+    ("opportunities", "engagement_type", "TEXT"),
+    ("opportunities", "engagement_note", "TEXT"),
     # Closure detection, stage one. A duplicate card in an alert is a
     # sighting of a live advert, so the row keeps the latest date and a
     # count instead of discarding them at the door. seen_count carries its
@@ -782,14 +788,23 @@ def add_job_source(name: str, sender_contains: str,
 
 # ----------------------------------------------------------------- rate bands
 
-# Salaried pay converts to a day rate at this many working days a year, per
-# the preferences file's own comparison rule.
+# Salaried pay converts to a day rate at this many working days a year for
+# the market panel's comparison column only. Gating never converts: a
+# salary is judged as a salary against the salary floor.
 WORKING_DAYS_PER_YEAR = 220
 HOURS_PER_DAY = 8
-CLOSE_BAND_GBP = 50  # under the floor by up to this much reads as close
+CLOSE_BAND_GBP = 50           # a day rate under its floor by up to this reads as close
+SALARY_CLOSE_BAND_GBP = 5000  # a salary under its floor by up to this reads as close
 
-_FLOOR_LINE = re.compile(r"^day_rate_floor_gbp:\s*([0-9]+(?:\.[0-9]+)?)\s*$",
-                         re.IGNORECASE | re.MULTILINE)
+# The two machine-readable lines in the preferences file. Both are required.
+_FLOOR_LINES = (
+    ("day", "day_rate_floor_gbp", "750",
+     re.compile(r"^day_rate_floor_gbp:\s*([0-9]+(?:\.[0-9]+)?)\s*$",
+                re.IGNORECASE | re.MULTILINE)),
+    ("salary", "salary_floor_gbp", "100000",
+     re.compile(r"^salary_floor_gbp:\s*([0-9]+(?:\.[0-9]+)?)\s*$",
+                re.IGNORECASE | re.MULTILINE)),
+)
 
 
 # The labelled lines the dashboard may edit inside the preferences file.
@@ -866,15 +881,17 @@ def update_pref_line(key: str, value: str,
     return value
 
 
-def read_rate_floor(config: dict | None = None) -> float:
-    """The day-rate floor in GBP, from the one machine-readable line.
+def read_rate_floors(config: dict | None = None) -> dict:
+    """Both floors in GBP, {"day": ..., "salary": ...}, from the two lines.
 
-    The preferences file is the single home of desire, so the floor lives
-    there as a clearly labelled line, day_rate_floor_gbp: 650, read by both
-    the scorer prompt (the model sees the whole file) and this code. Live
-    copy first, tracked template second, loud failure when neither carries
-    the line, because banding against a guessed floor would be worse than
-    no banding at all.
+    The preferences file is the single home of desire, so the floors live
+    there as two clearly labelled lines, day_rate_floor_gbp and
+    salary_floor_gbp, read by both the scorer prompt (the model sees the
+    whole file) and this code. A stated day rate meets the day floor, an
+    hourly rate times eight meets the day floor, an annual salary meets
+    the salary floor, and nothing converts between them. Live copy first,
+    tracked template second, loud failure when either line is missing,
+    because gating against a guessed floor would be worse than no gating.
     """
     config = config or load_config()
     prefs_rel = config.get("prefs_file", "config/profile/preferences.md")
@@ -882,16 +899,25 @@ def read_rate_floor(config: dict | None = None) -> float:
                   REPO_ROOT / "config" / "preferences.template.md"]
     for path in candidates:
         if path.exists():
-            match = _FLOOR_LINE.search(path.read_text(encoding="utf-8"))
-            if match:
-                return float(match.group(1))
-            raise RuntimeError(
-                f"No day_rate_floor_gbp line in {path}. Add one to the Rates "
-                "section, for example 'day_rate_floor_gbp: 650', so banding "
-                "and the scorer read the same floor.")
+            text = path.read_text(encoding="utf-8")
+            floors = {}
+            for name, key, example, pattern in _FLOOR_LINES:
+                match = pattern.search(text)
+                if not match:
+                    raise RuntimeError(
+                        f"No {key} line in {path}. Add one to the Rates "
+                        f"section, for example '{key}: {example}', so "
+                        "gating and the scorer read the same floors.")
+                floors[name] = float(match.group(1))
+            return floors
     raise RuntimeError(
-        "No preferences file found for the rate floor. Expected "
+        "No preferences file found for the rate floors. Expected "
         f"{candidates[0]} or {candidates[1]}.")
+
+
+def read_rate_floor(config: dict | None = None) -> float:
+    """The day-rate floor alone, for the readers that label day rates."""
+    return read_rate_floors(config)["day"]
 
 
 def convert_to_day_rate(currency, period, pay_min, pay_max,
@@ -927,15 +953,67 @@ def convert_to_day_rate(currency, period, pay_min, pay_max,
     return amount
 
 
-def band_for(day_rate: float | None, floor: float) -> str:
-    """above | close | below | unstated, judged in code, never by the model."""
-    if day_rate is None:
+def band_for(figure: float | None, floor: float,
+             close_band: float = CLOSE_BAND_GBP) -> str:
+    """above | close | below | unstated, judged in code, never by the model.
+
+    The figure and the floor share a basis: a day rate against the day
+    floor, a salary against the salary floor with its own wider close band.
+    """
+    if figure is None:
         return "unstated"
-    if day_rate >= floor:
+    if figure >= floor:
         return "above"
-    if day_rate >= floor - CLOSE_BAND_GBP:
+    if figure >= floor - close_band:
         return "close"
     return "below"
+
+
+def gate_pay(currency, period, pay_min, pay_max, floors: dict,
+             config: dict | None = None) -> dict:
+    """The rate gate, judged in code from what the extractor stored.
+
+    A stated day rate meets the day floor, an hourly rate times eight
+    meets the day floor, an annual salary meets the salary floor. No
+    figure converts into another period, so a £100k salary is judged as
+    £100k and never as £455 a day. A range gates on its top figure, the
+    best case. Euro amounts convert at eur_to_gbp from radar.yaml, and a
+    currency with no configured conversion reads as unstated rather than
+    guessed. gate is None when nothing usable is stated, and the caller
+    lets that pass as unknown, because silence is a question, not a fail.
+    """
+    out = {"gate": None, "figure": None, "basis": "unstated",
+           "floor": None, "band": "unstated"}
+
+    def num(value):
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    amounts = [a for a in (num(pay_min), num(pay_max)) if a and a > 0]
+    if not amounts:
+        return out
+    amount = max(amounts)
+    period = (period or "").strip().lower()
+    if period == "year":
+        basis, floor, close = "salary", floors["salary"], SALARY_CLOSE_BAND_GBP
+    elif period == "day":
+        basis, floor, close = "day-rate", floors["day"], CLOSE_BAND_GBP
+    elif period == "hour":
+        basis, floor, close = "hourly", floors["day"], CLOSE_BAND_GBP
+        amount *= HOURS_PER_DAY
+    else:
+        return out
+    currency = (currency or "").strip().upper()
+    if currency == "EUR":
+        config = config or load_config()
+        amount *= float(config.get("eur_to_gbp", 0.85))
+    elif currency != "GBP":
+        return out
+    out.update(gate=amount >= floor, figure=amount, basis=basis,
+               floor=floor, band=band_for(amount, floor, close))
+    return out
 
 
 def extract_json(text: str) -> dict:

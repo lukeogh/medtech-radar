@@ -57,10 +57,12 @@ CREATE TABLE IF NOT EXISTS opportunities (
   question_text     TEXT,             -- the one question, question tier only
   filter_reason     TEXT,             -- why it was filtered, auditable
   rate_stated       INTEGER,          -- 1 the advert stated pay, 0 silent
-  rate_value        REAL,             -- the gating figure, a day rate in GBP
-  rate_basis        TEXT,             -- day-rate | converted-salary
+  rate_value        REAL,             -- the gating figure in GBP, in its own basis
+  rate_basis        TEXT,             -- day-rate | hourly | salary | unstated
   ir35              TEXT,             -- inside | outside, recorded never gated
-  location_class    TEXT              -- remote | hybrid | local | relocation | onsite-far
+  location_class    TEXT,             -- remote | hybrid | local | relocation | onsite-far
+  engagement_type   TEXT,             -- contract | permanent | unknown, off the advert
+  engagement_note   TEXT              -- the phrase that decided it, "fixed term" and the like
 );
 
 -- The landscape is companies, not rows. One row per company, keyed on the

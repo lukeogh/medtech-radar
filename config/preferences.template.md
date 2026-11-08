@@ -17,15 +17,18 @@ Generic testing roles and generic software roles score low regardless of pay.
 
 ## Rates.
 
-Director level day rates in line with the current engagement. The floor is
-the machine-readable line below, which the scorer and the rate banding code
-both read, so changing the number here changes it everywhere at once.
+Director level day rates in line with the current engagement, and a salary
+floor for permanent posts. The two machine-readable lines below are read by
+the scorer and by the gating code, so changing a number here changes it
+everywhere at once. A day rate meets the day floor, an hourly rate times
+eight meets the day floor, and an annual salary meets the salary floor as
+stated. Nothing converts between them.
 
-day_rate_floor_gbp: 650
+day_rate_floor_gbp: 750
+salary_floor_gbp: 100000
 
-Anything under the floor scores want_match low whatever the other merits,
-even when the CV match is high. Salaried roles convert at roughly 220
-working days a year for comparison.
+A stated figure under its floor is one question away, would they move on the
+rate. An unstated rate passes and is the first question to ask.
 
 ## Location and travel.
 
