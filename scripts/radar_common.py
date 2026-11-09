@@ -133,6 +133,11 @@ _MIGRATIONS = (
     ("opportunities", "rate_value", "REAL"),
     ("opportunities", "rate_basis", "TEXT"),
     ("opportunities", "ir35", "TEXT"),
+    # Brief C. What the page checker reads off the job page while it is
+    # there: the advert's own description, and where the alert card was
+    # silent on pay, the page's stated figure with its source recorded.
+    ("opportunities", "description_text", "TEXT"),
+    ("opportunities", "pay_source", "TEXT"),       # card | page, where pay_* came from
     ("opportunities", "location_class", "TEXT"),
     # Engagement type, contract or permanent or unknown, read off the
     # advert by the scorer for new rows and by the regex backfill for the
