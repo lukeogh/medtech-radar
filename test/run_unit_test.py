@@ -378,9 +378,12 @@ def main() -> int:
         conn.commit()
 
         due = check_jobs.due_candidates(conn, now_s)
-        check([r["id"] for r in due] == [a, i, b, c],
-              "due is top first then stalest liveness, and fresh, recently"
-              " checked, reading, closed and off-site rows are left out")
+        check([r["id"] for r in due] == [a, i, b, c, d]
+              and [r["due_reason"] for r in due]
+              == ["stale"] * 4 + ["never read"],
+              "due is the stale rows, top first then stalest liveness, then"
+              " the never-read fresh row (J20); recently checked, reading,"
+              " closed and off-site rows are left out")
 
         gone_url = ("https://www.linkedin.com/jobs/search/"
                     "?position=1&trk=expired_jd_redirect")
@@ -392,6 +395,8 @@ def main() -> int:
             "333": (200, gone_url, "<html>search</html>"),
             "444": (200, "https://www.linkedin.com/jobs/view/444/",
                     pages["noh1"]),
+            "555": (200, "https://www.linkedin.com/jobs/view/555/",
+                    pages["live"].replace(jid, "555")),
         }
         calls = []
 
@@ -418,11 +423,13 @@ def main() -> int:
             calls.clear()
             run = check_jobs.run_checks(conn, cap=25, write=True,
                                         now=now_s, pause=no_pause)
-            check(run["due"] == 4 and run["checked"] == 4,
-                  "the live run checks all four due rows")
-            check(run["closed"] == 2 and run["verdicts"].get("live") == 1
+            check(run["due"] == 5 and run["checked"] == 5
+                  and run["due_never_read"] == 1,
+                  "the live run checks all five due rows, one of them"
+                  " never read")
+            check(run["closed"] == 2 and run["verdicts"].get("live") == 2
                   and run["verdicts"].get("unknown") == 1,
-                  "the verdicts land one live, one closed, one gone,"
+                  "the verdicts land two live, one closed, one gone,"
                   " one unknown, two rows retired")
             rows = {r["url_hash"]: dict(r) for r in conn.execute(
                 "SELECT * FROM opportunities")}
@@ -597,6 +604,284 @@ def main() -> int:
             "SELECT last_checked_at FROM opportunities WHERE id = ?",
             (e,)).fetchone()["last_checked_at"] == "2026-11-04T00:00:00Z",
               "a row checked three days ago was never re-asked")
+        conn.close()
+
+    # ----- Brief C. The checker reads the page while it is open: the job
+    # criteria, the description and any stated pay. First the seven saved
+    # pages from the study of 7 November, then hand-made variants.
+    saved_dir = fixtures / "pages"
+    saved_ids = ("4472532393", "4484737607", "4483969601", "4486892005",
+                 "4485096586", "4487779866")
+    saved = {sid: (saved_dir / f"{sid}.html").read_text(encoding="utf-8")
+             for sid in saved_ids + ("4461731176",)}
+    yields = {sid: check_jobs.read_page(saved[sid]) for sid in saved}
+    check(all(yields[sid]["employment_type"] == "Full-time" for sid in saved_ids),
+          "all six served pages list Employment type Full-time in the criteria")
+    check(all(len(yields[sid]["description"]) > 2000 for sid in saved_ids)
+          and all(yields[sid]["pay"] is None for sid in saved_ids),
+          "all six carry a description over 2,000 characters and no stated pay")
+    check(all(check_jobs.map_engagement(yields[sid]["description"],
+                                        yields[sid]["employment_type"])[0]
+              == "permanent" for sid in saved_ids),
+          "all six map to permanent, Full-time with no contract marker")
+    check(yields["4461731176"] == {"criteria": {}, "employment_type": None,
+                                   "description": "", "pay": None,
+                                   "pay_from": None},
+          "the 429 challenge page yields nothing")
+    check("Veeva" in yields["4472532393"]["description"]
+          and "<" not in yields["4472532393"]["description"]
+          and yields["4472532393"]["criteria"]["Seniority level"] == "Director",
+          "the description is the advert's text with the tags gone, and the"
+          " criteria read as LinkedIn labels them")
+
+    me = check_jobs.map_engagement
+    check(me("", "Contract") == ("contract", "criteria Contract"),
+          "criteria Contract gives contract")
+    check(me("", "Temporary")[0] == "contract", "criteria Temporary gives contract")
+    check(me("Paying £700 a day outside IR35.", "Full-time")
+          == ("contract", "day rate, from the page"),
+          "Full-time with a day rate in the description gives contract")
+    check(me("An interim post for six months.", "Full-time")[0] == "contract",
+          "Full-time with interim in the description gives contract")
+    check(me("Lead the quality function.", "Full-time")
+          == ("permanent", "criteria Full-time"),
+          "Full-time with no marker gives permanent")
+    check(me("Lead the quality function.", "Part-time")[0] == "permanent",
+          "Part-time with no marker gives permanent")
+    check(me("Lead the quality function.", None) == ("unknown", "")
+          and me("", "Internship") == ("unknown", ""),
+          "no criteria, or a criteria word outside the four, gives unknown")
+    check(me("A 12 month fixed term contract.", "Full-time")
+          == ("permanent", "fixed term, from the page"),
+          "fixed term in the description reads permanent, as the rules say")
+
+    sp = check_jobs.stated_pay
+    check(sp("£90,000 to £110,000") is None
+          and sp("£90,000 to £110,000", require_period=False)
+          == {"text": "£90,000 to £110,000", "period": "year", "min": 90000.0,
+              "max": 110000.0, "currency": "GBP"},
+          "a bare top-card range reads as a year; in a description it needs"
+          " a period word")
+    check(sp("Rate: £650 to £750 per day, outside IR35")
+          == {"text": "£650 to £750 per day", "period": "day", "min": 650.0,
+              "max": 750.0, "currency": "GBP"},
+          "a day-rate range in a description stores both ends and the period")
+    check(sp("Up to £45 an hour")["period"] == "hour"
+          and sp("Circa £95k per annum")["max"] == 95000.0
+          and sp("£500 bonus and £120,000 pa")["max"] == 120000.0
+          and sp("Competitive package") is None
+          and sp("Salary £400", require_period=False)["period"] is None,
+          "hour and k forms parse, a bonus figure is skipped for the one"
+          " with a period, no figure is None, a small bare figure has no"
+          " period")
+
+    def page_with(base, criteria=None, salary=None, description=""):
+        # A hand-made variant on the synthetic page: a top-card salary
+        # element, a description markup block and a criteria list, in
+        # the shapes the saved pages use.
+        page = base
+        if salary:
+            page = page.replace(
+                '<div class="top-card-layout__cta-container">',
+                f'<div class="salary compensation__salary">{salary}</div>'
+                '<div class="top-card-layout__cta-container">', 1)
+        extra = ""
+        if description:
+            extra += ('<section class="show-more-less-html"><div class="'
+                      'show-more-less-html__markup relative overflow-hidden">'
+                      f'{description}</div><button class="show-more-less-html'
+                      '__button">Show more</button></section>')
+        if criteria:
+            items = "".join(
+                '<li class="description__job-criteria-item"><h3 class="'
+                f'description__job-criteria-subheader">{k}</h3><span class="'
+                f'description__job-criteria-text">{v}</span></li>'
+                for k, v in criteria.items())
+            extra += f'<ul class="description__job-criteria-list">{items}</ul>'
+        return page.replace('<code id="decoratedJobPostingId"',
+                            extra + '<code id="decoratedJobPostingId"', 1)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = radar_common.get_db(Path(tmp) / "reader.sqlite")
+        key_v1 = radar_common.role_key(title, "Veritas Medical")
+
+        def plant_c(key, tier, **extra):
+            cols = {"url_hash": key, "first_seen": "2026-10-01T00:00:00Z",
+                    "last_seen": "2026-10-01T00:00:00Z", "title": title,
+                    "company": "Veritas Medical", "tier": tier,
+                    "gate_sector": 1, "gate_cv": 1, "gate_location": 1,
+                    "cv_match": 80, "role_key": key_v1,
+                    "source_url": f"https://www.linkedin.com/jobs/view/{key}/"}
+            cols.update(extra)
+            conn.execute(
+                f"INSERT INTO opportunities ({', '.join(cols)}) VALUES"
+                f" ({', '.join('?' for _ in cols)})", tuple(cols.values()))
+            return conn.execute("SELECT id FROM opportunities WHERE"
+                                " url_hash = ?", (key,)).fetchone()["id"]
+
+        v1 = plant_c("2001", "top")
+        v1_sib = plant_c("2002", "reading", source_url="https://example.com/x",
+                         last_seen="2026-09-01T00:00:00Z")
+        v1_set = plant_c("2003", "reading", source_url="https://example.com/y",
+                         last_seen="2026-09-01T00:00:00Z",
+                         engagement_type="contract", engagement_note="IR35")
+        v2 = plant_c("2004", "top", role_key="other-role-a")
+        v3 = plant_c("2005", "top", role_key="other-role-b")
+        v4 = plant_c("2006", "question", role_key="other-role-c",
+                     pay_currency="GBP", pay_period="day", pay_min=600,
+                     pay_max=600, salary_rate="£600 a day", gate_rate=0,
+                     rate_stated=1, rate_value=600, rate_basis="day-rate",
+                     rate_band="below", question_text="Would they move on the rate",
+                     engagement_type="unknown")
+        v5 = plant_c("2007", "top", role_key="other-role-d",
+                     engagement_type="unknown")
+        v6 = plant_c("2008", "question", role_key="other-role-e",
+                     gate_location=0, question_text="Would they go remote")
+        v7 = plant_c("2009", "top", role_key="other-role-f")
+        conn.commit()
+
+        gone_url = ("https://www.linkedin.com/jobs/search/"
+                    "?position=1&trk=expired_jd_redirect")
+        responses_c = {
+            "2001": (200, "https://www.linkedin.com/jobs/view/2001/",
+                     page_with(pages["live"].replace(jid, "2001"),
+                               criteria={"Seniority level": "Director",
+                                         "Employment type": "Full-time"},
+                               salary="£90,000 to £110,000",
+                               description="<p>Lead the quality function."
+                               " Bonus of £5,000.</p>")),
+            "2004": (200, "https://www.linkedin.com/jobs/view/2004/",
+                     page_with(pages["live"].replace(jid, "2004"),
+                               criteria={"Employment type": "Full-time"},
+                               description="<p>Rate: £650 to £750 per day,"
+                               " outside IR35.</p><p>Six months.</p>")),
+            "2005": (200, "https://www.linkedin.com/jobs/view/2005/",
+                     page_with(pages["live"].replace(jid, "2005"),
+                               criteria={"Employment type": "Full-time"},
+                               salary="£85,000 to £95,000",
+                               description="<p>Head of QA.</p>")),
+            "2006": (200, "https://www.linkedin.com/jobs/view/2006/",
+                     page_with(pages["live"].replace(jid, "2006"),
+                               criteria={"Employment type": "Contract"},
+                               description="<p>£800 per day.</p>")),
+            "2007": (200, gone_url, "<html>search</html>"),
+            "2008": (200, "https://www.linkedin.com/jobs/view/2008/",
+                     page_with(pages["closed"],
+                               criteria={"Employment type": "Full-time"},
+                               description="<p>Hybrid, three days in"
+                               " Cambridge.</p>")),
+            "2009": (429, "https://www.linkedin.com/jobs/view/2009/",
+                     saved["4461731176"]),
+        }
+
+        def fake_fetch_c(url):
+            return responses_c[check_jobs.job_view_id(url)]
+
+        real_fetch = check_jobs.fetch_job_page
+        check_jobs.fetch_job_page = fake_fetch_c
+        try:
+            dry_c = check_jobs.run_checks(conn, cap=25, write=False,
+                                          now=now_s, pause=lambda: None,
+                                          backoff=0, wait=lambda s: None)
+            untouched = conn.execute(
+                "SELECT COUNT(*) AS n FROM opportunities WHERE description_text"
+                " IS NOT NULL OR pay_source IS NOT NULL OR (engagement_type"
+                " IS NOT NULL AND engagement_type NOT IN ('unknown','contract'))"
+            ).fetchone()["n"]
+            check(dry_c["pages_read"] == 5 and dry_c["pay_set"] == 3
+                  and dry_c["tier_moves"] == {"top to question": 1}
+                  and untouched == 0,
+                  "a dry run reads five pages, reports three pay figures and"
+                  " one tier move, and writes nothing")
+            live_c = check_jobs.run_checks(conn, cap=25, write=True,
+                                           now=now_s, pause=lambda: None,
+                                           backoff=0, wait=lambda s: None)
+            rows_c = {r["url_hash"]: dict(r) for r in conn.execute(
+                "SELECT * FROM opportunities")}
+            r1 = rows_c["2001"]
+            check(r1["engagement_type"] == "permanent"
+                  and r1["engagement_note"] == "criteria Full-time"
+                  and r1["description_text"].startswith("Lead the quality")
+                  and r1["pay_period"] == "year" and r1["pay_max"] == 110000
+                  and r1["pay_source"] == "page"
+                  and r1["salary_rate"] == "£90,000 to £110,000"
+                  and r1["rate_basis"] == "salary" and r1["gate_rate"] == 1
+                  and r1["rate_band"] == "above" and r1["tier"] == "top",
+                  "a top-card range stores a salary, gates against the"
+                  " salary floor and keeps the row in Top")
+            check(rows_c["2002"]["engagement_type"] == "permanent"
+                  and rows_c["2002"]["engagement_note"] == "criteria Full-time"
+                  and rows_c["2003"]["engagement_type"] == "contract",
+                  "a chain sibling reading unknown picks up the fetched type,"
+                  " a sibling with its own type keeps it")
+            r2 = rows_c["2004"]
+            check(r2["engagement_type"] == "contract"
+                  and r2["engagement_note"] == "day rate, from the page"
+                  and r2["pay_period"] == "day" and r2["pay_min"] == 650
+                  and r2["pay_max"] == 750 and r2["rate_basis"] == "day-rate"
+                  and r2["gate_rate"] == 1 and r2["tier"] == "top"
+                  and r2["salary_rate"] == "£650 to £750 per day",
+                  "a day-rate range in the description stores a day rate,"
+                  " gates against the day floor and sets contract over"
+                  " Full-time")
+            r3 = rows_c["2005"]
+            check(r3["tier"] == "question" and r3["gate_rate"] == 0
+                  and r3["question_text"] == "Would they move on the rate"
+                  and r3["rate_band"] == "close" and r3["pay_max"] == 95000,
+                  "a salary under the floor moves the row to One question"
+                  " away with the rate as the question")
+            r4 = rows_c["2006"]
+            check(r4["pay_max"] == 600 and r4["pay_source"] is None
+                  and r4["tier"] == "question" and r4["gate_rate"] == 0
+                  and r4["engagement_type"] == "contract"
+                  and r4["engagement_note"] == "day rate, from the page",
+                  "a row that already had a figure keeps it, and still takes"
+                  " the type, the description's marker ahead of the criteria")
+            r5 = rows_c["2007"]
+            check(r5["description_text"] is None and r5["pay_source"] is None
+                  and r5["engagement_type"] == "unknown"
+                  and r5["last_check_result"] == "gone",
+                  "a gone page writes nothing but the verdict")
+            r6 = rows_c["2008"]
+            check(r6["last_check_result"] == "closed"
+                  and r6["closed_at"] is not None
+                  and r6["description_text"].startswith("Hybrid")
+                  and r6["engagement_type"] == "permanent"
+                  and r6["tier"] == "question",
+                  "a closed page with its description still served is read,"
+                  " and the row's tier is untouched without a figure")
+            r7 = rows_c["2009"]
+            check(r7["description_text"] is None and r7["last_checked_at"] is None
+                  and r7["engagement_type"] is None,
+                  "the 429 challenge page writes nothing and the row stays due")
+            check(live_c["pages_read"] == 5 and live_c["types_set"] == 5
+                  and live_c["siblings_set"] == 1 and live_c["pay_set"] == 3
+                  and live_c["tier_moves"] == {"top to question": 1}
+                  and [p["id"] for p in live_c["page_reads"]]
+                  == [v1, v2, v3, v4, v6],
+                  "the run reports pages read, types, siblings, pay and the"
+                  " tier move")
+            moved = [p for p in live_c["page_reads"] if p["id"] == v3][0]
+            check(moved["tier"] == {"from": "top", "to": "question",
+                                    "gate": False, "basis": "salary",
+                                    "figure": 95000.0}
+                  and moved["pay"]["from"] == "top card",
+                  "the report names the row's move, the basis, the figure"
+                  " and where on the page the pay came from")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc_c = check_jobs.main(["--dry-run", "--db",
+                                        str(Path(tmp) / "reader.sqlite"),
+                                        "--backoff", "0"])
+            note_c = conn.execute(
+                "SELECT note FROM runs WHERE workflow = 'check'"
+                " ORDER BY id DESC LIMIT 1").fetchone()["note"]
+            check(rc_c == 0 and "never read" not in note_c
+                  and "pages read" not in note_c,
+                  "after the live run the next run finds nothing due and the"
+                  " runs row says so plainly")
+        finally:
+            check_jobs.fetch_job_page = real_fetch
         conn.close()
 
     # ----- the expiry pass. Forty-five days of silence retires the role,

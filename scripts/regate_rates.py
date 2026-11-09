@@ -38,6 +38,41 @@ def _flag(value):
     return None if value is None else bool(value)
 
 
+def judge_row(row: dict, floors: dict, config: dict | None = None) -> tuple[dict, dict]:
+    """The rate gate and the tier for one row, from its stored columns.
+
+    Returns (new, pay): new holds a value for every column in _GATE_COLS,
+    pay is gate_pay's verdict, gate None when the row states no usable
+    figure. Shared with the page checker, which calls it on a row that
+    has just been given a figure off the page. No model call.
+    """
+    gates = {"sector": _flag(row.get("gate_sector")),
+             "cv": _flag(row.get("gate_cv")),
+             "location": _flag(row.get("gate_location")),
+             "rate": _flag(row.get("gate_rate"))}
+    new = {c: row.get(c) for c in _GATE_COLS}
+    pay = rc.gate_pay(row.get("pay_currency"), row.get("pay_period"),
+                      row.get("pay_min"), row.get("pay_max"), floors, config)
+    if pay["gate"] is not None:
+        gates["rate"] = pay["gate"]
+        new.update(gate_rate=int(pay["gate"]),
+                   gate_rate_note=score_item.rate_gate_note(pay),
+                   rate_stated=1, rate_value=pay["figure"],
+                   rate_basis=pay["basis"], rate_band=pay["band"])
+    cv = row.get("cv_match")
+    is_real = bool(gates["sector"]) or (cv is not None and cv >= score_item.CV_FLOOR_FOR_READING)
+    tier_info = score_item.derive_tier(gates, cv, is_real)
+    new["tier"] = tier_info["tier"]
+    new["failed_gates"] = json.dumps(tier_info["failed_gates"])
+    new["filter_reason"] = tier_info["filter_reason"]
+    if tier_info["tier"] == "question":
+        new["question_text"] = (row.get("question_text")
+                                or score_item.question_for(gates, {}))
+    else:
+        new["question_text"] = None
+    return new, pay
+
+
 def regate(conn, config: dict, floors: dict, write: bool = False) -> dict:
     rows = conn.execute(
         "SELECT * FROM opportunities WHERE tier IS NOT NULL"
@@ -50,35 +85,14 @@ def regate(conn, config: dict, floors: dict, write: bool = False) -> dict:
     updates = []
     for row in rows:
         row = dict(row)
-        gates = {"sector": _flag(row.get("gate_sector")),
-                 "cv": _flag(row.get("gate_cv")),
-                 "location": _flag(row.get("gate_location")),
-                 "rate": _flag(row.get("gate_rate"))}
-        new = {c: row.get(c) for c in _GATE_COLS}
-        pay = rc.gate_pay(row.get("pay_currency"), row.get("pay_period"),
-                          row.get("pay_min"), row.get("pay_max"), floors, config)
+        had = _flag(row.get("gate_rate"))
+        new, pay = judge_row(row, floors, config)
         if pay["gate"] is not None:
             judged += 1
-            if gates["rate"] is True and not pay["gate"]:
+            if had is True and not pay["gate"]:
                 gate_flips["pass to fail"] += 1
-            elif gates["rate"] is False and pay["gate"]:
+            elif had is False and pay["gate"]:
                 gate_flips["fail to pass"] += 1
-            gates["rate"] = pay["gate"]
-            new.update(gate_rate=int(pay["gate"]),
-                       gate_rate_note=score_item.rate_gate_note(pay),
-                       rate_stated=1, rate_value=pay["figure"],
-                       rate_basis=pay["basis"], rate_band=pay["band"])
-        cv = row.get("cv_match")
-        is_real = bool(gates["sector"]) or (cv is not None and cv >= score_item.CV_FLOOR_FOR_READING)
-        tier_info = score_item.derive_tier(gates, cv, is_real)
-        new["tier"] = tier_info["tier"]
-        new["failed_gates"] = json.dumps(tier_info["failed_gates"])
-        new["filter_reason"] = tier_info["filter_reason"]
-        if tier_info["tier"] == "question":
-            new["question_text"] = (row.get("question_text")
-                                    or score_item.question_for(gates, {}))
-        else:
-            new["question_text"] = None
         if new["tier"] != row["tier"]:
             key = f"{row['tier']} to {new['tier']}"
             moves[key] = moves.get(key, 0) + 1

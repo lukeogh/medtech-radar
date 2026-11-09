@@ -12,6 +12,18 @@ shown no sign of life in forty-five days retires as expired, every tier
 including filtered. A repost by the same company under the same title
 resets the chain's clock.
 
+While the page is open the checker reads it (Brief C). On a verdict of
+live, or closed with the description still served, it stores the advert's
+own description, maps the job criteria and the description's words to
+contract, permanent or unknown, and where the alert card never carried a
+figure, takes the page's stated pay and re-runs the rate gate and the
+tier in code. Nothing is read off a gone, unknown or login-wall result.
+Every word stored is the advert's, none is the checker's (J9).
+
+Selection (J20): a top or question role with no live confirmation in
+seven days, or whose page has never been read, is checked at source,
+stale rows first, never-read rows after them, inside the same cap.
+
 Safety posture:
 - Dry run is the default. Fetches happen and the classifications print,
   nothing is written. Live stamps need an explicit --live.
@@ -53,6 +65,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import radar_common as rc  # noqa: E402
+import engagement  # noqa: E402
+import regate_rates  # noqa: E402
 
 CAP_DEFAULT = 25
 RECHECK_DAYS = 7                 # an answered page is not asked again inside a week
@@ -68,6 +82,49 @@ _JOB_VIEW = re.compile(r"/jobs/view/(\d+)")
 _AUTHWALL_WORDS = ("authwall", "login", "checkpoint")
 _H1 = re.compile(r"<h1[^>]*>(.*?)</h1>", re.IGNORECASE | re.DOTALL)
 _DECORATED_ID = re.compile(r"decoratedJobPostingId\D{0,64}(\d+)")
+
+# The parts of a guest job page the checker reads (Brief C). Each is a
+# class name LinkedIn has carried for years, and each is matched loosely
+# so a reshuffled attribute order still reads. A page that lacks one
+# simply yields nothing for it.
+_CRITERIA = re.compile(
+    r'description__job-criteria-subheader"[^>]*>\s*(.*?)\s*</h3>\s*'
+    r'<span[^>]*>\s*(.*?)\s*</span>', re.DOTALL)
+_MARKUP = re.compile(
+    r'<div[^>]*class="[^"]*show-more-less-html__markup[^"]*"[^>]*>(.*?)'
+    r'(?:</div>\s*<button|</section>)', re.DOTALL)
+_TOP_CARD = re.compile(
+    r'<section[^>]*class="[^"]*top-card-layout[^"]*"[^>]*>.*?</section>',
+    re.DOTALL)
+_TOP_CARD_SALARY = re.compile(
+    r'<(?:div|span)[^>]*class="[^"]*(?:compensation__salary|salary)[^"]*"'
+    r'[^>]*>\s*([^<]+?)\s*<', re.DOTALL)
+_BREAKS = re.compile(r"</(?:p|li|h\d|div|tr)>|<br\s*/?>", re.IGNORECASE)
+_TAGS = re.compile(r"<[^>]+>")
+# A sterling figure, with an optional second figure after "to" or a
+# dash, and an optional period token between them ("£90,000/yr -
+# £110,000/yr"). "k" multiplies by a thousand.
+_FIGURE = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
+_MONEY = re.compile(
+    r"£\s?(?P<lo>" + _FIGURE + r")\s?(?P<lok>k\b)?"
+    r"(?:(?:\s*/\s?[a-z]+)?\s*(?:to|-|–|—)\s*£?\s?"
+    r"(?P<hi>" + _FIGURE + r")\s?(?P<hik>k\b)?)?",
+    re.IGNORECASE)
+_PERIODS = (
+    ("day", re.compile(
+        r"\b(?:per|a|each)\s+day\b|/\s?day\b|\bp/?d\b|\bdaily\b"
+        r"|\bday[\s-]?rate\b|/d\b", re.IGNORECASE)),
+    ("hour", re.compile(
+        r"\b(?:per|an)\s+hour\b|/\s?h(?:ou)?r\b|\bp/?h\b|\bhourly\b",
+        re.IGNORECASE)),
+    ("year", re.compile(
+        r"\bper\s+(?:annum|year)\b|\ba\s+year\b|\bp\.\s?a\.?(?=\W|$)"
+        r"|/\s?(?:yr|year|annum)\b|\bannual(?:ly)?\b|\bannum\b|\bpa\b",
+        re.IGNORECASE)),
+)
+PAY_CONTEXT_CHARS = 40       # how far either side of a figure a period may sit
+YEAR_FLOOR_GBP = 10_000      # a bare top-card figure this big can only be a year
+DESCRIPTION_CAP = 20_000     # characters of description kept on the row
 
 
 # ------------------------------------------------------------------ fetching
@@ -177,16 +234,198 @@ def classify(status: int, final_url: str, body: str,
     return "unknown", "the page matched neither the live nor the closed shape"
 
 
+# ------------------------------------------------------------ reading the page
+
+def _text(fragment: str) -> str:
+    """Tags out, entities decoded, whitespace folded, one line per block."""
+    text = _BREAKS.sub("\n", fragment or "")
+    text = html.unescape(_TAGS.sub(" ", text))
+    lines = [re.sub(r"[ \t\r\f\v\xa0]+", " ", line).strip()
+             for line in text.split("\n")]
+    return re.sub(r"\n{2,}", "\n", "\n".join(lines)).strip()
+
+
+def _amount(figure: str, thousands: str | None) -> float:
+    value = float(figure.replace(",", ""))
+    return value * 1000 if thousands else value
+
+
+def stated_pay(text: str, require_period: bool = True) -> dict | None:
+    """The first sterling figure in text that says what period it is for.
+
+    A range takes both ends. The period is the word beside the figure:
+    per day, an hour, a year and their short forms, looked for within
+    forty characters either side, stopping at the next sterling sign so
+    one figure's period is never read as another's. With require_period
+    False, for the top
+    card, a bare figure of ten thousand or more reads as a year, because
+    nothing else is that large; a smaller bare figure is kept verbatim
+    with no period, so it is stored but never gated. Returns None when
+    the text names no usable figure. The verbatim string is the advert's
+    own words, figure and period together.
+    """
+    text = text or ""
+    for match in _MONEY.finditer(text):
+        lo = _amount(match.group("lo"), match.group("lok"))
+        hi = (_amount(match.group("hi"), match.group("hik"))
+              if match.group("hi") else lo)
+        period = None
+        start, end = match.start(), match.end()
+        after = text[end:end + PAY_CONTEXT_CHARS].split("£")[0]
+        before = text[max(0, start - PAY_CONTEXT_CHARS):start].split("£")[-1]
+        for name, pattern in _PERIODS:
+            hit = pattern.search(after)
+            if hit:
+                period, end = name, end + hit.end()
+                break
+        if period is None:
+            for name, pattern in _PERIODS:
+                hits = list(pattern.finditer(before))
+                if hits:
+                    period = name
+                    start -= len(before) - hits[-1].start()
+                    break
+        if period is None:
+            if require_period:
+                continue
+            if max(lo, hi) >= YEAR_FLOOR_GBP:
+                period = "year"
+        verbatim = re.sub(r"\s+", " ", text[start:end]).strip(" ,.;:")
+        return {"text": verbatim, "period": period, "min": min(lo, hi),
+                "max": max(lo, hi), "currency": "GBP"}
+    return None
+
+
+def read_page(body: str) -> dict:
+    """What a served job page says, in its own words.
+
+    criteria is the job criteria list as LinkedIn labels it, with
+    employment_type lifted out. description is the show-more-less markup
+    as text, capped. pay is the top card's salary element if there is
+    one, otherwise the first figure in the description with a period
+    beside it, and pay_from says which. A page without a part yields
+    nothing for that part.
+    """
+    body = body or ""
+    out = {"criteria": {}, "employment_type": None, "description": "",
+           "pay": None, "pay_from": None}
+    for head, value in _CRITERIA.findall(body):
+        out["criteria"][_text(head)] = _text(value)
+    out["employment_type"] = out["criteria"].get("Employment type")
+    markup = _MARKUP.search(body)
+    if markup:
+        out["description"] = _text(markup.group(1))[:DESCRIPTION_CAP]
+    card = _TOP_CARD.search(body)
+    if card:
+        salary = _TOP_CARD_SALARY.search(card.group(0))
+        if salary:
+            pay = stated_pay(_text(salary.group(1)), require_period=False)
+            if pay:
+                out["pay"], out["pay_from"] = pay, "top card"
+    if out["pay"] is None and out["description"]:
+        pay = stated_pay(out["description"])
+        if pay:
+            out["pay"], out["pay_from"] = pay, "description"
+    return out
+
+
+def map_engagement(description: str, employment_type: str | None) -> tuple[str, str]:
+    """Contract, permanent or unknown from the page, with the reason.
+
+    The description's own words go first, through the engagement rules:
+    a contract marker there (day rate, interim, IR35, contract) wins,
+    because LinkedIn lists most contracts as Full-time. Then the
+    criteria: Contract or Temporary set contract, Full-time or Part-time
+    set permanent. A fixed-term or permanent word in the description
+    counts the same way. Anything else stays unknown.
+    """
+    value, note = engagement.classify(description or "")
+    if value == "contract":
+        return "contract", f"{note}, from the page"
+    criteria = (employment_type or "").strip()
+    word = criteria.lower()
+    if word in ("contract", "temporary"):
+        return "contract", f"criteria {criteria}"
+    if value == "permanent":
+        return "permanent", f"{note}, from the page"
+    if word in ("full-time", "part-time"):
+        return "permanent", f"criteria {criteria}"
+    return "unknown", ""
+
+
+def apply_page(conn, row: dict, page: dict, floors: dict,
+               config: dict | None = None, write: bool = False) -> dict:
+    """Store what the page said on the row and its silent chain siblings.
+
+    The description is kept. An engagement type other than unknown is
+    written to the fetched advert and to every advert sharing its
+    role_key that still reads unknown, so the badge shows across the
+    chain. Where the row stored no pay figure and the page gives one, the
+    figure goes on the row with pay_source "page" and the rate gate and
+    tier are derived again in code, no model call. A row that already
+    had a figure keeps it. Returns what happened, or in a dry run what
+    would have.
+    """
+    out = {"id": row["id"], "engagement_type": "unknown", "engagement_note": "",
+           "siblings": 0, "pay": None, "tier": None,
+           "description_chars": len(page.get("description") or "")}
+    sets: dict = {}
+    if page.get("description"):
+        sets["description_text"] = page["description"]
+    value, note = map_engagement(page.get("description"), page.get("employment_type"))
+    out["engagement_type"], out["engagement_note"] = value, note
+    siblings: list[int] = []
+    if value != "unknown":
+        sets.update(engagement_type=value, engagement_note=note)
+        if row.get("role_key"):
+            siblings = [r["id"] for r in conn.execute(
+                "SELECT id FROM opportunities WHERE role_key = ? AND id != ?"
+                " AND (engagement_type IS NULL OR engagement_type = 'unknown')",
+                (row["role_key"], row["id"]))]
+    out["siblings"] = len(siblings)
+    pay = page.get("pay")
+    had_figure = any((row.get(col) or 0) > 0 for col in ("pay_min", "pay_max"))
+    if pay and not had_figure:
+        sets.update(pay_currency=pay["currency"], pay_period=pay["period"] or "",
+                    pay_min=pay["min"], pay_max=pay["max"], pay_source="page")
+        if not (row.get("salary_rate") or "").strip():
+            sets["salary_rate"] = pay["text"]
+        out["pay"] = {"text": pay["text"], "period": pay["period"],
+                      "from": page.get("pay_from")}
+        if row.get("tier"):
+            judged = dict(row)
+            judged.update(sets)
+            new, verdict = regate_rates.judge_row(judged, floors, config)
+            if verdict["gate"] is not None:
+                sets.update(new)
+                out["tier"] = {"from": row["tier"], "to": new["tier"],
+                               "gate": verdict["gate"], "basis": verdict["basis"],
+                               "figure": verdict["figure"]}
+    if write and sets:
+        conn.execute(
+            "UPDATE opportunities SET " + ", ".join(f"{c} = ?" for c in sets)
+            + " WHERE id = ?", (*sets.values(), row["id"]))
+        if siblings:
+            conn.executemany(
+                "UPDATE opportunities SET engagement_type = ?, engagement_note = ?"
+                " WHERE id = ?", [(value, note, sid) for sid in siblings])
+    return out
+
+
 # ----------------------------------------------------------------- selection
 
 def due_candidates(conn, now: str | None = None) -> list[dict]:
-    """Top and question rows with no liveness signal in seven days.
+    """Top and question rows due a look at their page (J20).
 
-    A sighting or a live check inside the window keeps a row off the
-    list, and so does a check of any verdict, so an unanswered page is
-    asked weekly rather than daily. Top rows come first, then the
-    stalest liveness, so the cap spends itself where it matters. Rows
-    without a LinkedIn job URL cannot be asked and are left out.
+    Two reasons, in this order. Stale: no liveness signal in seven days.
+    A sighting or a live check inside the window keeps a row off this
+    part of the list, and so does a check of any verdict, so an
+    unanswered page is asked weekly rather than daily. Never read: the
+    page has never been checked at all, however fresh the sighting, so
+    its type and pay get read once. Within each reason Top rows come
+    first, then the stalest liveness, so the cap spends itself where it
+    matters. Each row carries its reason in due_reason. Rows without a
+    LinkedIn job URL cannot be asked and are left out.
     """
     now = now or rc.now_iso()
     moment = datetime.strptime(now, "%Y-%m-%dT%H:%M:%SZ")
@@ -200,16 +439,20 @@ def due_candidates(conn, now: str | None = None) -> list[dict]:
         " ORDER BY CASE tier WHEN 'top' THEN 0 ELSE 1 END,"
         " COALESCE(last_seen, first_seen)").fetchall()
     due = []
+    never_read = []
     for raw in rows:
         row = dict(raw)
-        if rc.life_state(row, now) != "unknown":
-            continue
-        if (row.get("last_checked_at") or "") > recheck_cutoff:
-            continue
         if not job_view_id(row.get("source_url") or ""):
             continue
-        due.append(row)
-    return due
+        if rc.life_state(row, now) == "unknown":
+            if (row.get("last_checked_at") or "") > recheck_cutoff:
+                continue
+            row["due_reason"] = "stale"
+            due.append(row)
+        elif not row.get("last_checked_at"):
+            row["due_reason"] = "never read"
+            never_read.append(row)
+    return due + never_read
 
 
 # ----------------------------------------------------------------- the run
@@ -228,10 +471,14 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
     wait = wait or _backoff
     result = {
         "mode": "live" if write else "dry-run",
-        "due": 0, "checked": 0, "closed": 0,
+        "due": 0, "due_never_read": 0, "checked": 0, "closed": 0,
         "rate_limited": 0, "backoff_seconds": 0, "rate_limits": [],
         "verdicts": {}, "checks": [], "notes": [],
+        "pages_read": 0, "types_set": 0, "siblings_set": 0, "pay_set": 0,
+        "tier_moves": {}, "page_reads": [],
     }
+    floors = None
+    config = None
 
     if only_id is not None:
         raw = conn.execute("SELECT * FROM opportunities WHERE id = ?",
@@ -243,6 +490,8 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
     else:
         rows = due_candidates(conn, now)
     result["due"] = len(rows)
+    result["due_never_read"] = sum(
+        1 for r in rows if r.get("due_reason") == "never read")
     batch = len(rows[:max(cap, 0)])
 
     for index, row in enumerate(rows[:batch]):
@@ -266,6 +515,7 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
         result["checks"].append({
             "id": row["id"], "title": row.get("title"), "status": status,
             "verdict": verdict, "reason": reason,
+            "due": row.get("due_reason", "spot check"),
         })
         if status == 429:
             # A 429 says nothing about the page, so nothing is stamped and
@@ -293,6 +543,28 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
             _log(line)
             wait(backoff)
             continue
+        # The page was served, so read it while it is open (Brief C). A
+        # closed page still carries the description until LinkedIn drops
+        # it, and the type and pay are as true of a closed advert as of a
+        # live one. Gone, unknown and authwall results say nothing about
+        # the advert and nothing is read off them.
+        if verdict == "live" or (verdict == "closed" and _MARKUP.search(body)):
+            if floors is None:
+                config = rc.load_config()
+                floors = rc.read_rate_floors(config)
+            outcome = apply_page(conn, row, read_page(body), floors, config,
+                                 write=write)
+            result["pages_read"] += 1
+            result["page_reads"].append(outcome)
+            if outcome["engagement_type"] != "unknown":
+                result["types_set"] += 1
+                result["siblings_set"] += outcome["siblings"]
+            if outcome["pay"]:
+                result["pay_set"] += 1
+            move = outcome["tier"]
+            if move and move["from"] != move["to"]:
+                key = f"{move['from']} to {move['to']}"
+                result["tier_moves"][key] = result["tier_moves"].get(key, 0) + 1
         if write:
             conn.execute(
                 "UPDATE opportunities SET last_checked_at = ?,"
@@ -408,6 +680,15 @@ def main(argv=None) -> int:
         stamps = ", ".join(e["ts"][11:] for e in result["rate_limits"])
         note += (f", {result['rate_limited']} rate limited, 429 at {stamps},"
                  f" {result['backoff_seconds']:g}s backoff")
+    if result["pages_read"]:
+        note += (f", {result['pages_read']} pages read, {result['types_set']}"
+                 f" types, {result['siblings_set']} siblings, {result['pay_set']}"
+                 f" pay")
+        if result["tier_moves"]:
+            note += ", " + ", ".join(
+                f"{n} {k}" for k, n in sorted(result["tier_moves"].items()))
+    if result["due_never_read"]:
+        note += f", {result['due_never_read']} never read"
     if result.get("expired"):
         note += f", {result['expired']} expired"
     rc.log_run(conn, "check", mode=result["mode"],
