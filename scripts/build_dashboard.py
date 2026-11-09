@@ -606,14 +606,24 @@ def state_detail(o: dict) -> str:
             + (f" First seen {first}." if first else ""))
 
 
-def collapse_roles(rows: list) -> list:
-    """One row per role (J18). The freshest advert is the face.
+TIER_RANK = {"top": 0, "question": 1, "reading": 2, "filtered": 3}
 
-    Groups by role_key, keeps the advert with the newest sign of life,
-    rolls the chain's locations up for the meta line and hands the
-    counts to the detail. A row without a key stands alone. The face
-    carries the chain's freshest liveness by construction, so the state
-    chip and the sort both read true for the role.
+
+def tier_rank(o: dict) -> int:
+    """Top first, unscored last. For picking a chain's face."""
+    return TIER_RANK.get(o.get("tier") or "", 4)
+
+
+def collapse_roles(rows: list) -> list:
+    """One row per role (J18). The highest-tier advert is the face.
+
+    Groups by role_key, keeps the advert in the highest tier the chain
+    reached, the freshest of those on a tie, rolls the chain's locations
+    up for the meta line and hands the counts to the detail. A row
+    without a key stands alone. The face borrows the chain's freshest
+    liveness, so the state chip and the sort read true for the role.
+    When the freshest advert read lower than the face, the detail says
+    so and names its tier.
     """
     groups: dict = {}
     order = []
@@ -627,9 +637,12 @@ def collapse_roles(rows: list) -> list:
     for key in order:
         group = sorted(groups[key], key=radar_common.latest_liveness,
                        reverse=True)
-        face = group[0]
+        freshest = group[0]
+        face = min(group, key=tier_rank)
         if len(group) > 1:
             face = dict(face)
+            for col in ("last_seen", "last_checked_at", "last_check_result"):
+                face[col] = freshest.get(col)
             locations = []
             for o in group:
                 loc = str(o.get("location") or "").strip()
@@ -640,6 +653,9 @@ def collapse_roles(rows: list) -> list:
                 "sightings": sum(o.get("seen_count") or 1 for o in group),
                 "first": min(o.get("first_seen") or "" for o in group),
                 "locations": locations,
+                "latest_tier": ((freshest.get("tier") or "unscored")
+                                if tier_rank(freshest) > tier_rank(face)
+                                else None),
             }
         out.append(face)
     return out
@@ -658,7 +674,8 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
     """One role, one row. Keyed on the tier and the derived state.
 
     A collapsed repost chain hands its face row a _chain dict, locations
-    rolled up and the counts for the detail (J18). The row carries its
+    rolled up, the counts for the detail and the freshest advert's tier
+    when it read lower than the face (J18). The row carries its
     region and remote flag as data attributes for the client-side
     location filter (J6), an engagement badge (J4), the CV match as a
     percentage (J5), and the State and Last seen cells that are the
@@ -739,6 +756,9 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
             f'across {chain["adverts"]} adverts since '
             f'{esc(fmt_day(chain.get("first")))}. A verdict here covers '
             'the whole chain.</div>')
+        if chain.get("latest_tier"):
+            parts.append(f'<div class="row-sub">Latest advert read lower, '
+                         f'{esc(chain["latest_tier"])}.</div>')
     if o.get("company_id") and o.get("company"):
         parts.append(f'<div class="row-sub"><a href="/company/'
                      f'{int(o["company_id"])}">Everything on file for '
@@ -2659,7 +2679,7 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
     Top prospects open, One question away and Reading folded with their
     counts in the header, Filtered a count line (J1, J2). One collapse
     across every tier, so a role whose adverts span tiers appears once,
-    in the tier of its freshest advert (J18). Freshest first within a
+    in the highest tier it reached (J18). Freshest first within a
     tier (J3). Age is the State and Last seen cells on the row, there is
     no Ageing section (J16). Unscored roles are counted on Home, not
     here. Roles only, the add-source strip lives on Home (J11). The
@@ -2683,8 +2703,8 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
         return "".join(out)
 
     # One collapse over every open row, filtered and unscored included, so
-    # a role appears once on the page. Its face is its freshest advert and
-    # the face's tier is the tier it sits in.
+    # a role appears once on the page. Its face is its highest-tier advert
+    # and the face's tier is the tier it sits in.
     faces = collapse_roles(data.get("opportunities") or [])
     by_tier: dict = {}
     for face in faces:
