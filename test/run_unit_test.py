@@ -752,7 +752,8 @@ def main() -> int:
         jobs5 = bd4.render_jobs_page(data5, config5, "t")
         check(f'data-ack="{newer}"' in jobs5
               and f'data-ack="{older}"' not in jobs5,
-              "a repost chain renders once, the freshest advert its face")
+              "a repost chain in one tier renders once, the freshest advert"
+              " its face")
         check("Remote" in jobs5 and "Leeds" in jobs5,
               "the chain's locations roll up onto the one row")
         check("Seen 7 times across 2 adverts" in jobs5,
@@ -791,6 +792,18 @@ def main() -> int:
              tier=None, role_key=key_unsc)
         put5("c11", days5(55), days5(55), title="Mystery Role", company="Nullco",
              tier=None, role_key=key_unsc)
+        # A chain whose freshest advert read lower than its best. The old
+        # advert was Top, the new one Reading. Highest wins the face, the
+        # row borrows the new advert's age, the detail names the drop.
+        key_drop = radar_common.role_key("VP Quality", "Dropper Dx")
+        drop_top = put5("c12", days5(40), days5(35), title="VP Quality",
+                        company="Dropper Dx", tier="top", role_key=key_drop,
+                        rate_band="above", one_line_why="Scored high then.",
+                        cv_match=81)
+        drop_read = put5("c13", days5(4), days5(1), title="VP Quality",
+                         company="Dropper Dx", tier="reading", role_key=key_drop,
+                         rate_band="above", one_line_why="Scored lower now.",
+                         cv_match=81)
         conn.commit()
         data6 = bd4.collect(conn, config5)
         jobs6 = bd4.render_jobs_page(data6, config5, "t")
@@ -812,8 +825,22 @@ def main() -> int:
               and f'data-ack="{span_old}"' not in jobs6
               and sec_count(jobs6, "One question away") == 2
               and sec_count(jobs6, "Reading") == 1,
-              "a chain spanning tiers appears once, in the tier of its"
-              " freshest advert")
+              "a chain spanning tiers appears once, in the highest tier"
+              " it reached")
+        # The row's markup, summary and detail, is the chunk between one
+        # row open and the next.
+        drop_row = next((c for c in _re5.split(r'<div class="row(?: row-acked)?"', jobs6)
+                         if f'data-ack="{drop_top}"' in c), "")
+        check(drop_row and f'data-ack="{drop_read}"' not in jobs6
+              and sec_count(jobs6, "Top prospects") == 2
+              and "Latest advert read lower, reading." in drop_row
+              and "Scored high then" in drop_row,
+              "an old Top advert outranks a fresh Reading one, and the"
+              " detail says the latest advert read lower")
+        check(drop_row and "state-live" in drop_row
+              and jobs6.count("Latest advert read lower") == 1,
+              "the face borrows the chain's freshest age, and a chain"
+              " whose freshest advert is its face says nothing")
         check("Filtered, 2 roles. 1 cv match under 40, 1 not a real"
               " leadership role." in jobs6
               and "so the filter can be audited" not in jobs6,
