@@ -1,4 +1,9 @@
-anthropic>=0.100
+# anthropic stays on the 0.120 line. radar_common.claude_call sends
+# temperature=0, and the Python SDK removed that keyword at 1.0.0, so every
+# 1.x and 2.x release raises TypeError before a request is made. 0.120.2 is
+# the release the dashboard container already runs. Moving off 0.x means
+# dropping temperature=0 first, which is a scorer change of its own.
+anthropic>=0.120.2,<0.121
 PyYAML>=6.0
 feedparser>=6.0
 # pypdf is optional. Only needed when the CV is dropped in as cv.pdf rather
