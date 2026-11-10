@@ -1782,11 +1782,16 @@ def main() -> int:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        # Every write from a page carries the write guard's header, so the
+        # POSTs below do too. The guard's own checks are in
+        # test/run_hardening_test.py.
+        wh = serve_dashboard.WRITE_HEADER
         try:
             req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/ack",
                 data=json_mod.dumps({"id": ids["Seenit Ltd"]}).encode(),
-                headers={"Content-Type": "application/json"}, method="POST")
+                headers={"Content-Type": "application/json", wh: "1"},
+                method="POST")
             with urllib.request.urlopen(req, timeout=10) as resp:
                 body = json_mod.loads(resp.read())
             check(resp.status == 200 and body.get("ok") is True,
@@ -1819,7 +1824,7 @@ def main() -> int:
                     f"http://127.0.0.1:{port}/jobs/source",
                     data=json_mod.dumps({"name": "Escape Hatch",
                                          "sender": "escapehatch"}).encode(),
-                    headers={"Content-Type": "application/json"},
+                    headers={"Content-Type": "application/json", wh: "1"},
                     method="POST")
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     body = json_mod.loads(resp.read())
@@ -1850,7 +1855,7 @@ def main() -> int:
                 req = urllib.request.Request(
                     f"http://127.0.0.1:{port}/cv/preview",
                     data="A CV as plain text.\n".encode("utf-8"),
-                    headers={"X-Filename": "cv.txt"}, method="POST")
+                    headers={"X-Filename": "cv.txt", wh: "1"}, method="POST")
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     body = json_mod.loads(resp.read())
                 check(resp.status == 200
@@ -1860,7 +1865,7 @@ def main() -> int:
                     f"http://127.0.0.1:{port}/cv/discard",
                     data=json_mod.dumps(
                         {"token": body["token"]}).encode(),
-                    headers={"Content-Type": "application/json"},
+                    headers={"Content-Type": "application/json", wh: "1"},
                     method="POST")
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     check(resp.status == 200,
@@ -1869,7 +1874,7 @@ def main() -> int:
                     f"http://127.0.0.1:{port}/cv/confirm",
                     data=json_mod.dumps(
                         {"token": "0" * 16}).encode(),
-                    headers={"Content-Type": "application/json"},
+                    headers={"Content-Type": "application/json", wh: "1"},
                     method="POST")
                 try:
                     urllib.request.urlopen(req, timeout=10)
@@ -1884,7 +1889,8 @@ def main() -> int:
             # explicit confirm, the guard the button's dialog satisfies.
             req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/cv/rescore",
-                data=b"{}", headers={"Content-Type": "application/json"},
+                data=b"{}", headers={"Content-Type": "application/json",
+                                     wh: "1"},
                 method="POST")
             try:
                 urllib.request.urlopen(req, timeout=10)
@@ -1898,6 +1904,7 @@ def main() -> int:
             import http.client
             hc = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
             hc.putrequest("POST", "/ack")
+            hc.putheader(wh, "1")
             hc.putheader("Content-Length", "-1")
             hc.endheaders()
             resp = hc.getresponse()

@@ -1303,8 +1303,36 @@ MARK_SVG = ('<svg class="mark" viewBox="0 0 36 17" width="48" height="23" '
             '<path d="M13 15a5 5 0 0 1 10 0Z" fill="var(--ink-1)"/>'
             '<path d="M0 15h36" stroke="var(--ink-1)" stroke-width="1.5"/></svg>')
 
+# The header every write from a page carries, and serve_dashboard.py refuses
+# a POST without. One name, defined here because this module draws every
+# page and serve_dashboard.py already imports it.
+WRITE_HEADER = "X-Radar-Request"
+
 SCRIPT = """
 (function () {
+  // Every POST a page makes with fetch carries a header no other site's
+  // page can add. A browser sends a custom header across sites only after a
+  // preflight that this server never answers, so a POST forged from another
+  // tab dies in the browser, and the server refuses one that arrives
+  // without the header anyway. Wrapping fetch here covers every page script
+  // without touching each call. A script added later must post with
+  // fetch(url, { method: 'POST', ... }) to be covered, because the server
+  // refuses a POST sent any other way.
+  var nativeFetch = window.fetch;
+  if (nativeFetch) window.fetch = function (url, opts) {
+    try {
+      if (opts && String(opts.method || 'GET').toUpperCase() === 'POST') {
+        var headers = new Headers(opts.headers || {});
+        headers.set('__WRITE_HEADER__', '1');
+        opts = Object.assign({}, opts, { headers: headers });
+      }
+    } catch (err) {
+      // A header value fetch will not take, such as a file name outside
+      // Latin-1. Fail the way fetch does, as a rejected promise.
+      return Promise.reject(err);
+    }
+    return nativeFetch.call(window, url, opts);
+  };
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('.row-summary[aria-expanded]');
     if (!btn) return;
@@ -1338,7 +1366,7 @@ SCRIPT = """
     }
   } catch (err) {}
 })();
-"""
+""".replace("__WRITE_HEADER__", WRITE_HEADER)
 
 
 INSIGHTS_SCRIPT = """
@@ -1367,7 +1395,12 @@ INSIGHTS_SCRIPT = """
         }
         location.reload();
       })
-      .catch(function () { location.reload(); });
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = label;
+        window.alert('No usable answer came back, so that may not have '
+                     + 'saved. Reload to check.');
+      });
   });
 })();
 """
@@ -1397,7 +1430,12 @@ SERVE_SCRIPT = """
         }
         location.reload();
       })
-      .catch(function () { location.reload(); });
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = (ack ? 'Acknowledge, seen it' : 'Undo, back to the list');
+        window.alert('No usable answer came back, so that may not have '
+                     + 'saved. Reload to check.');
+      });
   });
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-close],[data-unclose],[data-dismiss],[data-undismiss]');
@@ -1405,6 +1443,7 @@ SERVE_SCRIPT = """
     var kind = ['close', 'unclose', 'dismiss', 'undismiss'].filter(function (k) {
       return btn.dataset[k];
     })[0];
+    var was = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Saving';
     fetch('/' + kind, {
@@ -1415,20 +1454,41 @@ SERVE_SCRIPT = """
       .then(function (j) {
         if (j && j.ok === false) {
           btn.disabled = false;
+          btn.textContent = was;
           window.alert(j.note || 'That did not stick. Try again.');
           return;
         }
         location.reload();
       })
-      .catch(function () { location.reload(); });
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = was;
+        window.alert('No usable answer came back, so that may not have '
+                     + 'saved. Reload to check.');
+      });
   });
   var watch = document.getElementById('btn-watch');
   if (watch) watch.addEventListener('click', function () {
+    var was = watch.textContent;
     watch.disabled = true;
     watch.textContent = 'Checking';
     fetch('/watch', { method: 'POST' })
-      .then(function () { location.reload(); })
-      .catch(function () { location.reload(); });
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok === false) {
+          watch.disabled = false;
+          watch.textContent = was;
+          window.alert(j.note || 'The check did not run.');
+          return;
+        }
+        location.reload();
+      })
+      .catch(function () {
+        watch.disabled = false;
+        watch.textContent = was;
+        window.alert('No usable answer came back, so the check may still '
+                     + 'be running. Reload in a minute to see.');
+      });
   });
   setTimeout(function () { location.reload(); }, 900000);
 })();
@@ -2887,7 +2947,11 @@ COMPANY_SCRIPT = """
             return;
           }
           location.reload();
-        }).catch(function () { location.reload(); });
+        }).catch(function () {
+          oBtn.disabled = false; oBtn.textContent = was;
+          window.alert('No usable answer came back, so that may not have '
+                       + 'saved. Reload to check.');
+        });
       return;
     }
     var btn = e.target.closest('[data-set-state]');
@@ -2914,7 +2978,12 @@ COMPANY_SCRIPT = """
         }
         location.reload();
       })
-      .catch(function () { location.reload(); });
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = label;
+        window.alert('No usable answer came back, so that may not have '
+                     + 'saved. Reload to check.');
+      });
   });
 })();
 """
