@@ -60,13 +60,19 @@ FROM n8nio/n8n:2.14.2
 USER root
 COPY --from=tools /sbin/apk.static /tmp/apk.static
 RUN /tmp/apk.static add --no-cache python3 py3-pip \
- && pip3 install --break-system-packages anthropic PyYAML feedparser \
+ && pip3 install --break-system-packages \
+        "anthropic>=0.120.2,<0.121" PyYAML feedparser \
  && rm /tmp/apk.static
 USER node
 ```
 
 On older images that still carry `apk`, the plain
 `apk add --no-cache python3 py3-pip` route works without the build stage.
+
+The anthropic range in that line is the one in requirements.txt, and the two
+move together. The scorer sends `temperature=0`, the Python SDK removed that
+keyword at 1.0.0, and an unpinned install now resolves to 2.x, where every
+live call raises a TypeError before it reaches the API.
 
 n8n 2.x also disables the Execute Command node in code, not in the
 environment. The default in `@n8n/config` excludes both
