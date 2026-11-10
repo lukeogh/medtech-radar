@@ -24,7 +24,15 @@ The LAN-trust assumption, stated plainly. Anyone who can reach this port
 can read scored opportunities and acknowledge rows. Binding defaults to
 dashboard_host and dashboard_port in radar.yaml, 127.0.0.1 unless
 changed there. Open it to the LAN or tailnet only behind that trust, and
-if it ever goes behind the reverse proxy, give it authentication.
+if it ever goes behind a reverse proxy that does not restrict who may
+connect, give it authentication.
+
+One part of that trust is closed in code. A page open in Luke's own
+browser can make that browser send a request to this server, and the
+proxy's IP allow list passes it because it really does come from his
+machine. The write guard below refuses those requests. It is not
+authentication, because anyone who can reach this port can still send the
+header. dashboard_guard in radar.yaml sets it to warn or enforce.
 
 Standard library only, no new dependencies. The watcher subprocess runs
 dry by default and only ever pushes to ntfy when the server is started
@@ -47,6 +55,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import traceback
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -684,10 +693,247 @@ def run_watcher() -> dict:
         WATCH_LOCK.release()
 
 
+# ------------------------------------------------------------ the write guard
+#
+# The proxy's allow list decides which machines may reach this server. It
+# cannot tell Luke from a page he happens to have open, because that page's
+# requests leave his machine too. So a tab on any other site can POST to
+# /ack, /profile/setting or /cv/rescore and the allow list will pass it.
+# Two checks close that, and both read request headers and nothing else.
+#
+# 1. Every POST carries WRITE_HEADER. The page scripts add it to every fetch
+#    call that sets method POST (build_dashboard.SCRIPT). A page on another
+#    site cannot add a custom header without a CORS preflight, and this
+#    server answers no preflight, so the browser never sends the forgery.
+# 2. Host, and Origin on a POST, must name this server. A hostile page can
+#    point its own name at this address, which makes the browser treat the
+#    server as its own origin and lets the page add the header. Its Host and
+#    Origin still carry its own name, so they give it away.
+#
+# Names are compared without the scheme or the port. GET /health skips the
+# Host check, because a monitor reaches it by whatever name suits it and it
+# returns counts, not content.
+#
+# warn logs what would be refused and refuses nothing, so Luke can watch his
+# own browser and the proxy pass before enforce is switched on. Enforce also
+# forbids framing, because a page that frames the dashboard could get a real
+# click on a real button, and that request would pass both checks.
+#
+# This is not authentication. Anyone who can reach the port and sends the
+# header gets through.
+
+WRITE_HEADER = build_dashboard.WRITE_HEADER
+LOOPBACK_NAMES = ("localhost", "127.0.0.1", "::1")
+
+
+def host_name(value) -> str:
+    """The bare, lower-case host in a Host header, an Origin or a config entry.
+
+    Name, name:8787, [::1]:8787 and https://name:8443/ all give the name.
+    Anything that cannot be read as one gives an empty string, and an empty
+    string never matches an allowed name.
+    """
+    text = str(value or "").strip().lower()
+    if "://" in text:
+        try:
+            text = urlsplit(text).netloc
+        except ValueError:
+            return ""
+    if not text or any(ch in text for ch in "@/\\ \t"):
+        return ""
+    if text.startswith("["):
+        end = text.find("]")
+        if end < 0:
+            return ""
+        tail = text[end + 1:]
+        if tail and not (tail.startswith(":") and tail[1:].isdigit()):
+            return ""
+        return text[1:end]
+    if text.count(":") == 1:
+        text, port = text.split(":")
+        if port and not port.isdigit():
+            return ""
+    return text.rstrip(".")
+
+
+class WriteGuard:
+    """Who may talk to this server, judged from the request headers alone."""
+
+    # What to do about a refusal, by the kind of problem that caused it.
+    HINTS = {
+        "name": "If this is your own browser, add its name to "
+                "dashboard_allowed_hosts in config/radar.yaml and restart "
+                "the dashboard.",
+        "header": "If this is your own browser, reload the page.",
+    }
+
+    def __init__(self, mode: str, names) -> None:
+        self.mode = mode if mode in ("warn", "enforce") else "enforce"
+        self.names = frozenset(n for n in (host_name(x) for x in names) if n)
+        self._seen: set = set()
+        self._lock = threading.Lock()
+
+    @property
+    def enforcing(self) -> bool:
+        return self.mode == "enforce"
+
+    @staticmethod
+    def _shown(value) -> str:
+        """A value from the request as one safe log token."""
+        return repr(str(value)[:120])
+
+    def _findings(self, method: str, path: str,
+                  headers) -> list[tuple[str, str]]:
+        """Each reason this request would be refused, and what would fix it."""
+        found: list[tuple[str, str]] = []
+        # A guard that cannot read a request must not wave it through.
+        try:
+            if not (method == "GET" and path == "/health"):
+                hosts = headers.get_all("Host") or []
+                if len(hosts) > 1:
+                    found.append(("there is more than one Host header", ""))
+                elif hosts and host_name(hosts[0]) not in self.names:
+                    found.append((f"Host {self._shown(hosts[0])} is not a "
+                                  "name this server answers to", "name"))
+            if method == "POST":
+                origins = headers.get_all("Origin") or []
+                if len(origins) > 1:
+                    found.append(("there is more than one Origin header", ""))
+                elif origins:
+                    origin = origins[0].strip()
+                    if origin.lower() == "null":
+                        found.append(("the Origin is null, which a sandboxed "
+                                      "or redirected page sends", ""))
+                    elif host_name(origin) not in self.names:
+                        found.append((f"Origin {self._shown(origins[0])} is "
+                                      "not a name this server answers to",
+                                      "name"))
+                if not (headers.get(WRITE_HEADER) or "").strip():
+                    found.append((f"the {WRITE_HEADER} header is missing",
+                                  "header"))
+        except Exception as err:  # noqa: BLE001  fail closed
+            kind = type(err).__name__
+            found.append((f"the headers could not be read ({kind})", ""))
+        return found
+
+    def problems(self, method: str, path: str, headers) -> list[str]:
+        """Why this request would be refused. Empty when it would pass."""
+        return [why for why, _kind in self._findings(method, path, headers)]
+
+    def admit(self, handler, method: str) -> bool:
+        """True when the request may go on. Logs, and refuses if enforcing."""
+        try:
+            path = urlsplit(handler.path).path
+        except ValueError:
+            # A request line the router will fail on, not a crash here.
+            path = ""
+        found = self._findings(method, path, handler.headers)
+        if not found:
+            if not self.enforcing:
+                self._note_sighting(handler, method)
+            return True
+        reasons = " ".join(
+            why[:1].upper() + why[1:] + "." for why, _kind in found)
+        what = f"{method} {self._shown(path)} from {handler.address_string()}"
+        if not self.enforcing:
+            sys.stderr.write(f"write guard would refuse {what} (warn only). "
+                             f"{reasons}\n")
+            return True
+        sys.stderr.write(f"write guard refused {what}. {reasons}\n")
+        kinds = dict.fromkeys(kind for _why, kind in found if kind)
+        note = " ".join(["The write guard refused this request.", reasons]
+                        + [self.HINTS[kind] for kind in kinds])
+        try:
+            if method == "POST":
+                handler._drain_body()
+                body = json.dumps({"ok": False, "note": note}).encode()
+                handler._send(403, body, "application/json")
+            else:
+                handler._send(403, note.encode(), "text/plain; charset=utf-8")
+        except OSError:
+            pass  # the caller went away, there is nobody to tell
+        return False
+
+    def _note_sighting(self, handler, method: str) -> None:
+        """Log each distinct way a request passes once, in warn mode only.
+
+        This is what Luke reads after a day, the Host and Origin his own
+        browser and the proxy really send. Keyed on the parsed names, and on
+        the Origin and the header only for a POST, so a client cannot grow
+        the set by varying a port or a header that is never checked.
+        """
+        host = handler.headers.get("Host")
+        origin = handler.headers.get("Origin")
+        header = bool((handler.headers.get(WRITE_HEADER) or "").strip())
+        key = (method, host_name(host))
+        if method == "POST":
+            key += (host_name(origin), header)
+        with self._lock:
+            if key in self._seen:
+                return
+            self._seen.add(key)
+        line = f"write guard sees {method} "
+        line += (f"Host {self._shown(host)}" if host is not None
+                 else "no Host header")
+        if method == "POST":
+            line += (f", Origin {self._shown(origin)}" if origin is not None
+                     else ", no Origin header")
+            line += f", {'with' if header else 'without'} {WRITE_HEADER}"
+        sys.stderr.write(line + ", would pass\n")
+
+
+def guard_from_config(config: dict, bind_host: str | None) -> WriteGuard:
+    """Build the guard from radar.yaml. A mode it cannot read enforces.
+
+    The names always allowed are the loopback names and the address the
+    server binds to. dashboard_allowed_hosts adds the rest, the proxy's host
+    name and any address or tailnet name Luke reaches the server by.
+    """
+    raw = config.get("dashboard_guard", "enforce")
+    mode = raw.strip().lower() if isinstance(raw, str) else ""
+    if mode not in ("warn", "enforce"):
+        sys.stderr.write(f"dashboard_guard {raw!r} is neither warn nor "
+                         "enforce, so the guard enforces.\n")
+        mode = "enforce"
+    names = list(LOOPBACK_NAMES)
+    if bind_host and bind_host not in ("0.0.0.0", "::"):
+        names.append(bind_host)
+    extra = config.get("dashboard_allowed_hosts") or []
+    if isinstance(extra, str):
+        extra = extra.replace(",", " ").split()
+    elif not isinstance(extra, (list, tuple)):
+        sys.stderr.write(f"dashboard_allowed_hosts {extra!r} is not a list of "
+                         "host names, so it is ignored.\n")
+        extra = []
+    for entry in extra:
+        if isinstance(entry, str) and host_name(entry):
+            names.append(entry)
+        else:
+            sys.stderr.write(f"dashboard_allowed_hosts entry {entry!r} is not "
+                             "a plain host name, so it is ignored.\n")
+    return WriteGuard(mode, names)
+
+
+# Replaced from radar.yaml in main(). Until then it enforces, loopback only.
+GUARD = WriteGuard("enforce", LOOPBACK_NAMES)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "RadarDashboard/1.0"
+    _answered = False
+
+    def end_headers(self):
+        # Enforce mode forbids framing on every reply, error pages included.
+        # A page on another site could otherwise frame the dashboard and
+        # get a click on one of its real buttons, which passes both checks.
+        if GUARD.enforcing:
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Content-Security-Policy",
+                             "frame-ancestors 'none'")
+        super().end_headers()
 
     def _send(self, status: int, body: bytes, ctype: str) -> None:
+        self._answered = True
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -696,6 +942,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if not GUARD.admit(self, "GET"):
+            return
         path = urlsplit(self.path).path
         if path in ("/", "/index.html", "/dashboard.html"):
             try:
@@ -770,6 +1018,29 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return length
 
+    def _drain_body(self) -> None:
+        """Read and drop the request body, so a refusal arrives cleanly.
+
+        Closing a socket that still holds unread request data resets the
+        connection, and the browser then reports a network failure instead
+        of showing the refusal. The body is read in small pieces and thrown
+        away, so a large declared length holds no memory, and a client that
+        stalls is dropped after a few seconds. Capped at the largest upload
+        the server takes.
+        """
+        left = self._body_length(cv_store.MAX_UPLOAD_BYTES)
+        if not left:
+            return
+        try:
+            self.connection.settimeout(10)
+            while left > 0:
+                piece = self.rfile.read(min(left, 65536))
+                if not piece:
+                    break
+                left -= len(piece)
+        except OSError:
+            pass
+
     def _read_json_body(self) -> dict | None:
         length = self._body_length(1_000_000)
         if length is None:
@@ -780,6 +1051,34 @@ class Handler(BaseHTTPRequestHandler):
             return None
 
     def do_POST(self):
+        self._answered = False
+        try:
+            if not GUARD.admit(self, "POST"):
+                return
+            self._route_post()
+        except ConnectionError as err:
+            # The caller went away, so there is nobody to tell. One line, so
+            # a reset raised by route code does not pass unseen.
+            sys.stderr.write(f"POST {self.path[:120]!r} ended early with "
+                             f"{type(err).__name__}\n")
+        except Exception as err:  # noqa: BLE001  one clear 500
+            # Log the raw request target, not a parsed one, because a target
+            # the router could not parse is exactly what may have got us here.
+            sys.stderr.write(f"POST {self.path[:120]!r} failed with "
+                             f"{type(err).__name__}\n"
+                             + traceback.format_exc())
+            if not self._answered:
+                note = (f"Server error ({type(err).__name__}). The request "
+                        "may not have completed. The dashboard log has the "
+                        "details.")
+                try:
+                    self._send(500, json.dumps(
+                        {"ok": False, "note": note}).encode(),
+                        "application/json")
+                except OSError:
+                    pass
+
+    def _route_post(self):
         path = urlsplit(self.path).path
         if path == "/watch":
             result = run_watcher()
@@ -931,7 +1230,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main(argv=None) -> int:
-    global ARGS
+    global ARGS, GUARD
     parser = argparse.ArgumentParser(
         description="Serve the Radar dashboard, re-rendered on every load.")
     parser.add_argument("--host", default=None,
@@ -949,6 +1248,7 @@ def main(argv=None) -> int:
         ARGS.host = str(config.get("dashboard_host", "127.0.0.1"))
     if ARGS.port is None:
         ARGS.port = int(config.get("dashboard_port", 8787))
+    GUARD = guard_from_config(config, ARGS.host)
     # Apply schema and migrations once up front, so read-only renders of an
     # older database see every column the page expects.
     radar_common.get_db(db_path()).close()
@@ -962,6 +1262,11 @@ def main(argv=None) -> int:
     mode = "push" if ARGS.push else "dry run"
     print(f"Radar dashboard at http://{ARGS.host}:{ARGS.port}/ "
           f"(watcher button runs in {mode} mode, Ctrl+C to stop)")
+    print(f"Write guard is on {GUARD.mode}"
+          + (", so it logs what it would refuse and refuses nothing"
+             if not GUARD.enforcing else "")
+          + f". It answers to {', '.join(sorted(GUARD.names))}.",
+          flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

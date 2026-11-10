@@ -116,9 +116,40 @@ Bind address and port come from `dashboard_host` and `dashboard_port` in
 radar.yaml, 127.0.0.1 by default, `--host` and `--port` override. The
 LAN-trust assumption, stated plainly: anyone who can reach the port can
 read scored opportunities and acknowledge rows or change the active CV.
-Keep it on the LAN or the tailnet, and if it ever goes behind the reverse
-proxy, give it authentication. Start it with `--push` only once the
-system is armed, so the button matches what the schedule does.
+Keep it on the LAN or the tailnet, and if it ever goes behind a reverse
+proxy that does not restrict who may connect, give it authentication. Start
+it with `--push` only once the system is armed, so the button matches what
+the schedule does.
+
+The write guard. A page open in Luke's browser can make that browser send
+a request to this server, and the proxy's allow list passes it, because it
+really does come from his machine. So every POST must carry an
+`X-Radar-Request` header. The page scripts add it to every fetch call that
+sets method POST, so a script added later must post that way. A page on
+another site cannot add the header without a CORS preflight, and this
+server never answers one. The Host header must also name the server, and so
+must the Origin header on a POST. The names it answers to are `localhost`,
+`127.0.0.1`, `::1`, the bind address and `dashboard_allowed_hosts` in
+radar.yaml, compared without the scheme or the port. In enforce mode a name
+that is not listed gets a 403 on every page, so add the LAN address or the
+tailnet name before using it. `GET /health` skips the Host check so a
+monitor can reach it by any name.
+
+`dashboard_guard: warn` logs each request it would refuse and refuses
+nothing. It also logs once each distinct Host and Origin that passes, which
+is how the first day shows what Luke's own browser and the proxy really
+send. `dashboard_guard: enforce` refuses with a 403 and a note the page
+shows, and forbids framing the dashboard in another page. The mode is read
+when the server starts, so changing it takes a restart.
+
+This is not authentication. It stops a page on another site using Luke's
+browser to write. It does not stop anyone who can reach the port and sends
+the header.
+
+An exception inside a route is a 500 with a note instead of a dropped
+connection, and the traceback goes to the dashboard log.
+`test/run_hardening_test.py` checks the guard, the 500 and the anthropic
+range.
 
 Upgrading an existing deployment to the rate-band version: pull, restart
 the dashboard server, then run `python scripts/backfill_pay.py` once per

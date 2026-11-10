@@ -44,6 +44,27 @@ eur_to_gbp: 0.85
 dashboard_host: "127.0.0.1"
 dashboard_port: 8787
 
+# The write guard on serve_dashboard.py. A page open in Luke's browser can
+# make that browser send a request to the dashboard, and the proxy's allow
+# list passes it because it really does come from his machine. The guard
+# refuses a POST that lacks the page scripts' header, and any request whose
+# Host or Origin is not a name below. Set to warn, it logs what it would
+# refuse and refuses nothing. Set to enforce, it refuses, and it also
+# forbids framing the dashboard in another page. Read the lines that start
+# "write guard" in the dashboard log for a day, press Acknowledge and its
+# undo once so that a POST shows up, then change the value to enforce and
+# restart the dashboard. The mode is read once, when the server starts.
+dashboard_guard: warn
+
+# Names the dashboard may be reached by, besides localhost, 127.0.0.1, ::1
+# and the bind address above when that is a single address. Host names only,
+# no scheme and no port. The proxy's name is the one the Monday digest links
+# to. In enforce mode every page needs a listed name, so add the LAN address
+# or the tailnet name here before opening the dashboard by it. Read once at
+# start, like the mode.
+dashboard_allowed_hosts:
+  - "medtech-radar.keogh.cloud"
+
 # Send the Monday email even when there is nothing to report. A quiet week
 # then sends a short digest saying so, because silence should mean breakage
 # and nothing else. Set false to hold the email on genuinely empty weeks.

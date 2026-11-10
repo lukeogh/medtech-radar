@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# MedTech Radar acceptance suite. Runs the three workstream test runners in
-# order against one throwaway database path. Works in Git Bash on Windows and
-# in plain bash on Linux. Exits non-zero if any runner fails.
+# MedTech Radar acceptance suite. Runs the test runners in order against one
+# throwaway database path. Works in Git Bash on Windows and in plain bash on
+# Linux. Exits non-zero if any runner fails.
 #
 # Usage:  bash test/run_all.sh
 
@@ -81,6 +81,7 @@ run_one "unit checks      (test/run_unit_test.py)"    "test/run_unit_test.py"
 run_one "inbox pipeline   (test/run_inbox_test.py)"   "test/run_inbox_test.py"
 run_one "monday digest    (test/run_digest_test.py)"  "test/run_digest_test.py"
 run_one "signals pipeline (test/run_signals_test.py)" "test/run_signals_test.py"
+run_one "hardening        (test/run_hardening_test.py)" "test/run_hardening_test.py"
 
 echo
 echo "=========================================================================="
