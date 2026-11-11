@@ -729,6 +729,26 @@ def main() -> int:
     check(SHIPPED_PROXY in from_cfg.names,
           "the shipped config allows the proxy name the Monday digest links "
           "to")
+    # The LAN address of LXC 110 is listed, so a monitor on the LAN that
+    # reaches the dashboard by IP passes the Host check on a GET and on a
+    # POST, while a neighbouring address that is not listed is still refused.
+    LAN_IP = "192.168.1.100"
+    lan_post = {"Host": f"{LAN_IP}:8787", "Origin": f"http://{LAN_IP}:8787",
+                HEADER: "1"}
+    check(LAN_IP in (file_hosts or []) and LAN_IP in from_cfg.names
+          and from_cfg.problems("GET", "/", Headers(
+              {"Host": f"{LAN_IP}:8787"})) == []
+          and from_cfg.problems("POST", "/ack", Headers(lan_post)) == [],
+          f"the shipped config lists {LAN_IP}, so Host {LAN_IP}:8787 passes "
+          "the Host check on a GET and on a POST")
+    unlisted = "192.168.1.101"
+    check(unlisted not in from_cfg.names
+          and len(from_cfg.problems("GET", "/", Headers(
+              {"Host": f"{unlisted}:8787"}))) == 1
+          and len(from_cfg.problems("POST", "/ack", Headers(
+              {**lan_post, "Host": f"{unlisted}:8787"}))) == 1,
+          f"an unlisted address {unlisted}:8787 is still refused on a GET and "
+          "on a POST")
     with captured_stderr() as buf:
         odd = serve_dashboard.guard_from_config({"dashboard_guard": "warning"},
                                                 None)

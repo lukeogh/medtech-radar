@@ -64,6 +64,9 @@ dashboard_guard: warn
 # start, like the mode.
 dashboard_allowed_hosts:
   - "medtech-radar.keogh.cloud"
+  # The LAN address of LXC 110. The Pi's daily health report and anything
+  # else on the LAN that reaches the dashboard by IP sends this as Host.
+  - "192.168.1.100"
 
 # Send the Monday email even when there is nothing to report. A quiet week
 # then sends a short digest saying so, because silence should mean breakage
