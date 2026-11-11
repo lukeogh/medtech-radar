@@ -34,7 +34,7 @@ import cv_store
 import engagement
 
 REPO_ROOT = radar_common.REPO_ROOT
-PROMPTS_DIR = REPO_ROOT / "prompts"
+PROMPTS_DIR = radar_common.PROMPTS_DIR
 PROFILE_DIR = REPO_ROOT / "config" / "profile"
 
 MAX_BODY_CHARS = 12000  # cost guardrail on extraction input
@@ -64,11 +64,35 @@ def _fixture_allowed(config: dict) -> bool:
 
 MOVABLE_GATES = ("location", "rate")   # one conversation can shift these
 FIXED_GATES = ("sector", "cv")         # no question turns a software house into an IVD firm
-CV_PASS = 70
-CV_FLOOR_FOR_READING = 40
+
+# The CV pass mark and the Filtered floor are not constants here. They are
+# two lines in the preferences file, read once per run by
+# radar_common.read_score_thresholds and passed to the functions below. The
+# parameter defaults are the same fallback that reader uses, 70 and 40.
 
 
-def derive_tier(gates: dict, cv_match=None, is_real_role: bool = True) -> dict:
+def cv_gate(cv_match, cv_pass=radar_common.DEFAULT_CV_PASS_SCORE):
+    """The CV gate. A CV match at or above the pass mark passes it.
+
+    None when the scorer gave no number, because an unknown is not a fail.
+    """
+    return None if cv_match is None else cv_match >= cv_pass
+
+
+def is_real(sector_gate, cv_match,
+            cv_floor=radar_common.DEFAULT_CV_FLOOR_SCORE) -> bool:
+    """Whether a role is real enough not to be filtered out unread.
+
+    A role is real when it is software, quality or regulatory leadership in a
+    regulated or deep-tech sector, or anything at all in medtech and IVD.
+    The sector gate plus a CV number that reaches the Filtered floor is the
+    closest honest proxy the rubric gives us without a fifth question.
+    """
+    return bool(sector_gate) or (cv_match is not None and cv_match >= cv_floor)
+
+
+def derive_tier(gates: dict, cv_match=None, is_real_role: bool = True,
+                cv_floor=radar_common.DEFAULT_CV_FLOOR_SCORE) -> dict:
     """Turn four gate results into a tier. Code decides this, never the model.
 
     The gates are not equal. Location and rate are movable, one conversation
@@ -77,14 +101,16 @@ def derive_tier(gates: dict, cv_match=None, is_real_role: bool = True) -> dict:
     and the CV number is about Luke rather than them. One question away leans
     entirely on that split. A rate fail is a rate fail whatever its basis:
     a salary under the salary floor is as movable as a day rate under the
-    day floor, so both land one question away.
+    day floor, so both land one question away. A CV match under cv_floor,
+    the Filtered floor from the preferences file, is filtered before any gate
+    is weighed, and the stored reason names the floor it was judged against.
     """
     failed = [name for name in ("sector", "cv", "location", "rate")
               if gates.get(name) is False]
     out = {"tier": "reading", "failed_gates": failed, "filter_reason": None}
 
-    if cv_match is not None and cv_match < CV_FLOOR_FOR_READING:
-        out.update(tier="filtered", filter_reason="cv match under 40")
+    if cv_match is not None and cv_match < cv_floor:
+        out.update(tier="filtered", filter_reason=f"cv match under {cv_floor:g}")
         return out
     if not is_real_role:
         out.update(tier="filtered", filter_reason="not a real leadership role")
@@ -222,6 +248,17 @@ def get_mock_fns():
     return mocks.mock_extractor, mocks.mock_scorer
 
 
+class ScorerSystem(list):
+    """The scorer's system blocks, carrying the version of the rubric in them.
+
+    A plain list to everything that sends it. The version is the hash of
+    scorer.md as it was when the blocks were built, so a file edited while a
+    run is in flight cannot put the wrong version on the scores that run
+    makes.
+    """
+    prompt_version = None
+
+
 def build_scorer_system(config: dict) -> list:
     """One stable system block, cache_control ephemeral, per the conventions."""
     rubric = load_prompt("scorer.md")
@@ -232,31 +269,56 @@ def build_scorer_system(config: dict) -> list:
         + f"\n\n## CV TEXT. Capability evidence, source {cv_src}.\n\n" + cv_text
         + f"\n\n## PREFERENCES. Desire evidence, source {prefs_src}.\n\n" + prefs_text
     )
-    return [{"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}}]
+    blocks = ScorerSystem(
+        [{"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}}])
+    blocks.prompt_version = radar_common.prompt_hash(rubric)
+    return blocks
 
 
-def _call_for_json(model: str, system, user_content: str, mock_fn):
+INVALID_JSON_NOTE = "response was not valid JSON after one retry"
+CUT_OFF_NOTE = "reply was cut off at max_tokens, so it was not used as a score"
+
+
+def _advert_label(opp: dict) -> str:
+    """Company and title of an advert, for a log line that has to name it."""
+    return f"{opp.get('company') or 'an unnamed company'}, {opp.get('title') or 'an untitled role'}"
+
+
+def _call_for_json(model: str, system, user_content: str, mock_fn,
+                   refuse_cut_off: bool = False, label: str = "an advert"):
     """Call, parse, retry once with a firmer instruction, then give up.
 
-    Returns (parsed_dict_or_None, usage, note_or_None).
+    With refuse_cut_off, a reply the model did not finish, stop_reason
+    max_tokens, is never parsed or used, even one that would parse, because
+    a cut off reply cannot be trusted to be the whole answer. It is logged
+    to stderr under the label and counts as a failed attempt like any other.
+    Only a score asks for that. The extractor and the pay backfill parse a
+    reply as they always have.
+
+    Returns (parsed_dict_or_None, usage, note_or_None). The usage is the
+    summed token counts plus the model and stop_reason of the last call,
+    and the note says why the last attempt failed.
     """
     total: dict = {}
-    text, usage = radar_common.claude_call(model, system, user_content,
-                                           max_tokens=MAX_TOKENS, mock_fn=mock_fn)
-    radar_common.add_usage(total, usage)
-    try:
-        return radar_common.extract_json(text), total, None
-    except (ValueError, json.JSONDecodeError):
-        pass
-
-    retry = user_content + "\n\nReturn only the JSON object, nothing else."
-    text, usage = radar_common.claude_call(model, system, retry,
-                                           max_tokens=MAX_TOKENS, mock_fn=mock_fn)
-    radar_common.add_usage(total, usage)
-    try:
-        return radar_common.extract_json(text), total, None
-    except (ValueError, json.JSONDecodeError):
-        return None, total, "response was not valid JSON after one retry"
+    cut_off = False
+    for content in (user_content,
+                    user_content + "\n\nReturn only the JSON object, nothing else."):
+        text, usage = radar_common.claude_call(model, system, content,
+                                               max_tokens=MAX_TOKENS,
+                                               mock_fn=mock_fn)
+        radar_common.add_usage(total, usage)
+        total["model"] = usage.get("model")
+        total["stop_reason"] = usage.get("stop_reason")
+        cut_off = refuse_cut_off and radar_common.reply_was_cut_off(usage)
+        if cut_off:
+            print(f"WARNING. The reply from {model} for {label} was cut off at "
+                  f"max_tokens ({MAX_TOKENS}), so it was not used.", file=sys.stderr)
+            continue
+        try:
+            return radar_common.extract_json(text), total, None
+        except (ValueError, json.JSONDecodeError):
+            pass
+    return None, total, CUT_OFF_NOTE if cut_off else INVALID_JSON_NOTE
 
 
 def extract_opportunities(email: dict, config: dict, mock_fn=None):
@@ -292,18 +354,32 @@ def _pct(value):
 
 
 def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None,
-                      floors: dict | None = None):
+                      floors: dict | None = None,
+                      thresholds: dict | None = None,
+                      basis: str = radar_common.SCORE_BASIS_CARD):
     """Score one opportunity. Returns (normalised_dict_or_None, usage, note).
 
     The normalised dict uses the database column names. combined is
     round((cv_match + want_match) / 2), computed here, never by the model.
     The rate gate is judged in code from the extractor's pay columns
     wherever a figure was stored, against the floor of its own basis; the
-    model's gate_rate stands only when nothing usable was stated.
+    model's gate_rate stands only when nothing usable was stated. The CV
+    gate and the Filtered floor are judged in code against thresholds, the
+    pass mark and the floor from the preferences file, read here when the
+    caller has not passed them.
+
+    The dict also carries how the score was made, which the writers store.
+    That is the basis the scorer was shown (card, or spec for a full job
+    spec), the version of the rubric, the model that answered and the time.
+    The version comes from the system blocks when they carry one, so it is
+    the rubric the model actually saw. None is returned for a score that
+    failed, including a reply that was cut off at max_tokens.
     """
     user = "Score this opportunity.\n\n" + json.dumps(opp, ensure_ascii=False)
     parsed, usage, note = _call_for_json(config["claude_model_score"],
-                                         system_blocks, user, mock_fn)
+                                         system_blocks, user, mock_fn,
+                                         refuse_cut_off=True,
+                                         label=_advert_label(opp))
     if parsed is None:
         return None, usage, note
 
@@ -348,8 +424,9 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
             return v.strip().lower() == "true"
         return None
 
+    thresholds = thresholds or radar_common.read_score_thresholds(config)
     gates = {"sector": gate("gate_sector"),
-             "cv": (cv >= CV_PASS) if cv is not None else None,
+             "cv": cv_gate(cv, thresholds["pass"]),
              "location": gate("gate_location"),
              "rate": gate("gate_rate")}
     rate_basis = str(parsed.get("rate_basis") or "").strip()
@@ -368,14 +445,16 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
         gates["rate"] = pay["gate"]
         rate_basis, rate_value, rate_stated = pay["basis"], pay["figure"], 1
         gate_rate_note = rate_gate_note(pay)
-    # A role is real when it is software, quality or regulatory leadership in a
-    # regulated or deep-tech sector, or anything at all in medtech and IVD. The
-    # sector gate plus a non-trivial CV number is the closest honest proxy the
-    # rubric gives us without a fifth question.
-    is_real = bool(gates["sector"]) or (cv is not None and cv >= CV_FLOOR_FOR_READING)
-    tier_info = derive_tier(gates, cv, is_real)
+    real = is_real(gates["sector"], cv, thresholds["floor"])
+    tier_info = derive_tier(gates, cv, real, thresholds["floor"])
 
     scored.update({
+        # How this score was made. Set here in code, never by the model.
+        "score_basis": basis,
+        "prompt_version": (getattr(system_blocks, "prompt_version", None)
+                           or radar_common.prompt_version()),
+        "score_model": usage.get("model") or config.get("claude_model_score"),
+        "scored_at": radar_common.now_iso(),
         "gate_sector": None if gates["sector"] is None else int(gates["sector"]),
         "gate_sector_note": sanitise(str(parsed.get("gate_sector_note", "")).strip()),
         "gate_cv": None if gates["cv"] is None else int(gates["cv"]),

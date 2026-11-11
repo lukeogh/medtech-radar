@@ -122,6 +122,18 @@ def main() -> int:
         got = radar_common.read_rate_floors({"prefs_file": str(both.resolve())})
         check(got == {"day": 750.0, "salary": 100000.0},
               f"both lines parse to their numbers (got {got})")
+        check(set(got) == {"day", "salary"},
+              "the floor reader still returns exactly two keys, the CV thresholds"
+              " have a reader of their own")
+        import contextlib as _ctx, io as _sio
+        radar_common._WARNED.clear()
+        th_stderr = _sio.StringIO()
+        with _ctx.redirect_stderr(th_stderr):
+            th = radar_common.read_score_thresholds(
+                {"prefs_file": str(both.resolve())})
+        check(th == {"pass": 70, "floor": 40} and "cv_pass_score" in th_stderr.getvalue(),
+              "a preferences file without the CV threshold lines gives 70 and 40"
+              " and a warning rather than a failure")
         bare = Path(tmp) / "prefs.md"
         bare.write_text("# Preferences\n\nNo floor line here.\n", encoding="utf-8")
         rel = bare.resolve()
@@ -2502,6 +2514,13 @@ def main() -> int:
           "the failed gate is recorded as the verdict")
     check(_si.derive_tier(G(cv=False), 22, True)["filter_reason"] == "cv match under 40",
           "a filtered row records why, so the filter can be audited")
+    _floor = radar_common.read_score_thresholds(CFG)["floor"]
+    check(_si.derive_tier(G(cv=False), 22, True, _floor)["filter_reason"]
+          == f"cv match under {_floor:g}"
+          and _si.derive_tier(G(cv=False), 22, True, 45)["filter_reason"]
+          == "cv match under 45",
+          "the reason on a filtered row is built from the floor in the"
+          " preferences, not written into the code")
     check(_si.question_for(G(location=False), {}) == "Would they go remote",
           "the location question is the one a conversation could settle")
     check(_si.question_for(G(rate=False), {}) == "Would they move on the rate",

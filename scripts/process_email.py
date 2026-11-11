@@ -250,7 +250,14 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
                        pay: dict, cv_version: str | None = None,
                        buying_window: int = 0,
                        company_id: int | None = None,
-                       region: str | None = None) -> None:
+                       region: str | None = None) -> int | None:
+    """Store one advert, scored or not. Returns the new row id.
+
+    None when the INSERT was ignored because another process stored the
+    same advert first. A scored row also writes its first score to the
+    history, in the same transaction, so every score has a record from the
+    moment it exists. A row that could not be scored has no score to keep.
+    """
     if scored is None:
         scored = {
             "company": opp.get("company", ""),
@@ -266,7 +273,7 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
     # honest answer, and the page reads a missing tier as needs review.
     stored_company = scored["company"] or opp.get("company", "")
     stored_title = scored["role_title"] or opp.get("title", "")
-    conn.execute(
+    cur = conn.execute(
         "INSERT OR IGNORE INTO opportunities"
         " (url_hash, first_seen, last_seen, source, company, title, location, salary_rate,"
         "  source_url, thread_type, cv_match, want_match, combined, one_line_why,"
@@ -274,8 +281,9 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
         "  pay_currency, pay_period, pay_min, pay_max, day_rate, rate_band,"
         "  cv_version, buying_window, company_id, region, role_key,"
         "  gate_sector, gate_sector_note, gate_cv, gate_cv_note, gate_location, gate_location_note, gate_rate, gate_rate_note, tier, failed_gates, question_text, filter_reason, rate_stated, rate_value, rate_basis, ir35, location_class,"
-        "  engagement_type, engagement_note)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "  engagement_type, engagement_note,"
+        "  score_basis, prompt_version, score_model, scored_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (h, now, now, source,
          stored_company,
          stored_title,
@@ -292,7 +300,22 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
          buying_window, company_id, region,
          radar_common.role_key(stored_title, stored_company),
          scored.get("gate_sector"), scored.get("gate_sector_note"), scored.get("gate_cv"), scored.get("gate_cv_note"), scored.get("gate_location"), scored.get("gate_location_note"), scored.get("gate_rate"), scored.get("gate_rate_note"), scored.get("tier"), scored.get("failed_gates"), scored.get("question_text"), scored.get("filter_reason"), scored.get("rate_stated"), scored.get("rate_value"), scored.get("rate_basis"), scored.get("ir35"), scored.get("location_class"),
-         scored.get("engagement_type"), scored.get("engagement_note")))
+         scored.get("engagement_type"), scored.get("engagement_note"),
+         scored.get("score_basis"), scored.get("prompt_version"),
+         scored.get("score_model"), scored.get("scored_at")))
+    if not cur.rowcount:
+        return None
+    # The advert and its score matter more than the history row, and one
+    # transaction covers a whole email, model spend included. So a failure
+    # here is a warning, not a lost email. The first overwrite of this row
+    # keeps its score in the history anyway.
+    try:
+        radar_common.record_score(conn, cur.lastrowid, "process_email")
+    except Exception as err:  # noqa: BLE001  never cost the inbox an email
+        print("WARNING. The history row for a new score was not written "
+              f"({type(err).__name__}). The score itself is stored.",
+              file=sys.stderr)
+    return cur.lastrowid
 
 
 def main(argv=None) -> int:
@@ -318,6 +341,10 @@ def main(argv=None) -> int:
     # The two rate floors fail loudly here, before any token is spent, when
     # the preferences file has lost either machine-readable line.
     floors = radar_common.read_rate_floors(config)
+    # The CV pass mark and the Filtered floor, read once for the run. Unlike
+    # the floors above this never fails. A missing line gives 70 and 40 and
+    # one warning, because the hourly run must not stop over a threshold.
+    thresholds = radar_common.read_score_thresholds(config)
     # Every stored score is stamped with the CV version that shaped it, so
     # a score that predates a CV change is obvious at a glance.
     cv_version = score_item.get_cv_version(config)
@@ -415,7 +442,8 @@ def main(argv=None) -> int:
         if system_blocks is None:
             system_blocks = score_item.build_scorer_system(config)
         scored, s_usage, s_note = score_item.score_opportunity(
-            opp, system_blocks, config, mock_fn=score_fn, floors=floors)
+            opp, system_blocks, config, mock_fn=score_fn, floors=floors,
+            thresholds=thresholds)
         radar_common.add_usage(usage_total, s_usage)
 
         # The doctrine's reading of this advert, taken before anything is
@@ -507,6 +535,10 @@ def main(argv=None) -> int:
     if revived_count:
         # Revivals sit in the run record beside the sightings they came from.
         note_parts.append(f"{dup_count} seen again, {revived_count} revived")
+    if radar_common.thresholds_fell_back():
+        # The warning goes to stderr, which the workflow does not keep. The
+        # run record is where a missing or unreadable line gets noticed.
+        note_parts.append("CV threshold line missing or unreadable")
     # Enrichment is its own line in the runs table. Folding its tokens into
     # the inbox row would hide a cost that behaves differently, one pass per
     # company ever rather than one per advert.

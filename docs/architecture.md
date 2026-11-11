@@ -268,6 +268,78 @@ the sector exclusion beats the inclusion so a hospital QA post never fires.
 whether the market moved. Outcomes on touches, none, reply or conversation, are
 set by hand only.
 
+## How a score was made, and what it replaced
+
+Every score says how it was made. The opportunity row keeps four things beside
+the score. The basis is `card` for the advert card an alert email carries, or
+`spec` for a full job spec. No scorer is given a full spec yet, so every score
+reads `card` today. The prompt version is a short hash of `prompts/scorer.md`,
+the first eight hex characters of its sha256 with the line endings made alike,
+taken from the file when the rubric is loaded, so it cannot drift from what the
+model was shown. The model is the one that answered. The date is when. A row
+scored before this was kept reads `card`, `pre-record`, `unknown` and no date,
+because the history was not recorded and is not guessed.
+
+The label in the prompt's header comment is for people, and editing the comment
+changes the hash like any other edit. To read the version of the file as it
+stands, run `python -c "import sys; sys.path.insert(0, 'scripts'); import radar_common; print(radar_common.prompt_version())"`
+from the repository. `rescore.py` and `regate_rates.py` print the current
+version in the JSON they emit. The version covers the rubric only. The
+preferences file and the CV are also read by the model, and a change to either
+is not a new version. The CV is told apart by `cv_version`, kept beside the
+version in the history.
+
+`score_history` keeps the past. A new score writes a row of its own. A
+re-score, `regate_rates.py --write` and the page checker's rate re-tier all
+overwrite a score in place, and before any of them does, the values it replaces
+are written to the table with the date, basis, prompt version, model, CV
+version, CV match, gates, tier, filter reason and one-line why they were made
+with. The row itself always holds the current score, and the history receives a
+state when it is replaced. A re-tier by code changes the tier and the rate gate
+and leaves the date, prompt version and model of the model's answer where they
+were, because the answer is unchanged. A score the newest history row already
+holds is not kept twice, and a dry run writes nothing. The history keeps those
+ten fields and no more. The gate notes, red flags, suggested action and the
+rate and engagement columns are overwritten without a copy, and so is the
+employment type the page checker reads off a page.
+
+A reply the model did not finish, one that stopped at `max_tokens`, is a failed
+score. It is not parsed, not stored as a score and not written to the history.
+A re-score keeps the previous score, a first score stores the advert unscored
+with the reason, and the log names the advert. An advert left unscored still
+comes up in the list a manual re-score works through, as before. Only scores
+apply this rule. The extractor and the pay backfill parse a reply as they always
+have.
+
+The CV pass mark and the Filtered floor are two labelled lines in the
+preferences file, `cv_pass_score` and `cv_floor_score`, 70 and 40 as shipped,
+read beside the rate floors. A CV match at or above the pass mark passes the CV
+gate when a role is scored. A CV match under the floor is Filtered whenever a
+tier is worked out, so a changed floor reaches a regate and the page checker,
+and a changed pass mark reaches new scores. A role already scored keeps the CV
+gate it was given, so a regate reports `cv_gate_stale`, the number of open rows
+whose stored gate no longer matches the pass mark now, and only a re-score
+changes those. If a line is missing or unreadable
+the code uses 70 and 40 and warns once per process, which in the inbox workflow
+is once per email, because the hourly run must not stop over it. The inbox run's
+note in the `runs` table says when a line was missing or unreadable, because the
+warning itself goes to stderr and the workflow does not keep stderr. The reason
+stored on a Filtered row is built from the floor in force. The model reads the
+preferences file and the rubric points at `cv_pass_score`, so add both lines to
+the live file before the first run on this code. The two lines are the only
+thing the template says about the thresholds, because the model reads that file
+too.
+
+The first open of a database that predates all this takes the write lock for a
+moment, to add the four columns and label the rows already scored. The inbox
+run holds the write lock for the whole of an email, model calls included, so a
+first open that lands in the middle of one waits five seconds and then fails
+with `database is locked`. Open it between runs. A dry run of
+`python scripts/regate_rates.py` is a harmless way to open it on purpose, and
+its `tier_moves_total` is the check that the thresholds moved nothing.
+`test/run_record_test.py` checks the record, the history, the thresholds, the
+cut off replies and the migration on a copy of a database in the old shape.
+
 ## The renderer, and the one page to trust
 
 `serve_dashboard.py` is canonical. It re-renders from the database on every load

@@ -354,7 +354,8 @@ def map_engagement(description: str, employment_type: str | None) -> tuple[str, 
 
 
 def apply_page(conn, row: dict, page: dict, floors: dict,
-               config: dict | None = None, write: bool = False) -> dict:
+               config: dict | None = None, write: bool = False,
+               thresholds: dict | None = None) -> dict:
     """Store what the page said on the row and its silent chain siblings.
 
     The description is kept. An engagement type other than unknown is
@@ -364,7 +365,9 @@ def apply_page(conn, row: dict, page: dict, floors: dict,
     figure goes on the row with pay_source "page" and the rate gate and
     tier are derived again in code, no model call. A row that already
     had a figure keeps it. Returns what happened, or in a dry run what
-    would have.
+    would have. A re-tier overwrites the score the row holds, so when it is
+    written the outgoing score goes to score_history first, in the same
+    transaction. thresholds is the CV pass mark and the Filtered floor.
     """
     out = {"id": row["id"], "engagement_type": "unknown", "engagement_note": "",
            "siblings": 0, "pay": None, "tier": None,
@@ -395,13 +398,16 @@ def apply_page(conn, row: dict, page: dict, floors: dict,
         if row.get("tier"):
             judged = dict(row)
             judged.update(sets)
-            new, verdict = regate_rates.judge_row(judged, floors, config)
+            new, verdict = regate_rates.judge_row(judged, floors, config,
+                                                  thresholds)
             if verdict["gate"] is not None:
                 sets.update(new)
                 out["tier"] = {"from": row["tier"], "to": new["tier"],
                                "gate": verdict["gate"], "basis": verdict["basis"],
                                "figure": verdict["figure"]}
     if write and sets:
+        if any(col in sets for col in regate_rates._GATE_COLS):
+            rc.archive_score(conn, row["id"], "check_jobs")
         conn.execute(
             "UPDATE opportunities SET " + ", ".join(f"{c} = ?" for c in sets)
             + " WHERE id = ?", (*sets.values(), row["id"]))
@@ -478,6 +484,7 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
         "tier_moves": {}, "page_reads": [],
     }
     floors = None
+    thresholds = None
     config = None
 
     if only_id is not None:
@@ -552,8 +559,9 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
             if floors is None:
                 config = rc.load_config()
                 floors = rc.read_rate_floors(config)
+                thresholds = rc.read_score_thresholds(config)
             outcome = apply_page(conn, row, read_page(body), floors, config,
-                                 write=write)
+                                 write=write, thresholds=thresholds)
             result["pages_read"] += 1
             result["page_reads"].append(outcome)
             if outcome["engagement_type"] != "unknown":
