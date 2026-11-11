@@ -567,6 +567,23 @@ def rate_detail(o: dict) -> str:
     return (o.get("salary_rate") or "").strip() or "No usable figure stated."
 
 
+def scored_line(o: dict) -> str:
+    """One line on how the score was made and when, for the Jobs row detail.
+
+    Scored on the advert card, 8 Nov. A score made before the record was
+    kept has no date and the line says so. A role that was never scored has
+    no line. The basis is what the scorer was shown, the advert card or, for
+    a scorer ever given one, the full job spec.
+    """
+    basis = str(o.get("score_basis") or "").strip().lower()
+    if not basis:
+        return ""
+    what = {radar_common.SCORE_BASIS_CARD: "the advert card",
+            radar_common.SCORE_BASIS_SPEC: "the full job spec"}.get(basis, basis)
+    when = fmt_day(o["scored_at"]) if o.get("scored_at") else "date not recorded"
+    return f'<div class="row-sub">Scored on {esc(what)}, {when}.</div>'
+
+
 def liveness_age_days(o: dict) -> int | None:
     """Whole days since the row's newest sign of life."""
     newest = radar_common.latest_liveness(o)
@@ -670,8 +687,12 @@ def engagement_chip(o: dict) -> str:
             f'{word.capitalize()}</span>')
 
 
-def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
+def render_opportunity(o: dict, data: dict, i: int, acked: bool = False,
+                       show_basis: bool = False) -> str:
     """One role, one row. Keyed on the tier and the derived state.
+
+    With show_basis the detail ends its facts with one line on how the
+    score was made and when. Only the Jobs page asks for it.
 
     A collapsed repost chain hands its face row a _chain dict, locations
     rolled up, the counts for the detail and the freshest advert's tier
@@ -750,6 +771,8 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False) -> str:
         items = "".join(f"<li>{esc(f)}</li>" for f in flags)
         parts.append(f'<span class="detail-label">Red flags</span>'
                      f'<ul class="flags">{items}</ul>')
+    if show_basis:
+        parts.append(scored_line(o))
     if chain.get("adverts", 0) > 1:
         parts.append(
             f'<div class="row-sub">Seen {chain.get("sightings", 0)} times '
@@ -2759,7 +2782,9 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
         out = [opp_head_html()]
         for o in rows:
             counter += 1
-            out.append(render_opportunity(o, data, counter))
+            # The Jobs page alone says how each score was made. The
+            # archive renders the same rows and stays as it was.
+            out.append(render_opportunity(o, data, counter, show_basis=True))
         return "".join(out)
 
     # One collapse over every open row, filtered and unscored included, so

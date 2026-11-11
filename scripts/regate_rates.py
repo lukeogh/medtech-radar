@@ -14,6 +14,15 @@ Rows with no tier were never gated and are left for rescore.py.
   python scripts/regate_rates.py            dry run, counts and a sample
   python scripts/regate_rates.py --write    write the new gates and tiers
   --db PATH                                 alternate database path
+
+The tier is derived again with the CV pass mark and the Filtered floor from
+the preferences file (cv_pass_score and cv_floor_score, 70 and 40 when the
+lines are missing). The floor reaches every row. The pass mark reaches new
+scores only, because the CV gate a row holds was judged when it was scored,
+so cv_gate_stale counts the rows whose gate no longer matches the pass mark
+now, and only a re-score changes them. Before --write overwrites a row, the
+score it holds is kept in score_history. A dry run writes nothing, history
+included.
 """
 
 from __future__ import annotations
@@ -38,13 +47,21 @@ def _flag(value):
     return None if value is None else bool(value)
 
 
-def judge_row(row: dict, floors: dict, config: dict | None = None) -> tuple[dict, dict]:
+def judge_row(row: dict, floors: dict, config: dict | None = None,
+              thresholds: dict | None = None) -> tuple[dict, dict]:
     """The rate gate and the tier for one row, from its stored columns.
 
     Returns (new, pay): new holds a value for every column in _GATE_COLS,
     pay is gate_pay's verdict, gate None when the row states no usable
     figure. Shared with the page checker, which calls it on a row that
     has just been given a figure off the page. No model call.
+
+    thresholds is the CV pass mark and the Filtered floor, read from the
+    preferences file when the caller has not passed them. The floor decides
+    whether the role is real and whether the CV number filters it. The CV
+    gate itself stays as the scorer stored it, judged against the pass mark
+    in force when the row was scored, so changing cv_pass_score reaches new
+    scores and cv_floor_score reaches a regate.
     """
     gates = {"sector": _flag(row.get("gate_sector")),
              "cv": _flag(row.get("gate_cv")),
@@ -60,8 +77,9 @@ def judge_row(row: dict, floors: dict, config: dict | None = None) -> tuple[dict
                    rate_stated=1, rate_value=pay["figure"],
                    rate_basis=pay["basis"], rate_band=pay["band"])
     cv = row.get("cv_match")
-    is_real = bool(gates["sector"]) or (cv is not None and cv >= score_item.CV_FLOOR_FOR_READING)
-    tier_info = score_item.derive_tier(gates, cv, is_real)
+    thresholds = thresholds or rc.read_score_thresholds(config)
+    real = score_item.is_real(gates["sector"], cv, thresholds["floor"])
+    tier_info = score_item.derive_tier(gates, cv, real, thresholds["floor"])
     new["tier"] = tier_info["tier"]
     new["failed_gates"] = json.dumps(tier_info["failed_gates"])
     new["filter_reason"] = tier_info["filter_reason"]
@@ -73,7 +91,9 @@ def judge_row(row: dict, floors: dict, config: dict | None = None) -> tuple[dict
     return new, pay
 
 
-def regate(conn, config: dict, floors: dict, write: bool = False) -> dict:
+def regate(conn, config: dict, floors: dict, write: bool = False,
+           thresholds: dict | None = None) -> dict:
+    thresholds = thresholds or rc.read_score_thresholds(config)
     rows = conn.execute(
         "SELECT * FROM opportunities WHERE tier IS NOT NULL"
         " AND closed_at IS NULL AND dismissed_at IS NULL"
@@ -81,12 +101,20 @@ def regate(conn, config: dict, floors: dict, write: bool = False) -> dict:
     moves: dict[str, int] = {}
     gate_flips = {"pass to fail": 0, "fail to pass": 0}
     judged = 0
+    cv_gate_stale = 0
     sample = []
     updates = []
     for row in rows:
         row = dict(row)
         had = _flag(row.get("gate_rate"))
-        new, pay = judge_row(row, floors, config)
+        new, pay = judge_row(row, floors, config, thresholds)
+        # The CV gate a row holds was judged against the pass mark in force
+        # when it was scored, and a regate leaves it. Count the rows where
+        # that no longer matches the pass mark now, so a changed
+        # cv_pass_score shows what it has not reached.
+        if (row.get("cv_match") is not None and row.get("gate_cv") is not None
+                and bool(row["gate_cv"]) != (row["cv_match"] >= thresholds["pass"])):
+            cv_gate_stale += 1
         if pay["gate"] is not None:
             judged += 1
             if had is True and not pay["gate"]:
@@ -103,10 +131,17 @@ def regate(conn, config: dict, floors: dict, write: bool = False) -> dict:
                                "from": row["tier"], "to": new["tier"]})
         if any(new[c] != row.get(c) for c in _GATE_COLS):
             updates.append((*(new[c] for c in _GATE_COLS), row["id"]))
+    kept = 0
     if write and updates:
-        conn.executemany(
-            "UPDATE opportunities SET " + ", ".join(f"{c} = ?" for c in _GATE_COLS)
-            + " WHERE id = ?", updates)
+        # The score a row holds is kept in the history before it is
+        # overwritten, one transaction for the whole pass.
+        for params in updates:
+            if rc.archive_score(conn, params[-1], "regate_rates"):
+                kept += 1
+            conn.execute(
+                "UPDATE opportunities SET "
+                + ", ".join(f"{c} = ?" for c in _GATE_COLS)
+                + " WHERE id = ?", params)
         conn.commit()
         rc.log_run(conn, "regate", mode="live", items_in=len(rows),
                    items_new=sum(moves.values()),
@@ -114,9 +149,13 @@ def regate(conn, config: dict, floors: dict, write: bool = False) -> dict:
                         + (", ".join(f"{n} {k}" for k, n in sorted(moves.items()))
                            or "no tier moved"))
     return {"mode": "write" if write else "dry-run",
-            "floors": floors, "open_rows": len(rows),
+            "floors": floors, "thresholds": thresholds,
+            "prompt_version": rc.prompt_version(),
+            "open_rows": len(rows),
             "judged_in_code": judged, "rows_changed": len(updates),
-            "gate_flips": gate_flips, "tier_moves": dict(sorted(moves.items())),
+            "history_rows_written": kept,
+            "gate_flips": gate_flips, "cv_gate_stale": cv_gate_stale,
+            "tier_moves": dict(sorted(moves.items())),
             "tier_moves_total": sum(moves.values()), "sample": sample}
 
 
@@ -131,8 +170,10 @@ def main(argv=None) -> int:
     rc.load_env()
     config = rc.load_config()
     floors = rc.read_rate_floors(config)  # loud failure before anything else
+    thresholds = rc.read_score_thresholds(config)
     conn = rc.get_db(Path(args.db).resolve()) if args.db else rc.get_db()
-    print(json.dumps(regate(conn, config, floors, write=args.write), indent=2))
+    print(json.dumps(regate(conn, config, floors, write=args.write,
+                            thresholds=thresholds), indent=2))
     return 0
 
 

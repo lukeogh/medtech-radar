@@ -171,14 +171,43 @@ _MIGRATIONS = (
     # missing either half cannot be told from its neighbours and
     # honestly stands alone.
     ("opportunities", "role_key", "TEXT"),
+    # Score record-keeping. How each score was made, set in code at the
+    # moment the score is made, never by a model. All nullable, because a
+    # row that was never scored has none of them. A row scored before the
+    # record was kept is labelled by the backfill in _migrate, as card,
+    # pre-record, unknown and no date, because the history was not kept and
+    # is not guessed.
+    ("opportunities", "score_basis", "TEXT"),      # card | spec, what the scorer was shown
+    ("opportunities", "prompt_version", "TEXT"),   # hash of prompts/scorer.md, or pre-record
+    ("opportunities", "score_model", "TEXT"),      # the model that answered, or unknown
+    ("opportunities", "scored_at", "TEXT"),        # when, NULL where it was never recorded
 )
+
+# What the score record says about a row scored before the record existed.
+SCORE_BASIS_CARD = "card"        # the advert card an alert email carries
+SCORE_BASIS_SPEC = "spec"        # the full job spec, when a scorer is ever given one
+PRE_RECORD_PROMPT = "pre-record"
+UNKNOWN_MODEL = "unknown"
+
+# A row has a score when any of the columns a scorer fills is present. A row
+# that failed to score has all of them NULL and nothing to keep or label.
+_SCORED_SQL = ("(cv_match IS NOT NULL OR want_match IS NOT NULL"
+               " OR combined IS NOT NULL OR tier IS NOT NULL"
+               " OR one_line_why IS NOT NULL)")
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
     for table, column, decl in _MIGRATIONS:
         have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in have:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            except sqlite3.OperationalError as err:
+                # Two processes can first-open an upgraded database in the
+                # same moment, and the loser finds the column its rival has
+                # just added. That is not a failure, anything else is.
+                if "duplicate column name" not in str(err):
+                    raise
     # Retirement is absorbed into acknowledgement for opportunities. Rows a
     # human already marked actioned or dead get the acknowledged stamp from
     # their status change, once per database ever, behind a meta flag.
@@ -237,6 +266,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
                              " WHERE id = ?", (key, row["id"]))
         conn.execute("INSERT OR IGNORE INTO meta (key, value)"
                      " VALUES ('migrated_role_key', '1')")
+    # Score record-keeping. Every scored row that carries no basis gets the
+    # honest label for a score made before the record was kept. That is the
+    # card, because it is all any scorer has been given, a prompt version of
+    # pre-record, an unknown model and no date. Nothing is guessed. Unlike
+    # the backfills above this has no meta flag, because it is a plain
+    # idempotent UPDATE and the read below keeps it from taking the write
+    # lock on the many opens that find nothing to do. That also labels a row
+    # that an old copy of the code scores in the moment of a deploy, which
+    # is exactly what it is.
+    if conn.execute("SELECT 1 FROM opportunities WHERE score_basis IS NULL"
+                    " AND " + _SCORED_SQL + " LIMIT 1").fetchone():
+        conn.execute(
+            "UPDATE opportunities SET score_basis = ?, prompt_version = ?,"
+            " score_model = ? WHERE score_basis IS NULL AND " + _SCORED_SQL,
+            (SCORE_BASIS_CARD, PRE_RECORD_PROMPT, UNKNOWN_MODEL))
     # Regions are a cache of a config rule, so they are recomputed whenever
     # that rule changes and skipped entirely when it has not. Wrapped
     # because a malformed regions block must not make the database
@@ -577,6 +621,128 @@ def log_run(conn: sqlite3.Connection, workflow: str, mode: str = "live",
     conn.commit()
 
 
+# -------------------------------------------------------------- score record
+
+PROMPTS_DIR = REPO_ROOT / "prompts"
+GATE_NAMES = ("sector", "cv", "location", "rate")
+
+# The fields of a score the history keeps, in the order of its columns.
+_HISTORY_FIELDS = ("scored_at", "score_basis", "prompt_version", "score_model",
+                   "cv_version", "cv_match", "gates", "tier", "filter_reason",
+                   "one_line_why")
+
+
+def prompt_hash(text: str) -> str:
+    """Eight hex characters of the sha256 of a prompt's text.
+
+    Line endings are made alike first, so one file hashes the same on a
+    Windows checkout and on the box.
+    """
+    return hashlib.sha256(
+        text.replace("\r\n", "\n").encode("utf-8")).hexdigest()[:8]
+
+
+def prompt_version(name: str = "scorer.md") -> str:
+    """The version of a prompt file, a short hash of its contents.
+
+    The version cannot drift from the file because it is the file. The
+    label in the header comment is for people, and editing it changes the
+    version like any other edit.
+    """
+    return prompt_hash((PROMPTS_DIR / name).read_text(encoding="utf-8"))
+
+
+def reply_was_cut_off(usage: dict | None) -> bool:
+    """True when the model stopped because it ran out of max_tokens."""
+    return (usage or {}).get("stop_reason") == "max_tokens"
+
+
+def _held_score(conn: sqlite3.Connection, opportunity_id: int) -> dict | None:
+    """The score one opportunity row holds, as the history keeps it.
+
+    None when the row is missing or has no score at all, because there is
+    then nothing to keep. The gates are JSON of the four results as stored.
+    It reads plain tuples whatever row factory the connection has.
+    """
+    cur = conn.cursor()
+    cur.row_factory = None
+    raw = cur.execute(
+        "SELECT cv_match, want_match, combined, tier, one_line_why, scored_at,"
+        " score_basis, prompt_version, score_model, cv_version, filter_reason,"
+        " gate_sector, gate_cv, gate_location, gate_rate"
+        " FROM opportunities WHERE id = ?", (opportunity_id,)).fetchone()
+    if raw is None:
+        return None
+    row = dict(zip([d[0] for d in cur.description], raw))
+    if all(row[c] is None for c in ("cv_match", "want_match", "combined",
+                                    "tier", "one_line_why")):
+        return None
+    row["gates"] = json.dumps({name: row[f"gate_{name}"] for name in GATE_NAMES},
+                              sort_keys=True)
+    return {field: row[field] for field in _HISTORY_FIELDS}
+
+
+def _write_history(conn: sqlite3.Connection, opportunity_id: int, event: str,
+                   writer: str, state: dict, now: str | None) -> None:
+    conn.execute(
+        "INSERT INTO score_history (opportunity_id, recorded_at, event, writer,"
+        " " + ", ".join(_HISTORY_FIELDS) + ")"
+        " VALUES (?,?,?,?" + ",?" * len(_HISTORY_FIELDS) + ")",
+        (opportunity_id, now or now_iso(), event, writer,
+         *(state[f] for f in _HISTORY_FIELDS)))
+
+
+def archive_score(conn: sqlite3.Connection, opportunity_id: int, writer: str,
+                  now: str | None = None) -> bool:
+    """Keep the score a row holds, before something overwrites it.
+
+    Every writer that changes a score in place calls this first, in the
+    same transaction as its UPDATE, and the row's outgoing values go to
+    score_history with their own date, basis, prompt version and model. It
+    writes nothing when the row has no score, and nothing when the newest
+    history row already holds exactly these values, which is the case for
+    any score made since the record began. So a row scored before the
+    record gets its old score kept the first time it is overwritten, and a
+    row already kept is not kept twice. Returns True when it wrote a row.
+    The caller commits.
+
+    The write lock is taken before the values are read, so what is kept is
+    exactly what the caller's UPDATE then replaces, even with another
+    process writing to the same row. That costs nothing the UPDATE would
+    not cost anyway, since it needs the same lock a moment later.
+    """
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    state = _held_score(conn, opportunity_id)
+    if state is None:
+        return False
+    cur = conn.cursor()
+    cur.row_factory = None
+    last = cur.execute(
+        "SELECT " + ", ".join(_HISTORY_FIELDS) + " FROM score_history"
+        " WHERE opportunity_id = ? ORDER BY id DESC LIMIT 1",
+        (opportunity_id,)).fetchone()
+    if last is not None and last == tuple(state[f] for f in _HISTORY_FIELDS):
+        return False
+    _write_history(conn, opportunity_id, "replaced", writer, state, now)
+    return True
+
+
+def record_score(conn: sqlite3.Connection, opportunity_id: int, writer: str,
+                 now: str | None = None) -> bool:
+    """Write the score a row now holds to the history as a new score.
+
+    Called after a model has scored the row, once for a first score and
+    once for a re-score. Returns True when it wrote a row. The caller
+    commits.
+    """
+    state = _held_score(conn, opportunity_id)
+    if state is None:
+        return False
+    _write_history(conn, opportunity_id, "scored", writer, state, now)
+    return True
+
+
 # ---------------------------------------------------------------- Claude API
 
 def mock_mode_active() -> bool:
@@ -586,6 +752,10 @@ def mock_mode_active() -> bool:
 def claude_call(model: str, system_blocks: list | str, user_content: str,
                 max_tokens: int = 1024, mock_fn=None) -> tuple[str, dict]:
     """One Claude call. Returns (response_text, usage_dict).
+
+    The usage dict carries the token counts, the mode, the model that
+    answered and the stop_reason, so a caller can tell a reply the model
+    finished from one that ran out of max_tokens (see reply_was_cut_off).
 
     In mock mode (RADAR_MOCK=1) the caller must supply mock_fn(user_content)
     returning a string. Live mode with no API key raises a clear error rather
@@ -602,7 +772,9 @@ def claude_call(model: str, system_blocks: list | str, user_content: str,
                 "RADAR_MOCK=1 but no mock function supplied. Refusing to fake a result."
             )
         return mock_fn(user_content), {"input_tokens": 0, "output_tokens": 0,
-                                       "cache_read_tokens": 0, "mode": "mock"}
+                                       "cache_read_tokens": 0, "mode": "mock",
+                                       "model": "mock",
+                                       "stop_reason": "end_turn"}
 
     load_env()
     config = load_config()
@@ -628,6 +800,8 @@ def claude_call(model: str, system_blocks: list | str, user_content: str,
         "output_tokens": getattr(response.usage, "output_tokens", 0) or 0,
         "cache_read_tokens": getattr(response.usage, "cache_read_input_tokens", 0) or 0,
         "mode": "live",
+        "model": getattr(response, "model", None) or model,
+        "stop_reason": getattr(response, "stop_reason", None),
     }
     return text, usage
 
@@ -923,6 +1097,103 @@ def read_rate_floors(config: dict | None = None) -> dict:
 def read_rate_floor(config: dict | None = None) -> float:
     """The day-rate floor alone, for the readers that label day rates."""
     return read_rate_floors(config)["day"]
+
+
+# The CV pass mark and the Filtered floor. The preferences file is their
+# home. These are only what is used when it cannot supply them.
+DEFAULT_CV_PASS_SCORE = 70
+DEFAULT_CV_FLOOR_SCORE = 40
+
+_SCORE_LINES = (
+    ("pass", "cv_pass_score", DEFAULT_CV_PASS_SCORE),
+    ("floor", "cv_floor_score", DEFAULT_CV_FLOOR_SCORE),
+)
+_WARNED: set[str] = set()
+_THRESHOLDS_KEY = "cv-thresholds"
+
+
+def _warn_once(key: str, message: str) -> None:
+    """One WARNING line on stderr per key per process, which is per run.
+
+    A stderr that cannot be written to is ignored, because a log line must
+    never be what stops a run.
+    """
+    if key in _WARNED:
+        return
+    _WARNED.add(key)
+    try:
+        print(f"WARNING. {message}", file=sys.stderr)
+    except (OSError, ValueError):
+        pass
+
+
+def thresholds_fell_back() -> bool:
+    """True when this process found a CV threshold line missing or unreadable."""
+    return _THRESHOLDS_KEY in _WARNED
+
+
+def read_score_thresholds(config: dict | None = None) -> dict:
+    """The CV pass mark and the Filtered floor, {"pass": 70, "floor": 40}.
+
+    Two labelled lines in the preferences file, cv_pass_score and
+    cv_floor_score, beside the rate floors and read the same way, live copy
+    first and the tracked template second. A CV match at or above the pass
+    mark passes the CV gate. Under the floor a role is Filtered whatever its
+    other gates say.
+
+    Unlike read_rate_floors this never raises. A line that is missing or
+    unreadable takes its default, and a file that is missing, or a pair that
+    makes no sense (the floor above the pass mark, either outside 0 to 100),
+    gives 70 and 40. Whatever went wrong is one WARNING per run naming every
+    line concerned, because the hourly inbox run must never stop over a
+    threshold. Callers read this once per run and pass the values down.
+    """
+    defaults = {name: default for name, _key, default in _SCORE_LINES}
+    out = dict(defaults)
+    try:
+        config = config or load_config()
+        prefs_rel = config.get("prefs_file", "config/profile/preferences.md")
+        text = where = None
+        for path in (REPO_ROOT / prefs_rel,
+                     REPO_ROOT / "config" / "preferences.template.md"):
+            if path.exists():
+                text, where = path.read_text(encoding="utf-8-sig"), path
+                break
+        if text is None:
+            _warn_once(_THRESHOLDS_KEY, "No preferences file found for the CV "
+                       f"thresholds, using {defaults['pass']} and "
+                       f"{defaults['floor']}.")
+            return out
+        problems = []
+        for name, key, default in _SCORE_LINES:
+            match = re.search(rf"^{key}:[ \t]*([0-9]+(?:\.[0-9]+)?)[ \t]*$",
+                              text, re.IGNORECASE | re.MULTILINE)
+            if match:
+                number = float(match.group(1))
+                out[name] = int(number) if number == int(number) else number
+                continue
+            seen = re.search(rf"^[^\w\n]*{key}\b[^\n]*$", text,
+                             re.IGNORECASE | re.MULTILINE)
+            if seen:
+                problems.append(f"The {key} line {seen.group(0).strip()[:60]!r} "
+                                f"is not a plain number, using {default}.")
+            else:
+                problems.append(f"There is no {key} line, using {default}.")
+        if not 0 <= out["floor"] <= out["pass"] <= 100:
+            problems.append(f"A floor of {out['floor']:g} and a pass mark of "
+                            f"{out['pass']:g} do not fit, each must be 0 to 100 "
+                            "with the floor at or under the pass mark, so "
+                            f"{defaults['pass']} and {defaults['floor']} stand.")
+            out = dict(defaults)
+        if problems:
+            _warn_once(_THRESHOLDS_KEY, f"The CV thresholds in {where} fell "
+                       "back to the defaults. " + " ".join(problems))
+    except Exception as err:  # noqa: BLE001  never stop the hourly run over a threshold
+        _warn_once(_THRESHOLDS_KEY, "The CV thresholds could not be read "
+                   f"({type(err).__name__}), using {defaults['pass']} and "
+                   f"{defaults['floor']}.")
+        out = dict(defaults)
+    return out
 
 
 def convert_to_day_rate(currency, period, pay_min, pay_max,

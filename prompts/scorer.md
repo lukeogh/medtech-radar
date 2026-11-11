@@ -1,4 +1,4 @@
-# MedTech Radar scorer prompt. v2.0, 3 August 2026. Four gates, no combined score.
+<!-- MedTech Radar scorer prompt. v2.0, 3 August 2026. Four gates, no combined score. -->
 
 Model target. `claude_model_score` from config/radar.yaml, currently claude-sonnet-4-6.
 Caller. scripts/score_item.py builds the system prompt as this rubric plus the CV
@@ -31,8 +31,9 @@ A number from 0 to 100, judged **only on evidence in the CV text**. If the CV do
 not show it, he does not have it for scoring purposes. Never invent capability and
 never assume transferable skill that is not evidenced.
 
-Passes at 70 or above. The number is always returned, pass or fail, because a 68
-is worth arguing with and a 20 is not.
+Passes at or above the CV pass score in the preferences file, cv_pass_score. The
+number is always returned, pass or fail, because a score just under the line is
+worth arguing with and a 20 is not.
 
 ## Gate three. Location
 

@@ -43,6 +43,13 @@ especially. Adjacent regulated sectors, defence, aerospace, utilities, are
 acceptable as bridge work but score below medtech. Unregulated sectors score
 lowest.
 
+## Scoring thresholds.
+
+Two machine-readable lines, read by the gating code.
+
+cv_pass_score: 70
+cv_floor_score: 40
+
 ## Title and keywords.
 
 Lines the dashboard's scoring panel manages in place. The scorer reads

@@ -82,6 +82,7 @@ run_one "inbox pipeline   (test/run_inbox_test.py)"   "test/run_inbox_test.py"
 run_one "monday digest    (test/run_digest_test.py)"  "test/run_digest_test.py"
 run_one "signals pipeline (test/run_signals_test.py)" "test/run_signals_test.py"
 run_one "hardening        (test/run_hardening_test.py)" "test/run_hardening_test.py"
+run_one "score record     (test/run_record_test.py)" "test/run_record_test.py"
 
 echo
 echo "=========================================================================="

@@ -168,6 +168,36 @@ CREATE TABLE IF NOT EXISTS runs (
   note             TEXT
 );
 
+-- The scores an opportunity has held, oldest first, so a later change to the
+-- scorer can be measured against what it replaced. A new score writes a row of
+-- its own (event scored). Before a score is overwritten in place, by a
+-- re-score, by regate_rates.py or by the page checker's rate re-tier, the
+-- outgoing values are written here (event replaced) unless they are already
+-- the newest row. The opportunities row holds the current score and this table
+-- holds the ones before it. The date, basis, prompt version and model describe
+-- the score a row carries, and recorded_at is when the history row itself was
+-- written. A score made before the record was kept reads card, pre-record,
+-- unknown and no date. Rows are never updated or deleted.
+CREATE TABLE IF NOT EXISTS score_history (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  opportunity_id  INTEGER NOT NULL,
+  recorded_at     TEXT NOT NULL,      -- when this row was written
+  event           TEXT NOT NULL,      -- scored | replaced
+  writer          TEXT,               -- the script that wrote it
+  scored_at       TEXT,               -- when the held score was made, NULL if never recorded
+  score_basis     TEXT,               -- card | spec
+  prompt_version  TEXT,               -- hash of prompts/scorer.md, or pre-record
+  score_model     TEXT,               -- the model that answered, or unknown
+  cv_version      TEXT,
+  cv_match        INTEGER,
+  gates           TEXT,               -- JSON, {"sector": 1, "cv": 0, "location": 1, "rate": null}
+  tier            TEXT,
+  filter_reason   TEXT,
+  one_line_why    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_score_history_opportunity
+  ON score_history (opportunity_id, id);
+
 -- Extraction attempts per email, keyed on a hash of sender, subject and
 -- date. Feeds the poison-message cap. An email that fails extraction three
 -- times gets give_up in the script output and the radar-failed label in the

@@ -39,6 +39,7 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
     _, score_fn = scoring.get_mock_fns()
     system_blocks = scoring.build_scorer_system(config)
     cv_version = scoring.get_cv_version(config)
+    thresholds = radar_common.read_score_thresholds(config)
     fixed = failed = 0
     for row in rows:
         opp = {
@@ -54,30 +55,48 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
             "rescore": True,
         }
         scored, usage, note = scoring.score_opportunity(
-            opp, system_blocks, config, mock_fn=score_fn)
+            opp, system_blocks, config, mock_fn=score_fn,
+            thresholds=thresholds)
         radar_common.add_usage(usage_total, usage)
         # Phase three. A row is scored when it has a tier. Gating on
         # combined here marked every row failed and left tier null, so the
         # backlog never shrank and a live run would have looped for ever
         # spending money on the same hundred rows.
+        #
+        # A failed score, including a reply cut off at max_tokens, writes
+        # nothing. The row keeps whatever score it had, no history row is
+        # made and no record of a score is stamped on it. The log says why.
         if scored is None or scored.get("tier") is None:
             failed += 1
+            held = any(row[c] is not None for c in (
+                "cv_match", "want_match", "combined", "tier", "one_line_why"))
+            print(f"rescore: id {row['id']} was not rescored, "
+                  f"{note or 'no tier came back'}. "
+                  + ("Its previous score is kept." if held
+                     else "It still has no score."), file=sys.stderr)
             continue
         gate_cols = ("gate_sector", "gate_sector_note", "gate_cv", "gate_cv_note",
                      "gate_location", "gate_location_note", "gate_rate",
                      "gate_rate_note", "tier", "failed_gates", "question_text",
                      "filter_reason", "rate_stated", "rate_value", "rate_basis",
                      "ir35", "location_class", "engagement_type", "engagement_note")
+        # How the new score was made, stored beside it.
+        record_cols = ("score_basis", "prompt_version", "score_model", "scored_at")
+        # The score being replaced goes to the history first, in the same
+        # transaction, then the new one is written and recorded too.
+        radar_common.archive_score(conn, row["id"], "rescore")
         conn.execute(
             "UPDATE opportunities SET cv_match = ?, one_line_why = ?,"
             " red_flags = ?, suggested_action = ?, act_by = ?, thread_type = ?,"
             " notes = NULL, cv_version = ?, "
-            + ", ".join(f"{c} = ?" for c in gate_cols)
+            + ", ".join(f"{c} = ?" for c in gate_cols + record_cols)
             + " WHERE id = ?",
             (scored["cv_match"], scored["one_line_why"],
              json.dumps(scored["red_flags"]), scored["suggested_action"],
              scored["act_by"], scored["thread_type"], cv_version)
-            + tuple(scored.get(c) for c in gate_cols) + (row["id"],))
+            + tuple(scored.get(c) for c in gate_cols + record_cols)
+            + (row["id"],))
+        radar_common.record_score(conn, row["id"], "rescore")
         # Commit per row. Python's sqlite3 opens an implicit write
         # transaction at the first UPDATE, and holding it across the next
         # live model call would starve every other writer past the busy
@@ -269,7 +288,7 @@ def main(argv=None) -> int:
                              note=f"regate, {res['remaining']} still ungated")
         conn.close()
         if not args.quiet:
-            print(json.dumps(res))
+            print(json.dumps({**res, "prompt_version": radar_common.prompt_version()}))
         return 0
 
     if args.stale_cv:
@@ -285,7 +304,8 @@ def main(argv=None) -> int:
             print(json.dumps({"stale_rescored": fixed,
                               "still_failing": failed,
                               "remaining_stale": remaining,
-                              "cv_version": scoring.get_cv_version(config)}))
+                              "cv_version": scoring.get_cv_version(config),
+                              "prompt_version": radar_common.prompt_version()}))
         return 0
 
     opp_fixed, opp_failed = rescore_opportunities(conn, config, usage_total)
@@ -303,7 +323,8 @@ def main(argv=None) -> int:
     if not args.quiet:
         print(json.dumps({"opportunities_rescored": opp_fixed,
                           "signals_rescored": sig_fixed,
-                          "still_failing": still}))
+                          "still_failing": still,
+                          "prompt_version": radar_common.prompt_version()}))
     return 0
 
 
