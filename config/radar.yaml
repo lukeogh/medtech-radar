@@ -54,7 +54,7 @@ dashboard_port: 8787
 # "write guard" in the dashboard log for a day, press Acknowledge and its
 # undo once so that a POST shows up, then change the value to enforce and
 # restart the dashboard. The mode is read once, when the server starts.
-dashboard_guard: warn
+dashboard_guard: enforce
 
 # Names the dashboard may be reached by, besides localhost, 127.0.0.1, ::1
 # and the bind address above when that is a single address. Host names only,
