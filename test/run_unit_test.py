@@ -561,11 +561,18 @@ def main() -> int:
                   "the total backoff is the sum of the waits taken")
 
             # The command line: the flag parses and the runs row carries
-            # the 429 count, the clock times and the backoff total.
+            # the 429 count, the clock times and the backoff total. The
+            # command has no way to be given a time, and the rows planted
+            # above are dated against now_s, so it runs on that clock.
             buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                rc_main = check_jobs.main(["--dry-run", "--db", str(db),
-                                           "--backoff", "0"])
+            real_now = radar_common.now_iso
+            radar_common.now_iso = lambda: now_s
+            try:
+                with contextlib.redirect_stdout(buf):
+                    rc_main = check_jobs.main(["--dry-run", "--db", str(db),
+                                               "--backoff", "0"])
+            finally:
+                radar_common.now_iso = real_now
             printed = json.loads(buf.getvalue())
             check(rc_main == 0 and printed["rate_limited"] == 3
                   and printed["backoff_seconds"] == 0,
