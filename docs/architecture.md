@@ -130,10 +130,12 @@ another site cannot add the header without a CORS preflight, and this
 server never answers one. The Host header must also name the server, and so
 must the Origin header on a POST. The names it answers to are `localhost`,
 `127.0.0.1`, `::1`, the bind address and `dashboard_allowed_hosts` in
-radar.yaml, compared without the scheme or the port. In enforce mode a name
-that is not listed gets a 403 on every page, so add the LAN address or the
-tailnet name before using it. `GET /health` skips the Host check so a
-monitor can reach it by any name.
+radar.yaml, compared without the scheme or the port. The LAN address,
+`192.168.1.100`, is listed because the Pi's daily health report fetches the
+page by it. In enforce mode a name that is not listed gets a 403 on every
+page, so add any other name you use, the tailnet name for instance, before
+using it. `GET /health` skips the Host check so a monitor can reach it by any
+name.
 
 `dashboard_guard: warn` logs each request it would refuse and refuses
 nothing. It also logs once each distinct Host and Origin that passes, which

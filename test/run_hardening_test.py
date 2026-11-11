@@ -82,6 +82,12 @@ HEADER = serve_dashboard.WRITE_HEADER
 PROXY_NAME = "radar.example.test"
 # The name build_digest.py links the Monday digest to, which radar.yaml lists.
 SHIPPED_PROXY = "medtech-radar.keogh.cloud"
+# The LAN address of LXC 110, which the Pi's daily health report fetches the
+# page by and radar.yaml lists. Names that only resemble it must not pass.
+SHIPPED_LAN = "192.168.1.100"
+LAN_LOOKALIKES = ("192.168.1.100.evil.example", "192.168.1.1000",
+                  "192.168.1.10", "1192.168.1.100",
+                  "192.168.1.100@evil.example", "evil.example:80@192.168.1.100")
 EVIL = "evil.example"
 LOOKALIKES = ("localhost.evil.example", "evil-localhost", "xlocalhost",
               "evilradar.example.test", "radar.example.test.evil.example",
@@ -729,6 +735,31 @@ def main() -> int:
     check(SHIPPED_PROXY in from_cfg.names,
           "the shipped config allows the proxy name the Monday digest links "
           "to")
+    # The first day of warn mode on the box showed that its bind address does
+    # not supply the LAN address, so it has to be listed. The wildcard bind
+    # tested here adds no name at all.
+    on_the_box = serve_dashboard.guard_from_config(cfg, "0.0.0.0")
+    check(SHIPPED_LAN in on_the_box.names,
+          "the shipped config allows the LAN address the Pi's daily health "
+          "report fetches the page by, with the server bound to the wildcard")
+    check(on_the_box.problems("GET", "/", Headers(
+        {"Host": f"{SHIPPED_LAN}:8787"})) == []
+        and on_the_box.problems("POST", "/ack", Headers(
+            {"Host": f"{SHIPPED_LAN}:8787",
+             "Origin": f"http://{SHIPPED_LAN}:8787", HEADER: "1"})) == [],
+        "a page fetched by the LAN address passes, and so does a POST from a "
+        "page opened by it")
+    lan_missed = [n for n in LAN_LOOKALIKES if len(on_the_box.problems(
+        "GET", "/", Headers({"Host": f"{n}:8787"}))) != 1 or len(
+        on_the_box.problems("POST", "/ack", Headers(
+            {"Host": "localhost", "Origin": f"http://{n}:8787",
+             HEADER: "1"}))) != 1]
+    check(not lan_missed,
+          "names that only contain or resemble the LAN address are refused as "
+          f"a Host and as an Origin (missed {lan_missed})")
+    check(SHIPPED_LAN in (REPO_ROOT / "docs" / "architecture.md").read_text(
+        encoding="utf-8"),
+        "the architecture notes name the LAN address the config lists")
     with captured_stderr() as buf:
         odd = serve_dashboard.guard_from_config({"dashboard_guard": "warning"},
                                                 None)

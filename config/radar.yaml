@@ -59,11 +59,13 @@ dashboard_guard: warn
 # Names the dashboard may be reached by, besides localhost, 127.0.0.1, ::1
 # and the bind address above when that is a single address. Host names only,
 # no scheme and no port. The proxy's name is the one the Monday digest links
-# to. In enforce mode every page needs a listed name, so add the LAN address
-# or the tailnet name here before opening the dashboard by it. Read once at
-# start, like the mode.
+# to. The LAN address is the one the Pi's daily health report fetches the
+# page by. In enforce mode every page needs a listed name, so add any other
+# name you use here too, the tailnet name for instance, before opening the
+# dashboard by it. Read once at start, like the mode.
 dashboard_allowed_hosts:
   - "medtech-radar.keogh.cloud"
+  - "192.168.1.100"
 
 # Send the Monday email even when there is nothing to report. A quiet week
 # then sends a short digest saying so, because silence should mean breakage
