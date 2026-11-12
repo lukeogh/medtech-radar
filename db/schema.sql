@@ -198,6 +198,36 @@ CREATE TABLE IF NOT EXISTS score_history (
 CREATE INDEX IF NOT EXISTS idx_score_history_opportunity
   ON score_history (opportunity_id, id);
 
+-- The tailored CV, one per role. Made from the master CV the first time the
+-- role's Prepare application page opens, edited on that page, and never
+-- written back to the master. Keyed on the role, so every advert in a repost
+-- chain shares one copy: role_ref is 'key:' and the role_key, or 'id:' and the
+-- row id for a row that has no role_key. cv_text is the copy as it stands, in
+-- the editor's layout, and cv_hash is cv_store.cv_hash of it. The saved copy is
+-- what Save CV stored, under the name it was saved as, and is what Download
+-- builds the Word file from and what Applied records; a save replaces the one
+-- before. score is the latest tailored score as JSON, made against this copy
+-- and the role's stored description, and kept here and not on the role,
+-- because the role's own score is the master CV's. Every tailored score is
+-- also a score_history row with event tailored. Rows are never deleted.
+-- Nullable throughout, apart from the key, like every column added since the
+-- first schema.
+CREATE TABLE IF NOT EXISTS tailored_cvs (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  role_ref        TEXT NOT NULL UNIQUE,
+  opportunity_id  INTEGER,            -- the row whose page made the copy
+  created_at      TEXT,
+  master_version  TEXT,               -- the master CV version it was made from
+  cv_text         TEXT,
+  cv_hash         TEXT,
+  updated_at      TEXT,
+  saved_text      TEXT,
+  saved_hash      TEXT,
+  saved_name      TEXT,               -- "CV - Luke Keogh - <Company> - <Job title>"
+  saved_at        TEXT,
+  score           TEXT
+);
+
 -- Extraction attempts per email, keyed on a hash of sender, subject and
 -- date. Feeds the poison-message cap. An email that fails extraction three
 -- times gets give_up in the script output and the radar-failed label in the

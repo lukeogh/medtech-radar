@@ -79,9 +79,12 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import radar_common
 import build_dashboard
+import cv_doc
+import cv_page
 import cv_store
 import prepare_application
 import score_item
+import tailored_cv
 
 REPO_ROOT = radar_common.REPO_ROOT
 
@@ -189,6 +192,126 @@ def run_prepare(item_id: int) -> dict:
         return {"ok": False, "note": f"no opportunity {item_id}"}
     result["html"] = inner
     return result
+
+
+# ------------------------------------------------------- the tailored CV
+
+COPY_ACTIONS = {
+    "open": prepare_application.open_copy,
+    "save": prepare_application.save_copy,
+    "reset": prepare_application.reset_copy,
+    "rescore": prepare_application.rescore_copy,
+}
+
+
+def run_copy(action: str, item_id: int, text=None) -> dict:
+    """One button on the tailored CV: open, save, reset or rescore.
+
+    prepare_application does the work under its guards, and says what it did.
+    This adds the right-hand side of the page as it now stands, so the
+    script can swap in the new score and asks without touching the editor.
+    """
+    work = COPY_ACTIONS[action]
+    try:
+        if action in ("save", "rescore"):
+            result = work(item_id, text, db_path())
+        else:
+            result = work(item_id, db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    if not result.get("ok"):
+        return result
+    if action in ("open", "rescore", "reset", "save"):
+        config = radar_common.load_config()
+        conn = sqlite3.connect(f"file:{db_path().as_posix()}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            inner = build_dashboard.render_prepare_inner(
+                conn, item_id, config, notices=result.get("notices")
+                if action == "rescore" else None)
+        finally:
+            conn.close()
+        if inner is not None:
+            result["html"] = inner
+    return result
+
+
+def run_copy_open(item_id: int) -> dict:
+    return run_copy("open", item_id)
+
+
+def run_copy_save(item_id: int, text) -> dict:
+    return run_copy("save", item_id, text)
+
+
+def run_copy_reset(item_id: int) -> dict:
+    return run_copy("reset", item_id)
+
+
+def run_copy_rescore(item_id: int, text) -> dict:
+    return run_copy("rescore", item_id, text)
+
+
+def save_master_cv(text, base) -> dict:
+    """Save the master CV from the editor as a new version, never over one.
+
+    base is the version the page was opened on, so a page left open from
+    before another save cannot quietly undo it.
+    """
+    try:
+        _doc, clean_text = cv_doc.accept(text)
+        if base is not None and not isinstance(base, str):
+            raise cv_doc.CvError("The version the page was opened on is not text.")
+        saved = cv_store.save_master(clean_text, base or None)
+    except (cv_doc.CvError, cv_store.UploadError) as err:
+        return {"ok": False, "note": str(err)}
+    return {"ok": True, **saved}
+
+
+def content_disposition(name: str) -> str:
+    """An attachment header for a saved CV's name, whatever letters it has.
+
+    The name is already safe for a file name. The plain form keeps only the
+    ASCII letters a browser cannot misread, the starred form carries the name
+    as it is, and browsers take the starred form when they can.
+    """
+    import unicodedata
+    from urllib.parse import quote
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    plain = "".join(ch if ch.isalnum() or ch in " .,()_-" else "_" for ch in plain)
+    plain = " ".join(plain.split()) or "CV"
+    return (f'attachment; filename="{plain}.docx"; '
+            f"filename*=UTF-8''{quote(name + '.docx', safe='')}")
+
+
+def download_cv(item_id: int) -> tuple[int, bytes, str, dict]:
+    """The Word file of a role's saved CV, read only. (status, body, type, headers).
+
+    It is built from the copy Save CV stored, not from what is on screen,
+    and opening it writes nothing. No saved copy, or no such role, is a 404.
+    """
+    dbp = db_path()
+    conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT id, role_key FROM opportunities WHERE id = ?",
+                           (item_id,)).fetchone()
+        copy = tailored_cv.for_row(conn, dict(row)) if row is not None else None
+    finally:
+        conn.close()
+    text_type = "text/plain; charset=utf-8"
+    if row is None:
+        return 404, b"No role with that id.", text_type, {}
+    if not copy or not copy.get("saved_text"):
+        return (404, b"No CV has been saved for this role yet. Press Save CV on "
+                b"its Prepare application page first.", text_type, {})
+    import cv_word
+    try:
+        body = cv_word.build(copy["saved_text"], copy.get("saved_name") or "")
+    except cv_word.WordUnavailable as err:
+        return 503, str(err).encode(), text_type, {}
+    name = copy.get("saved_name") or cv_doc.saved_name("", "")
+    return 200, body, cv_word.MIME, {"Content-Disposition": content_disposition(name)}
 
 
 def set_company_state(company_id: int, state: str, confirmed: bool) -> dict:
@@ -497,6 +620,12 @@ def set_applied(item_id: int, on: bool, cv: str | None = None) -> dict:
     refused, and so is a role already applied, because a page left open
     from before can send any of them. Same writable-connection manners as
     set_acknowledged.
+
+    The saved CV is the role's saved copy from its Prepare application page,
+    by the name Save CV gave it, read in the same statement that stamps the
+    role so that a save a moment before is the one recorded. A role with no
+    saved copy records none, which is how the pages call it; a reference a
+    request names itself is kept only where no copy was saved, as before.
     """
     try:
         conn = radar_common.get_db(db_path())
@@ -504,7 +633,7 @@ def set_applied(item_id: int, on: bool, cv: str | None = None) -> dict:
         return {"ok": False, "note": f"database busy, try again. {err}"}
     try:
         target = conn.execute(
-            "SELECT role_key FROM opportunities WHERE id = ?",
+            "SELECT id, role_key FROM opportunities WHERE id = ?",
             (item_id,)).fetchone()
         if target is None:
             return {"ok": False, "note": f"no opportunity {item_id}"}
@@ -513,11 +642,14 @@ def set_applied(item_id: int, on: bool, cv: str | None = None) -> dict:
                 return {"ok": False,
                         "note": "that role is already marked applied"}
             cur = conn.execute(
-                "UPDATE opportunities SET applied_at = ?, applied_cv = ?"
+                "UPDATE opportunities SET applied_at = ?, applied_cv = COALESCE("
+                "(SELECT saved_name FROM tailored_cvs WHERE role_ref = ?"
+                " AND saved_text IS NOT NULL), ?)"
                 " WHERE id = ? AND acknowledged_at IS NULL"
                 " AND closed_at IS NULL AND dismissed_at IS NULL"
                 " AND expired_at IS NULL AND " + radar_common.NOT_APPLIED_SQL,
-                (radar_common.now_iso(), cv, item_id))
+                (radar_common.now_iso(), tailored_cv.role_ref(target), cv,
+                 item_id))
         else:
             cur = conn.execute(
                 "UPDATE opportunities SET applied_at = NULL, applied_cv = NULL"
@@ -607,7 +739,7 @@ CV_SCRIPT = """
 """
 
 CV_CSS = """
-.cv-wrap{max-width:72ch}
+.cv-wrap{max-width:96ch}
 .cv-note{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2);margin:var(--space-12) 0}
 .cv-note.bad{color:var(--fail)}
 .cv-preview{font:400 var(--text-xs)/1.6 var(--font-mono);background:var(--surface);border:1px solid var(--panel-rule);border-radius:var(--radius);padding:var(--space-16);white-space:pre-wrap;max-height:420px;overflow:auto}
@@ -616,48 +748,104 @@ input[type=file]{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2
 """
 
 
+def version_when(name: str | None) -> str:
+    """When a master CV version was saved, from its dated name, or from the
+    file's own date for a cv.txt or cv.pdf. Empty when there is no telling."""
+    import re
+    found = re.match(r"^cv-(\d{8})-(\d{6})(?:-\d+)?\.md$", name or "")
+    if found:
+        try:
+            when = datetime.strptime(found.group(1) + found.group(2),
+                                     "%Y%m%d%H%M%S")
+        except ValueError:
+            return ""
+        return f"{when.day} {when:%b %Y} at {when:%H:%M} UTC"
+    path = cv_store.PROFILE_DIR / (name or "")
+    if name and path.is_file():
+        when = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+        return f"{when.day} {when:%b %Y} at {when:%H:%M} UTC"
+    return ""
+
+
 def render_cv_page() -> bytes:
-    """The CV update section. Upload, preview, explicit confirm."""
+    """The CV page. The master CV as structured text, edited here and saved
+    as a new version every time; its history; the one-off import of the
+    master from a Word file; and the re-score after a change."""
     config = radar_common.load_config()
     active = cv_store.active_cv_name() or score_item.get_cv_version(config)
+    marker = cv_store.active_cv_name()
     versions = cv_store.history()
     history_html = ("".join(
         f"<li>{build_dashboard.esc(v)}"
         + (" &mdash; active" if v == active else "") + "</li>"
-        for v in versions) or "<li>No uploaded versions yet. The scorer is "
+        for v in versions) or "<li>No saved versions yet. The scorer is "
         f"reading {build_dashboard.esc(active)}.</li>")
+    try:
+        master_text, _source = score_item.load_cv_text(config)
+        problem = None
+    except (SystemExit, OSError) as err:
+        master_text, problem = None, str(err)
+    if master_text is not None:
+        doc = cv_doc.load_doc(master_text)
+        laid_out = cv_doc.render(doc) == "\n".join(cv_store.cv_lines(master_text)) + "\n"
+        editor = cv_page.editor_html(cv_doc.render(doc), {
+            "mode": "master", "editable": True, "version": marker})
+        when = version_when(active)
+        banner = ("" if laid_out else
+                  '<p class="cv-banner">This version was not written by this '
+                  "editor, so it is shown in the editor's layout: a name, a "
+                  "headline, then the sections. Check it, then save it to make "
+                  "a version in this layout. Until then the scorer reads the "
+                  "version as it is.</p>")
+        master_html = f"""<p class="section-note">The scorer reads
+<strong>{build_dashboard.esc(active)}</strong>{', saved ' + build_dashboard.esc(when) if when else ''}.
+Edit the master here and save it as a new version. The versions before stay,
+and tailoring a CV on a role's Prepare application page never changes this
+one.</p>
+{banner}
+<div class="cv-actions"><button type="button" class="act-btn" data-cv-act="master" disabled>Save as a new version</button></div>
+<p class="cv-note" id="cv-say" aria-live="polite"></p>
+{editor}"""
+    else:
+        master_html = (f'<p class="cv-banner">The master CV could not be read. '
+                       f'{build_dashboard.esc(problem)}</p>')
     page = f"""<!doctype html>
 <html lang="en-GB" data-appearance="auto">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MedTech Radar. CV update.</title>
+<title>MedTech Radar. CV.</title>
 <link rel="icon" href="{build_dashboard.FAVICON}">
-<style>{build_dashboard.CSS}{CV_CSS}</style>
+<style>{build_dashboard.CSS}{CV_CSS}{cv_page.CV_CSS}</style>
 </head>
 <body>
 <main class="page cv-wrap">
 <header class="masthead"><div>
-<div class="brand">{build_dashboard.MARK_SVG}<h1>CV update</h1></div>
-<p class="masthead-sub">The scorer reads whichever version the marker
-points at. Confirming below moves the marker, every accepted version
-stays on disk, and nothing is ever overwritten.</p>
+<div class="brand">{build_dashboard.MARK_SVG}<h1>CV</h1></div>
+<p class="masthead-sub">The master CV, as structured text: a name, a
+headline, a summary, experience with bullets, skills, and education and
+certifications. Every save is a new version, and nothing is ever
+overwritten.</p>
 </div>
-<div class="controls"><a href="/">Back to the dashboard</a></div>
+<div class="controls"><nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav></div>
 </header>
 <section class="section">
-<div class="section-head"><h2>Active version</h2></div>
-<p class="section-note">Scores are stamped with the version that shaped
-them, visible in each row's detail, so a score that predates a CV change
-is obvious.</p>
-<div class="panel panel-sage"><p class="empty">The scorer currently reads
-<strong>{build_dashboard.esc(active)}</strong>.</p></div>
+<div class="section-head"><h2>Master CV</h2></div>
+{master_html}
 </section>
 <section class="section">
-<div class="section-head"><h2>Upload a new CV</h2></div>
-<p class="section-note">md, txt, docx or pdf. Anything not already
-markdown is extracted to markdown, and nothing becomes active until you
-confirm the extracted text below.</p>
+<div class="section-head"><h2>History</h2></div>
+<p class="section-note">Append only. Old versions stay for the day a
+score needs explaining.</p>
+<div class="panel" style="padding:12px 16px">
+<ul class="cv-history">{history_html}</ul>
+</div>
+</section>
+<section class="section">
+<div class="section-head"><h2>One-off import from a Word file</h2></div>
+<p class="section-note">For bringing the master in from a Word file once.
+After that, edit it above. The file is extracted to text and nothing becomes
+the master until you confirm it below. It still takes md, txt and pdf.</p>
 <div class="panel panel-sand" style="padding:16px">
 <input type="file" id="cv-file" accept=".md,.markdown,.txt,.docx,.pdf">
 <p class="cv-note" id="cv-note">Pick a file to see its extracted text.</p>
@@ -671,25 +859,19 @@ confirm the extracted text below.</p>
 </div>
 </section>
 <section class="section">
-<div class="section-head"><h2>History</h2></div>
-<p class="section-note">Append only. Old versions stay for the day a
-score needs explaining.</p>
-<div class="panel" style="padding:12px 16px">
-<ul class="cv-history">{history_html}</ul>
-</div>
-</section>
-<section class="section">
 <div class="section-head"><h2>After a change</h2></div>
 <p class="section-note">Scores made against an older CV stay stamped with
 it. This re-scores up to 25 unacknowledged items against the active
-version, with a confirm step, and can be run again for the rest.</p>
+version, with a confirm step, and can be run again for the rest. A role
+scored against its full description is left alone, so a change here never
+swaps that score for one made on the advert card.</p>
 <div class="panel panel-clay" style="padding:16px">
 <button type="button" class="act-btn" id="cv-rescore">Re-score stale items</button>
 <p class="cv-note" id="cv-rescore-note"></p>
 </div>
 </section>
 </main>
-<script>{build_dashboard.SCRIPT}{CV_SCRIPT}</script>
+<script>{build_dashboard.SCRIPT}{CV_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}</script>
 </body>
 </html>"""
     return page.encode("utf-8")
@@ -1088,12 +1270,15 @@ class Handler(BaseHTTPRequestHandler):
                              "frame-ancestors 'none'")
         super().end_headers()
 
-    def _send(self, status: int, body: bytes, ctype: str) -> None:
+    def _send(self, status: int, body: bytes, ctype: str,
+              headers: dict | None = None) -> None:
         self._answered = True
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -1129,6 +1314,23 @@ class Handler(BaseHTTPRequestHandler):
                            "text/plain; charset=utf-8")
                 return
             self._send(200, page, "text/html; charset=utf-8")
+            return
+        if path.startswith("/prepare/") and path.endswith("/cv.docx"):
+            # The saved CV as a Word file. Read only, behind the same Host
+            # check as every page, and built from what Save CV stored.
+            raw = path[len("/prepare/"):-len("/cv.docx")]
+            if not (raw.isascii() and raw.isdigit() and len(raw) <= 18):
+                self._send(404, b"Role ids are numbers.",
+                           "text/plain; charset=utf-8")
+                return
+            try:
+                status, body, ctype, extra = download_cv(int(raw))
+            except Exception as err:  # noqa: BLE001
+                self._send(500, f"The Word file could not be made. "
+                           f"{type(err).__name__}: {err}".encode(),
+                           "text/plain; charset=utf-8")
+                return
+            self._send(status, body, ctype, extra)
             return
         if path.startswith("/prepare/"):
             raw = path[len("/prepare/"):].strip("/")
@@ -1328,6 +1530,40 @@ class Handler(BaseHTTPRequestHandler):
                            "application/json")
                 return
             result = run_prepare(item_id)
+            self._send(200 if result.get("ok") else 409,
+                       json.dumps(result).encode(), "application/json")
+            return
+        if path in ("/prepare/cv/open", "/prepare/cv/save",
+                    "/prepare/cv/reset", "/prepare/cv/rescore"):
+            body = self._read_json_body()
+            item_id = body.get("id") if isinstance(body, dict) else None
+            # The same id rule as /prepare.
+            if (not isinstance(item_id, int) or isinstance(item_id, bool)
+                    or not -2 ** 63 <= item_id < 2 ** 63):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            action = path.rsplit("/", 1)[1]
+            text = body.get("text")
+            if action in ("save", "rescore") and not isinstance(text, str):
+                self._send(400, b'{"ok": false, "note": "text must be the CV as text"}',
+                           "application/json")
+                return
+            result = {"open": lambda: run_copy_open(item_id),
+                      "save": lambda: run_copy_save(item_id, text),
+                      "reset": lambda: run_copy_reset(item_id),
+                      "rescore": lambda: run_copy_rescore(item_id, text)}[action]()
+            status = (200 if result.get("ok") else
+                      400 if result.get("invalid") else 409)
+            self._send(status, json.dumps(result).encode(), "application/json")
+            return
+        if path == "/cv/master/save":
+            body = self._read_json_body()
+            if not (isinstance(body, dict) and isinstance(body.get("text"), str)):
+                self._send(400, b'{"ok": false, "note": "text must be the CV as text"}',
+                           "application/json")
+                return
+            result = save_master_cv(body["text"], body.get("base"))
             self._send(200 if result.get("ok") else 409,
                        json.dumps(result).encode(), "application/json")
             return

@@ -45,6 +45,20 @@ model has answered, because either can take long enough for that to change.
 
 Nothing here runs on a schedule, and nothing here closes, dismisses or
 acknowledges a role.
+
+The tailored CV. The same page holds a copy of the master CV for the role,
+made from the master the first time the page opens, with no model call, and
+edited there (tailored_cv.py stores it, cv_doc.py lays it out). Rescore role
+scores the copy on screen against the stored description through the same
+steps as the click above: the same lock idea, held per role so that the
+adverts of a repost chain share it, the same one call with no retry, the same
+failure windows and the same parking of a paid-for reply. A pair of
+description and copy is scored once, by the version of each. The score is the
+copy's: it is stored on the copy and in score_history marked tailored, and the
+role keeps the master CV's score, which is what the Jobs page shows. Save CV
+stores the copy as the one to send, and Start again from master puts the
+master back on screen. None of them touches an applied role, or one that is
+acknowledged, closed, dismissed or expired, and none of them writes the master.
 """
 
 from __future__ import annotations
@@ -63,7 +77,9 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import radar_common as rc  # noqa: E402
 import check_jobs  # noqa: E402
+import cv_doc  # noqa: E402
 import score_item  # noqa: E402
+import tailored_cv  # noqa: E402
 
 SPEC = rc.SCORE_BASIS_SPEC
 
@@ -264,11 +280,15 @@ def fetch_blocked_why(row: dict) -> str | None:
     return None
 
 
-def score_cooling_text(row: dict, description: str, config: dict) -> str | None:
+def score_cooling_text(row: dict, description: str, config: dict,
+                       cv_version: str | None = None) -> str | None:
     """The sentence for a score that failed a moment ago and is not tried
     again yet, else None. It is about this role, this version of its
-    description, this prompt and this CV, so any of them changing ends it."""
-    held = GUARD.recent_failure(_failure_key(row, description, config))
+    description, this prompt and this CV, so any of them changing ends it.
+    cv_version names a tailored copy (tailored_cv.copy_version), and is the
+    master CV's version when it is not given."""
+    held = GUARD.recent_failure(_failure_key(row, description, config,
+                                             cv_version))
     if not held:
         return None
     return (f"The last try for this role failed. {held[0]} "
@@ -633,13 +653,16 @@ def _spec_opportunity(row: dict, description: str) -> dict:
     }
 
 
-def _failure_key(row: dict, description: str, config: dict) -> tuple:
+def _failure_key(row: dict, description: str, config: dict,
+                 cv_version: str | None = None) -> tuple:
     """What a remembered failure, or parked work, is about: this role, this
     version of its description, this rubric and this CV. Change any of them and
-    it is a new question, which a person may ask at once."""
+    it is a new question, which a person may ask at once. A tailored copy is
+    named by its own version, so an edit to it is a new question too."""
     try:
         return (row["id"], rc.description_version(description),
-                rc.prompt_version(), score_item.get_cv_version(config))
+                rc.prompt_version(),
+                cv_version or score_item.get_cv_version(config))
     except Exception:  # noqa: BLE001  a key that cannot be built is a short one
         return (row["id"], rc.description_version(description))
 
@@ -710,27 +733,61 @@ def _store_score(conn, row: dict, payload: dict, config: dict, key: tuple,
         out["tier_move"] = {"from": moved, "to": scored["tier"]}
 
 
-def _score(conn, row: dict, description: str, config: dict, out: dict) -> None:
-    """Score the role against its description. One model call, no more."""
-    key = _failure_key(row, description, config)
+# What a failed score says, for the master CV and for a tailored copy.
+_MASTER_WORDS = {
+    "setup": ("The description was fetched but could not be scored, the "
+              "scorer could not be set up."),
+    "raised": ("The description was fetched but the scorer could not be "
+               "reached ({name}). No score was stored."),
+    "unusable": ("The scorer's reply could not be used ({why}). Nothing was "
+                 "stored for the score."),
+}
+_COPY_WORDS = {
+    "setup": ("The tailored copy could not be scored, the scorer could not "
+              "be set up."),
+    "raised": ("The scorer could not be reached ({name}), so the tailored "
+               "copy was not scored. No score was stored."),
+    "unusable": ("The scorer's reply could not be used ({why}). Nothing was "
+                 "stored for the tailored copy."),
+}
+
+
+def _score(conn, row: dict, description: str, config: dict, out: dict,
+           tailored: dict | None = None) -> None:
+    """Score the role against its description. One model call, no more.
+
+    tailored is None to score the master CV and store the role's own score.
+    For Rescore role it is the copy, {"ref", "text", "hash"}, which is scored
+    through every step below in place of the master, and stored on the copy
+    by _store_tailored and never on the role.
+    """
+    cv_version = (tailored_cv.copy_version(tailored["hash"]) if tailored
+                  else None)
+    words = _COPY_WORDS if tailored else _MASTER_WORDS
+    store = _store_tailored if tailored else _store_score
+    what = (f"id {row['id']}, tailored copy {tailored['hash']}, " if tailored
+            else f"id {row['id']}, ")
+    key = _failure_key(row, description, config, cv_version)
     # A reply paid for on an earlier click that the database was too busy to
     # take is stored first, and no call is made.
     parked = GUARD.take_parked("score", key)
     if parked is not None:
-        _store_score(conn, row, parked, config, key, out)
+        store(conn, row, parked, config, key, out)
         return
-    cooling = score_cooling_text(row, description, config)
+    cooling = score_cooling_text(row, description, config, cv_version)
     if cooling:
         out["outcome"] = "cooling"
         _notice(out, "score", cooling, retry=False)
         return
     try:
-        blocks = score_item.build_scorer_system(config, basis=SPEC)
+        blocks = score_item.build_scorer_system(
+            config, basis=SPEC, cv=None if tailored is None else {
+                "text": tailored["text"], "version": cv_version,
+                "label": tailored_cv.copy_source(tailored["hash"])})
         floors = rc.read_rate_floors(config)
         thresholds = rc.read_score_thresholds(config)
     except (Exception, SystemExit) as err:  # noqa: BLE001  no CV, no floor line
-        text = (f"The description was fetched but could not be scored, the "
-                f"scorer could not be set up. {str(err)[:300]}")
+        text = f"{words['setup']} {str(err)[:300]}"
         GUARD.remember_failure(key, ERROR_COOLDOWN_SECONDS, text)
         out["outcome"] = "score_failed"
         # No Try again, because the next click is refused for a while. The page
@@ -745,8 +802,7 @@ def _score(conn, row: dict, description: str, config: dict, out: dict) -> None:
             opp, blocks, config, mock_fn=score_fn, floors=floors,
             thresholds=thresholds, basis=SPEC)
     except Exception as err:  # noqa: BLE001  no key, no network, an API error
-        text = ("The description was fetched but the scorer could not be "
-                f"reached ({type(err).__name__}). No score was stored.")
+        text = words["raised"].format(name=type(err).__name__)
         GUARD.remember_failure(key, ERROR_COOLDOWN_SECONDS, text)
         print(f"prepare: the scorer raised {type(err).__name__} for id "
               f"{row['id']}: {str(err)[:200]}", file=sys.stderr)
@@ -756,15 +812,13 @@ def _score(conn, row: dict, description: str, config: dict, out: dict) -> None:
         return
     out["called"] = bool(usage)
     if scored is None or note or scored.get("tier") is None:
-        text = ("The scorer's reply could not be used "
-                f"({note or 'no tier came back'}). Nothing was stored for "
-                "the score.")
+        text = words["unusable"].format(why=note or "no tier came back")
         GUARD.remember_failure(key, UNUSABLE_COOLDOWN_SECONDS, text)
         # What the reply cost is recorded, which can wait for the lock as long
         # as a score can. If the database stays busy the cost is lost, and said
         # so on stderr.
         if _begin_write(conn):
-            _log_run(conn, usage, config, False, f"id {row['id']}, not stored, "
+            _log_run(conn, usage, config, False, f"{what}not stored, "
                      f"{note or 'no tier'}")
         else:
             print("prepare: the run record was not written, the database "
@@ -781,9 +835,11 @@ def _score(conn, row: dict, description: str, config: dict, out: dict) -> None:
     working = scored["working"]
     line = rate_line(description, scored.get("rate_quote_raw"))
     working["rate_quote"], working["rate_quote_from"] = line["quote"], line["from"]
-    _store_score(conn, row, {"scored": scored, "usage": usage,
-                             "cv_version": getattr(blocks, "cv_version", None)},
-                 config, key, out)
+    payload = {"scored": scored, "usage": usage,
+               "cv_version": getattr(blocks, "cv_version", None)}
+    if tailored:
+        payload["tailored"] = tailored
+    store(conn, row, payload, config, key, out)
 
 
 # ------------------------------------------------------------ the click
@@ -850,3 +906,333 @@ def _prepare_locked(conn, item_id: int, out: dict, config: dict | None) -> dict:
         return out
     _score(conn, row, description, config, out)
     return out
+
+
+# --------------------------------------------------------- the tailored CV
+
+COPY_APPLIED_NOTE = ("This role is marked applied. Its CV is shown as it was "
+                     "stored, and nothing is scored, saved or changed for it.")
+COPY_NOT_OPEN_NOTE = ("This role is not open, it has been acknowledged, closed, "
+                      "dismissed or retired. Its CV is shown as it was stored, "
+                      "and nothing is scored, saved or changed for it.")
+NO_DESCRIPTION_FOR_COPY = (
+    "There is no full description stored for this role, so there is nothing "
+    "to score the copy against and nothing was spent. Fetch and score the "
+    "description first.")
+COPY_BUSY = ("The database was busy, so nothing was stored{also}. Nothing on "
+             "the page was lost, try again in a moment.")
+
+
+def summary(record: dict | None) -> dict | None:
+    """What the page script needs of a tailored score to say what moved."""
+    if not record:
+        return None
+    before = record.get("before") or {}
+    return {"cv_match": record.get("cv_match"), "tier": record.get("tier"),
+            "before_cv_match": before.get("cv_match"),
+            "before_tier": before.get("tier"),
+            "before_source": before.get("source"),
+            "changes": len(record.get("changes") or [])}
+
+
+def _copy_shut(conn, row: dict, out: dict) -> bool:
+    """Say so, and True, when the copy of this role may not be changed."""
+    if rc.role_is_applied(conn, row["id"]):
+        out["outcome"] = "applied"
+        _notice(out, "info", COPY_APPLIED_NOTE)
+        return True
+    if not is_open(row):
+        out["outcome"] = "not_open"
+        _notice(out, "info", COPY_NOT_OPEN_NOTE)
+        return True
+    return False
+
+
+def _copy_write(conn, row: dict, out: dict, during: str, also: str = ""):
+    """Take the write lock and look at the role again under it.
+
+    Returns the role as it is now, or None with the reason said: the
+    database stayed busy, or the role was applied for or closed in the
+    meantime.
+    """
+    if not _begin_write(conn):
+        out["outcome"] = "db_busy"
+        _notice(out, "info", COPY_BUSY.format(also=also))
+        return None
+    current, why = _fresh_open_row(conn, row["id"])
+    if why:
+        conn.rollback()
+        _refuse(out, why, during)
+        return None
+    return current
+
+
+def _with_copy_lock(item_id: int, db_path, work) -> dict:
+    """Run work(conn, row, out) holding the lock of the role's copy.
+
+    The lock is the role's, not the row's, because the adverts of a repost
+    chain share one copy, so two tabs on two adverts of one role wait for each
+    other like two clicks on one. A role that does not exist is
+    {"ok": False, "note": ...}.
+    """
+    out: dict = {"ok": True, "id": item_id, "outcome": None, "called": False,
+                 "scored": False, "notices": [], "copy": None, "tailored": None}
+    probe = rc.get_db(db_path)
+    try:
+        raw = probe.execute("SELECT * FROM opportunities WHERE id = ?",
+                            (item_id,)).fetchone()
+    finally:
+        probe.close()
+    if raw is None:
+        return {"ok": False, "note": f"no opportunity {item_id}"}
+    lock = GUARD.lock_for(("cv", tailored_cv.role_ref(raw)))
+    if not lock.acquire(timeout=LOCK_WAIT_SECONDS):
+        out["outcome"] = "busy"
+        _notice(out, "info", "Another click on this role's CV is still "
+                "working. Wait for it to finish, then try again.")
+        return out
+    try:
+        conn = rc.get_db(db_path)
+        try:
+            raw = conn.execute("SELECT * FROM opportunities WHERE id = ?",
+                               (item_id,)).fetchone()
+            if raw is None:
+                return {"ok": False, "note": f"no opportunity {item_id}"}
+            return work(conn, dict(raw), out)
+        finally:
+            conn.close()
+    finally:
+        lock.release()
+
+
+def _master_version(config: dict) -> str | None:
+    try:
+        return score_item.get_cv_version(config)
+    except Exception:  # noqa: BLE001  the copy is kept either way
+        return None
+
+
+def open_copy(item_id: int, db_path: Path | None = None,
+              config: dict | None = None) -> dict:
+    """Make the role's copy from the master, the first time its page opens.
+
+    No model call. A role with a copy keeps it and gets it back. An applied
+    or closed role gets no copy, and the page shows what it has.
+    """
+    def work(conn, row, out):
+        if _copy_shut(conn, row, out):
+            return out
+        ref = tailored_cv.role_ref(row)
+        copy = tailored_cv.get(conn, ref)
+        if copy is None:
+            try:
+                start = tailored_cv.master(config or rc.load_config())
+            except cv_doc.CvError as err:
+                out["outcome"] = "no_master"
+                _notice(out, "info", "The master CV could not be read, so no "
+                        f"tailored copy was made. {err}")
+                return out
+            current = _copy_write(conn, row, out, "the copy was being made",
+                                  ", the copy is made by the first Rescore "
+                                  "role or Save CV instead")
+            if current is None:
+                return out
+            made = tailored_cv.create(conn, ref, current["id"], start["text"],
+                                      start["version"])
+            conn.commit()
+            copy = tailored_cv.get(conn, ref)
+            out["outcome"] = "made" if made else "found"
+        else:
+            out["outcome"] = "found"
+        out["copy"] = tailored_cv.view(copy)
+        return out
+    return _with_copy_lock(item_id, db_path, work)
+
+
+def save_copy(item_id: int, text, db_path: Path | None = None,
+              config: dict | None = None) -> dict:
+    """Save CV: store the copy on screen as the role's saved copy.
+
+    It replaces the copy saved before for this role, and only a save does.
+    The name is the one the brief gives, made safe for a file name. A CV that
+    cannot be taken is {"ok": False, "invalid": True, "note": why}.
+    """
+    try:
+        _doc, clean_text = cv_doc.accept(text)
+    except cv_doc.CvError as err:
+        return {"ok": False, "invalid": True, "note": str(err)}
+
+    def work(conn, row, out):
+        if _copy_shut(conn, row, out):
+            return out
+        current = _copy_write(conn, row, out, "the CV was being saved")
+        if current is None:
+            return out
+        ref = tailored_cv.role_ref(current)
+        if tailored_cv.get(conn, ref) is None:
+            tailored_cv.create(conn, ref, current["id"], clean_text,
+                               _master_version(config or rc.load_config()))
+        name = cv_doc.saved_name(current.get("company"), current.get("title"))
+        tailored_cv.save(conn, ref, clean_text, name)
+        conn.commit()
+        out["outcome"] = "saved"
+        out["saved_name"] = name
+        out["copy"] = tailored_cv.view(tailored_cv.get(conn, ref))
+        return out
+    return _with_copy_lock(item_id, db_path, work)
+
+
+def reset_copy(item_id: int, db_path: Path | None = None,
+               config: dict | None = None) -> dict:
+    """Start again from master: the copy becomes the master as it is now.
+
+    The saved copy and the tailored scores are kept, because they are
+    records of what was saved and what was scored.
+    """
+    def work(conn, row, out):
+        if _copy_shut(conn, row, out):
+            return out
+        try:
+            start = tailored_cv.master(config or rc.load_config())
+        except cv_doc.CvError as err:
+            out["outcome"] = "no_master"
+            _notice(out, "info", f"The master CV could not be read. {err}")
+            return out
+        current = _copy_write(conn, row, out, "the copy was being reset")
+        if current is None:
+            return out
+        ref = tailored_cv.role_ref(current)
+        if not tailored_cv.create(conn, ref, current["id"], start["text"],
+                                  start["version"]):
+            tailored_cv.restart(conn, ref, start["text"], start["version"])
+        conn.commit()
+        out["outcome"] = "reset"
+        out["copy"] = tailored_cv.view(tailored_cv.get(conn, ref))
+        return out
+    return _with_copy_lock(item_id, db_path, work)
+
+
+def rescore_copy(item_id: int, text, db_path: Path | None = None,
+                 config: dict | None = None) -> dict:
+    """Rescore role: score the copy on screen against the stored description.
+
+    The text on screen is stored as the copy first, so a reload shows what
+    was scored, and then the pair of description and copy is scored once.
+    A pair scored before, on this copy, from the history, or as the master CV
+    itself, is shown again and nothing is spent. Otherwise one model call
+    through _score, with every guard the Prepare application click has.
+    """
+    try:
+        _doc, clean_text = cv_doc.accept(text)
+    except cv_doc.CvError as err:
+        return {"ok": False, "invalid": True, "note": str(err)}
+
+    def work(conn, row, out):
+        if _copy_shut(conn, row, out):
+            return out
+        if not (row.get("description_text") or "").strip():
+            out["outcome"] = "no_description"
+            _notice(out, "info", NO_DESCRIPTION_FOR_COPY)
+            return out
+        cfg = config or rc.load_config()
+        current = _copy_write(conn, row, out, "the copy was being stored",
+                              " and nothing was spent")
+        if current is None:
+            return out
+        # The description as it is now, under the lock, which is the one the
+        # score is made against and the one its version is taken from.
+        description = (current.get("description_text") or "").strip()
+        if not description:
+            conn.rollback()
+            out["outcome"] = "no_description"
+            _notice(out, "info", NO_DESCRIPTION_FOR_COPY)
+            return out
+        ref = tailored_cv.role_ref(current)
+        if not tailored_cv.create(conn, ref, current["id"], clean_text,
+                                  _master_version(cfg)):
+            tailored_cv.store_text(conn, ref, clean_text)
+        conn.commit()
+        copy = tailored_cv.get(conn, ref)
+        out["copy"] = tailored_cv.view(copy)
+        desc_hash = rc.description_version(description)
+        cv_hash = copy["cv_hash"]
+        standing = tailored_cv.standing(current, copy, cv_hash)
+        if standing["kind"] in ("current", "master"):
+            out["outcome"] = "reused"
+            out["tailored"] = summary(standing["record"])
+            _notice(out, "info", (
+                "This copy has been scored against this description already, "
+                "so nothing was spent." if standing["kind"] == "current" else
+                "This copy is the master CV as it was scored against this "
+                "description, so that score stands for it and nothing was "
+                "spent."))
+            return out
+        found = tailored_cv.history_pair(conn, current, desc_hash, cv_hash)
+        if found is not None:
+            again = _copy_write(conn, current, out, "the score was being found")
+            if again is None:
+                return out
+            record = tailored_cv.from_history(again, copy, found, desc_hash,
+                                              cv_hash)
+            tailored_cv.set_score(conn, ref, record)
+            conn.commit()
+            out["outcome"] = "reused"
+            out["tailored"] = summary(record)
+            _notice(out, "info", "This copy was scored against this "
+                    "description before, so that score is shown again and "
+                    "nothing was spent.")
+            return out
+        _score(conn, current, description, cfg, out,
+               tailored={"ref": ref, "text": clean_text, "hash": cv_hash})
+        return out
+    return _with_copy_lock(item_id, db_path, work)
+
+
+def _store_tailored(conn, row: dict, payload: dict, config: dict, key: tuple,
+                    out: dict) -> None:
+    """Store a tailored score that was paid for, on the copy and in the history.
+
+    The same manners as _store_score: the write lock first, then look at the
+    role again, the reply parked if the database stays busy, and the score,
+    its history row and its cost one transaction. The role's own score, the
+    one the Jobs page shows, is not read for writing and not written.
+    """
+    scored, usage, target = payload["scored"], payload["usage"], payload["tailored"]
+    working = scored["working"]
+    if not _begin_write(conn):
+        GUARD.park("score", key, payload)
+        out["outcome"] = "score_held"
+        _notice(out, "score",
+                "The scorer answered, but the tailored score could not be "
+                "stored yet because the database was busy. It is held in "
+                "memory, and Rescore role on the same copy stores it without "
+                "another call.", retry=False)
+        return
+    current, why = _fresh_open_row(conn, row["id"])
+    what = f"id {row['id']}, tailored copy {target['hash']}, "
+    if why:
+        _log_run(conn, usage, config, False, what
+                 + ("applied" if why == "applied" else "no longer open")
+                 + " while scoring, not stored")
+        _refuse(out, why, "the scorer was answering")
+        return
+    copy = tailored_cv.get(conn, target["ref"])
+    if copy is None:
+        conn.rollback()
+        _log_run(conn, usage, config, False, what + "the copy was not there, "
+                 "not stored")
+        out["outcome"] = "score_failed"
+        _notice(out, "score", "The tailored score could not be stored, the "
+                "copy was not there. Nothing was changed.")
+        return
+    record = tailored_cv.from_scored(current, copy, scored, working,
+                                     scored["description_hash"], target["hash"])
+    tailored_cv.set_score(conn, target["ref"], record)
+    rc.record_tailored_score(conn, row["id"], tailored_cv.history_state(record),
+                             target["hash"])
+    _log_run(conn, usage, config, True,
+             what + f"{len(working['asks'])} asks", commit=False)
+    conn.commit()
+    out["outcome"] = "scored"
+    out["scored"] = True
+    out["tailored"] = summary(record)

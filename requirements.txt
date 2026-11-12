@@ -6,5 +6,11 @@
 anthropic>=0.120.2,<0.121
 PyYAML>=6.0
 feedparser>=6.0
+# python-docx makes the Word file of a saved CV, for the dashboard's Download
+# button and nothing else. It stays on the 1.2 line, which the extraction test
+# in test/run_cv_test.py was run against. It brings lxml with it. Only the
+# dashboard imports it, and only when a file is downloaded, so n8n's Python
+# does not need it.
+python-docx>=1.2.0,<1.3
 # pypdf is optional. Only needed when the CV is dropped in as cv.pdf rather
 # than cv.txt. Install with: pip install pypdf

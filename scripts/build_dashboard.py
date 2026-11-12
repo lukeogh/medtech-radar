@@ -3312,6 +3312,22 @@ PREPARE_CSS = """
 .prep-gates b{font-weight:var(--weight-strong);color:var(--ink-1)}
 .prep-wrap .masthead-sub{overflow-wrap:anywhere}
 @media (max-width:600px){.prep-fact{grid-template-columns:minmax(0,1fr);gap:var(--space-4)}}
+.prep-wrap.prep-split-page{max-width:var(--page-max)}
+.prep-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--space-32);align-items:start}
+.prep-left{position:sticky;top:0;max-height:100vh;overflow:auto;padding:0 var(--space-8) var(--space-24) 0}
+.prep-right{min-width:0}
+@media (max-width:1100px){.prep-split{grid-template-columns:minmax(0,1fr)}.prep-left{position:static;max-height:none;overflow:visible;padding:0}}
+.score-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--space-16)}
+@media (max-width:700px){.score-pair{grid-template-columns:minmax(0,1fr)}}
+.score-card-head{font:var(--weight-strong) var(--text-xs)/1.5 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3);margin:var(--space-12) 0 var(--space-4)}
+.ask{border-radius:var(--radius-sm);transition:background var(--dur-fast) var(--ease)}
+.ask.ask-hl{background:var(--accent-wash)}
+.ask-stale .ask-status{color:#8a6414;border-color:#c08a1d}
+.ask-was{flex:none;font:400 var(--text-2xs)/1.55 var(--font-sans);color:var(--ink-3);white-space:nowrap}
+.ask-lines li{cursor:pointer}
+.ask-lines li.cv-gone{color:var(--ink-3);text-decoration:line-through}
+.ask-changes{list-style:none;margin:var(--space-6) 0 0;padding:0;font:400 var(--text-xs)/1.6 var(--font-sans);color:var(--ink-2)}
+.ask-changes b{font-weight:var(--weight-strong);color:var(--ink-1)}
 """
 
 PREPARE_SCRIPT = """
@@ -3388,22 +3404,191 @@ def _prepare_notice(kind: str, text: str, retry: bool = False) -> str:
     return f'<p class="prep-notice{cls}">{esc(text)}{button}</p>'
 
 
-def _prepare_ask(ask: dict) -> str:
+CHANGE_WORDS = {"missing": "missing", "partly": "partly", "met": "met"}
+
+
+def _change_words(change: dict | None) -> str:
+    """What an ask was before the rescore, in two or three words."""
+    if not change:
+        return ""
+    if change.get("from") is None:
+        return "new this time"
+    return f"was {CHANGE_WORDS.get(change.get('from'), change.get('from'))}"
+
+
+def _cited_label(cited: dict) -> str:
+    """CV line n, or where the cited line is in the copy now, or that it has gone."""
+    n, now = cited.get("n"), cited.get("now", cited.get("n"))
+    if now is None:
+        return f"CV line {esc(n)} when scored, since changed"
+    if now != n:
+        return f"CV line {esc(now)} ({esc(n)} when scored)"
+    return f"CV line {esc(n)}"
+
+
+def _cited_li(cited: dict) -> str:
+    """One cited CV line: its number and its text, as separate words."""
+    gone = ' class="cv-gone"' if "now" in cited and cited["now"] is None else ""
+    return (f'<li data-cv-n="{esc(cited.get("n"))}" '
+            f'data-cv-text="{esc(cited.get("text"))}"{gone}>'
+            f'<b>{_cited_label(cited)}</b> {esc(cited.get("text"))}</li>')
+
+
+def _prepare_ask(ask: dict, change: dict | None = None) -> str:
+    """One ask, with its mark, its cited lines and what the page script needs
+    to light them: data-ask, its status, and each cited line's number and
+    text as the working stored them. An ask placed in a copy (cv_doc.place_asks)
+    shows where its lines are now, and is stale when one has gone."""
     status = ask.get("status") if ask.get("status") in ("met", "partly", "missing") else "missing"
-    mark = {"met": "&#10003; Met", "partly": "&#9680; Partly",
-            "missing": "&#10007; Missing"}[status]
-    out = [f'<li class="ask"><div class="ask-head">'
+    stale = bool(ask.get("stale"))
+    mark = ({"met": "&#10003; Met", "partly": "&#9680; Partly",
+             "missing": "&#10007; Missing"}[status] if not stale
+            else f"! Stale, was {status}")
+    was = _change_words(change)
+    out = [f'<li class="ask{" ask-stale" if stale else ""}" data-ask '
+           f'data-status="{status}" tabindex="0"><div class="ask-head">'
            f'<span class="ask-status ask-{status}">{mark}</span>'
-           f'<span class="ask-text">{esc(ask.get("ask"))}</span></div>']
-    lines = [l for l in (ask.get("lines") or []) if isinstance(l, dict)]
+           f'<span class="ask-text">{esc(ask.get("ask"))}</span>'
+           + (f'<span class="ask-was">{esc(was)}</span>' if was else "")
+           + '</div>']
+    lines = [l for l in (ask.get("placed") or ask.get("lines") or [])
+             if isinstance(l, dict)]
     if status != "missing" and lines:
-        out.append('<ul class="ask-lines">' + "".join(
-            f'<li><b>CV line {esc(l.get("n"))}</b> {esc(l.get("text"))}</li>'
-            for l in lines) + "</ul>")
+        out.append('<ul class="ask-lines">' + "".join(_cited_li(l) for l in lines)
+                   + "</ul>")
     elif status != "missing":
         out.append('<p class="ask-warn">Unanchored. The scorer says the CV '
                    'evidences this and cites no line that exists.</p>')
     out.append("</li>")
+    return "".join(out)
+
+
+def cv_store_lines(text: str) -> list[str]:
+    import cv_store
+    return cv_store.cv_lines(text)
+
+
+def cv_store_hash(text: str) -> str | None:
+    import cv_store
+    return cv_store.cv_hash(text)
+
+
+def _copy_shown(copy: dict, can_edit: bool) -> str:
+    """The text of a role's copy the page shows: the copy as it stands, or,
+    for a role that can no longer be changed, the copy that was saved for it."""
+    if not can_edit and copy.get("saved_text"):
+        return copy["saved_text"]
+    return copy.get("cv_text") or ""
+
+
+def linkedin_url(conn, row: dict) -> str | None:
+    """The role's advert on LinkedIn (C11): this row's, or a repost's.
+
+    The job page by its id, which is the link a person applies through. A row
+    from another board has none of its own, so the newest advert of the same
+    role that is on LinkedIn gives it, and a role with none gives None.
+    """
+    import check_jobs
+    jid = check_jobs.job_view_id(row.get("source_url") or "")
+    if not jid and row.get("role_key"):
+        mate = conn.execute(
+            "SELECT source_url FROM opportunities WHERE role_key = ? AND id <> ?"
+            " AND source_url LIKE '%linkedin.com/%jobs/view/%'"
+            " ORDER BY id DESC LIMIT 1", (row["role_key"], row["id"])).fetchone()
+        jid = check_jobs.job_view_id(mate["source_url"] or "") if mate else None
+    return f"https://www.linkedin.com/jobs/view/{jid}/" if jid else None
+
+
+def _change_line(change: dict) -> str:
+    import cv_doc
+    word = cv_doc.change_word(change)
+    ask = esc(change.get("ask"))
+    if word == "new":
+        return f'<li><b>New this time, {esc(change.get("to"))}.</b> {ask}</li>'
+    if word == "gone":
+        return (f'<li><b>Not listed this time, was {esc(change.get("from"))}.</b>'
+                f' {ask}</li>')
+    return (f'<li><b>Now {esc(change.get("to"))}, was {esc(change.get("from"))}.</b>'
+            f' {ask}</li>')
+
+
+def _tailored_card(copy, standing, can_edit: bool, has_description: bool) -> str:
+    """The tailored copy's score, beside the master CV's.
+
+    A copy's score belongs to the copy. It says what it was made against, what
+    it replaced and which asks moved, and says plainly when the copy has been
+    edited since, when it was made on another advert's description, or when
+    the copy is the master CV itself as it was scored.
+    """
+    import prepare_application as prep
+    out = ['<div class="score-card score-tailored" id="tailored-score">'
+           '<h3 class="score-card-head">Tailored copy</h3>']
+    kind = (standing or {}).get("kind")
+    record = (standing or {}).get("record")
+    if copy is None:
+        out.append('<p class="row-sub">'
+                   + ("No tailored copy yet. It is made from the master CV when "
+                      "this page opens, and is scored only when Rescore role is "
+                      "pressed." if can_edit else
+                      "No tailored copy was made for this role.") + '</p>')
+    elif kind == "master":
+        out.append('<p class="row-sub">The copy is the master CV as it was scored '
+                   'against this description, so the master CV&rsquo;s score '
+                   'stands for it.</p>')
+    elif kind in ("current", "earlier") and record:
+        when = fmt_day(record["scored_at"]) if record.get("scored_at") else "date not recorded"
+        out.append(f'<p class="row-sub">Scored against the full description and '
+                   f'this copy, {when}, by '
+                   f'{esc(record.get("score_model") or "an unknown model")}, prompt '
+                   f'{esc(record.get("prompt_version") or "unknown")}.</p>')
+        if kind == "earlier":
+            out.append('<p class="row-sub">The copy has been edited since this '
+                       'score. Rescore role scores the copy as it is now.</p>')
+        if record.get("reused"):
+            out.append('<p class="row-sub">Shown again from an earlier score of '
+                       'this same copy. Nothing was spent on it.</p>')
+        tier = record.get("tier")
+        out.append(f'<p class="row-sub">CV match '
+                   f'{esc(record.get("cv_match"))}'
+                   + (f', {esc(prep.TIER_WORDS.get(tier, tier))}' if tier else '')
+                   + '.</p>')
+        gates = record.get("gates") or {}
+        notes = record.get("notes") or {}
+        out.append('<ul class="prep-gates">' + "".join(
+            _prepare_gate_line(label, gates.get(g), notes.get(g))
+            for label, g in (("Sector", "sector"), ("CV match", "cv"),
+                             ("Location", "location"), ("Rate", "rate")))
+            + '</ul>')
+        before = record.get("before")
+        if before:
+            whose = ("the master CV" if before.get("source") == "master"
+                     else "the tailored copy")
+            btier = before.get("tier")
+            out.append(f'<p class="row-sub">Before this rescore, on {whose}: CV '
+                       f'match {esc(before.get("cv_match"))}'
+                       + (f', {esc(prep.TIER_WORDS.get(btier, btier))}' if btier else '')
+                       + '.</p>')
+        changes = record.get("changes")
+        if changes:
+            out.append(f'<p class="row-sub">{len(changes)} '
+                       f'ask{"" if len(changes) == 1 else "s"} changed.</p>'
+                       '<ul class="ask-changes">'
+                       + "".join(_change_line(c) for c in changes) + '</ul>')
+        elif changes is not None:
+            out.append('<p class="row-sub">No ask changed.</p>')
+        if record.get("one_line_why"):
+            out.append(f'<p class="row-why">{esc(sentence(record["one_line_why"]))}</p>')
+    elif kind == "elsewhere" and record:
+        when = fmt_day(record["scored_at"]) if record.get("scored_at") else "date not recorded"
+        out.append(f'<p class="row-sub">Last scored against another advert&rsquo;s '
+                   f'description, {when}. Rescore role scores it against this '
+                   'one.</p>')
+    else:
+        out.append('<p class="row-sub">Not scored yet. Rescore role scores the '
+                   'copy on the left against the full description, once.'
+                   + ('' if has_description else ' It needs the full '
+                      'description, and none is stored yet.') + '</p>')
+    out.append('</div>')
     return "".join(out)
 
 
@@ -3438,6 +3623,21 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
     if not on_description:
         stale = bool(description) and working is not None
         working = None
+    # The tailored copy, as the page beside this shows it, and which tailored
+    # score belongs beside it. The asks drawn are the tailored score's when
+    # it was made on this description, else the master CV's as before.
+    import tailored_cv
+    copy = tailored_cv.for_row(conn, row)
+    shown_lines = None
+    standing = None
+    if copy is not None:
+        shown = _copy_shown(copy, is_open and not applied)
+        shown_lines = cv_store_lines(shown)
+        standing = tailored_cv.standing(row, copy, cv_store_hash(shown))
+    asks_from = "master"
+    asks_working = working
+    if standing and standing["kind"] in ("current", "earlier"):
+        asks_from, asks_working = "tailored", standing["record"]["working"]
     out: list[str] = []
 
     if running:
@@ -3498,12 +3698,18 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
     if link:
         rows += (f'<div class="prep-fact"><span class="detail-label">Link'
                  f'</span><span class="detail-body">{link}</span></div>')
+    linkedin = linkedin_url(conn, row)
+    rows += ('<div class="prep-fact"><span class="detail-label">LinkedIn</span>'
+             '<span class="detail-body">'
+             + (source_link(linkedin, "Open the advert on LinkedIn") if linkedin
+                else "No LinkedIn advert is stored for this role.")
+             + '</span></div>')
     out.append(f'<section class="section"><div class="section-head">'
                f'<h2>The role</h2>{chip}</div><div class="prep-facts">'
                f'{rows}</div></section>')
 
     # The score and how it was made.
-    score = []
+    score = ['<h3 class="score-card-head">Master CV</h3>']
     basis = str(row.get("score_basis") or "").strip().lower()
     if on_description:
         when = fmt_day(row["scored_at"]) if row.get("scored_at") else "date not recorded"
@@ -3553,13 +3759,24 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
                      + '</ul>')
     if row.get("one_line_why"):
         score.append(f'<p class="row-why">{esc(sentence(row["one_line_why"]))}</p>')
+    # The tailored copy's score beside it. It is the copy's and not the
+    # role's: the Jobs page shows the master CV's score above.
+    tailored = _tailored_card(copy, standing, is_open and not applied,
+                              bool(description))
     out.append('<section class="section"><div class="section-head">'
-               '<h2>The score</h2></div>' + "".join(score) + '</section>')
+               '<h2>The score</h2></div><div class="score-pair">'
+               '<div class="score-card score-master">' + "".join(score)
+               + '</div>' + tailored + '</div></section>')
 
-    # The pay, as the full description words it.
+    # The pay, as the full description words it. The quote is about the
+    # advert and not the CV, so a tailored score's carries it when the master
+    # CV's score was never made on the description.
     pay = []
-    if working is not None:
-        quote, source = working.get("rate_quote"), working.get("rate_quote_from")
+    rate_working = working if working is not None else (
+        asks_working if asks_from == "tailored" else None)
+    if rate_working is not None:
+        quote = rate_working.get("rate_quote")
+        source = rate_working.get("rate_quote_from")
         if quote and source == "disagrees":
             pay.append('<p class="detail-body">The scorer reported no pay, but '
                        'the description has wording that may be pay:</p>')
@@ -3598,25 +3815,43 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
     out.append('<section class="section"><div class="section-head">'
                '<h2>The rate line</h2></div>' + "".join(pay) + '</section>')
 
-    # The asks.
+    # The asks, from the tailored score when there is one on this
+    # description, else from the master CV's. Where the copy is stored, each
+    # cited line is found in it as it stands, and an ask whose cited line has
+    # been edited away is stale and not met.
     asks_html = []
-    if working is not None:
-        asks = [a for a in working["asks"] if isinstance(a, dict)]
-        counts = working.get("counts") or {}
+    if asks_working is not None:
+        asks = [a for a in asks_working["asks"] if isinstance(a, dict)]
+        if shown_lines is not None:
+            import cv_doc
+            asks = cv_doc.place_asks(asks, shown_lines)
+        counts = asks_working.get("counts") or {}
         summary = (f'{int(counts.get("met") or 0)} met, '
                    f'{int(counts.get("partly") or 0)} partly, '
                    f'{int(counts.get("missing") or 0)} missing')
         if counts.get("unanchored"):
             summary += f', {int(counts["unanchored"])} without a CV line'
+        gone = sum(1 for a in asks if a.get("stale"))
+        if gone:
+            summary += (f', {gone} stale because a line {"it" if gone == 1 else "they"} '
+                        'cited has been edited')
         if counts.get("dropped"):
             summary += (f'. {int(counts["dropped"])} the scorer returned '
                         'could not be read and were left out')
+        numbered = ("the tailored copy as it was scored" if asks_from == "tailored"
+                    else asks_working.get("cv_version") or "the CV")
         asks_html.append(f'<p class="row-sub">{esc(summary)}. Judged on the '
                          f'CV text alone, CV lines as numbered in '
-                         f'{esc(working.get("cv_version") or "the CV")}.</p>')
+                         f'{esc(numbered)}.</p>')
+        changes = {}
+        if asks_from == "tailored":
+            changes = {c.get("ask"): c for c in
+                       (standing["record"].get("changes") or [])
+                       if c.get("to") is not None}
         if asks:
             asks_html.append('<ul class="ask-list">'
-                             + "".join(_prepare_ask(a) for a in asks) + '</ul>')
+                             + "".join(_prepare_ask(a, changes.get(a.get("ask")))
+                                       for a in asks) + '</ul>')
         else:
             asks_html.append('<p class="detail-body">The scorer found no '
                              'asks in this advert.</p>')
@@ -3677,6 +3912,7 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str,
     with nothing to do, only shows what is stored.
     """
     import prepare_application as prep
+    import cv_page
     row = conn.execute("SELECT * FROM opportunities WHERE id = ?",
                        (item_id,)).fetchone()
     if row is None:
@@ -3685,6 +3921,7 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str,
     applied = radar_common.role_is_applied(conn, item_id)
     run = bool(go) and prep.pending(row, applied, config)
     inner = render_prepare_inner(conn, item_id, config, running=run)
+    left = render_cv_pane(conn, row, applied, config)
     title = row.get("title") or "Untitled role"
     company = row.get("company") or "Unknown company"
     now = radar_common.now_iso()
@@ -3695,10 +3932,10 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str,
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MedTech Radar. Prepare application.</title>
 <link rel="icon" href="{FAVICON}">
-<style>{CSS}{PREPARE_CSS}</style>
+<style>{CSS}{PREPARE_CSS}{cv_page.CV_CSS}</style>
 </head>
 <body>
-<main class="page prep-wrap">
+<main class="page prep-wrap prep-split-page">
 <header class="masthead">
 <div>
 <div class="brand">{MARK_SVG}<h1>Prepare application</h1></div>
@@ -3706,12 +3943,108 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str,
 {esc(fmt_long(now))} from {esc(db_label)}.</p>
 </div>
 <div class="controls">
-<nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav>
+<nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a><a href="/cv">CV</a></nav>
 </div>
 </header>
+<div class="prep-split">
+<section class="prep-left" id="cv-pane" aria-label="Tailored CV">{left}</section>
+<div class="prep-right">
 <div id="prepare-body" data-id="{int(item_id)}" data-run="{1 if run else 0}">{inner}</div>
-<noscript><p class="prep-notice bad">This page needs JavaScript to fetch and score. What is stored is shown above.</p></noscript>
+</div>
+</div>
+<noscript><p class="prep-notice bad">This page needs JavaScript to fetch, score and edit. What is stored is shown above.</p></noscript>
 </main>
-<script>{SCRIPT}{PREPARE_SCRIPT}</script>
+<script>{SCRIPT}{PREPARE_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}</script>
 </body>
 </html>"""
+
+
+def _when_words(iso) -> str:
+    return fmt_day(iso) if iso else "date not recorded"
+
+
+def render_cv_pane(conn, row: dict, applied: bool, config: dict) -> str:
+    """The left of the Prepare application page: the role's tailored CV.
+
+    Read only, like the rest of the page. For an open role it is the copy as
+    stored, or, the first time, the master CV the copy is about to be made
+    from, which the script asks the server to make. For an applied role, or one
+    that is not open, it is the copy that was saved for it, as it was sent,
+    with no button that would change anything.
+    """
+    import cv_doc
+    import cv_page
+    import prepare_application as prep
+    import tailored_cv
+    rid = int(row["id"])
+    copy = tailored_cv.for_row(conn, row)
+    can_edit = prep.is_open(row) and not applied
+    text, needs_copy, problem = None, False, None
+    if copy is not None:
+        text = _copy_shown(copy, can_edit)
+    elif can_edit:
+        try:
+            text = tailored_cv.master(config)["text"]
+            needs_copy = True
+        except cv_doc.CvError as err:
+            problem = str(err)
+    saved = None
+    if copy is not None and copy.get("saved_text"):
+        saved = {"name": copy.get("saved_name"), "at": copy.get("saved_at"),
+                 "same": copy.get("saved_hash") == cv_store_hash(text or "")}
+
+    out = ['<div class="section-head"><h2>Tailored CV</h2></div>']
+    if applied:
+        named = row.get("applied_cv")
+        out.append('<p class="cv-banner">This role is marked applied'
+                   + (f' with {esc(named)}' if named else '') + '. '
+                   + ('The CV shown is the copy saved for it, as it was sent. '
+                      if saved else 'No CV was saved for this role. ')
+                   + 'Nothing here can be scored, saved or changed.</p>')
+    elif not can_edit:
+        out.append('<p class="cv-banner">This role is not open, so its CV is '
+                   'shown as it was stored and cannot be changed.</p>')
+    elif needs_copy:
+        out.append('<p class="row-sub" id="cv-status">This is the master CV. The '
+                   'tailored copy for this role is made from it as the page opens, '
+                   'and nothing done to the copy changes the master.</p>')
+    elif copy is not None:
+        out.append(f'<p class="row-sub" id="cv-status">Made from the master CV '
+                   f'{esc(copy.get("master_version") or "")} on '
+                   f'{esc(_when_words(copy.get("created_at")))}. Nothing done to '
+                   'the copy changes the master.</p>')
+    if can_edit and text is not None:
+        out.append('<p class="row-sub" id="cv-saved">'
+                   + (f'Saved as {esc(saved["name"])}, {esc(_when_words(saved["at"]))}.'
+                      if saved else 'Not saved yet. Save CV stores this copy for '
+                      'this role only.') + '</p>')
+        out.append(
+            '<div class="cv-actions">'
+            '<button type="button" class="act-btn" data-cv-act="rescore" disabled>'
+            'Rescore role</button>'
+            '<button type="button" class="act-btn" data-cv-act="save" disabled>'
+            'Save CV</button>'
+            f'<a class="act-btn" id="cv-download" href="/prepare/{rid}/cv.docx"'
+            f'{"" if saved else " hidden"}>Download</a>'
+            '<button type="button" class="act-btn" data-cv-act="reset" disabled>'
+            'Start again from master</button>'
+            '<button type="button" class="act-btn" data-cv-act="apply" disabled>'
+            'Applied, sent it</button></div>'
+            '<p class="cv-hint" id="cv-download-hint"></p>')
+    elif saved:
+        out.append(f'<p class="row-sub">Saved as {esc(saved["name"])}, '
+                   f'{esc(_when_words(saved["at"]))}.</p>'
+                   f'<div class="cv-actions"><a class="act-btn" id="cv-download" '
+                   f'href="/prepare/{rid}/cv.docx">Download</a></div>')
+    out.append('<p class="cv-note" id="cv-say" aria-live="polite"></p>')
+    if text is not None:
+        out.append(cv_page.editor_html(text, {
+            "mode": "tailored", "id": rid, "editable": can_edit,
+            "needsCopy": needs_copy, "saved": saved}))
+    elif problem:
+        out.append(f'<p class="prep-notice bad">The master CV could not be read, '
+                   f'so there is no copy to tailor. {esc(problem)}</p>')
+    else:
+        out.append('<p class="detail-body">No tailored CV was made for this '
+                   'role.</p>')
+    return "".join(out)

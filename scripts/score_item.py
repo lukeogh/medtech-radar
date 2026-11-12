@@ -293,6 +293,7 @@ class ScorerSystem(list):
     basis = radar_common.SCORE_BASIS_CARD
     cv_lines = None
     cv_version = None
+    cv_hash = None
 
 
 def split_rubric(text: str) -> tuple[str, str]:
@@ -303,7 +304,8 @@ def split_rubric(text: str) -> tuple[str, str]:
 
 
 def build_scorer_system(config: dict,
-                        basis: str = radar_common.SCORE_BASIS_CARD) -> list:
+                        basis: str = radar_common.SCORE_BASIS_CARD,
+                        cv: dict | None = None) -> list:
     """One stable system block, cache_control ephemeral, per the conventions.
 
     The default is the block a card is scored with, and it is the same bytes
@@ -313,11 +315,20 @@ def build_scorer_system(config: dict,
     the model can cite a line and the reply can be checked. The version is
     the hash of the whole file either way, because the version of a prompt is
     the file.
+
+    cv is a CV to score in place of the master, {"text", "label",
+    "version"}, which is how a role's tailored copy is scored: the same
+    rubric, the same preferences, the same numbering and the same block, with
+    the copy's text where the master's would be. Nothing in the prompt
+    changes for it, and the master is not read.
     """
     whole = load_prompt("scorer.md")
     spec = basis == radar_common.SCORE_BASIS_SPEC
     rubric = whole if spec else split_rubric(whole)[0]
-    cv_text, cv_src = load_cv_text(config)
+    if cv is None:
+        cv_text, cv_src = load_cv_text(config)
+    else:
+        cv_text, cv_src = cv["text"], cv["label"]
     prefs_text, prefs_src = load_prefs_text(config)
     if spec:
         cv_block = (f"\n\n## CV TEXT. Capability evidence, source {cv_src}. "
@@ -336,7 +347,9 @@ def build_scorer_system(config: dict,
     blocks.basis = basis
     if spec:
         blocks.cv_lines = cv_store.cv_lines(cv_text)
-        blocks.cv_version = get_cv_version(config)
+        blocks.cv_version = (get_cv_version(config) if cv is None
+                             else cv["version"])
+        blocks.cv_hash = cv_store.cv_hash(cv_text)
     return blocks
 
 
@@ -697,6 +710,10 @@ def _finish_score(parsed: dict, usage: dict, opp: dict, system_blocks,
                 "v": 1, "basis": basis, "scored_at": scored["scored_at"],
                 "prompt_version": scored["prompt_version"],
                 "cv_version": getattr(system_blocks, "cv_version", None),
+                # The version of the CV as it was numbered for this score,
+                # so that a copy of it can be told from the CV that was
+                # scored without the text itself being kept twice.
+                "cv_hash": getattr(system_blocks, "cv_hash", None),
                 "cv_line_count": len(cv_lines),
                 "description_hash": description_hash,
                 "asks": asks, "counts": counts,
