@@ -464,7 +464,8 @@ https addresses and to localhost, so through the https proxy name the link start
 the work at once, and by the plain http LAN address it opens the button, one click
 more. The script cleans the address before it posts, so a reload, the back button
 and a second tab open the page and do nothing more, and a page opened any other
-way offers a button instead. The page reads on a read-only connection. An id that
+way offers a button instead. A refusal or a request that failed gives the button
+back. The page reads on a read-only connection. An id that
 is not plain digits, or not a role, is a 404.
 
 What one POST does for an open role. If the row stores no description, it
@@ -480,7 +481,10 @@ and so forgotten by a restart. Fetches are also spaced by the checker's eight
 seconds. Any other page that cannot be used, an expired redirect, a closed advert,
 the authwall, a page for another advert or one with no description, is remembered
 for five minutes for that role, so the click that follows says why and asks nobody;
-a network that was down is not remembered, and the page offers Try again. The 45
+a network that was down is not remembered, and the page offers Try again. A page
+opened again inside any wait, that one, the 429's, or a failed score's, says why
+and offers no button that would be refused, and the button comes back when the wait
+is over. The 45
 day expiry is not touched, and neither is `last_checked_at` or `closed_at`: a click
 is not a sighting, and nothing here ever closes a role.
 
@@ -545,11 +549,13 @@ reader, labelled as found by pattern, and where that finds nothing either the pa
 says the scorer reported pay the advert cannot be made to show. A reply that names
 none is believed only if the pattern reader finds nothing either, and then the page
 says the description names no pay. Where the reader finds a sterling figure with
-its period, or one of the advert's own words for pay that is not a figure
-(competitive, negotiable, market rate, depending on experience), the page shows
-that wording as a disagreement and says it may not be pay, because a bonus reads
-the same. Nothing is hard-coded: the floors are read from the preferences file
-where the gate is made.
+its period that a day, an hour or a year of pay could be (a turnover of £50m is
+not one), or one of the advert's own words for pay that is not a figure beside a
+pay noun (a competitive salary, a negotiable rate, salary depending on experience,
+a market rate), the page shows that wording as a disagreement and says it may not
+be pay, because a bonus reads the same. A competitive market, a non-negotiable
+standard and a negotiable start date are not offered. Nothing is hard-coded: the
+floors are read from the preferences file where the gate is made.
 The gate itself is as it was, a figure on the row is judged in code against its
 floor and a figure only the description states is the model's reading, because the
 page checker's pay reader misreads a bonus for the pay and nothing here writes its
@@ -564,9 +570,13 @@ remembered for the same role, description, prompt and CV and forgotten by a
 restart. The script sends one POST per click and none on a timer. These guards live
 in one dashboard process, which is how it runs. Every model call is a row in
 `runs` under the workflow `prepare`, so the week's cost counts it. One click is one
-model call from this code. The Anthropic client under `claude_call` keeps its
-default of two retries for a request that failed in transit, as it does for every
-caller, and this feature does not change that because the function is shared.
+model call from this code. A reply that is paid for and cannot be read, for any
+reason, a number that is an infinity among them, is the same failure with its cost
+recorded, and that record waits for the write lock as the writes do. Neither that
+notice nor the one for a call that raised offers Try again, because the next click
+is refused until the wait is over. The Anthropic client under `claude_call` keeps
+its default of two retries for a request that failed in transit, as it does for
+every caller, and this feature does not change that because the function is shared.
 
 An applied role, and every row of its chain, is shown and touched by nothing: no
 fetch, no model call, no write. A role that is acknowledged, closed, dismissed or
