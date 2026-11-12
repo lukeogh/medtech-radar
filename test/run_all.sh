@@ -84,6 +84,7 @@ run_one "signals pipeline (test/run_signals_test.py)" "test/run_signals_test.py"
 run_one "hardening        (test/run_hardening_test.py)" "test/run_hardening_test.py"
 run_one "score record     (test/run_record_test.py)" "test/run_record_test.py"
 run_one "applied roles    (test/run_applied_test.py)" "test/run_applied_test.py"
+run_one "prepare          (test/run_prepare_test.py)" "test/run_prepare_test.py"
 
 echo
 echo "=========================================================================="

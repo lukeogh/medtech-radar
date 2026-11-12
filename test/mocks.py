@@ -154,11 +154,91 @@ def _day_rate(text: str) -> tuple[bool, int]:
     return True, max(amounts) if amounts else 0
 
 
+_ASK_BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+(.+?)\s*$")
+_ASK_STOP = frozenset((
+    "with", "that", "this", "from", "have", "will", "your", "their", "other",
+    "such", "into", "also", "able", "work", "working", "experience",
+    "years", "year", "strong", "good", "knowledge", "understanding", "ability"))
+_MONEY_QUOTE = re.compile(
+    r"£\s?\d[\d,]*(?:\.\d+)?k?(?:\s*(?:-|–|to)\s*£?\s?\d[\d,]*(?:\.\d+)?k?)?"
+    r"(?:\s*(?:per|a|/)\s*(?:day|year|annum|hour|yr))?", re.IGNORECASE)
+_PAY_WORDS = re.compile(
+    r"\b(competitive(?: salary| rate| package)?|negotiable|market rate"
+    r"|depending on experience)\b", re.IGNORECASE)
+
+
+def _cv_fixture_lines() -> list[str]:
+    """The lines of the fixture CV, numbered the way the scorer numbers a CV."""
+    import cv_store
+    text = (REPO_ROOT / "test" / "fixtures" / "profile_snapshot.md"
+            ).read_text(encoding="utf-8")
+    return cv_store.cv_lines(text)
+
+
+def _mock_asks(description: str) -> list[dict]:
+    """Each bulleted line of the description as an ask, judged against the
+    fixture CV by the words they share. Two shared words on one line is met,
+    one is partly, none is missing. A few marker words make the odd cases a
+    test needs: RADAR-UNANCHORED cites a line that does not exist,
+    RADAR-BLANKLINE cites a blank one, RADAR-TEXTLINE cites a real one as text.
+    """
+    cv = _cv_fixture_lines()
+    asks = []
+    for raw in (description or "").splitlines():
+        found = _ASK_BULLET.match(raw)
+        if not found or len(asks) >= 25:
+            continue
+        ask = found.group(1)
+        if "RADAR-UNANCHORED" in ask:
+            asks.append({"ask": ask, "status": "met", "cv_lines": [9999]})
+            continue
+        if "RADAR-BLANKLINE" in ask:
+            asks.append({"ask": ask, "status": "partly", "cv_lines": [2]})
+            continue
+        if "RADAR-TEXTLINE" in ask:
+            asks.append({"ask": ask, "status": "met", "cv_lines": ["21"]})
+            continue
+        words = {w for w in re.findall(r"[a-z0-9][a-z0-9.\-]{3,}", ask.lower())
+                 if w not in _ASK_STOP}
+        scored = []
+        for n, line in enumerate(cv, 1):
+            low = line.lower()
+            hits = sum(1 for w in words if w in low)
+            if hits:
+                scored.append((hits, -n, n))
+        scored.sort(reverse=True)
+        if scored and scored[0][0] >= 2:
+            asks.append({"ask": ask, "status": "met",
+                         "cv_lines": [n for _h, _neg, n in scored[:2]]})
+        elif scored:
+            asks.append({"ask": ask, "status": "partly",
+                         "cv_lines": [scored[0][2]]})
+        else:
+            asks.append({"ask": ask, "status": "missing", "cv_lines": []})
+    return asks
+
+
+def _mock_rate_quote(description: str) -> str:
+    """The first stretch of the description that states pay, as written."""
+    text = description or ""
+    if "RADAR-BADQUOTE" in text:
+        return "£999 per day"          # not in the description on purpose
+    if "RADAR-LONGQUOTE" in text:
+        return text[:400]              # not short on purpose
+    money = _MONEY_QUOTE.search(text)
+    if money:
+        return money.group(0).strip()
+    words = _PAY_WORDS.search(text)
+    return words.group(0) if words else ""
+
+
 def mock_scorer(user_content: str) -> str:
     """Deterministic four-gate scoring. No model, no network, no guessing.
 
     Fixtures cover all four tiers on purpose, because a tiering change that
-    only ever sees one shape is untested.
+    only ever sees one shape is untested. An opportunity that carries
+    "basis": "spec" is a full description, and the reply then also holds the
+    asks and the pay quote, the way the prompt demands for one.
     """
     import json as _json
     opp = _payload(user_content)
@@ -168,7 +248,9 @@ def mock_scorer(user_content: str) -> str:
     # exercised rather than assumed. It stays unparseable in v2.
     # It fails on the way in and scores on the way back, which is what
     # makes rescore.py a testable thing rather than an assertion of faith.
-    if "nebulon" in company.lower() and not opp.get("rescore"):
+    # A full description is always a way back, it is never the first score.
+    if ("nebulon" in company.lower() and not opp.get("rescore")
+            and opp.get("basis") != "spec"):
         return "SCORING NOISE {{{ not json"
     location = str(opp.get("location") or "")
     salary = str(opp.get("salary_rate") or "")
@@ -211,7 +293,7 @@ def mock_scorer(user_content: str) -> str:
         rate_pass = amount is not None and amount >= 100000
     engagement_type, engagement_note = engagement.classify(f"{title} {salary}")
 
-    return _json.dumps({
+    reply = {
         "company": company, "role_title": title, "location": location,
         "source_url": opp.get("source_url", ""),
         "gate_sector": bool(medtech or adjacent),
@@ -234,7 +316,23 @@ def mock_scorer(user_content: str) -> str:
         "one_line_why": "Judged against the four gates.",
         "question_text": "", "suggested_action": "Read it and decide.",
         "act_by": "",
-    })
+    }
+    if opp.get("basis") == "spec":
+        description = str(opp.get("description") or "")
+        # The advert settles what the card guessed: a medtech word in the
+        # description makes the sector pass, as the real model would read it.
+        if MEDTECH.search(description):
+            reply["gate_sector"] = True
+            reply["gate_sector_note"] = "medtech, from the description"
+            reply["cv_match"] = max(cv, 84)
+        if "RADAR-NOASKS" not in description:     # else a reply that forgot its asks
+            reply["asks"] = _mock_asks(description)
+        reply["rate_quote"] = _mock_rate_quote(description)
+        if "RADAR-LOW" in description:
+            reply["cv_match"] = 25     # a full description that sinks the role
+        if "RADAR-NOISE" in description:
+            return "SPEC NOISE {{{ not json"
+    return _json.dumps(reply)
 
 
 

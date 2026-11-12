@@ -10,7 +10,9 @@ score opportunities, so the logic lives in exactly one place. Responsibilities:
 - Build the scorer system prompt as one stable cached block so batch scoring
   hits the prompt cache.
 - Call Claude through radar_common.claude_call, demand strict JSON, retry once
-  on a parse failure, then give up with a note.
+  on a parse failure, then give up with a note. A full description (Prepare
+  application) is scored with one call and no retry, at its own ceiling, with
+  the CV numbered so that the asks in the reply can cite and be checked.
 
 Also runnable on its own for a spot check of one opportunity:
   python scripts/score_item.py --mock < opportunity.json
@@ -39,6 +41,34 @@ PROFILE_DIR = REPO_ROOT / "config" / "profile"
 
 MAX_BODY_CHARS = 12000  # cost guardrail on extraction input
 MAX_TOKENS = 1024       # per the build conventions, extraction and scoring
+
+# The full description call writes more than a card does, because it returns
+# the per-ask working beside the gates. A card reply runs 160 to 360 tokens,
+# the extractor's and the card scorer's ceiling stays where it was, and this is
+# the ceiling for the one call that needs more. A reply that runs out of it is
+# thrown away after being paid for, so the margin is cheap, and the ceiling
+# costs nothing until a reply reaches for it, because what is billed is what
+# the model writes. The worst reply the prompt allows is 25 asks of 20 words each, up to
+# four CV lines apiece, beside the gates and the pay quote. That is about 55
+# tokens an ask and 500 for the rest, near 1,900 tokens, and about 2,800 when
+# counted at three characters a token, which is hard on JSON and on wording as
+# long as an advert's. There is no tokenizer here to count it exactly, so the
+# ceiling is set well over the pessimistic count. A typical advert has about
+# twelve asks, which is about 540 tokens beyond a card's reply.
+# test/run_prepare_test.py builds the worst reply and holds the ceiling to it,
+# so raising the caps without raising this fails a check.
+SPEC_MAX_TOKENS = 4096
+SPEC_ATTEMPTS = 1       # one model call per click, no retry on a bad reply
+MAX_ASKS = 25           # the most asks kept from one advert
+ASK_TEXT_MAX = 240      # characters kept of one ask
+CV_LINES_PER_ASK = 4    # the most CV lines kept as evidence for one ask
+CV_LINE_TEXT_MAX = 240  # characters kept of a cited CV line
+ASK_STATUSES = ("met", "partly", "missing")
+
+# The line in prompts/scorer.md under which the full description's part of the
+# rubric begins. A card is scored with the file above it, exactly as it always
+# was, and a full description with the whole file.
+SPEC_MARKER = "<!-- full description."
 
 
 def load_prompt(name: str) -> str:
@@ -254,24 +284,59 @@ class ScorerSystem(list):
     A plain list to everything that sends it. The version is the hash of
     scorer.md as it was when the blocks were built, so a file edited while a
     run is in flight cannot put the wrong version on the scores that run
-    makes.
+    makes. Blocks built for a full description also carry the lines of the CV
+    they numbered and the label of the CV version those lines belong to, so
+    that the citations in a reply can be checked against the very text the
+    model was shown.
     """
     prompt_version = None
+    basis = radar_common.SCORE_BASIS_CARD
+    cv_lines = None
+    cv_version = None
 
 
-def build_scorer_system(config: dict) -> list:
-    """One stable system block, cache_control ephemeral, per the conventions."""
-    rubric = load_prompt("scorer.md")
+def split_rubric(text: str) -> tuple[str, str]:
+    """The part of scorer.md a card is scored with, and the part a full
+    description adds. The second is empty when the file has no marker."""
+    card, marker, spec = text.partition(SPEC_MARKER)
+    return card, (marker + spec if marker else "")
+
+
+def build_scorer_system(config: dict,
+                        basis: str = radar_common.SCORE_BASIS_CARD) -> list:
+    """One stable system block, cache_control ephemeral, per the conventions.
+
+    The default is the block a card is scored with, and it is the same bytes
+    as before the full description existed: the rubric above the marker, the
+    CV as it is, the preferences. For a full description (basis spec) the
+    block is the whole of scorer.md and the CV is numbered line by line, so
+    the model can cite a line and the reply can be checked. The version is
+    the hash of the whole file either way, because the version of a prompt is
+    the file.
+    """
+    whole = load_prompt("scorer.md")
+    spec = basis == radar_common.SCORE_BASIS_SPEC
+    rubric = whole if spec else split_rubric(whole)[0]
     cv_text, cv_src = load_cv_text(config)
     prefs_text, prefs_src = load_prefs_text(config)
+    if spec:
+        cv_block = (f"\n\n## CV TEXT. Capability evidence, source {cv_src}. "
+                    "Every line is numbered in square brackets.\n\n"
+                    + cv_store.numbered_cv(cv_text))
+    else:
+        cv_block = (f"\n\n## CV TEXT. Capability evidence, source {cv_src}."
+                    "\n\n" + cv_text)
     stable = (
-        rubric
-        + f"\n\n## CV TEXT. Capability evidence, source {cv_src}.\n\n" + cv_text
+        rubric + cv_block
         + f"\n\n## PREFERENCES. Desire evidence, source {prefs_src}.\n\n" + prefs_text
     )
     blocks = ScorerSystem(
         [{"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}}])
-    blocks.prompt_version = radar_common.prompt_hash(rubric)
+    blocks.prompt_version = radar_common.prompt_hash(whole)
+    blocks.basis = basis
+    if spec:
+        blocks.cv_lines = cv_store.cv_lines(cv_text)
+        blocks.cv_version = get_cv_version(config)
     return blocks
 
 
@@ -285,7 +350,8 @@ def _advert_label(opp: dict) -> str:
 
 
 def _call_for_json(model: str, system, user_content: str, mock_fn,
-                   refuse_cut_off: bool = False, label: str = "an advert"):
+                   refuse_cut_off: bool = False, label: str = "an advert",
+                   max_tokens: int | None = None, attempts: int = 2):
     """Call, parse, retry once with a firmer instruction, then give up.
 
     With refuse_cut_off, a reply the model did not finish, stop_reason
@@ -295,16 +361,22 @@ def _call_for_json(model: str, system, user_content: str, mock_fn,
     Only a score asks for that. The extractor and the pay backfill parse a
     reply as they always have.
 
+    max_tokens defaults to MAX_TOKENS. attempts is how many calls a bad reply
+    may use before the call gives up, two unless the caller will pay for one
+    and no more, as a full description's score does.
+
     Returns (parsed_dict_or_None, usage, note_or_None). The usage is the
     summed token counts plus the model and stop_reason of the last call,
     and the note says why the last attempt failed.
     """
+    ceiling = max_tokens or MAX_TOKENS
     total: dict = {}
     cut_off = False
     for content in (user_content,
-                    user_content + "\n\nReturn only the JSON object, nothing else."):
+                    user_content + "\n\nReturn only the JSON object, nothing else."
+                    )[:max(1, attempts)]:
         text, usage = radar_common.claude_call(model, system, content,
-                                               max_tokens=MAX_TOKENS,
+                                               max_tokens=ceiling,
                                                mock_fn=mock_fn)
         radar_common.add_usage(total, usage)
         total["model"] = usage.get("model")
@@ -312,7 +384,7 @@ def _call_for_json(model: str, system, user_content: str, mock_fn,
         cut_off = refuse_cut_off and radar_common.reply_was_cut_off(usage)
         if cut_off:
             print(f"WARNING. The reply from {model} for {label} was cut off at "
-                  f"max_tokens ({MAX_TOKENS}), so it was not used.", file=sys.stderr)
+                  f"max_tokens ({ceiling}), so it was not used.", file=sys.stderr)
             continue
         try:
             return radar_common.extract_json(text), total, None
@@ -353,6 +425,81 @@ def _pct(value):
     return max(0, min(100, number))
 
 
+def _line_numbers(value) -> list[int]:
+    """The CV line numbers a reply cites, as whole numbers and nothing else.
+
+    A list of numbers is what the prompt asks for. A lone number, a number
+    written as text, or a float that is a whole number is read as the number
+    it plainly means. A bool is not a number here, and neither is anything
+    that is not whole. Order is kept, because the prompt asks for the most
+    direct line first.
+    """
+    if isinstance(value, (int, float, str)) and not isinstance(value, bool):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value[:24]:
+        if isinstance(item, bool):
+            continue
+        if isinstance(item, str) and item.strip().isdigit():
+            item = int(item.strip())
+        elif isinstance(item, float) and item.is_integer():
+            item = int(item)
+        if isinstance(item, int):
+            out.append(item)
+    return out
+
+
+def normalise_asks(raw, cv_lines: list[str]) -> tuple[list[dict], int]:
+    """The asks of a full description as they are kept, and how many were not.
+
+    Each entry the model gave is checked, in code. The ask is its words, run
+    through the voice rules like every free-text field. The status is met,
+    partly or missing and nothing else, an entry with any other word is
+    dropped and counted. For met and partly, each CV line cited must exist in
+    the CV the model was shown and have text on it, and the ones that do are
+    kept with their text as it stood, so a page can show the evidence and a
+    later page can find it again. A met or partly with no valid line is kept
+    and recorded as unanchored (anchored False), which is the warning the
+    working exists to give: the model said the CV evidences it and the CV
+    cannot be pointed at. A missing ask cites nothing, whatever the reply
+    said, and has no anchor to lack (anchored None). At most MAX_ASKS are kept.
+    Returns (asks, dropped).
+    """
+    if not isinstance(raw, list):
+        return [], 0
+    asks: list[dict] = []
+    dropped = 0
+    sanitise = radar_common.sanitise_free_text
+    for item in raw:
+        text = ""
+        status = ""
+        if isinstance(item, dict):
+            text = sanitise(str(item.get("ask") or "").strip())
+            status = str(item.get("status") or "").strip().lower()
+        if not text or status not in ASK_STATUSES or len(asks) >= MAX_ASKS:
+            dropped += 1
+            continue
+        lines: list[dict] = []
+        if status != "missing":
+            seen = set()
+            for n in _line_numbers(item.get("cv_lines")):
+                if n in seen or not 1 <= n <= len(cv_lines):
+                    continue
+                seen.add(n)
+                line = cv_lines[n - 1].strip()
+                if not line:
+                    continue
+                lines.append({"n": n, "text": line[:CV_LINE_TEXT_MAX]})
+                if len(lines) >= CV_LINES_PER_ASK:
+                    break
+        asks.append({"ask": text[:ASK_TEXT_MAX], "status": status,
+                     "lines": lines,
+                     "anchored": None if status == "missing" else bool(lines)})
+    return asks, dropped
+
+
 def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None,
                       floors: dict | None = None,
                       thresholds: dict | None = None,
@@ -374,14 +521,27 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
     The version comes from the system blocks when they carry one, so it is
     the rubric the model actually saw. None is returned for a score that
     failed, including a reply that was cut off at max_tokens.
+
+    A full description (basis spec) is one model call at SPEC_MAX_TOKENS and
+    no retry, so the caller pays for one reply and no more. The reply carries
+    the asks as well, and the dict then also carries them checked against the
+    CV lines in the system blocks (asks), the per-ask working ready to store
+    (working), the version of the description it was made against
+    (description_hash) and the pay quote the model gave, untouched
+    (rate_quote_raw), for the caller to hold to the description. A spec reply
+    without a list of asks is not a score.
     """
+    spec = basis == radar_common.SCORE_BASIS_SPEC
     user = "Score this opportunity.\n\n" + json.dumps(opp, ensure_ascii=False)
-    parsed, usage, note = _call_for_json(config["claude_model_score"],
-                                         system_blocks, user, mock_fn,
-                                         refuse_cut_off=True,
-                                         label=_advert_label(opp))
+    parsed, usage, note = _call_for_json(
+        config["claude_model_score"], system_blocks, user, mock_fn,
+        refuse_cut_off=True, label=_advert_label(opp),
+        max_tokens=SPEC_MAX_TOKENS if spec else None,
+        attempts=SPEC_ATTEMPTS if spec else 2)
     if parsed is None:
         return None, usage, note
+    if spec and not isinstance(parsed.get("asks"), list):
+        return None, usage, "the reply had no list of asks, so it was not used"
 
     # Phase three. The gates are the score. cv_match_pct is still read for a
     # v1 response so an old fixture does not explode, but nothing new writes
@@ -478,6 +638,35 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
         "engagement_type": engagement.normalise(parsed.get("engagement_type")),
         "engagement_note": sanitise(str(parsed.get("engagement_note") or "").strip()) or None,
     })
+    if spec:
+        cv_lines = list(getattr(system_blocks, "cv_lines", None) or [])
+        asks, dropped = normalise_asks(parsed.get("asks"), cv_lines)
+        counts = {status: sum(1 for a in asks if a["status"] == status)
+                  for status in ASK_STATUSES}
+        counts["unanchored"] = sum(1 for a in asks if a["anchored"] is False)
+        counts["dropped"] = dropped
+        description_hash = radar_common.description_version(
+            opp.get("description"))
+        scored.update({
+            "asks": asks,
+            "description_hash": description_hash,
+            # Exactly what the model wrote, never run through the voice rules,
+            # because the caller holds it to the description word for word.
+            "rate_quote_raw": str(parsed.get("rate_quote") or "").strip(),
+            # What belongs beside the score it was made with. scored_at is
+            # in it so that a reader can tell the working still belongs to
+            # the score the row holds, and the pay quote is filled in by the
+            # caller once it has held the model's quote to the description.
+            "working": {
+                "v": 1, "basis": basis, "scored_at": scored["scored_at"],
+                "prompt_version": scored["prompt_version"],
+                "cv_version": getattr(system_blocks, "cv_version", None),
+                "cv_line_count": len(cv_lines),
+                "description_hash": description_hash,
+                "asks": asks, "counts": counts,
+                "rate_quote": None, "rate_quote_from": None,
+            },
+        })
     if cv is None:
         return scored, usage, "scorer returned no usable cv match"
     return scored, usage, None

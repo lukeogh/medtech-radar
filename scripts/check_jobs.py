@@ -375,6 +375,9 @@ def apply_page(conn, row: dict, page: dict, floors: dict,
     sets: dict = {}
     if page.get("description"):
         sets["description_text"] = page["description"]
+        # When the text was stored, beside it, so that a date shown for a
+        # description is never older than the words (Prepare application).
+        sets["description_fetched_at"] = rc.now_iso()
     value, note = map_engagement(page.get("description"), page.get("employment_type"))
     out["engagement_type"], out["engagement_note"] = value, note
     siblings: list[int] = []

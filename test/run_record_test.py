@@ -258,11 +258,17 @@ def prompt_version_checks() -> None:
           "the same file hashes the same whatever its line endings")
     with captured_stderr():
         blocks = score_item.build_scorer_system(CFG)
+    # A card is scored with the file above the full description marker, the
+    # bytes it always was. The full description's part is sent to a full
+    # description only, and the version is the hash of the whole file either way.
+    card_part = text.partition(score_item.SPEC_MARKER)[0]
     check(isinstance(blocks, list) and blocks.prompt_version == pv
           and json.loads(json.dumps(blocks)) == list(blocks)
-          and blocks[0]["text"].startswith(text),
+          and blocks[0]["text"].startswith(card_part)
+          and score_item.SPEC_MARKER not in blocks[0]["text"],
           "the system blocks are still a plain list for the API and carry the "
-          "version of the rubric they were built from")
+          "version of the rubric they were built from, and a card is scored "
+          "with the file above the full description marker")
     head = text.split("-->")[0]
     check(text.lstrip().startswith("<!--") and "v2.0, 3 August 2026" in head
           and "-->" in text[:600],
@@ -463,8 +469,13 @@ def score_record_checks() -> None:
           "a score carries its basis, prompt version, model and date")
     check(usage.get("model") == "mock" and usage.get("stop_reason") == "end_turn",
           "the usage the scorer returns names the model and how it stopped")
+    # A full description is a mode of its own since Prepare application: the
+    # advert says so, the reply carries its asks, and a card is not one.
+    spec_opp = {**opp, "basis": "spec", "description": "- IEC 62304 experience"}
+    spec_blocks = score_item.build_scorer_system(CFG, basis="spec")
     spec, _, _ = score_item.score_opportunity(
-        opp, blocks, CFG, mock_fn=mocks.mock_scorer, floors=FLOORS, basis="spec")
+        spec_opp, spec_blocks, CFG, mock_fn=mocks.mock_scorer, floors=FLOORS,
+        basis="spec")
     check(spec["score_basis"] == "spec", "a scorer given the full spec records spec")
     plain, _, _ = score_item.score_opportunity(
         opp, list(blocks), CFG, mock_fn=mocks.mock_scorer, floors=FLOORS)
@@ -710,6 +721,7 @@ SCORE_WRITERS = {
     ("scripts/rescore.py", "_rescore_rows"),
     ("scripts/regate_rates.py", "regate"),
     ("scripts/check_jobs.py", "apply_page"),
+    ("scripts/prepare_application.py", "_score"),    # a score against the full description
 }
 OTHER_WRITERS = {
     ("scripts/backfill_pay.py", "main"),             # pay columns, filled once
@@ -718,6 +730,7 @@ OTHER_WRITERS = {
     ("scripts/check_jobs.py", "run_checks"),         # last_checked_at, closed_at
     ("scripts/engagement.py", "backfill"),           # the badge, empty cells only
     ("scripts/enrich_company.py", "enrich_company"), # region
+    ("scripts/prepare_application.py", "_fetch_and_store"),  # description_text only
     ("scripts/process_email.py", "main"),            # sightings and revival
     ("scripts/radar_common.py", "_migrate"),         # backfills and the labels
     ("scripts/radar_common.py", "recompute_regions"),
@@ -1191,32 +1204,41 @@ def history_semantics_checks() -> None:
               "the archive leaves the caller's transaction open, so rolling the caller "
               "back takes the history row with it")
 
-        # Each of the ten things the history keeps counts as a different score.
+        # Each of the twelve things the history keeps counts as a different
+        # score. The last two arrived with Prepare application. The history
+        # calls the per-ask working "working", the row calls it score_working.
         variations = {
             "scored_at": "2026-11-06T10:00:00Z", "score_basis": "spec",
             "prompt_version": "ffff0000", "score_model": "another-model",
             "cv_version": "cv-other.txt", "cv_match": 94, "tier": "question",
             "filter_reason": "something else", "one_line_why": "A different sentence.",
-            "gate_location": 0,
+            "gate_location": 0, "description_hash": "0123456789ab",
+            "working": '{"v": 1, "asks": []}',
         }
+        on_row = {"working": "score_working"}
         check(set(variations) - {"gate_location"} | {"gates"} == set(radar_common._HISTORY_FIELDS),
               "the variations below cover every field the history keeps")
         missed = []
         for column, value in variations.items():
-            oid = seed(conn, **scored_row(role_key=f"v-{column}"))
+            # A card score holds no description version and no working, so
+            # these two only count as part of a score made on a full description.
+            spec_only = ({"score_basis": "spec"}
+                         if column in ("description_hash", "working") else {})
+            oid = seed(conn, **scored_row(role_key=f"v-{column}", **spec_only))
             radar_common.archive_score(conn, oid, "test")
             radar_common.archive_score(conn, oid, "test")
             conn.commit()
             if len(history(conn, oid)) != 1:
                 missed.append(f"{column} kept twice")
-            conn.execute(f"UPDATE opportunities SET {column} = ? WHERE id = ?", (value, oid))
+            conn.execute(f"UPDATE opportunities SET {on_row.get(column, column)} = ? "
+                         "WHERE id = ?", (value, oid))
             conn.commit()
             radar_common.archive_score(conn, oid, "test")
             conn.commit()
             if len(history(conn, oid)) != 2:
                 missed.append(f"{column} change not kept")
         check(not missed,
-              f"a score is kept again when any one of its ten fields differs ({missed})")
+              f"a score is kept again when any one of its twelve fields differs ({missed})")
 
         # A filtered row keeps its reason.
         weak = seed(conn, **scored_row(role_key="weak", cv_match=30, gate_cv=0, tier="filtered",
