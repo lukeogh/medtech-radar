@@ -406,6 +406,14 @@ def apply_page(conn, row: dict, page: dict, floors: dict,
                                "gate": verdict["gate"], "basis": verdict["basis"],
                                "figure": verdict["figure"]}
     if write and sets:
+        # The write lock first, then look again. The page was read for a
+        # while, and a role can be applied for in that time. An applied role
+        # keeps what it has, and nothing is written for it or for its chain.
+        rc.begin_write(conn)
+        if rc.role_is_applied(conn, row["id"]):
+            conn.rollback()
+            out["left_alone"] = True
+            return out
         if any(col in sets for col in regate_rates._GATE_COLS):
             rc.archive_score(conn, row["id"], "check_jobs")
         conn.execute(
@@ -441,6 +449,7 @@ def due_candidates(conn, now: str | None = None) -> list[dict]:
         "SELECT * FROM opportunities"
         " WHERE acknowledged_at IS NULL AND closed_at IS NULL"
         " AND dismissed_at IS NULL AND expired_at IS NULL"
+        " AND " + rc.NOT_APPLIED_SQL +
         " AND tier IN ('top', 'question')"
         " ORDER BY CASE tier WHEN 'top' THEN 0 ELSE 1 END,"
         " COALESCE(last_seen, first_seen)").fetchall()
@@ -493,6 +502,12 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
         if raw is None:
             result["notes"].append(f"no stored row with id {only_id}")
             return result
+        if rc.role_is_applied(conn, only_id):
+            # A spot check bypasses the due gate, not the rule that an
+            # applied role is left alone. Nothing is fetched or stamped.
+            result["notes"].append(
+                f"id {only_id}: on a role marked applied, left alone")
+            return result
         rows = [dict(raw)]
     else:
         rows = due_candidates(conn, now)
@@ -515,6 +530,12 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
             result["notes"].append(
                 f"id {row['id']}: network failure, run stopped, row left due")
             break
+        if write and rc.role_is_applied(conn, row["id"]):
+            # Marked applied after it fell due, while the page was being
+            # fetched. Nothing is read off the page, stamped or closed.
+            result["notes"].append(
+                f"id {row['id']}: marked applied since it fell due, left alone")
+            continue
         verdict, reason = classify(status, final_url, body,
                                    row.get("title"), jid)
         result["checked"] += 1
@@ -562,6 +583,13 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
                 thresholds = rc.read_score_thresholds(config)
             outcome = apply_page(conn, row, read_page(body), floors, config,
                                  write=write, thresholds=thresholds)
+            if outcome.get("left_alone"):
+                # Applied for while the page was being read, so nothing was
+                # written, and nothing more is stamped or closed for the row.
+                result["notes"].append(
+                    f"id {row['id']}: marked applied since it fell due, "
+                    "left alone")
+                continue
             result["pages_read"] += 1
             result["page_reads"].append(outcome)
             if outcome["engagement_type"] != "unknown":
@@ -574,15 +602,20 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
                 key = f"{move['from']} to {move['to']}"
                 result["tier_moves"][key] = result["tier_moves"].get(key, 0) + 1
         if write:
+            # Both statements carry the condition that leaves an applied role
+            # alone, for a click that lands after the look at the top of the
+            # loop, and the stamp is not made for a role that was applied for.
             conn.execute(
                 "UPDATE opportunities SET last_checked_at = ?,"
-                " last_check_result = ? WHERE id = ?",
+                " last_check_result = ? WHERE id = ? AND "
+                + rc.NOT_APPLIED_SQL,
                 (rc.now_iso(), verdict, row["id"]))
             if verdict in ("gone", "closed"):
                 cur = conn.execute(
                     "UPDATE opportunities SET closed_at = ?,"
                     " closed_source = 'page_check'"
-                    " WHERE id = ? AND closed_at IS NULL",
+                    " WHERE id = ? AND closed_at IS NULL AND "
+                    + rc.NOT_APPLIED_SQL,
                     (rc.now_iso(), row["id"]))
                 if cur.rowcount:
                     result["closed"] += 1
@@ -605,6 +638,10 @@ def expire_stale(conn, write: bool = False, now: str | None = None) -> dict:
     including filtered. A row without a key stands alone on its own
     clock. Expiry is retirement, not closure, nothing here claims the
     page said anything.
+
+    A role marked applied never expires, however long it has been quiet.
+    It is waiting on a reply, not on a repost, so the pass leaves its
+    whole chain alone.
     """
     now = now or rc.now_iso()
     moment = datetime.strptime(now, "%Y-%m-%dT%H:%M:%SZ")
@@ -623,7 +660,8 @@ def expire_stale(conn, write: bool = False, now: str | None = None) -> dict:
             "SELECT id, title, company, role_key, last_seen, first_seen,"
             " last_checked_at, last_check_result FROM opportunities"
             " WHERE acknowledged_at IS NULL AND closed_at IS NULL"
-            " AND dismissed_at IS NULL AND expired_at IS NULL"):
+            " AND dismissed_at IS NULL AND expired_at IS NULL"
+            " AND " + rc.NOT_APPLIED_SQL):
         seen = rc.latest_liveness(row)
         if row["role_key"]:
             seen = max(seen, newest.get(row["role_key"], ""))
@@ -632,10 +670,19 @@ def expire_stale(conn, write: bool = False, now: str | None = None) -> dict:
                             "company": row["company"], "newest": seen})
     if write and expired:
         stamp = rc.now_iso()
-        conn.executemany(
-            "UPDATE opportunities SET expired_at = ?"
-            " WHERE id = ? AND expired_at IS NULL",
-            [(stamp, item["id"]) for item in expired])
+        ids = [item["id"] for item in expired]
+        # Five hundred ids to a statement, each with the condition that leaves
+        # an applied role alone, in case one was applied for after the rows
+        # were chosen. The condition holds a subquery that SQLite works out
+        # once per statement, so one statement per row would work it out once
+        # per row while the write lock is held.
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            conn.execute(
+                "UPDATE opportunities SET expired_at = ?"
+                " WHERE expired_at IS NULL AND id IN ("
+                + ",".join("?" * len(chunk)) + ") AND " + rc.NOT_APPLIED_SQL,
+                (stamp, *chunk))
         conn.commit()
     return {"expired": len(expired), "sample": expired[:10]}
 

@@ -328,6 +328,20 @@ def collect(conn, config) -> dict:
     all_opportunities = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities"
         " ORDER BY (combined IS NULL), combined DESC, first_seen DESC")]
+    # A human said "I applied". One row carries the stamp and the whole
+    # repost chain is applied with it, a repost that arrives later too. The
+    # applied roles get a list of their own, one entry per role, the first
+    # stamp on the chain, newest application first. The keys are worked out
+    # from the rows in hand, so a database that has not been migrated yet
+    # reads as nothing applied.
+    applied_keys = {o["role_key"] for o in all_opportunities
+                    if o.get("applied_at") and o.get("role_key")}
+    first_stamps: dict = {}
+    for o in sorted((o for o in all_opportunities if o.get("applied_at")),
+                    key=lambda r: (r["applied_at"], r["id"])):
+        first_stamps.setdefault(o.get("role_key") or f"row-{o['id']}", o)
+    applied = sorted(first_stamps.values(),
+                     key=lambda r: (r["applied_at"], r["id"]), reverse=True)
     # A lifecycle stamp retires a row from every working view. It stays
     # in the database so dedupe keeps rejecting its URL, and stays
     # readable in the archive's own section, with an undo.
@@ -337,12 +351,17 @@ def collect(conn, config) -> dict:
     all_opportunities = [o for o in all_opportunities
                          if not (o.get("closed_at") or o.get("dismissed_at")
                                  or o.get("expired_at"))]
+    # An applied role leaves every open view the way a retired one does, so
+    # the tiers, the Home counts, the prospect trends and the ageing never
+    # see it. It stays in all_opportunities, because an arrival is an arrival
+    # and the flow chart and the board lights count arrivals.
+    open_rows = [o for o in all_opportunities
+                 if not radar_common.row_is_applied(o, applied_keys)]
     # A human said "seen it". Acknowledged rows leave the default view but
     # stay on the page behind the toggle, with an undo, and stay in the
     # database so dedupe keeps rejecting their URLs forever.
-    opportunities = [o for o in all_opportunities
-                     if not o.get("acknowledged_at")]
-    acknowledged = [o for o in all_opportunities if o.get("acknowledged_at")]
+    opportunities = [o for o in open_rows if not o.get("acknowledged_at")]
+    acknowledged = [o for o in open_rows if o.get("acknowledged_at")]
     all_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM signals"
         " ORDER BY (relevance IS NULL), relevance DESC, first_seen DESC")]
@@ -406,7 +425,7 @@ def collect(conn, config) -> dict:
     tokens, cost = week_usage(conn, week_ago)
 
     # Arrivals per day across a fortnight, the Jobs page's flow chart.
-    # Acknowledged rows still count, an arrival is an arrival.
+    # Acknowledged and applied rows still count, an arrival is an arrival.
     per_day = {}
     for o in all_opportunities:
         day = (o.get("first_seen") or "")[:10]
@@ -429,9 +448,11 @@ def collect(conn, config) -> dict:
         return monday.strftime("%Y-%m-%d")
 
     # A prospect is a top or one-question role, what the digest sends.
-    # combined is history and would read zero forever here.
+    # combined is history and would read zero forever here. An applied role
+    # and its reposts are not counted, as they are not in the digest, so the
+    # trend does not climb every time a board re-advertises one.
     prospects_by_week: dict[str, int] = {}
-    for o in all_opportunities:
+    for o in open_rows:
         if o.get("tier") in ("top", "question"):
             wk = week_bucket(o.get("first_seen"))
             if wk:
@@ -474,7 +495,7 @@ def collect(conn, config) -> dict:
     month_now = now.strftime("%Y-%m")
     month_prev = (now.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
     month_prospects = {"this": 0, "last": 0}
-    for o in all_opportunities:
+    for o in open_rows:
         if o.get("tier") in ("top", "question"):
             month = (o.get("first_seen") or "")[:7]
             if month == month_now:
@@ -503,6 +524,10 @@ def collect(conn, config) -> dict:
     return {
         "threshold": threshold, "fast": fast, "floor": floor, "fresh": fresh,
         "opportunities": opportunities, "acknowledged": acknowledged,
+        "applied": applied,
+        # Every stored row that is not retired, applied and acknowledged ones
+        # included. What counts arrivals reads this and not the open lists.
+        "arrivals": all_opportunities,
         "retired_roles": retired_roles,
         "signals": signals, "dismissed_signals": dismissed_signals,
         "traction": traction_metrics(conn, config),
@@ -688,11 +713,14 @@ def engagement_chip(o: dict) -> str:
 
 
 def render_opportunity(o: dict, data: dict, i: int, acked: bool = False,
-                       show_basis: bool = False) -> str:
+                       show_basis: bool = False,
+                       can_apply: bool = False) -> str:
     """One role, one row. Keyed on the tier and the derived state.
 
     With show_basis the detail ends its facts with one line on how the
-    score was made and when. Only the Jobs page asks for it.
+    score was made and when. Only the Jobs page asks for it. With can_apply
+    the served row carries the Applied button beside the other verdicts,
+    and only the Jobs page asks for that too.
 
     A collapsed repost chain hands its face row a _chain dict, locations
     rolled up, the counts for the detail and the freshest advert's tier
@@ -796,6 +824,11 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False,
         else:
             parts.append(f'<button type="button" class="act-btn" '
                          f'data-ack="{o["id"]}">Acknowledge, seen it</button>')
+            if can_apply:
+                # Applied takes the whole role out of the open tiers into
+                # the Applied list, which holds the undo.
+                parts.append(f'<button type="button" class="act-btn" '
+                             f'data-apply="{o["id"]}">Applied, sent it</button>')
             # The two lifecycle verdicts. Either takes the row out of
             # every view; the archive section holds the undo.
             parts.append(f'<button type="button" class="act-btn" '
@@ -1240,6 +1273,10 @@ a:hover{text-decoration-color:var(--accent)}
 .act-btn:disabled{color:var(--ink-3);cursor:wait}
 .retired-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 2px;border-top:1px solid var(--hairline);color:var(--ink-2)}
 .retired-row:first-child{border-top:0}
+.applied-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-8) var(--space-12);padding:var(--space-10) 2px;border-top:1px solid var(--hairline);color:var(--ink-2)}
+.applied-row:first-child{border-top:0}
+.applied-main{display:flex;flex-direction:column;gap:var(--space-4);flex:1 1 20rem;min-width:0}
+.applied-acts{display:flex;align-items:center;gap:var(--space-12);white-space:nowrap}
 .row-summary > .chip{grid-column:6;justify-self:center}
 .badge-rate{grid-column:5;font:var(--weight-medium) var(--text-xs)/1.25 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;text-align:center;color:var(--ink-1)}
 .row[hidden]{display:none}
@@ -1461,11 +1498,15 @@ SERVE_SCRIPT = """
       });
   });
   document.addEventListener('click', function (e) {
-    var btn = e.target.closest('[data-close],[data-unclose],[data-dismiss],[data-undismiss]');
+    var btn = e.target.closest('[data-close],[data-unclose],[data-dismiss],[data-undismiss],[data-apply],[data-unapply]');
     if (!btn) return;
-    var kind = ['close', 'unclose', 'dismiss', 'undismiss'].filter(function (k) {
+    var kind = ['close', 'unclose', 'dismiss', 'undismiss', 'apply', 'unapply'].filter(function (k) {
       return btn.dataset[k];
     })[0];
+    // Undo on an application forgets the day it was applied, and pressing
+    // Applied again would record a new one, so it asks first.
+    if (kind === 'unapply' && !window.confirm('Undo this application? The '
+        + 'day you applied is forgotten, and applying again records a new day.')) return;
     var was = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Saving';
@@ -1695,7 +1736,7 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
 <header class="masthead">
 <div>
 <div class="brand">{MARK_SVG}<h1>MedTech Radar</h1></div>
-<p class="masthead-sub">Everything on file. Read only, generated {esc(fmt_long(now))} from {esc(db_label)}.{" The page re-renders on every load and reloads itself every fifteen minutes." if serve else ""}</p>
+<p class="masthead-sub">Everything on file, apart from the roles you have applied for, which are listed on Jobs. Read only, generated {esc(fmt_long(now))} from {esc(db_label)}.{" The page re-renders on every load and reloads itself every fifteen minutes." if serve else ""}</p>
 </div>
 <div class="controls">
 {'''<nav class="tabs" aria-label="Pages"><a href="/" aria-current="page">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav>''' if serve else ""}
@@ -2219,8 +2260,12 @@ def telemetry_html(data: dict, config: dict) -> str:
     opening Jobs came for roles rather than for whether cron ran. Home
     is where the heartbeat already lives, so it belongs beside it.
     """
-    active = data["opportunities"]
-    everything = active + (data.get("acknowledged") or [])
+    # Every row that arrived and is not retired, applied roles and reposts of
+    # them included. A board's light says whether its email arrives, and mail
+    # about a role already applied for is still mail.
+    everything = data.get("arrivals")
+    if everything is None:
+        everything = data["opportunities"] + (data.get("acknowledged") or [])
 
     last_by_source: dict[str, str] = {}
     for o in everything:
@@ -2331,9 +2376,9 @@ def telemetry_html(data: dict, config: dict) -> str:
     fortnight_total = sum(counts)
     metrics.append(
         '<div class="widget"><h4>The flow, last fourteen days'
-        + info_tip("Arrivals per day, acknowledged ones included, an "
-                   "arrival is an arrival. Hover a bar for its exact "
-                   "count and date.")
+        + info_tip("Arrivals per day, acknowledged and applied ones "
+                   "included, an arrival is an arrival. Hover a bar for "
+                   "its exact count and date.")
         + "</h4>"
         f'<div class="bars">{"".join(bars)}</div>'
         '<p class="bars-label"><span>two weeks ago</span><span>today</span></p>'
@@ -2457,7 +2502,7 @@ def render_home_page(data: dict, config: dict, db_label: str) -> str:
 <li><span class="num">{len(new_this_week)}</span>new {"job" if len(new_this_week) == 1 else "jobs"} this week</li>
 <li><span class="num">{data["week_new"]}</span>through the pipeline, {max(0, data["week_seen"] - data["week_new"])} duplicates skipped</li>
 </ul></div>
-<div class="widget"><h4>Top prospects, week on week{info_tip("A prospect is a role in the top or one-question-away tiers, what the digest sends. Bars are Monday-to-Sunday weeks, and the month figures sit beneath for the slower trend.")}</h4>
+<div class="widget"><h4>Top prospects, week on week{info_tip("A prospect is a role in the top or one-question-away tiers, what the digest sends, counted in the week it arrived. A role you have acknowledged still counts, because this chart measures the market and not what is left to do. A role you have applied for, and its reposts, are left out, as they are from the digest. Bars are Monday-to-Sunday weeks, and the month figures sit beneath for the slower trend.")}</h4>
 <div class="bars">{wp_bars}</div>
 <p class="bars-label"><span>eight weeks ago</span><span>this week</span></p>
 <ul style="margin-top:8px">
@@ -2644,7 +2689,7 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
 <footer class="heartbeat">
 <ul class="heartbeat-facts">{heartbeat_facts(data)}</ul>
 {sparkline(data)}
-<ul class="outlinks"><li><a href="/archive">The full archive, every row on file</a></li><li><a href="/cv">Update the CV the scorer reads</a></li></ul>
+<ul class="outlinks"><li><a href="/archive">The full archive, every row on file but the applied ones</a></li><li><a href="/cv">Update the CV the scorer reads</a></li></ul>
 <p class="end">Buttons write, everything else reads. Regenerate the static fallback with <code>python scripts/build_dashboard.py</code>.</p>
 </footer>
 </main>
@@ -2784,7 +2829,8 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
             counter += 1
             # The Jobs page alone says how each score was made. The
             # archive renders the same rows and stays as it was.
-            out.append(render_opportunity(o, data, counter, show_basis=True))
+            out.append(render_opportunity(o, data, counter, show_basis=True,
+                                          can_apply=True))
         return "".join(out)
 
     # One collapse over every open row, filtered and unscored included, so
@@ -2825,6 +2871,8 @@ def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
         body += (f'<p class="legend" style="margin-top:24px">Filtered, '
                  f'{len(filtered)} {"role" if len(filtered) == 1 else "roles"}.'
                  f' {roll}.</p>')
+    # Below the open tiers, folded. An applied role is in none of them.
+    body += applied_section(data.get("applied") or [], now)
 
     filterbar = (
         '<div class="filterbar"><span class="filter-label">Location</span>'
@@ -2876,6 +2924,56 @@ def opp_head_html() -> str:
             '<span class="h-pay">Rate</span>'
             '<span class="h-type">Type</span>'
             '<span class="h-when">Last seen</span></div>')
+
+
+def applied_days(applied_at, now) -> int | None:
+    """Whole calendar days from the day applied to today, never negative."""
+    try:
+        then = datetime.strptime(str(applied_at)[:10], "%Y-%m-%d")
+        today = datetime.strptime(str(now)[:10], "%Y-%m-%d")
+    except ValueError:
+        return None
+    return max(0, (today - then).days)
+
+
+def applied_row(o: dict, now: str) -> str:
+    """One applied role: who, what, when, how long ago, where, and the way back.
+
+    The company, the title, the day applied and the days since, the source
+    the advert came through and a link to it. Undo clears the stamp and the
+    role goes back to the open tiers. Nothing else on the row, the follow-up
+    features this list will feed are not built.
+    """
+    # Each piece is escaped once, here. fmt_day returns text that is already
+    # escaped when it cannot read the date, so it goes in as it is.
+    company = esc(o.get("company") or "Unknown company")
+    company += "" if company.endswith(".") else "."
+    meta = (f'{company} Applied {fmt_day(o.get("applied_at"))}, '
+            f'{esc(_ago(applied_days(o.get("applied_at"), now)))}. '
+            f'Via {esc(via(o.get("source")))}.')
+    link = source_link(o.get("source_url"), "View the advert")
+    title = o.get("title") or "Untitled role"
+    # The button says Undo, and its name for a screen reader says which role.
+    return ('<div class="applied-row"><span class="applied-main">'
+            f'<span class="row-title">{esc(title)}</span>'
+            f'<span class="row-meta">{meta}</span></span>'
+            f'<span class="applied-acts">{link}'
+            f'<button type="button" class="act-btn" '
+            f'aria-label="Undo applied for {esc(title)}" '
+            f'data-unapply="{o["id"]}">Undo</button></span></div>')
+
+
+def applied_section(applied: list, now: str) -> str:
+    """The folded Applied section, newest application first. Jobs page only."""
+    if applied:
+        body = "".join(applied_row(o, now) for o in applied)
+    else:
+        body = '<p class="empty">No applications recorded yet.</p>'
+    return section(
+        "Applied", len(applied),
+        "Roles you have applied for, newest first. They stay out of the "
+        "open tiers above, and so does a repost of one. Undo puts a role "
+        "back where it was.", "panel-stone", body, fold=True)
 
 
 def main(argv=None) -> int:

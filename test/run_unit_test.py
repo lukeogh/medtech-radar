@@ -1176,10 +1176,14 @@ def main() -> int:
         check('<span class="badge-rate">Rate not stated</span>' in jobs6
               and '<span class="chip">rate not stated</span>' not in jobs6,
               "rate not stated is a badge with the weight of the State cell")
-        check(jobs6.count('<details class="section fold">') == 2
+        # Three folds now: One question away, Reading, and the Applied
+        # section at the foot, which is there at zero too.
+        check(jobs6.count('<details class="section fold">') == 3
               and '<summary class="section-head"><h2>One question away</h2>' in jobs6
+              and '<summary class="section-head"><h2>Applied</h2>' in jobs6
               and '<div class="section-head"><h2>Top prospects</h2>' in jobs6,
-              "Top is open, One question away and Reading fold with their counts")
+              "Top is open, One question away and Reading fold with their counts,"
+              " and the Applied section folds below them")
         check("Scored against" not in jobs6 and "row-sub\">Via " not in jobs6
               and "scripts/rescore.py" not in jobs6
               and "Add a job source" not in jobs6,

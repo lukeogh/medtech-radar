@@ -42,6 +42,10 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
     thresholds = radar_common.read_score_thresholds(config)
     fixed = failed = 0
     for row in rows:
+        # A role applied for while this pass was running keeps the score it
+        # was applied with, and no tokens are spent on it.
+        if radar_common.role_is_applied(conn, row["id"]):
+            continue
         opp = {
             "company": row["company"] or "",
             "title": row["title"] or "",
@@ -74,6 +78,14 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
                   f"{note or 'no tier came back'}. "
                   + ("Its previous score is kept." if held
                      else "It still has no score."), file=sys.stderr)
+            continue
+        # Applied for while the model was answering. The write lock first,
+        # then look again, so that nothing can be applied for between this
+        # look and the commit below. The role keeps the score it was applied
+        # with, and nothing is written or kept for it.
+        radar_common.begin_write(conn)
+        if radar_common.role_is_applied(conn, row["id"]):
+            conn.rollback()
             continue
         gate_cols = ("gate_sector", "gate_sector_note", "gate_cv", "gate_cv_note",
                      "gate_location", "gate_location_note", "gate_rate",
@@ -115,7 +127,8 @@ def rescore_opportunities(conn, config, usage_total) -> tuple[int, int]:
         "SELECT * FROM opportunities WHERE tier IS NULL"
         " AND acknowledged_at IS NULL"
         " AND closed_at IS NULL AND dismissed_at IS NULL"
-        " AND expired_at IS NULL").fetchall()
+        " AND expired_at IS NULL AND " + radar_common.NOT_APPLIED_SQL
+    ).fetchall()
     return _rescore_rows(conn, config, usage_total, rows)
 
 
@@ -136,12 +149,14 @@ def regate_backlog(conn, config, usage_total, cap: int, dry_run: bool = False):
         "SELECT * FROM opportunities WHERE tier IS NULL"
         " AND acknowledged_at IS NULL"
         " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
+        " AND " + radar_common.NOT_APPLIED_SQL +
         " ORDER BY id LIMIT ?", (cap,)).fetchall()
     remaining = conn.execute(
         "SELECT COUNT(*) FROM opportunities WHERE tier IS NULL"
         " AND acknowledged_at IS NULL"
         " AND closed_at IS NULL AND dismissed_at IS NULL"
-        " AND expired_at IS NULL").fetchone()[0] - len(rows)
+        " AND expired_at IS NULL AND " + radar_common.NOT_APPLIED_SQL
+    ).fetchone()[0] - len(rows)
     if dry_run:
         return {"examined": len(rows), "rescored": 0, "failed": 0,
                 "remaining": max(0, remaining + len(rows)), "dry_run": True,
@@ -164,12 +179,14 @@ def rescore_stale_cv(conn, config, usage_total, cap: int) -> tuple[int, int, int
         "SELECT * FROM opportunities WHERE combined IS NOT NULL"
         " AND acknowledged_at IS NULL"
         " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
+        " AND " + radar_common.NOT_APPLIED_SQL +
         " AND COALESCE(cv_version, '') <> ?"
         " ORDER BY combined DESC LIMIT ?", (current, cap)).fetchall()
     remaining = conn.execute(
         "SELECT COUNT(*) FROM opportunities WHERE combined IS NOT NULL"
         " AND acknowledged_at IS NULL AND COALESCE(cv_version, '') <> ?"
-        " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL",
+        " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
+        " AND " + radar_common.NOT_APPLIED_SQL,
         (current,)).fetchone()[0] - len(rows)
     fixed, failed = _rescore_rows(conn, config, usage_total, rows)
     return fixed, failed, max(0, remaining)

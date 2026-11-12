@@ -722,6 +722,7 @@ OTHER_WRITERS = {
     ("scripts/radar_common.py", "_migrate"),         # backfills and the labels
     ("scripts/radar_common.py", "recompute_regions"),
     ("scripts/serve_dashboard.py", "set_acknowledged"),
+    ("scripts/serve_dashboard.py", "set_applied"),    # applied_at, applied_cv
     ("scripts/serve_dashboard.py", "set_lifecycle"),
     ("scripts/touch.py", "cmd_mark.flip_opportunity"),
 }

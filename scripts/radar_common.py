@@ -181,6 +181,18 @@ _MIGRATIONS = (
     ("opportunities", "prompt_version", "TEXT"),   # hash of prompts/scorer.md, or pre-record
     ("opportunities", "score_model", "TEXT"),      # the model that answered, or unknown
     ("opportunities", "scored_at", "TEXT"),        # when, NULL where it was never recorded
+    # Applied roles. The moment a human said "I applied", and the saved CV
+    # that went with the application. Both are set by the Applied button and
+    # cleared by its Undo, never by a model or a script, and both are NULL on
+    # a role that has not been applied for. Columns and not a status, because
+    # the status CHECK cannot take a new word without a table rebuild.
+    # applied_cv stays empty until a CV page hands the route a reference, and
+    # until then it is untrusted text: one printable line a request chose,
+    # to be escaped wherever it is shown and never joined onto a path. One
+    # row carries the stamp and the whole repost chain counts as applied, see
+    # APPLIED_SQL.
+    ("opportunities", "applied_at", "TEXT"),
+    ("opportunities", "applied_cv", "TEXT"),
 )
 
 # What the score record says about a row scored before the record existed.
@@ -347,6 +359,41 @@ def role_key(title, company) -> str | None:
     if not cleaned or not named:
         return None
     return f"{cleaned}|{named}"
+
+
+# A row is on an applied role when it, or any row sharing its role_key, has
+# applied_at set. That is the whole rule, and it is worked out each time a
+# query runs. It is not copied onto the rest of the chain, because a repost
+# arrives as a new row with every stamp NULL and a copy would never reach it,
+# while this reaches it the moment it is stored. A row with no role_key stands
+# alone, the NULL never matches. The subquery names no column of the outer
+# row, so SQLite runs it once per statement. Every statement that picks open
+# rows, or changes one, adds NOT_APPLIED_SQL to its WHERE. Written with bare
+# column names so it works in a plain query and in an UPDATE of the table.
+APPLIED_SQL = (
+    "(applied_at IS NOT NULL OR (role_key IS NOT NULL AND role_key IN"
+    " (SELECT role_key FROM opportunities"
+    " WHERE applied_at IS NOT NULL AND role_key IS NOT NULL)))")
+NOT_APPLIED_SQL = "NOT " + APPLIED_SQL
+
+
+def applied_role_keys(conn) -> set:
+    """The role keys that have an applied row, for code that filters in Python."""
+    return {r[0] for r in conn.execute(
+        "SELECT DISTINCT role_key FROM opportunities"
+        " WHERE applied_at IS NOT NULL AND role_key IS NOT NULL")}
+
+
+def row_is_applied(row, keys) -> bool:
+    """APPLIED_SQL for one loaded row, given applied_role_keys of the same moment."""
+    key = _row_field(row, "role_key")
+    return bool(_row_field(row, "applied_at")) or (bool(key) and key in keys)
+
+
+def role_is_applied(conn, opportunity_id) -> bool:
+    """Is this row's role applied. A row that does not exist is not."""
+    return conn.execute("SELECT 1 FROM opportunities WHERE id = ? AND "
+                        + APPLIED_SQL, (opportunity_id,)).fetchone() is not None
 
 
 def normalise_company(name) -> str:
@@ -583,6 +630,21 @@ def get_db(db_path: Path | None = None) -> sqlite3.Connection:
     _migrate(conn)
     conn.commit()
     return conn
+
+
+def begin_write(conn: sqlite3.Connection) -> None:
+    """Take the write lock now, unless a transaction already holds it.
+
+    For a writer that reads, decides and then writes. Anything that commits
+    between the read and the write, a role being applied for among it, is
+    not seen by the read and is overwritten by the write. With the lock taken
+    first, what was read is what is written. archive_score does the same for
+    the score it keeps. Python's sqlite3 opens a transaction only at the
+    first INSERT, UPDATE or DELETE, so without this a read is never inside
+    one. The caller commits, or rolls back to let the lock go.
+    """
+    if not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
 
 
 def url_hash(url: str) -> str:
