@@ -459,11 +459,13 @@ write is behind. The browser also has to say the click came from this site, with
 `Sec-Fetch-Site: same-origin`, as it does for a link followed from the Jobs page.
 A link from another site or a sibling site, a typed address, a bookmark and a
 browser that sends no such header all get the button instead, so no other page can
-send a browser to an address that spends money. The script cleans the address
-before it posts, so a reload, the back button and a second tab open the page and
-do nothing more, and a page opened any other way offers a button instead. The page
-reads on a read-only connection. An id that is not plain digits, or not a role, is
-a 404.
+send a browser to an address that spends money. Browsers send that header only to
+https addresses and to localhost, so through the https proxy name the link starts
+the work at once, and by the plain http LAN address it opens the button, one click
+more. The script cleans the address before it posts, so a reload, the back button
+and a second tab open the page and do nothing more, and a page opened any other
+way offers a button instead. The page reads on a read-only connection. An id that
+is not plain digits, or not a role, is a 404.
 
 What one POST does for an open role. If the row stores no description, it
 fetches the advert's public LinkedIn page once, with `check_jobs.fetch_job_page`,
