@@ -223,42 +223,118 @@ def job_id_of(row: dict) -> str | None:
     return check_jobs.job_view_id(row.get("source_url") or "")
 
 
-def pending(row: dict, applied: bool) -> bool:
+def pending(row: dict, applied: bool, config: dict | None = None) -> bool:
     """Would a click do anything for this row, fetch or score.
 
-    The page asks this to decide whether its script has a POST to make. A role
-    that is applied or not open, one with nothing to fetch and no description,
-    and one already scored against its description all have nothing to do.
+    The page asks this to decide whether its script has a POST to make, and
+    whether to offer the button. A role that is applied or not open, one with
+    nothing to fetch and no description, and one already scored against its
+    description all have nothing to do. Given the config, so that the key of a
+    remembered failure can be built, a click that this process would refuse for
+    the next few minutes is not pending either, and the page says why instead
+    of offering a button that is refused.
     """
     if applied or not is_open(row):
         return False
-    if (row.get("description_text") or "").strip():
-        return needs_score(row)
-    return job_id_of(row) is not None
+    description = (row.get("description_text") or "").strip()
+    if description:
+        if not needs_score(row):
+            return False
+        return config is None or score_cooling_text(row, description, config) is None
+    return fetch_blocked_why(row) is None
+
+
+def fetch_blocked_why(row: dict) -> str | None:
+    """Why the advert's page cannot be asked for just now, else None.
+
+    The advert is not a LinkedIn page, or a page for it could not be used a
+    moment ago, or LinkedIn has just said 429. The sentence completes "The full
+    description could not be fetched."
+    """
+    if job_id_of(row) is None:
+        return NOT_LINKEDIN_WHY
+    held = GUARD.recent_failure(("page", row["id"]))
+    if held:
+        return (f"{held[0]} That was a moment ago, and it is not asked for "
+                f"again for {_minutes(held[1])}.")
+    wait = GUARD.blocked_for()
+    if wait > 0:
+        return ("LinkedIn answered 429, too many requests, a moment ago, so "
+                f"Radar is not asking again for {_minutes(wait)}.")
+    return None
+
+
+def score_cooling_text(row: dict, description: str, config: dict) -> str | None:
+    """The sentence for a score that failed a moment ago and is not tried
+    again yet, else None. It is about this role, this version of its
+    description, this prompt and this CV, so any of them changing ends it."""
+    held = GUARD.recent_failure(_failure_key(row, description, config))
+    if not held:
+        return None
+    return (f"The last try for this role failed. {held[0]} "
+            f"It is not tried again for {_minutes(held[1])}.")
 
 
 # ----------------------------------------------------------------- the pay
 
-# The advert's own words for pay that is not a figure.
+# The advert's own words for pay that is not a figure. Each is pay only beside
+# a pay noun, or in a phrase that is pay in itself, because the bare words turn
+# up all over an advert: "a highly competitive market", "non-negotiable",
+# "start date negotiable", "a scale depending on experience".
+_PAY_NOUN = (r"(?:salary|salaries|rates?|pay|package|packages|compensation"
+             r"|remuneration|fees?)")
 PAY_WORDS = re.compile(
-    r"\b(?:competitive(?: salary| rate| pay| package)?|negotiable|market rate"
-    r"|(?:depending|dependent) on experience)\b", re.IGNORECASE)
+    r"(?<![\w-])(?:"
+    r"competitive\s+(?:salary|rates?|day\s+rates?|pay|package|compensation"
+    r"|remuneration)"
+    r"|" + _PAY_NOUN + r"\s*(?:is|are|:|-|–)?\s*competitive"
+    r"|" + _PAY_NOUN + r"\b[^.\n]{0,30}?\bnegotiable"
+    r"|negotiable\s+(?:salary|rates?|day\s+rates?|pay|package)"
+    r"|market\s+rate"
+    r"|" + _PAY_NOUN + r"\b[^.\n]{0,40}?\b(?:depending|dependent)\s+on\s+experience"
+    r")(?![\w-])", re.IGNORECASE)
+
+# What a day, an hour and a year of pay can plausibly be. The page checker's
+# reader takes the first sterling figure with a period near it, so a turnover of
+# "£50m per year" reads as fifty pounds a year, and is not offered as pay.
+_PLAUSIBLE = {"day": (100, 5_000), "hour": (8, 500), "year": (10_000, 1_000_000)}
 
 
 def _flat(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def _plausible(pay: dict) -> bool:
+    low, high = _PLAUSIBLE.get(pay.get("period"), (0, float("inf")))
+    return low <= pay["max"] <= high
+
+
+def _figure_candidate(flat: str, depth: int = 0) -> str | None:
+    """The first sterling figure with a period that pay could be, past any that
+    cannot be. Recursion, five deep at most, because this module holds no loop."""
+    pay = check_jobs.stated_pay(flat)
+    if not pay:
+        return None
+    text = pay["text"]
+    if 0 < len(text) <= RATE_QUOTE_MAX and _plausible(pay):
+        return text
+    at = flat.find(text) if text else -1
+    if at < 0 or depth >= 5:
+        return None
+    return _figure_candidate(flat[at + len(text):], depth + 1)
+
+
 def _pay_candidate(flat: str) -> str | None:
     """Wording in a description that may be pay, by pattern, short and word for word.
 
     A sterling figure with its period beside it, through the page checker's own
-    reader, else one of the advert's own pay words. It cannot tell a salary from
-    a bonus or a budget, which is why it only ever speaks beside the scorer.
+    reader, if it is a figure a day, an hour or a year can be, else one of the
+    advert's own pay words beside a pay noun. It cannot tell a salary from a
+    bonus or a budget, which is why it only ever speaks beside the scorer.
     """
-    pay = check_jobs.stated_pay(flat)
-    if pay and 0 < len(pay["text"]) <= RATE_QUOTE_MAX:
-        return pay["text"]
+    figure = _figure_candidate(flat)
+    if figure:
+        return figure
     words = PAY_WORDS.search(flat)
     return words.group(0) if words else None
 
@@ -423,22 +499,12 @@ def _fetch_page(row: dict, out: dict):
     None means a notice has said why. Everything that stops this from asking,
     and everything that goes wrong after it has, is told to the page.
     """
+    why = fetch_blocked_why(row)
+    if why:
+        _fetch_failed(out, why)
+        return None
     job_id = job_id_of(row)
-    if job_id is None:
-        _fetch_failed(out, NOT_LINKEDIN_WHY)
-        return None
     key = ("page", row["id"])
-    held = GUARD.recent_failure(key)
-    if held:
-        _fetch_failed(out, f"{held[0]} That was a moment ago, and it is not "
-                           f"asked for again for {_minutes(held[1])}.")
-        return None
-    wait = GUARD.blocked_for()
-    if wait > 0:
-        _fetch_failed(out, "LinkedIn answered 429, too many requests, a "
-                           f"moment ago, so Radar is not asking again for "
-                           f"{_minutes(wait)}.")
-        return None
     url = f"https://www.linkedin.com/jobs/view/{job_id}/"
     with GUARD.fetch_lock:
         # The checker spaces its requests 8 to 12 seconds apart. Clicks on
@@ -653,11 +719,10 @@ def _score(conn, row: dict, description: str, config: dict, out: dict) -> None:
     if parked is not None:
         _store_score(conn, row, parked, config, key, out)
         return
-    held = GUARD.recent_failure(key)
-    if held:
+    cooling = score_cooling_text(row, description, config)
+    if cooling:
         out["outcome"] = "cooling"
-        _notice(out, "score", f"The last try for this role failed. {held[0]} "
-                f"It is not tried again for {_minutes(held[1])}.", retry=False)
+        _notice(out, "score", cooling, retry=False)
         return
     try:
         blocks = score_item.build_scorer_system(config, basis=SPEC)
@@ -668,7 +733,10 @@ def _score(conn, row: dict, description: str, config: dict, out: dict) -> None:
                 f"scorer could not be set up. {str(err)[:300]}")
         GUARD.remember_failure(key, ERROR_COOLDOWN_SECONDS, text)
         out["outcome"] = "score_failed"
-        _notice(out, "score", text, retry=True)
+        # No Try again, because the next click is refused for a while. The page
+        # offers the button again once the wait is over.
+        _notice(out, "score", text + " It is not tried again for "
+                f"{_minutes(ERROR_COOLDOWN_SECONDS)}.", retry=False)
         return
     _unused, score_fn = score_item.get_mock_fns()
     opp = _spec_opportunity(row, description)
@@ -683,7 +751,8 @@ def _score(conn, row: dict, description: str, config: dict, out: dict) -> None:
         print(f"prepare: the scorer raised {type(err).__name__} for id "
               f"{row['id']}: {str(err)[:200]}", file=sys.stderr)
         out["outcome"] = "score_failed"
-        _notice(out, "score", text, retry=True)
+        _notice(out, "score", text + " It is not tried again for "
+                f"{_minutes(ERROR_COOLDOWN_SECONDS)}.", retry=False)
         return
     out["called"] = bool(usage)
     if scored is None or note or scored.get("tier") is None:
@@ -691,12 +760,22 @@ def _score(conn, row: dict, description: str, config: dict, out: dict) -> None:
                 f"({note or 'no tier came back'}). Nothing was stored for "
                 "the score.")
         GUARD.remember_failure(key, UNUSABLE_COOLDOWN_SECONDS, text)
-        _log_run(conn, usage, config, False, f"id {row['id']}, not stored, "
-                 f"{note or 'no tier'}")
+        # What the reply cost is recorded, which can wait for the lock as long
+        # as a score can. If the database stays busy the cost is lost, and said
+        # so on stderr.
+        if _begin_write(conn):
+            _log_run(conn, usage, config, False, f"id {row['id']}, not stored, "
+                     f"{note or 'no tier'}")
+        else:
+            print("prepare: the run record was not written, the database "
+                  "stayed busy", file=sys.stderr)
         out["outcome"] = "score_failed"
         # This click paid for the reply, and says so. The memory above does
-        # not, because a later click that reads it paid for nothing.
-        _notice(out, "score", text + " The reply was paid for.", retry=True)
+        # not, because a later click that reads it paid for nothing. No Try
+        # again either: the next click is refused until the wait is over.
+        _notice(out, "score", text + " It is not tried again for "
+                f"{_minutes(UNUSABLE_COOLDOWN_SECONDS)}. The reply was paid for.",
+                retry=False)
         return
 
     working = scored["working"]

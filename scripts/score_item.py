@@ -418,9 +418,11 @@ def extract_opportunities(email: dict, config: dict, mock_fn=None):
 
 
 def _pct(value):
+    # OverflowError is what int() says of an infinity, and of an integer too
+    # long to be a float, which a reply can be made of and a number cannot.
     try:
         number = int(round(float(value)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return max(0, min(100, number))
 
@@ -535,7 +537,9 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
     (working), the version of the description it was made against
     (description_hash) and the pay quote the model gave, untouched
     (rate_quote_raw), for the caller to hold to the description. A spec reply
-    without a list of asks is not a score.
+    without a list of asks is not a score, and neither is one that cannot be
+    read for any other reason. Both come back as no score, a note and the
+    usage, because the reply has been paid for.
     """
     spec = basis == radar_common.SCORE_BASIS_SPEC
     user = "Score this opportunity.\n\n" + json.dumps(opp, ensure_ascii=False)
@@ -548,6 +552,28 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
         return None, usage, note
     if spec and not isinstance(parsed.get("asks"), list):
         return None, usage, "the reply had no list of asks, so it was not used"
+    if not spec:
+        return _finish_score(parsed, usage, opp, system_blocks, config, floors,
+                             thresholds, basis)
+    # A full description's reply has been paid for by now. Whatever in it
+    # cannot be read is a failed score with a note and its usage, never an
+    # exception that loses the usage on the way out.
+    try:
+        return _finish_score(parsed, usage, opp, system_blocks, config, floors,
+                             thresholds, basis)
+    except Exception as err:  # noqa: BLE001  see above
+        return None, usage, ("the reply could not be read "
+                             f"({type(err).__name__})")
+
+
+def _finish_score(parsed: dict, usage: dict, opp: dict, system_blocks,
+                  config: dict, floors, thresholds, basis: str):
+    """What score_opportunity does once the reply has been parsed.
+
+    Kept apart so that a full description's reply, which has been paid for by
+    the time this runs, can be guarded as a whole. See score_opportunity.
+    """
+    spec = basis == radar_common.SCORE_BASIS_SPEC
 
     # Phase three. The gates are the score. cv_match_pct is still read for a
     # v1 response so an old fixture does not explode, but nothing new writes
@@ -645,42 +671,38 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
         "engagement_note": sanitise(str(parsed.get("engagement_note") or "").strip()) or None,
     })
     if spec:
-        # A reply that has been paid for and cannot be read is a failed score
-        # with a note, never an exception that loses its usage on the way out.
-        try:
-            cv_lines = list(getattr(system_blocks, "cv_lines", None) or [])
-            asks, dropped = normalise_asks(parsed.get("asks"), cv_lines)
-            counts = {status: sum(1 for a in asks if a["status"] == status)
-                      for status in ASK_STATUSES}
-            counts["unanchored"] = sum(1 for a in asks if a["anchored"] is False)
-            counts["dropped"] = dropped
-            description_hash = radar_common.description_version(
-                opp.get("description"))
-            scored.update({
-                "asks": asks,
+        # Whatever in the asks cannot be read is caught by score_opportunity,
+        # which guards all of this as one, so it is not caught again here.
+        cv_lines = list(getattr(system_blocks, "cv_lines", None) or [])
+        asks, dropped = normalise_asks(parsed.get("asks"), cv_lines)
+        counts = {status: sum(1 for a in asks if a["status"] == status)
+                  for status in ASK_STATUSES}
+        counts["unanchored"] = sum(1 for a in asks if a["anchored"] is False)
+        counts["dropped"] = dropped
+        description_hash = radar_common.description_version(
+            opp.get("description"))
+        scored.update({
+            "asks": asks,
+            "description_hash": description_hash,
+            # Exactly what the model wrote, never run through the voice
+            # rules, because the caller holds it to the description word
+            # for word.
+            "rate_quote_raw": str(parsed.get("rate_quote") or "").strip(),
+            # What belongs beside the score it was made with. scored_at is
+            # in it so that a reader can tell the working still belongs to
+            # the score the row holds, and the pay quote is filled in by
+            # the caller once it has held the model's quote to the
+            # description.
+            "working": {
+                "v": 1, "basis": basis, "scored_at": scored["scored_at"],
+                "prompt_version": scored["prompt_version"],
+                "cv_version": getattr(system_blocks, "cv_version", None),
+                "cv_line_count": len(cv_lines),
                 "description_hash": description_hash,
-                # Exactly what the model wrote, never run through the voice
-                # rules, because the caller holds it to the description word
-                # for word.
-                "rate_quote_raw": str(parsed.get("rate_quote") or "").strip(),
-                # What belongs beside the score it was made with. scored_at is
-                # in it so that a reader can tell the working still belongs to
-                # the score the row holds, and the pay quote is filled in by
-                # the caller once it has held the model's quote to the
-                # description.
-                "working": {
-                    "v": 1, "basis": basis, "scored_at": scored["scored_at"],
-                    "prompt_version": scored["prompt_version"],
-                    "cv_version": getattr(system_blocks, "cv_version", None),
-                    "cv_line_count": len(cv_lines),
-                    "description_hash": description_hash,
-                    "asks": asks, "counts": counts,
-                    "rate_quote": None, "rate_quote_from": None,
-                },
-            })
-        except Exception as err:  # noqa: BLE001  see above
-            return None, usage, ("the asks in the reply could not be read "
-                                 f"({type(err).__name__})")
+                "asks": asks, "counts": counts,
+                "rate_quote": None, "rate_quote_from": None,
+            },
+        })
     if cv is None:
         return scored, usage, "scorer returned no usable cv match"
     return scored, usage, None
@@ -688,9 +710,13 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
 
 def _num(value):
     try:
-        return float(value) if value is not None else None
-    except (TypeError, ValueError):
+        number = float(value) if value is not None else None
+    except (TypeError, ValueError, OverflowError):
         return None
+    # An infinity is not a figure, and would be stored as one.
+    if number is not None and number in (float("inf"), float("-inf")):
+        return None
+    return number
 
 
 def main(argv=None) -> int:

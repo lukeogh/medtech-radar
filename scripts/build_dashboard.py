@@ -3333,9 +3333,10 @@ PREPARE_SCRIPT = """
   // One POST per click. The address is cleaned before it goes, so a reload
   // while it works, or the back button after it, opens the page and does
   // nothing more. Nothing here calls start() but a click or the first load.
-  function start() {
+  function start(btn) {
     if (busy) return;
     busy = true;
+    if (btn) btn.disabled = true;
     try { history.replaceState(null, '', location.pathname); } catch (err) {}
     root.setAttribute('data-run', '0');
     say('Working. The advert is fetched if it is not stored, then scored '
@@ -3347,11 +3348,17 @@ PREPARE_SCRIPT = """
     }).then(function (r) { return r.json(); })
       .then(function (j) {
         busy = false;
-        if (j && j.ok === false) { say(j.note || 'That did not run.', true); return; }
+        if (j && j.ok === false) {
+          // The page is as it was, so the button is given back.
+          if (btn) btn.disabled = false;
+          say(j.note || 'That did not run.', true);
+          return;
+        }
         if (j && typeof j.html === 'string') root.innerHTML = j.html;
       })
       .catch(function () {
         busy = false;
+        if (btn) btn.disabled = false;
         say('No usable answer came back. The role may still be working. '
             + 'Reload this page in a minute to see what was stored.', true);
       });
@@ -3359,8 +3366,7 @@ PREPARE_SCRIPT = """
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-prepare-go]');
     if (!btn) return;
-    btn.disabled = true;
-    start();
+    start(btn);
   });
   if (root.getAttribute('data-run') === '1') start();
 })();
@@ -3445,11 +3451,17 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
         out.append(_prepare_notice("info", prep.APPLIED_NOTE))
     elif not is_open:
         out.append(_prepare_notice("info", prep.NOT_OPEN_NOTE))
-    elif not description and not notices and prep.job_id_of(row) is None:
-        # Nothing here can be fetched, so no click will ever say why. The page
-        # says it, in the words a failed fetch uses.
-        out.append(_prepare_notice(
-            "fetch", prep.fetch_failed_text(prep.NOT_LINKEDIN_WHY)))
+    elif (not description and not notices
+          and (blocked := prep.fetch_blocked_why(row))):
+        # Nothing can be fetched just now, so no click would be let to say why:
+        # the advert is not a LinkedIn page, or a page for it could not be used
+        # a moment ago, or LinkedIn has just said 429. The page says it, in the
+        # words a failed fetch uses, and offers no button that would be refused.
+        out.append(_prepare_notice("fetch", prep.fetch_failed_text(blocked)))
+    elif (description and not notices and prep.needs_score(row)
+          and (cooling := prep.score_cooling_text(row, description, config))):
+        # The same for a score that failed a moment ago.
+        out.append(_prepare_notice("score", cooling))
 
     # The tier move, from the history, for as long as the score it came from
     # is the score the row holds.
@@ -3643,7 +3655,7 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
     # A click that has just said something does not also offer a second
     # button under it, the notice carries its own Try again where one makes
     # sense. A page opened any other way offers the work if there is some.
-    if prep.pending(row, applied) and not running and not notices:
+    if prep.pending(row, applied, config) and not running and not notices:
         desc_html.append(
             '<p><button type="button" class="act-btn" data-prepare-go>'
             + ('Score it against the stored description' if description
@@ -3671,7 +3683,7 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str,
         return None
     row = dict(row)
     applied = radar_common.role_is_applied(conn, item_id)
-    run = bool(go) and prep.pending(row, applied)
+    run = bool(go) and prep.pending(row, applied, config)
     inner = render_prepare_inner(conn, item_id, config, running=run)
     title = row.get("title") or "Untitled role"
     company = row.get("company") or "Unknown company"
