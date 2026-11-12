@@ -1303,9 +1303,10 @@ def signals_checks() -> None:
         check(rows == [],
               "it raises no buying-window signal, so nothing is left for the "
               "sweep")
-        check(sent == [] and "role already applied for" in inbox_note(db),
+        check(sent == []
+              and f"{sw[1]}: role already applied for" in inbox_note(db),
               "so the push sweep has nothing to send, and the run record says "
-              "why")
+              "why, naming the company")
 
         # ---- the same for a role whose first advert fired a tripwire. A
         # Quality Director at a medtech firm is a first quality hire, and the
@@ -1431,6 +1432,42 @@ def signals_checks() -> None:
         check(done and unscored["tier"] is None and rows == [] and sent == [],
               "a role the scorer could not score is skipped the same way when "
               "it is reposted")
+
+        # ---- the repost is not the first card of its email
+        db, first, ready = applied_then_touched("late_card.sqlite", 5100000151)
+        run_inbox(db, alert(sw[0], "Caldora Medical", 5100000152) + "\n"
+                  + alert(*sw, 5100000153, where="London, England"))
+        sent, rows = sweep(db)
+        check(ready and rows == [] and sent == [],
+              "the repost is skipped wherever it sits in the email, here after "
+              "an advert for an unrelated company")
+
+        # ---- ids that do not line up. The skip depends on the id the insert
+        # hands back, and on a fresh file the opportunity, history and company
+        # ids all count together, so other rows are on file before the first
+        # advert here.
+        db = Path(tmp) / "ids.sqlite"
+        conn = radar_common.get_db(db)
+        for i in range(7):
+            role(conn, (f"Filler Role {i}", f"Filler Co {i}"))
+        conn.close()
+        run_inbox(db, alert(*sw, 5100000141))
+        look = reader(db)
+        first = look.execute("SELECT id FROM opportunities WHERE company = ?",
+                             (sw[1],)).fetchone()[0]
+        look.close()
+        with pointed_at(db):
+            done = serve_dashboard.set_applied(first, True)["ok"]
+        touch_company(db, sw[1])
+        run_inbox(db, alert(*sw, 5100000142, where="London, England") + "\n"
+                  + alert(*ra, 5100000143))
+        sent, rows = sweep(db)
+        check(done and first > 7 and len(rows) == 1
+              and rows[0]["source_url"].endswith("/5100000143/")
+              and len(sent) == 1,
+              "with other rows on file, so that the ids of an opportunity and "
+              "of its history do not match, the repost is still the one "
+              "skipped")
 
         # ---- a failed score must not cost the window, applied or not
         db = Path(tmp) / "unscored_window.sqlite"
