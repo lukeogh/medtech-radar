@@ -474,7 +474,7 @@ def random_doc(rng: random.Random) -> dict:
     words = ["IEC 62304", "Class C IVD", "led", "built", "team", "FDA", "–", "&",
              "<b>", "\"quoted\"", "naïve", "café", "50%", "C++", "C#", "#1", "ok."]
     awkward = ["", "  ", "- dash first", "## not a heading", "### deep",
-               "\ttabbed\tthrough", "line\nbreak", " nbsp", "trailing   "]
+               "\ttabbed\tthrough", "line\nbreak", "\u00a0nbsp", "trailing   "]
 
     def phrase():
         if rng.random() < 0.15:
@@ -574,11 +574,11 @@ def layout_checks() -> None:
           "standard sections to fill")
 
     # Cleaning, one way for every string.
-    nasty = "a\tb c" + chr(0xFEFF) + "d " + chr(0xD800) + "e  f\x00g\x85h i"
+    nasty = "a\tb\u2028c" + chr(0xFEFF) + "d " + chr(0xD800) + "e  f\x00g\x85h\u00a0i"
     check(cv_doc.clean(nasty) == "a b cd e f g h i",
           "tabs, controls, separators and odd spaces become one space, and lone "
           "surrogates, the byte order mark and non-characters go")
-    check(cv_doc.clean("Café") == "Café", "text is made NFC")
+    check(cv_doc.clean("Cafe\u0301") == "Café", "text is made NFC")
     check(cv_doc.clean_plain("## ### Not a heading") == "Not a heading"
           and cv_doc.clean_plain("- x", allow_bullet=False) == "x"
           and cv_doc.clean_plain("- x") == "- x"
@@ -2001,7 +2001,7 @@ const say = (ok, label) => {
   if (!ok) bad += 1;
 };
 const settle = () => new Promise((resolve) => setImmediate(resolve));
-const ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+const ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0',
               rsquo: '’', ldquo: '“', rdquo: '”', bull: '•', mdash: '—' };
 function decode(s) {
   return String(s).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
@@ -2451,8 +2451,8 @@ def editor_script_checks() -> None:
     rng = random.Random(11)
     raw_docs = [random_doc(rng) for _ in range(60)] + [cv_doc.normalize(d) for d in corpus()[:20]]
     strings = ["", "  a  b ", "## ### Not a heading", "- dash", "- - double", "#### four",
-               "#hashtag", "\ttab", "x" * 260, "• dotted bullet", "* starred", "Café",
-               "a b", "nb sp", chr(0xFEFF) + "bom", "lone " + chr(0xD800) + " surrogate",
+               "#hashtag", "\ttab", "x" * 260, "• dotted bullet", "* starred", "Cafe\u0301",
+               "a\u2028b", "nb\u00a0sp", chr(0xFEFF) + "bom", "lone " + chr(0xD800) + " surrogate",
                "emoji \U0001F600 here", "ctrl\x01\x7f\x85", "#", "-", "- ", "### deep"]
     finds = []
     keys = [cv_doc.line_key(l) for l in lines + [lines[risk_n - 1]]]
@@ -2503,6 +2503,170 @@ def editor_script_checks() -> None:
                   + (done.stderr.strip()[-400:] or f"exit {done.returncode}") + ")")
 
 
+# ------------------------------------------------------------ the static scan
+
+def static_checks() -> None:
+    scripts = sorted((REPO_ROOT / "scripts").glob("*.py"))
+    src = (REPO_ROOT / "scripts" / "prepare_application.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    attrs = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    check(not any(isinstance(n, (ast.For, ast.While)) for n in ast.walk(tree))
+          and "fetchall" not in attrs and "executemany" not in attrs
+          and src.count("score_item.score_opportunity(") == 1,
+          "the click's module still holds no loop and scores in one place, which the "
+          "copy's Rescore role goes through too")
+    importers = sorted(p.name for p in scripts if p.name != "prepare_application.py"
+                       and re.search(r"^\s*(import|from)\s+prepare_application\b",
+                                     p.read_text(encoding="utf-8"), re.M))
+    check(importers == ["build_dashboard.py", "serve_dashboard.py"],
+          f"only the dashboard imports it ({importers})")
+    light = {}
+    for name in ("cv_doc.py", "cv_page.py", "tailored_cv.py", "cv_word.py"):
+        text = (REPO_ROOT / "scripts" / name).read_text(encoding="utf-8")
+        light[name] = sorted(set(re.findall(r"^\s*(?:import|from)\s+(\w+)", text, re.M)))
+    check(not any(set(v) & {"prepare_application", "serve_dashboard", "build_dashboard",
+                            "urllib", "requests", "http", "socket", "subprocess", "anthropic"}
+                  for v in light.values()),
+          f"the new modules call no model, open no connection and import no page ({light})")
+    flows = [p.name for p in sorted((REPO_ROOT / "workflows").glob("*.json"))
+             if re.search(r"/prepare/cv|/cv/master|tailored|cv_doc|cv_word", p.read_text(encoding="utf-8"))]
+    check(not flows, f"no n8n workflow runs any of it or posts to it ({flows})")
+    check(radar_common.prompt_version() == "97f11cce",
+          "the scorer prompt is the one Brief 3 left, 97f11cce: nothing in it changed")
+    serve = (REPO_ROOT / "scripts" / "serve_dashboard.py").read_text(encoding="utf-8")
+    stree = ast.parse(serve)
+    do_get = next(n for n in ast.walk(stree) if isinstance(n, ast.FunctionDef) and n.name == "do_GET")
+    body = ast.get_source_segment(serve, do_get)
+    check(not re.search(r"run_copy|prepare_application|save_master|get_db\(", body)
+          and "download_cv(" in body,
+          "GET reaches no write: the download is the one new GET, and it only reads")
+    down = ast.get_source_segment(serve, next(n for n in ast.walk(stree)
+                                             if isinstance(n, ast.FunctionDef) and n.name == "download_cv"))
+    check("mode=ro" in down and "get_db(" not in down and "commit" not in down,
+          "and it opens the database read only")
+    pane = (REPO_ROOT / "scripts" / "build_dashboard.py").read_text(encoding="utf-8")
+    pane = pane[pane.index("def render_cv_pane("):]
+    pane = pane[:pane.index("\ndef ", 10)] if "\ndef " in pane[10:] else pane
+    check("get_db(" not in pane and "commit" not in pane and "open_copy" not in pane,
+          "the page's CV pane only reads, and leaves making the copy to the script's POST")
+
+
+# ---------------------------------------------------- the queries for the box
+
+BOX_DOC = REPO_ROOT / "docs" / "box-checks-brief-4.md"
+
+
+def box_statements() -> list[str]:
+    """Every query the box checks hand over, in the order they appear."""
+    text = BOX_DOC.read_text(encoding="utf-8")
+    return re.findall(r'Q "([^"]+)"', text) + re.findall(
+        r'sqlite3 -readonly db/radar\.sqlite "([^"]+)"', text)
+
+
+def run_query(db, sql):
+    conn = sqlite3.connect(db)
+    try:
+        return conn.execute(sql).fetchall()
+    finally:
+        conn.close()
+
+
+def box_query_checks() -> None:
+    statements = box_statements()
+    check(len(statements) >= 15, f"the box checks hand over {len(statements)} queries")
+    find = {s.split("(", 1)[0][:40]: s for s in statements}
+    proof = {
+        "pairs": next(s for s in statements if "pairs_scored_twice" in s),
+        "landed": next(s for s in statements if "roles_with_a_tailored_score" in s),
+        "after": next(s for s in statements if "tailored_after_applying" in s),
+        "before4": next(s for s in statements if "copies_table" in s and "copy_columns" not in s),
+        "after4": next(s for s in statements if "copy_columns" in s),
+        "none_yet": next(s for s in statements if "tailored_scores" in s and "copies" in s),
+    }
+    del find
+    with fresh() as env:
+        # The old shape first, for the BEFORE query.
+        conn = env.conn()
+        conn.execute("DROP TABLE tailored_cvs")
+        conn.execute("ALTER TABLE score_history DROP COLUMN cv_hash")
+        conn.commit()
+        conn.close()
+        check(run_query(env.db, proof["before4"]) == [(0, 0)],
+              "on a database before the deploy, the BEFORE check reads 0 and 0")
+        radar_common.get_db(env.db).close()
+        check(run_query(env.db, proof["after4"]) == [(1, 13, 1)]
+              and run_query(env.db, proof["none_yet"]) == [(0, 0)],
+              "after the first open it reads 1, 13 and 1, and no copy or tailored score yet")
+        a = env.role()
+        b = env.role(title="Second", company="Beta")
+        env.open(a)
+        env.rescore(a, MASTER_TEXT)
+        env.rescore(a, edited(MASTER_TEXT, "Built the software team", "Built and led the team"))
+        env.rescore(a, MASTER_TEXT)
+        env.save(b, MASTER_TEXT)
+        env.apply(b, "CV - Luke Keogh - Beta - Second")
+        broken = []
+        for sql in statements:
+            try:
+                run_query(env.db, sql)
+            except sqlite3.Error as err:
+                broken.append(f"{sql[:50]} {err}")
+        check(not broken, f"every query on the page runs on a database the deploy made ({broken[:2]})")
+        check(run_query(env.db, proof["pairs"]) == [(0,)]
+              and run_query(env.db, proof["landed"]) == [(0,)]
+              and run_query(env.db, proof["after"]) == [(0,)],
+              "on what the code does, the three proof queries read 0, a copy put back "
+              "to an earlier text included")
+        env.sql("INSERT INTO score_history (opportunity_id, recorded_at, event, writer,"
+                " description_hash, cv_hash) SELECT opportunity_id, recorded_at, event, writer,"
+                " description_hash, cv_hash FROM score_history WHERE event = 'tailored' LIMIT 1")
+        check(run_query(env.db, proof["pairs"]) == [(1,)],
+              "and the first catches a pair scored twice")
+        env.sql("UPDATE opportunities SET cv_version = 'tailored-abc' WHERE id = ?", (b,))
+        check(run_query(env.db, proof["landed"]) == [(1,)],
+              "the second a tailored score written onto a role")
+        env.sql("INSERT INTO score_history (opportunity_id, recorded_at, event, writer)"
+                " VALUES (?, '2026-11-13T00:00:00Z', 'tailored', 'prepare')", (b,))
+        check(run_query(env.db, proof["after"]) == [(1,)],
+              "and the third a tailored score made after the role was applied")
+
+
+def docs_checks() -> None:
+    doc = (REPO_ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
+    check("## The CV page and the tailored CV" in doc,
+          "the architecture notes have a section on it")
+    section = " ".join(doc.split("## The CV page and the tailored CV")[1].split("\n## ")[0].split())
+    for needle in ("GET /cv", "POST /cv/master/save", "POST /prepare/cv/open",
+                   "/prepare/cv/reset", "POST /prepare/cv/rescore", "POST /prepare/cv/save",
+                   "GET /prepare/<id>/cv.docx", "tailored_cvs", "cv_hash", "event `tailored`",
+                   "cv_store.cv_lines", "CV_MODEL_JS", "_score", "SPEC_MAX_TOKENS",
+                   "applied", "python-docx", "first-open", "Re-score stale items",
+                   "CV - Luke Keogh - <Company> - <Job"):
+        if needle not in section:
+            check(False, f"the notes say {needle!r}")
+            break
+    else:
+        check(True, "and they cover the pages, the routes, the table, the history, the "
+                    "numbering, the guards, the Word file, applied roles and the deploy")
+    box = BOX_DOC.read_text(encoding="utf-8")
+    blocks = re.findall(r"```(\w*)\n(.*?)```", box, re.S)
+    check(len(blocks) >= 10 and all(lang == "bash" and body.strip() for lang, body in blocks),
+          f"the box checks are {len(blocks)} fenced bash blocks, none of them empty")
+    for heading in ("## BEFORE", "## The deploy, one block at a time", "## AFTER, before any click",
+                    "## After your first real use", "## Rollback"):
+        if heading not in box:
+            check(False, f"the box checks have {heading!r}")
+            break
+    else:
+        check(True, "with BEFORE, the deploy, AFTER, the first use and the rollback")
+    check("/opt/biz-admin/radar-venv/bin/python" in box and "docker restart medtech-radar" in box
+          and "backup_radar.sh" in box,
+          "the deploy backs up, opens the database with the venv's Python and restarts "
+          "the dashboard")
+    cfg = (REPO_ROOT / "test" / "run_all.sh").read_text(encoding="utf-8")
+    check("run_cv_test.py" in cfg, "and run_all.sh runs this file")
+
+
 def serve_dashboard_page(env) -> str:
     saved = serve_dashboard.ARGS
     serve_dashboard.ARGS = argparse.Namespace(db=str(env.db), push=False,
@@ -2513,19 +2677,17 @@ def serve_dashboard_page(env) -> str:
         serve_dashboard.ARGS = saved
 
 
-SECTIONS = []
-
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", help="accepted for suite symmetry, unused")
     parser.parse_args()
-    for section in SECTIONS or (migration_checks, layout_checks, agreement_checks,
-                                scorer_checks, copy_checks, copy_busy_checks,
-                                rescore_checks, rescore_guard_checks, history_checks,
-                                stale_checks, word_checks, route_checks,
-                                applied_checks, page_checks, master_page_checks,
-                                editor_script_checks):
+    for section in (migration_checks, layout_checks, agreement_checks,
+                    scorer_checks, copy_checks, copy_busy_checks,
+                    rescore_checks, rescore_guard_checks, history_checks,
+                    stale_checks, word_checks, route_checks, applied_checks,
+                    page_checks, master_page_checks, editor_script_checks,
+                    static_checks, box_query_checks, docs_checks):
         # One section that raises is one FAIL that names it. The sections
         # after it still run, so a mistake in the first does not hide the rest.
         try:

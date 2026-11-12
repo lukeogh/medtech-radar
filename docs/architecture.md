@@ -108,13 +108,17 @@ stamp or clear `acknowledged_at` on one opportunity row. Applied and its
 undo (POST /apply and /unapply) mark a role applied for, see "Roles applied
 for" below. Prepare application (POST /prepare, behind a read-only page at
 GET /prepare/<id>) fetches an advert's full description and scores the role
-against it, see "Prepare application" below. The /cv page
-accepts a CV as md, txt, docx or pdf, extracts it to markdown, shows the
-extracted text, and on an explicit confirm saves it as a dated version
-under `config/profile/` with the `cv.active` marker pointing at it. Every
-accepted version stays, history is append-only. A capped stale re-score
-button re-scores up to 25 unacknowledged rows against the active CV after
-a change, behind a confirm, spending real tokens.
+against it, see "Prepare application" below. The same page holds the role's
+tailored CV, with four writes of its own (POST /prepare/cv/open, save, reset
+and rescore) and a read-only Word download, see "The CV page and the tailored
+CV" below. The /cv page holds the master CV in an editor, and saving it there
+(POST /cv/master/save) writes a new dated version under `config/profile/`
+with the `cv.active` marker pointing at it. Its one-off import accepts a CV as
+md, txt, docx or pdf, extracts it to markdown, shows the extracted text, and
+on an explicit confirm saves it as a version the same way. Every accepted
+version stays, history is append-only. A capped stale re-score button
+re-scores up to 25 unacknowledged rows against the active CV after a change,
+behind a confirm, spending real tokens.
 
 Bind address and port come from `dashboard_host` and `dashboard_port` in
 radar.yaml, 127.0.0.1 by default, `--host` and `--port` override. The
@@ -599,11 +603,11 @@ is held is for the same role, description, prompt and CV, so a changed CV or a
 changed description asks again, and a restart of the dashboard forgets it.
 
 What it leaves alone. The Rescore button on the CV page, `/cv/rescore` and
-`rescore.py`, are not changed. They share `score_opportunity` and the history
-writers with this feature, whose default paths are unchanged. A role scored on its
-full description stays eligible for a card re-score if it still carries a legacy
-`combined` score, which that button selects on, and the button would replace the
-spec score with a card one, keeping the old one in the history.
+`rescore.py`, share `score_opportunity` and the history writers with this
+feature, whose default paths are unchanged. Since the CV page brief, Re-score
+stale items picks and counts no role scored on its full description, and every
+pass in `rescore.py` looks again under the write lock, so a card score never
+replaces a spec score that arrived while it was being made.
 
 This is a second first-open event, like the ones above it. The first open of a
 database that lacks the six columns adds them, which needs the write lock for a
@@ -623,6 +627,111 @@ CV page's re-score button does, and a route to linkedin.com, which nothing else 
 dashboard runs needs. Rolling back is code only. The columns stay and old code
 ignores them, a spec score on a row reads fine, and a full description that was
 stored stays. `test/run_prepare_test.py` checks all of it.
+
+## The CV page and the tailored CV
+
+The master CV lives in Radar as structured text, in `config/profile/` as it
+always has, and the scorer reads it there as it always has. The layout is
+`scripts/cv_doc.py`: a name on the first line as a level one heading, headline
+lines under it, then sections as level two headings, each with paragraph lines
+or `- ` bullets, then entries as level three headings with lines of their own.
+The four standard sections, Summary, Experience, Skills, and Education and
+certifications, are always in the editor, and an empty one puts no bare heading
+in the text. `render` turns the structure into text and `parse` turns the text
+back, so a CV the editor wrote reads back to the byte; `load_doc` reads any
+other text, a version imported from Word, the way a person would, by the usual
+words for the sections and the usual bullet marks.
+
+The line numbers agree everywhere. The text the editor produces is the text the
+scorer is given, so `cv_store.cv_lines` and `cv_store.numbered_cv` number the
+page, the scorer's view and the working the same way. The page draws the lines
+from the stored text, and its script (`scripts/cv_page.py`, `CV_MODEL_JS`)
+writes the layout again in JavaScript to number lines while they are typed; it
+checks its numbering of the CV it was given against the server's and refuses to
+edit if they differ. `test/run_cv_test.py` holds the two to the same answers on
+a corpus under node, and holds the page, the scorer's numbered view and a
+working's citations to each other.
+
+The CV page, GET /cv. The master in the editor, saved by Save as a new version
+(POST /cv/master/save), which writes a new dated `cv-<stamp>.md` with exclusive
+create and moves `cv.active` to it in one rename, so the scorer reads the old
+version or the new one and never an empty marker. Every save is a new version
+and none is overwritten; a save that changes nothing writes nothing; a save
+from a page opened on another version is refused. The upload is relabelled the
+one-off import from a Word file and works as it did. Re-score stale items
+leaves full description scores alone, see below.
+
+The tailored copy. One per role, in the table `tailored_cvs` (`schema.sql`),
+keyed on the role: `key:` and the role_key, so the adverts of a repost chain
+share it, or `id:` and the row for a row with no key. It is made from the
+master, laid out the editor's way, the first time the role's Prepare
+application page opens: the page reads only, and its script makes POST
+/prepare/cv/open, which costs nothing. The copy is edited on the left of the
+page; the role, the score, the asks and the description are on the right. On a
+narrow screen the two stack. Hovering an ask lights the CV lines it cites, and
+hovering a line lights the asks that cite it, from the cited lines the working
+stores; a cited line is found again in an edited copy by its words, without the
+mark a layout puts in front of it, and an ask that was met or partly is marked
+stale the moment a line it cited is gone. Start again from master (POST
+/prepare/cv/reset) puts the master back on the copy, and keeps the saved copy
+and the scores. The copy is capped at 20,000 characters, 400 lines and 1,000
+characters a line, and a CV with no name, or an entry with lines and no
+heading, is refused.
+
+Rescore role (POST /prepare/cv/rescore) stores the text on screen as the copy,
+then scores it against the stored description through `prepare_application._score`,
+the same code as the Prepare application click: one call at `SPEC_MAX_TOKENS`
+with no retry, the same failure windows (an unusable reply five minutes, a call
+that raised twenty seconds), the same parking of a paid-for reply for half an
+hour when the database is busy, the same 90 second wait for the write lock, and
+a lock per role in the process, so a double click and a storm pay once. The
+scorer is given `score_item.build_scorer_system` with the copy's text in place
+of the master's and nothing else changed; the prompt is not changed. A pair of
+description and copy is scored once, by `description_version` and
+`cv_store.cv_hash` (the hash of the copy as numbered): a pair scored before, on
+the copy, in the history, or as the master itself (whose working records its
+`cv_hash`), is shown again and nothing is spent.
+
+Where the tailored score goes. It belongs to the copy: it is stored on the copy
+as JSON (`tailored_cvs.score`) with the score it replaced and the asks that
+changed, and in `score_history` as a row with event `tailored`, writer
+`prepare`, and the copy's hash in the new nullable column `cv_hash`. It is
+never written to the role, because the Jobs page shows the role's score and that
+must stay the master CV's. `archive_score` compares a role's score with the
+role's last history row that is not tailored, so a tailored row never makes it
+keep a score twice. Its cost is a `runs` row under `prepare`, naming the copy.
+
+Save CV (POST /prepare/cv/save) stores the copy on screen as the saved copy,
+named `CV - Luke Keogh - <Company> - <Job title>`, or `CV - Luke Keogh - <Job
+title>` where the company is not known, made safe for a file name. A save
+replaces the save before for that role, and only a save does. Download (GET
+/prepare/<id>/cv.docx) builds a Word file from the saved copy with python-docx
+(`scripts/cv_word.py`) from one fixed template: one column, no tables, text
+boxes, images, fields, header or footer, one plain font in black on A4, the name
+as Heading 1, sections as Heading 2, entries as Heading 3 and bullets as real
+List Bullet paragraphs with their numbering on the paragraph. The route reads
+only, is behind the same Host check as every page, and names the file by the
+saved copy. Applied records the saved copy's name in `applied_cv`, in the same
+statement that stamps the role, and records none where no copy was saved. Undo
+is as it was.
+
+Nothing here touches an applied role, or one acknowledged, closed, dismissed or
+expired: no copy is made, nothing is saved, reset or scored, every write looks
+again under the write lock, and the page shows the copy that was saved for an
+applied role, as it was sent, read only, with Download.
+
+python-docx is in `requirements.txt` on the 1.2 line. Only the dashboard
+imports it, inside the download, so a dashboard without it serves every page and
+answers the download with a 503 that says so, and n8n's Python never needs it.
+The dashboard container installs `requirements.txt` when it starts.
+
+This is a third first-open event: the first open of a database without them adds
+the table and `score_history.cv_hash`, which takes the write lock for a moment.
+Open the database by hand between inbox runs, as Brief 3's deploy does, before
+`docker restart medtech-radar`. Rolling back is code only; the table and the
+column stay and old code ignores them, though old code's Re-score stale items
+would again reach spec rows. `test/run_cv_test.py` checks all of it, and
+`docs/box-checks-brief-4.md` holds the deploy.
 
 ## The renderer, and the one page to trust
 
