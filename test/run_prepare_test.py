@@ -1532,13 +1532,32 @@ def busy_database_checks() -> None:
     saved = prep.WRITE_WAIT_SECONDS
     prep.WRITE_WAIT_SECONDS = 0.3
     try:
+        # The wait is the one this module sets. The connection's own is five
+        # seconds, and a write that kept that for itself would give up late and
+        # still pass every check below, only five seconds slower.
+        with fresh() as env:
+            conn = radar_common.get_db(env.db)
+            try:
+                prep.WRITE_WAIT_SECONDS = 7.0
+                got = prep._begin_write(conn)
+                waits = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+                conn.rollback()
+            finally:
+                prep.WRITE_WAIT_SECONDS = 0.3
+                conn.close()
+            check(got is True and waits == 7000,
+                  "a write waits for the lock for the time this module sets, not "
+                  f"the connection's own five seconds ({waits} ms)")
+
         # The reply is paid for, then the database stays busy: it is held, and
         # the next click stores it without a second call.
         with fresh() as env:
             oid = env.role()
             lock = WriteLock(env)
             MODEL["hook"] = lambda c: lock.take()
+            started = time.monotonic()
             out = env.prepare(oid)
+            took = time.monotonic() - started
             row = env.row(oid)
             check(out["outcome"] == "score_held" and out["called"] and not out["scored"]
                   and len(CALLS) == 1 and row["score_basis"] == "card"
@@ -1547,6 +1566,9 @@ def busy_database_checks() -> None:
                   and out["notices"][0]["retry"] is True,
                   "the reply is paid for and the database stays busy: nothing is "
                   "stored, the click says the score is held, and offers Try again")
+            check(took < 3.0,
+                  "and it gives up after the wait it was given and not the "
+                  f"connection's five seconds ({took:.2f} s)")
             lock.release()
             MODEL["hook"] = None
             out = env.prepare(oid)
