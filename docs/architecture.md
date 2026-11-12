@@ -529,11 +529,13 @@ reports the asks that are unevidenced.
 
 The ceiling. `MAX_TOKENS` is still 1,024 for the extractor and for a card, whose
 replies run 160 to 360 tokens. A full description's call uses `SPEC_MAX_TOKENS`,
-4,096, which is about twice the largest reply the prompt allows. What is billed is
-what the model writes, about 540 tokens more than a card for a typical twelve
-asks, and a reply that ran out of the ceiling is thrown away after being paid for,
-so the margin is the cheap part. `test/run_prepare_test.py` builds the largest
-reply and holds the ceiling to it.
+4,096. The largest reply the prompt allows is 8,220 characters, about 2,050 tokens
+at four characters a token and 2,740 at a pessimistic three, so the ceiling is
+between one and a half and two times that. What is billed is what the model
+writes, about 540 tokens more than a card for a typical twelve asks, and a reply
+that ran out of the ceiling is thrown away after being paid for, so the margin is
+the cheap part. `test/run_prepare_test.py` builds the largest reply and holds the
+ceiling to it.
 
 The pay. The scorer is asked for the shortest stretch of the description that
 states pay. The code shows it only if it is found in the description, without
