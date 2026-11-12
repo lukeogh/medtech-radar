@@ -104,7 +104,9 @@ write access to `db/` and to `config/profile/`, where before it could run
 read-only.
 
 The writes it takes. Acknowledge and its undo (POST /ack and /unack)
-stamp or clear `acknowledged_at` on one opportunity row. The /cv page
+stamp or clear `acknowledged_at` on one opportunity row. Applied and its
+undo (POST /apply and /unapply) mark a role applied for, see "Roles applied
+for" below. The /cv page
 accepts a CV as md, txt, docx or pdf, extracts it to markdown, shows the
 extracted text, and on an explicit confirm saves it as a dated version
 under `config/profile/` with the `cv.active` marker pointing at it. Every
@@ -339,6 +341,92 @@ with `database is locked`. Open it between runs. A dry run of
 its `tier_moves_total` is the check that the thresholds moved nothing.
 `test/run_record_test.py` checks the record, the history, the thresholds, the
 cut off replies and the migration on a copy of a database in the old shape.
+
+## Roles applied for
+
+The Applied button in an expanded Jobs row says "I applied for this". It
+stamps `applied_at` with the moment, and `applied_cv` with the saved CV
+reference, on the one row it was pressed on, and from then on the whole role
+counts as applied. A role is a repost chain, every row sharing a `role_key`, and
+a repost arrives as a new row with every stamp empty, so a stamp copied onto the
+rows that exist would never reach it. Nothing is copied. The rule is worked out
+each time a query runs: `radar_common.APPLIED_SQL` is true for a row that carries
+`applied_at`, or whose `role_key` belongs to a row that does, and a row with no
+`role_key` stands alone. Every statement that picks open rows, or changes one,
+adds `NOT_APPLIED_SQL`, so a repost of an applied role is applied the moment it
+is stored and never reaches the open tiers as new. Undo clears every stamp in
+the chain, and the role is back in the tiers with the tier it left them with.
+
+The marker is two nullable columns that arrive through `_MIGRATIONS`, not a
+status. The status check (new, digested, actioned, dead) cannot take a new word
+without rebuilding the table. `applied_cv` is empty until a CV page hands a
+reference to POST /apply, which takes an optional `cv`, one printable line of at
+most 200 characters. Nothing displays it yet.
+
+What leaves an applied role alone, and so keeps its tier as it was on the day:
+the forty-five day expiry, the page checker's selection, its close and its
+`--id` spot check, `regate_rates.py`, the three re-score selections and their
+remaining counts, the pay backfill, the digest's five selections, and
+`touch.py mark`. Acknowledge, Closed and Dismiss answer that the role is marked
+applied, undo that first, so a page left open from before changes nothing. The
+Jobs and Home pages build their open lists without it, so the tiers, the Home
+counts, the prospect trend and the ageing never see one. Two things still count
+its rows, because they count mail and not work: the flow chart of arrivals and
+the board freshness lights. A board's light says whether its email arrives, and
+mail about a role already applied for is still mail. The Applied section,
+folded below the open tiers on the Jobs page and there at zero too, lists one
+entry per role, newest application first, with the company, the title, the day
+applied and the days since, the source, a link to the advert and an Undo. Undo
+asks first, because it throws the day away.
+
+A click can land at any moment, and the model calls and page fetches are long
+enough for one to land in the middle of a pass. Every writer that reads, decides
+and then writes closes that gap one of two ways, and a click that arrives while
+it works waits for its commit. Either the statement that writes carries the
+condition, as the expiry, the page checker's stamp and close, the pay backfill,
+touch and the three buttons do, or the writer takes the write lock
+(`radar_common.begin_write`) and looks at the marker again under it, as the
+regate, the re-score and the page checker's page-read write do. The page checker
+and the re-score also look before they spend a fetch or a model call, to save
+the work, and the pay backfill counts a row as banded only if its statement
+changed one.
+
+Three limits. A repost under another title or another spelling of the company has
+another `role_key` and is another role, as it is for Acknowledge and Closed, and
+by the same rule a new requisition with the same title at the same company reads
+as a repost until Undo. Undo puts a role back with its original dates, so an
+application undone after more than forty-five quiet days is retired by the next
+live expiry pass, as it would have been without the application. And rolling the
+code back does not roll the marker back. The columns and every stamp stay in the
+file and the old code ignores them, so on old code an applied role is back in the
+tiers and the digest, accepts Closed and Dismiss, and, once the page check is
+armed live (the repo's workflow runs it with `--dry-run`), is expired after
+forty-five quiet days, closed on a closed page and re-tiered, and the re-score
+spends tokens on it. Roll forward again and the stamps are still there, but an
+expired role has no Undo. Restoring the pre-deploy backup is the wrong rollback,
+because it loses every stamp made since. Run no `rescore.py`, no
+`regate_rates.py --write` and no `check_jobs.py --live` on old code in the
+meantime.
+
+This is a second first-open event, like the one above it. The first open of a
+database that lacks the two columns adds them, which needs the write lock for a
+moment, and the inbox run holds that lock for the whole of an email. A restart of
+the dashboard that lands in the middle of one waits five seconds, then exits
+with `database is locked`. Open the database by hand between runs, as the user
+that owns it and from the repository root, before the restart:
+
+```bash
+python -c "import sys; sys.path.insert(0, 'scripts'); import radar_common; radar_common.get_db().close(); print('opened')"
+```
+
+The open changes nothing else, and a second open takes no lock at all.
+
+`test/run_applied_test.py` checks all of it, including a scan of the syntax of
+every script that fails when a statement picks open rows by a lifecycle stamp,
+or updates or deletes rows of the opportunities table, and neither carries the
+condition nor is named, with a reason, in its list of exceptions. It reads the
+strings that name the table, so a statement put together out of variables is
+beyond it.
 
 ## The renderer, and the one page to trust
 

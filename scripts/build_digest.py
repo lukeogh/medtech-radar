@@ -173,11 +173,15 @@ def collect(conn, config: dict) -> dict:
     # Phase three. Tiers, not a combined bar. digest_min_want retired with
     # the additive score it was a second bar on top of.
 
+    # A role marked applied is in none of these. A repost of one arrives as
+    # a new row with status new and would otherwise head the next digest as
+    # a fresh prospect, so every selection of open rows below leaves it out.
     inbound = [dict(r) for r in conn.execute(
         "SELECT * FROM opportunities WHERE status = 'new' AND first_seen > ?"
         " AND tier IN ('top','question') AND thread_type = 'inbound'"
         " AND acknowledged_at IS NULL"
         " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
+        " AND " + radar_common.NOT_APPLIED_SQL +
         " ORDER BY CASE tier WHEN 'top' THEN 0 ELSE 1 END, cv_match DESC",
         (last_ts,))]
     opp_signals = [dict(r) for r in conn.execute(
@@ -185,12 +189,14 @@ def collect(conn, config: dict) -> dict:
         " AND tier IN ('top','question') AND thread_type = 'signal'"
         " AND acknowledged_at IS NULL"
         " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
+        " AND " + radar_common.NOT_APPLIED_SQL +
         " ORDER BY CASE tier WHEN 'top' THEN 0 ELSE 1 END, cv_match DESC",
         (last_ts,))]
     reading_count = conn.execute(
         "SELECT COUNT(*) n FROM opportunities WHERE status = 'new'"
         " AND first_seen > ? AND tier = 'reading' AND acknowledged_at IS NULL"
-        " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL",
+        " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
+        " AND " + radar_common.NOT_APPLIED_SQL,
         (last_ts,)).fetchone()["n"]
     table_signals = [dict(r) for r in conn.execute(
         "SELECT * FROM signals WHERE status = 'new' AND first_seen > ?"
@@ -213,6 +219,7 @@ def collect(conn, config: dict) -> dict:
     for row in conn.execute(
             "SELECT * FROM opportunities WHERE acknowledged_at IS NULL"
             " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
+            " AND " + radar_common.NOT_APPLIED_SQL +
             " AND COALESCE(tier, '') <> 'filtered'"
             " AND first_seen <= ?"
             " ORDER BY first_seen", (age_cutoff,)):
@@ -240,6 +247,7 @@ def collect(conn, config: dict) -> dict:
             " WHERE tier IS NULL AND status = 'new' AND first_seen > ?"
             " AND acknowledged_at IS NULL"
             " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
+            " AND " + radar_common.NOT_APPLIED_SQL +
             " ORDER BY first_seen", (last_ts,))
     ] + [
         {"label": r["headline"] or "Signal", "company": r["company"] or "",

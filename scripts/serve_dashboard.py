@@ -15,8 +15,9 @@ so Check now covers the watchlist and the database re-render covers the
 rest.
 
 Since the 29 July brief this server is also the write path for human
-actions. Acknowledge and its undo land on POST /ack and /unack, and the
-CV update section lives at /cv. Page renders stay read only, the same
+actions. Acknowledge and its undo land on POST /ack and /unack, Applied
+and its undo on POST /apply and /unapply, and the CV update section
+lives at /cv. Page renders stay read only, the same
 guarantee as build_dashboard.py. Writes open their own short-lived
 connection through radar_common.get_db, which also applies migrations.
 
@@ -277,6 +278,9 @@ def set_acknowledged(item_id: int, on: bool) -> dict:
     role_key, or the next-freshest sibling would stand straight back
     up as the role. A row without a key stands alone, the NULL never
     matches the scope clause.
+
+    A role marked applied is not acknowledged. It is out of the open views
+    already, and its Undo is the way back.
     """
     try:
         conn = radar_common.get_db(db_path())
@@ -295,7 +299,7 @@ def set_acknowledged(item_id: int, on: bool) -> dict:
                 "UPDATE opportunities SET acknowledged_at = ?"
                 " WHERE" + scope + " AND acknowledged_at IS NULL"
                 " AND closed_at IS NULL AND dismissed_at IS NULL"
-                " AND expired_at IS NULL",
+                " AND expired_at IS NULL AND " + radar_common.NOT_APPLIED_SQL,
                 (radar_common.now_iso(), item_id, key))
         else:
             cur = conn.execute(
@@ -308,15 +312,28 @@ def set_acknowledged(item_id: int, on: bool) -> dict:
                 (radar_common.now_iso(), item_id, key))
         conn.commit()
         if cur.rowcount == 0:
-            return {"ok": False,
-                    "note": f"no opportunity {item_id} in the state that "
-                            "action expects, maybe already handled"}
+            return _refused(conn, item_id, applied_matters=on)
         return {"ok": True, "id": item_id,
                 "acknowledged": bool(on)}
     except sqlite3.OperationalError as err:
         return {"ok": False, "note": f"database busy, try again. {err}"}
     finally:
         conn.close()
+
+
+def _refused(conn, item_id: int, applied_matters: bool = False) -> dict:
+    """The reply when an UPDATE found nothing in the state it expects.
+
+    A role marked applied is named as such, because the usual cause is a
+    page left open from before the Applied button was pressed, and "maybe
+    already handled" would send the reader looking in the wrong place.
+    """
+    if applied_matters and radar_common.role_is_applied(conn, item_id):
+        return {"ok": False,
+                "note": "that role is marked applied, undo that first"}
+    return {"ok": False,
+            "note": f"no opportunity {item_id} in the state that "
+                    "action expects, maybe already handled"}
 
 
 def set_lifecycle(item_id: int, action: str) -> dict:
@@ -334,17 +351,23 @@ def set_lifecycle(item_id: int, action: str) -> dict:
     the same stamp, and the undo lifts it from all of them. Only the
     checker's page_check close stays per advert, because a closed
     advert is not a closed role.
+
+    A role marked applied can be neither closed nor dismissed. It is out
+    of the open views already, and Undo on the Applied list is the way
+    back to a role these verdicts can reach.
     """
     scope = " (id = ? OR (role_key IS NOT NULL AND role_key = ?))"
     statements = {
         "close": ("UPDATE opportunities SET closed_at = ?,"
                   " closed_source = 'manual'"
-                  " WHERE" + scope + " AND closed_at IS NULL", True),
+                  " WHERE" + scope + " AND closed_at IS NULL"
+                  " AND " + radar_common.NOT_APPLIED_SQL, True),
         "unclose": ("UPDATE opportunities SET closed_at = NULL,"
                     " closed_source = NULL"
                     " WHERE" + scope + " AND closed_at IS NOT NULL", False),
         "dismiss": ("UPDATE opportunities SET dismissed_at = ?"
-                    " WHERE" + scope + " AND dismissed_at IS NULL", True),
+                    " WHERE" + scope + " AND dismissed_at IS NULL"
+                    " AND " + radar_common.NOT_APPLIED_SQL, True),
         "undismiss": ("UPDATE opportunities SET dismissed_at = NULL"
                       " WHERE" + scope + " AND dismissed_at IS NOT NULL",
                       False),
@@ -368,10 +391,88 @@ def set_lifecycle(item_id: int, action: str) -> dict:
         cur = conn.execute(sql, params)
         conn.commit()
         if cur.rowcount == 0:
-            return {"ok": False,
-                    "note": f"no opportunity {item_id} in the state that "
-                            "action expects, maybe already handled"}
+            return _refused(conn, item_id,
+                            applied_matters=action in ("close", "dismiss"))
         return {"ok": True, "id": item_id, "action": action}
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    finally:
+        conn.close()
+
+
+CV_REFERENCE_MAX = 200
+
+
+def clean_cv_reference(value) -> str | None:
+    """The saved CV reference a request names, or None for no reference.
+
+    The column is free text until a CV page says what a reference looks
+    like, so this only keeps junk out: a string, printable, one line, short.
+    An empty string means no reference. Anything else raises ValueError, and
+    the route turns that into a 400 before the database is opened. What it
+    returns is still untrusted, whoever reads it back must escape it and must
+    not treat it as a path.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("cv must be text")
+    text = value.strip()
+    if not text:
+        return None
+    if len(text) > CV_REFERENCE_MAX or not text.isprintable():
+        raise ValueError(f"cv must be one printable line of at most "
+                         f"{CV_REFERENCE_MAX} characters")
+    return text
+
+
+def set_applied(item_id: int, on: bool, cv: str | None = None) -> dict:
+    """Mark a role applied for, or undo it. One row takes the stamp.
+
+    The stamp is the moment of the click and the saved CV reference, on the
+    row the button was on, and from then on the whole repost chain counts
+    as applied (radar_common.APPLIED_SQL), a repost that has not arrived
+    yet included. Nothing is copied onto the other rows. That is why Undo
+    is one clean step: it clears every stamp in the chain, and the role is
+    back in the open tiers with the tier it left them with, because
+    nothing that works on open rows has touched it since.
+
+    Only an open role can be applied for. A row a human has acknowledged,
+    closed or dismissed, or that the forty-five day rule has retired, is
+    refused, and so is a role already applied, because a page left open
+    from before can send any of them. Same writable-connection manners as
+    set_acknowledged.
+    """
+    try:
+        conn = radar_common.get_db(db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    try:
+        target = conn.execute(
+            "SELECT role_key FROM opportunities WHERE id = ?",
+            (item_id,)).fetchone()
+        if target is None:
+            return {"ok": False, "note": f"no opportunity {item_id}"}
+        if on:
+            if radar_common.role_is_applied(conn, item_id):
+                return {"ok": False,
+                        "note": "that role is already marked applied"}
+            cur = conn.execute(
+                "UPDATE opportunities SET applied_at = ?, applied_cv = ?"
+                " WHERE id = ? AND acknowledged_at IS NULL"
+                " AND closed_at IS NULL AND dismissed_at IS NULL"
+                " AND expired_at IS NULL AND " + radar_common.NOT_APPLIED_SQL,
+                (radar_common.now_iso(), cv, item_id))
+        else:
+            cur = conn.execute(
+                "UPDATE opportunities SET applied_at = NULL, applied_cv = NULL"
+                " WHERE (id = ? OR (role_key IS NOT NULL AND role_key = ?))"
+                " AND applied_at IS NOT NULL",
+                (item_id, target["role_key"]))
+        conn.commit()
+        if cur.rowcount == 0:
+            return _refused(conn, item_id)
+        return {"ok": True, "id": item_id, "applied": bool(on)}
     except sqlite3.OperationalError as err:
         return {"ok": False, "note": f"database busy, try again. {err}"}
     finally:
@@ -1107,6 +1208,29 @@ class Handler(BaseHTTPRequestHandler):
                            "application/json")
                 return
             result = set_lifecycle(item_id, path[1:])
+            self._send(200 if result["ok"] else 409,
+                       json.dumps(result).encode(), "application/json")
+            return
+        if path in ("/apply", "/unapply"):
+            body = self._read_json_body()
+            item_id = body.get("id") if isinstance(body, dict) else None
+            # Integers only, for the same bool-subclass reason as /ack, and
+            # inside what SQLite can hold, so that an absurd id is a clear
+            # 400 and not an OverflowError in the log.
+            if (not isinstance(item_id, int) or isinstance(item_id, bool)
+                    or not -2 ** 63 <= item_id < 2 ** 63):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            try:
+                cv = (clean_cv_reference(body.get("cv"))
+                      if path == "/apply" else None)
+            except ValueError as err:
+                self._send(400, json.dumps(
+                    {"ok": False, "note": str(err)}).encode(),
+                    "application/json")
+                return
+            result = set_applied(item_id, path == "/apply", cv)
             self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
             return

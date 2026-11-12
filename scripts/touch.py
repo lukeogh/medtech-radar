@@ -211,8 +211,16 @@ def cmd_mark(args, conn) -> int:
                 changed.append(f"opportunity {r['id']}. {r['company']}. "
                                f"{r['title']}. Already acknowledged.")
                 continue
+            if radar_common.role_is_applied(conn, r["id"]):
+                # Applied for, so already out of the open views. Marking it
+                # seen would hide it from the open tiers if the application
+                # were ever undone.
+                changed.append(f"opportunity {r['id']}. {r['company']}. "
+                               f"{r['title']}. Marked applied, left alone.")
+                continue
             conn.execute("UPDATE opportunities SET acknowledged_at = ?"
-                         " WHERE id = ?", (now, r["id"]))
+                         " WHERE id = ? AND "
+                         + radar_common.NOT_APPLIED_SQL, (now, r["id"]))
             changed.append(f"opportunity {r['id']}. {r['company']}. "
                            f"{r['title']}. Acknowledged, out of sight, "
                            "still deduped.")

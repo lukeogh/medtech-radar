@@ -90,6 +90,7 @@ def main(argv=None) -> int:
         "SELECT id, title, company, salary_rate FROM opportunities"
         " WHERE rate_band IS NULL AND acknowledged_at IS NULL"
         " AND status NOT IN ('actioned','dead')"
+        " AND " + radar_common.NOT_APPLIED_SQL +
         " ORDER BY first_seen DESC LIMIT ?", (args.cap,)).fetchall()
 
     prompt = (radar_common.REPO_ROOT / "prompts" / "pay-extractor.md"
@@ -118,15 +119,19 @@ def main(argv=None) -> int:
                 continue
 
         pay = process_email.pay_columns(parsed, config, floors)
-        conn.execute(
+        # Its own condition, because the model call above is long enough for
+        # a role to be applied for after the rows were chosen.
+        cur = conn.execute(
             "UPDATE opportunities SET pay_currency = ?, pay_period = ?,"
             " pay_min = ?, pay_max = ?, day_rate = ?, rate_band = ?"
-            " WHERE id = ?",
+            " WHERE id = ? AND " + radar_common.NOT_APPLIED_SQL,
             (pay["pay_currency"], pay["pay_period"], pay["pay_min"],
              pay["pay_max"], pay["day_rate"], pay["rate_band"], row["id"]))
         # Commit per row, never holding the write lock across the next
         # model call. The other writers share this file on a schedule.
         conn.commit()
+        if not cur.rowcount:
+            continue        # applied for since the rows were chosen, not counted
         if pay["rate_band"] == "unstated":
             unstated += 1
         else:
@@ -141,6 +146,7 @@ def main(argv=None) -> int:
     remaining = conn.execute(
         "SELECT COUNT(*) FROM opportunities WHERE rate_band IS NULL"
         " AND acknowledged_at IS NULL AND status NOT IN ('actioned','dead')"
+        " AND " + radar_common.NOT_APPLIED_SQL
     ).fetchone()[0]
     conn.close()
 

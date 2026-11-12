@@ -9,6 +9,8 @@ has its tier derived again, because the converted-salary exception that
 kept salary fails out of One question away is gone.
 
 Open means not closed, dismissed or expired. Acknowledged rows are open.
+A role marked applied is left alone as well: its tier stays what it was on
+the day it was applied for, whatever the floors say now.
 Rows with no tier were never gated and are left for rescore.py.
 
   python scripts/regate_rates.py            dry run, counts and a sample
@@ -94,10 +96,16 @@ def judge_row(row: dict, floors: dict, config: dict | None = None,
 def regate(conn, config: dict, floors: dict, write: bool = False,
            thresholds: dict | None = None) -> dict:
     thresholds = thresholds or rc.read_score_thresholds(config)
+    if write:
+        # The write lock before the rows are chosen. Between choosing a row
+        # and writing it a role could be applied for, and an applied role
+        # keeps the tier it was applied with. A dry run takes no lock.
+        rc.begin_write(conn)
     rows = conn.execute(
         "SELECT * FROM opportunities WHERE tier IS NOT NULL"
         " AND closed_at IS NULL AND dismissed_at IS NULL"
-        " AND expired_at IS NULL ORDER BY id").fetchall()
+        " AND expired_at IS NULL AND " + rc.NOT_APPLIED_SQL +
+        " ORDER BY id").fetchall()
     moves: dict[str, int] = {}
     gate_flips = {"pass to fail": 0, "fail to pass": 0}
     judged = 0
@@ -148,6 +156,8 @@ def regate(conn, config: dict, floors: dict, write: bool = False,
                    note=f"floors day {floors['day']:g} salary {floors['salary']:g}, "
                         + (", ".join(f"{n} {k}" for k, n in sorted(moves.items()))
                            or "no tier moved"))
+    elif write:
+        conn.rollback()        # nothing to write, so let the lock go
     return {"mode": "write" if write else "dry-run",
             "floors": floors, "thresholds": thresholds,
             "prompt_version": rc.prompt_version(),
