@@ -221,6 +221,8 @@ def _mock_asks(description: str) -> list[dict]:
 def _mock_rate_quote(description: str) -> str:
     """The first stretch of the description that states pay, as written."""
     text = description or ""
+    if "RADAR-NOQUOTE" in text:
+        return ""                      # says there is no pay, whatever is there
     if "RADAR-BADQUOTE" in text:
         return "£999 per day"          # not in the description on purpose
     if "RADAR-LONGQUOTE" in text:

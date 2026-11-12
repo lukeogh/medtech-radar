@@ -3424,6 +3424,14 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
     description = (row.get("description_text") or "").strip()
     working = prep.load_working(row)
     on_description = prep.scored_on_description(row)
+    # The asks and the pay quote were read off the description the score was
+    # made on. If the stored description has changed since, a page checker
+    # having stored a new one, they are not drawn beside text that may not
+    # hold them, and the role reads as one that wants scoring again.
+    stale = False
+    if not on_description:
+        stale = bool(description) and working is not None
+        working = None
     out: list[str] = []
 
     if running:
@@ -3492,18 +3500,20 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
             f'by {esc(row.get("score_model") or "an unknown model")}, prompt '
             f'{esc(row.get("prompt_version") or "unknown")}, CV '
             f'{esc(row.get("cv_version") or "unknown")}.</p>')
-        stale = []
+        # What has moved on since this score, apart from the description,
+        # which is the same one. Not the same thing as stale above.
+        moved_on = []
         try:
             if row.get("prompt_version") != radar_common.prompt_version():
-                stale.append("the prompt has changed since")
+                moved_on.append("the prompt has changed since")
             import score_item
             if row.get("cv_version") != score_item.get_cv_version(config):
-                stale.append("the CV has changed since")
+                moved_on.append("the CV has changed since")
         except Exception:  # noqa: BLE001  a missing file is not a failed page
-            stale = []
-        if stale:
+            moved_on = []
+        if moved_on:
             score.append('<p class="row-sub">This score is shown as it was '
-                         'made: ' + esc(" and ".join(stale)) + '. A '
+                         'made: ' + esc(" and ".join(moved_on)) + '. A '
                          'description that has been scored is not scored '
                          'again from this page.</p>')
     elif basis:
@@ -3538,7 +3548,15 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
     pay = []
     if working is not None:
         quote, source = working.get("rate_quote"), working.get("rate_quote_from")
-        if quote:
+        if quote and source == "disagrees":
+            pay.append('<p class="detail-body">The scorer reported no pay, but '
+                       'the description has wording that may be pay:</p>')
+            pay.append(f'<p class="prep-quote">&ldquo;{esc(quote)}&rdquo;</p>')
+            pay.append('<p class="row-sub">Found by pattern matching, not by '
+                       'the scorer, and it may not be pay: a bonus or a '
+                       'budget reads the same. Check it against the '
+                       'description below.</p>')
+        elif quote:
             pay.append(f'<p class="prep-quote">&ldquo;{esc(quote)}&rdquo;</p>')
             if source == "pattern":
                 pay.append('<p class="row-sub">Found by pattern matching, '
@@ -3551,6 +3569,11 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
         else:
             pay.append('<p class="detail-body">The full description names no '
                        'pay.</p>')
+    elif stale:
+        pay.append('<p class="detail-body">The stored description has changed '
+                   'since this role was scored, so the pay quoted from the '
+                   'earlier one is not shown. Score it again to read the '
+                   'new one.</p>')
     elif not description:
         pay.append('<p class="detail-body">Not read. There is no full '
                    'description stored, so there is nothing to quote.</p>')
@@ -3585,6 +3608,11 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
         else:
             asks_html.append('<p class="detail-body">The scorer found no '
                              'asks in this advert.</p>')
+    elif stale:
+        asks_html.append('<p class="detail-body">The stored description has '
+                         'changed since this role was scored, so the asks '
+                         'listed from the earlier one are not shown. Score it '
+                         'again to read the new ones.</p>')
     elif not description:
         asks_html.append('<p class="detail-body">No per-ask working. It is '
                          'read from the full description, and none is '

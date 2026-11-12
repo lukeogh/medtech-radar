@@ -1138,7 +1138,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, b"Role ids are numbers.",
                            "text/plain; charset=utf-8")
                 return
-            go = "1" in parse_qs(urlsplit(self.path).query).get("go", [])
+            # The click's address starts the work only when the browser says it
+            # came from this site, which is what following the Jobs link is. A
+            # link on another site, a typed address, a bookmark and a browser
+            # that sends no such header all get the page and a button instead,
+            # because a GET that spends money must not be one that any other
+            # page could send the browser to.
+            go = ("1" in parse_qs(urlsplit(self.path).query).get("go", [])
+                  and (self.headers.get("Sec-Fetch-Site") or "").strip().lower()
+                  == "same-origin")
             try:
                 page = render_prepare(int(raw), go)
             except Exception as err:  # noqa: BLE001

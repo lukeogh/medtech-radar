@@ -721,7 +721,7 @@ SCORE_WRITERS = {
     ("scripts/rescore.py", "_rescore_rows"),
     ("scripts/regate_rates.py", "regate"),
     ("scripts/check_jobs.py", "apply_page"),
-    ("scripts/prepare_application.py", "_score"),    # a score against the full description
+    ("scripts/prepare_application.py", "_store_score"),  # a score against the full description
 }
 OTHER_WRITERS = {
     ("scripts/backfill_pay.py", "main"),             # pay columns, filled once
@@ -730,7 +730,7 @@ OTHER_WRITERS = {
     ("scripts/check_jobs.py", "run_checks"),         # last_checked_at, closed_at
     ("scripts/engagement.py", "backfill"),           # the badge, empty cells only
     ("scripts/enrich_company.py", "enrich_company"), # region
-    ("scripts/prepare_application.py", "_fetch_and_store"),  # description_text only
+    ("scripts/prepare_application.py", "_store_description"),  # description_text only
     ("scripts/process_email.py", "main"),            # sightings and revival
     ("scripts/radar_common.py", "_migrate"),         # backfills and the labels
     ("scripts/radar_common.py", "recompute_regions"),
