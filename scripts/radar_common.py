@@ -213,6 +213,12 @@ _MIGRATIONS = (
     ("score_history", "description_hash", "TEXT"),
     ("score_history", "working", "TEXT"),
     ("score_history", "tier_from", "TEXT"),
+    # The tailored CV. A score of a role's tailored copy is kept in the
+    # history with event tailored, and cv_hash is the version of the copy it
+    # was made against (cv_store.cv_hash), so that one pair of description and
+    # copy is scored once. NULL on every other score. The copies themselves
+    # are the table tailored_cvs in schema.sql.
+    ("score_history", "cv_hash", "TEXT"),
 )
 
 # What the score record says about a row scored before the record existed.
@@ -802,13 +808,20 @@ def _held_score(conn: sqlite3.Connection, opportunity_id: int) -> dict | None:
 
 def _write_history(conn: sqlite3.Connection, opportunity_id: int, event: str,
                    writer: str, state: dict, now: str | None,
-                   tier_from: str | None = None) -> None:
+                   tier_from: str | None = None,
+                   cv_hash: str | None = None) -> None:
     conn.execute(
         "INSERT INTO score_history (opportunity_id, recorded_at, event, writer,"
-        " " + ", ".join(_HISTORY_FIELDS) + ", tier_from)"
-        " VALUES (?,?,?,?" + ",?" * len(_HISTORY_FIELDS) + ",?)",
+        " " + ", ".join(_HISTORY_FIELDS) + ", tier_from, cv_hash)"
+        " VALUES (?,?,?,?" + ",?" * len(_HISTORY_FIELDS) + ",?,?)",
         (opportunity_id, now or now_iso(), event, writer,
-         *(state[f] for f in _HISTORY_FIELDS), tier_from))
+         *(state[f] for f in _HISTORY_FIELDS), tier_from, cv_hash))
+
+
+# A score of a role's tailored CV. It is kept in the history beside the role's
+# own scores, and is never one of them: the row it names holds the master CV's
+# score, so archive_score never compares a tailored score with it.
+TAILORED_EVENT = "tailored"
 
 
 def archive_score(conn: sqlite3.Connection, opportunity_id: int, writer: str,
@@ -839,8 +852,9 @@ def archive_score(conn: sqlite3.Connection, opportunity_id: int, writer: str,
     cur.row_factory = None
     last = cur.execute(
         "SELECT " + ", ".join(_HISTORY_FIELDS) + " FROM score_history"
-        " WHERE opportunity_id = ? ORDER BY id DESC LIMIT 1",
-        (opportunity_id,)).fetchone()
+        " WHERE opportunity_id = ? AND event <> ?"
+        " ORDER BY id DESC LIMIT 1",
+        (opportunity_id, TAILORED_EVENT)).fetchone()
     if last is not None and last == tuple(state[f] for f in _HISTORY_FIELDS):
         return False
     _write_history(conn, opportunity_id, "replaced", writer, state, now)
@@ -864,6 +878,22 @@ def record_score(conn: sqlite3.Connection, opportunity_id: int, writer: str,
     _write_history(conn, opportunity_id, "scored", writer, state, now,
                    tier_from)
     return True
+
+
+def record_tailored_score(conn: sqlite3.Connection, opportunity_id: int,
+                          state: dict, cv_hash: str, writer: str = "prepare",
+                          now: str | None = None) -> None:
+    """Write a score of a role's tailored CV to the history, marked tailored.
+
+    state carries the twelve fields the history keeps, as _held_score gives
+    them for a role's own score, and cv_hash is the version of the copy the
+    score was made against. Nothing on the opportunities row is read or
+    written, because a tailored score is not the role's score. The caller
+    commits.
+    """
+    _write_history(conn, opportunity_id, TAILORED_EVENT, writer,
+                   {field: state.get(field) for field in _HISTORY_FIELDS},
+                   now, cv_hash=cv_hash)
 
 
 # ---------------------------------------------------------------- Claude API

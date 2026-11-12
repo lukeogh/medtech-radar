@@ -33,6 +33,17 @@ import score_item as scoring
 import check_signals
 
 
+# A score made against the role's full description. Nothing here makes one,
+# and nothing here replaces one: every pass below scores the advert card.
+NOT_SPEC_SQL = ("COALESCE(score_basis, '') <> '"
+                + radar_common.SCORE_BASIS_SPEC + "'")
+
+
+def _now_spec(conn, opportunity_id) -> bool:
+    return conn.execute("SELECT 1 FROM opportunities WHERE id = ? AND NOT "
+                        + NOT_SPEC_SQL, (opportunity_id,)).fetchone() is not None
+
+
 def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
     if not rows:
         return 0, 0
@@ -82,9 +93,12 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
         # Applied for while the model was answering. The write lock first,
         # then look again, so that nothing can be applied for between this
         # look and the commit below. The role keeps the score it was applied
-        # with, and nothing is written or kept for it.
+        # with, and nothing is written or kept for it. The same look keeps a
+        # score made on the full description in the meantime, by a Prepare
+        # application click, from being replaced by this card score.
         radar_common.begin_write(conn)
-        if radar_common.role_is_applied(conn, row["id"]):
+        if (radar_common.role_is_applied(conn, row["id"])
+                or _now_spec(conn, row["id"])):
             conn.rollback()
             continue
         gate_cols = ("gate_sector", "gate_sector_note", "gate_cv", "gate_cv_note",
@@ -173,20 +187,24 @@ def rescore_stale_cv(conn, config, usage_total, cap: int) -> tuple[int, int, int
     capped per run, so a CV change never triggers an unbounded spend. The
     caller confirms before invoking, and the cap plus the runs-table
     logging are the cost guardrails.
+
+    A role scored against its full description is left alone, neither picked
+    nor counted, because this pass scores the advert card and would quietly
+    swap a full description's score for a card's.
     """
     current = scoring.get_cv_version(config)
     rows = conn.execute(
         "SELECT * FROM opportunities WHERE combined IS NOT NULL"
         " AND acknowledged_at IS NULL"
         " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
-        " AND " + radar_common.NOT_APPLIED_SQL +
+        " AND " + radar_common.NOT_APPLIED_SQL + " AND " + NOT_SPEC_SQL +
         " AND COALESCE(cv_version, '') <> ?"
         " ORDER BY combined DESC LIMIT ?", (current, cap)).fetchall()
     remaining = conn.execute(
         "SELECT COUNT(*) FROM opportunities WHERE combined IS NOT NULL"
         " AND acknowledged_at IS NULL AND COALESCE(cv_version, '') <> ?"
         " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
-        " AND " + radar_common.NOT_APPLIED_SQL,
+        " AND " + radar_common.NOT_APPLIED_SQL + " AND " + NOT_SPEC_SQL,
         (current,)).fetchone()[0] - len(rows)
     fixed, failed = _rescore_rows(conn, config, usage_total, rows)
     return fixed, failed, max(0, remaining)

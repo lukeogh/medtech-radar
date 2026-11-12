@@ -19,6 +19,8 @@ dependency load_cv_text already uses.
 
 from __future__ import annotations
 
+import hashlib
+import os
 import re
 import secrets
 import sys
@@ -180,34 +182,79 @@ def discard(token: str, base: Path | None = None) -> None:
 _CONFIRM_LOCK = threading.Lock()
 
 
+def _write_version(text: str, base: Path) -> Path:
+    """Write a new dated version and point the marker at it. The caller
+    holds _CONFIRM_LOCK.
+
+    The dated filename is unique by construction and never reused. The file
+    is created with exclusive open, so even a race that slipped the lock
+    would raise rather than overwrite, history is append-only at the
+    filesystem's own insistence. The previous version file is not touched,
+    only the marker moves, and it moves in one step: the new marker is
+    written beside the old one and renamed over it, so the scorer, which
+    reads the marker in another process, sees the old version or the new one
+    and never an empty marker in between.
+    """
+    base.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    counter = 1
+    while True:
+        name = (f"cv-{stamp}.md" if counter == 1
+                else f"cv-{stamp}-{counter}.md")
+        dest = base / name
+        try:
+            with open(dest, "x", encoding="utf-8", newline="\n") as fh:
+                fh.write(text)
+            break
+        except FileExistsError:
+            counter += 1
+    staged = base / f".{MARKER_NAME}.{secrets.token_hex(4)}"
+    staged.write_text(dest.name + "\n", encoding="utf-8")
+    os.replace(staged, base / MARKER_NAME)
+    return dest
+
+
 def confirm(token: str, base: Path | None = None) -> dict:
     """Promote a pending upload to the active CV. History stays whole.
 
-    The dated filename is unique by construction and never reused. The
-    file is created with exclusive open, so even a race that slipped the
-    lock would raise rather than overwrite, history is append-only at the
-    filesystem's own insistence. The previous version file is not
-    touched, only the marker moves.
+    This is the one-off import of the master from a Word file. The master is
+    edited on the CV page from then on, and saving it there goes through
+    save_master below, which writes a version the same way.
     """
     base = base or PROFILE_DIR
     with _CONFIRM_LOCK:
         pending = _pending_path(token, base)
         text = pending.read_text(encoding="utf-8")
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-        counter = 1
-        while True:
-            name = (f"cv-{stamp}.md" if counter == 1
-                    else f"cv-{stamp}-{counter}.md")
-            dest = base / name
-            try:
-                with open(dest, "x", encoding="utf-8") as fh:
-                    fh.write(text)
-                break
-            except FileExistsError:
-                counter += 1
-        (base / MARKER_NAME).write_text(dest.name + "\n", encoding="utf-8")
+        dest = _write_version(text, base)
         pending.unlink()
         return {"file": dest.name, "version": dest.name}
+
+
+class StaleMaster(UploadError):
+    """The master changed after the page that is saving it was opened."""
+
+
+def save_master(text: str, expected: str | None, base: Path | None = None) -> dict:
+    """Save the master CV from the editor as a new version. Nothing is overwritten.
+
+    text is the master as the editor laid it out, already checked by the
+    caller. expected is the version the editor was opened on, so that two
+    pages open at once cannot quietly undo each other: if the active version
+    has moved since, nothing is written and StaleMaster says so. A save that
+    changes nothing writes nothing. Returns {"saved": bool, "version": name}.
+    """
+    base = base or PROFILE_DIR
+    with _CONFIRM_LOCK:
+        active = active_cv_name(base)
+        if (expected or None) != active:
+            raise StaleMaster(
+                "The master CV has changed since this page was opened, "
+                f"it is now {active or 'not set'}. Reload the page to edit "
+                "the version that is active now.")
+        if active and (base / active).read_text(encoding="utf-8") == text:
+            return {"saved": False, "version": active}
+        dest = _write_version(text, base)
+        return {"saved": True, "version": dest.name}
 
 
 # --------------------------------------------------------- numbering lines
@@ -241,6 +288,20 @@ def numbered_cv(text: str) -> str:
     """
     return "\n".join(f"[{n}] {line}".rstrip()
                      for n, line in enumerate(cv_lines(text), 1))
+
+
+def cv_hash(text: str) -> str | None:
+    """Twelve hex characters of the sha256 of a CV as the scorer reads it.
+
+    The hash is of numbered_cv, the very text a full description's score is
+    made against, so two copies the scorer cannot tell apart have one hash
+    and any change it could see is another. None for a CV with no lines,
+    because nothing was there to score.
+    """
+    numbered = numbered_cv(text)
+    if not numbered.strip():
+        return None
+    return hashlib.sha256(numbered.encode("utf-8")).hexdigest()[:12]
 
 
 def active_cv_name(base: Path | None = None) -> str | None:
