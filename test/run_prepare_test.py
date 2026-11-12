@@ -31,16 +31,30 @@ What it checks:
   leaves the card's score and says so, every way the score can fail stores
   nothing and is not paid for again at once, and a role that is applied for, or
   not open, is shown and touched by nothing, including the race where it is
-  applied for while the page is fetched or while the model answers,
+  applied for, acknowledged, closed, dismissed or expired while the page is
+  fetched or while the model answers,
+- a database that is busy when the work is done: the reply that was paid for, or
+  the page that was read, is held for half an hour and the next click stores it
+  without a second call or fetch, a lock let go inside the wait is waited out,
+  and what is held is not used for another CV or after the half hour,
+- a page that cannot be matched is not asked for again for five minutes, a
+  network that was down is, and two page requests are the page checker's eight
+  seconds apart,
+- a reply with odd entries among its CV lines is still a score, and one that
+  cannot be read after it was paid for is one failure with a note,
 - a double click, a storm of clicks and the same click over HTTP pay once,
 - the fetch is the page checker's own, its user agent, no cookie and no login,
-  and a 429 stops every later fetch for the checker's backoff,
+  no name outside this machine is looked up while it runs, and a 429 stops every
+  later fetch for the checker's backoff,
 - the page: what it shows for a role at each stage, that everything the advert
   or the model wrote is escaped, that opening it writes nothing, that it shows
-  no CV line that was not cited, and the button on the Jobs page,
-- the routes over a real server under the shipped guard, and the page script
-  pressed under node when node is here: one POST, the address cleaned first,
-  no timers, no second POST while the first is out,
+  no CV line that was not cited, that a description replaced since the score
+  hides the asks and the pay read from the old one, that a pay figure the scorer
+  did not report is shown as a disagreement, and the button on the Jobs page,
+- the routes over a real server under the shipped guard, the click's address
+  starting the work only when the browser says it came from this site, and the
+  page script pressed under node when node is here: one POST, the address
+  cleaned first, no timers, no second POST while the first is out,
 - a scan of the code finds that nothing calls the click but the route, that it
   holds no loop over rows and no fetch of its own,
 - the read-only queries handed to the box for the deploy checks run here, on
@@ -133,6 +147,32 @@ def captured_stderr():
     buf = io.StringIO()
     with contextlib.redirect_stderr(buf):
         yield buf
+
+
+@contextlib.contextmanager
+def no_outside_network():
+    """Looking up any name that is not this machine fails, and is counted.
+
+    The fetch test turns RADAR_MOCK off to reach the page checker's real fetch
+    code, with the one function that opens a connection replaced. Should a later
+    change to the fetcher open a connection some other way, this makes it fail
+    where it stands, instead of asking LinkedIn for a page from a test.
+    """
+    import socket
+    real = socket.getaddrinfo
+    refused: list[str] = []
+
+    def guarded(host, *args, **kwargs):
+        if str(host) not in ("127.0.0.1", "localhost", "::1"):
+            refused.append(str(host))
+            raise OSError(f"this test does not look up {host}")
+        return real(host, *args, **kwargs)
+
+    socket.getaddrinfo = guarded
+    try:
+        yield refused
+    finally:
+        socket.getaddrinfo = real
 
 
 # ----------------------------------------------------------- the stand-ins
@@ -822,10 +862,24 @@ def rate_checks() -> None:
     check(got == {"quote": "Competitive salary", "from": "model"},
           "a quote found without regard to case comes back as the advert's own "
           "characters, not the model's")
-    check(prep.rate_line(d, "") == {"quote": None, "from": "none"}
-          and prep.rate_line(d, None) == {"quote": None, "from": "none"}
-          and prep.rate_line(d, "   ") == {"quote": None, "from": "none"},
-          "a reply that names no pay is believed: the description names none")
+    quiet = "Join us. We build medical device software. The team is friendly."
+    check(prep.rate_line(quiet, "") == {"quote": None, "from": "none"}
+          and prep.rate_line(quiet, None) == {"quote": None, "from": "none"}
+          and prep.rate_line(quiet, "   ") == {"quote": None, "from": "none"},
+          "a reply that names no pay is believed when the pattern reader finds "
+          "none either: only then does the description name none")
+    # "The description names no pay" is the claim most worth being right about,
+    # so it is not taken on one reader's word.
+    check(prep.rate_line("Rate: £650 per day inside IR35.", "")
+          == {"quote": "£650 per day", "from": "disagrees"}
+          and prep.rate_line("We offer a competitive salary.", "")
+          == {"quote": "competitive salary", "from": "disagrees"}
+          and prep.rate_line("Pay: negotiable.", None)
+          == {"quote": "negotiable", "from": "disagrees"}
+          and prep.rate_line(d, "")["from"] == "disagrees",
+          "a reply that names no pay, over a description with a figure and its "
+          "period or one of the advert's own pay words, is a disagreement, shown "
+          "as wording that may be pay and never as the advert naming none")
     got = prep.rate_line(d, "£999 per day")
     check(got["from"] == "pattern" and got["quote"] in d.replace("\n", " ").replace("  ", " "),
           "a quote that is not in the description is not shown, and the page "
@@ -1052,7 +1106,7 @@ def tier_move_checks() -> None:
 
 
 def fetch_failure_checks() -> None:
-    def case(label, setup, expect_in, retry=True, fetches=1):
+    def case(label, setup, expect_in, retry=False, fetches=1):
         with fresh() as env:
             oid = env.role()
             jid = env.jid(oid)
@@ -1073,22 +1127,25 @@ def fetch_failure_checks() -> None:
                   "and nothing is stored, scored or paid for")
 
     url = lambda jid: f"https://www.linkedin.com/jobs/view/{jid}/"
+    # Try again is only offered where trying again could work: a network that
+    # was down. A 429 and a page that could not be read are not asked for again
+    # for minutes, so a button that asks again would only be refused.
     case("LinkedIn cannot be reached", lambda j: PAGES.__setitem__(j, (0, url(j), "")),
-         "could not reach LinkedIn")
+         "could not reach LinkedIn", retry=True)
     case("the fetch raises", lambda j: FETCH_HOOK.__setitem__(
         "fn", lambda u: (_ for _ in ()).throw(RuntimeError("boom"))),
-         "could not reach LinkedIn")
+         "could not reach LinkedIn", retry=True)
     case("a 429", lambda j: PAGES.__setitem__(j, (429, url(j), "")), "429")
     case("the authwall", lambda j: PAGES.__setitem__(
         j, (200, "https://www.linkedin.com/authwall?trk=x", "<html>sign in</html>")),
          "asked for a login, and Radar never logs in")
     case("an expired job redirect", lambda j: PAGES.__setitem__(
         j, (200, url(j) + "?trk=expired_jd_redirect", "<html></html>")),
-         "expired job page", retry=False)
+         "expired job page")
     case("a closed advert", lambda j: PAGES.__setitem__(
         j, (200, url(j), linkedin_page(j, "Director of Software", DESCRIPTION,
                                        apply_button=False, closed=True))),
-         "shows this advert as closed", retry=False)
+         "shows this advert as closed")
     case("a page for another advert", lambda j: PAGES.__setitem__(
         j, (200, url(j), linkedin_page(j, "A Different Job Entirely", DESCRIPTION))),
          "could not match to this advert")
@@ -1443,6 +1500,330 @@ def double_click_checks() -> None:
               "and pays for nothing")
 
 
+# ------------------------------------------------------- the busy database
+
+class WriteLock:
+    """Another process's write transaction on the same file, held by hand.
+
+    The inbox run holds the write lock for the whole of an email, model calls
+    included. This is that, from a second connection, taken and let go at will.
+    """
+
+    def __init__(self, env: "Env") -> None:
+        self.conn = sqlite3.connect(env.db, check_same_thread=False)
+        self.held = False
+
+    def take(self) -> None:
+        if not self.held:
+            self.conn.execute("BEGIN IMMEDIATE")
+            self.held = True
+
+    def release(self) -> None:
+        if self.held:
+            self.conn.rollback()
+            self.held = False
+
+    def close(self) -> None:
+        self.release()
+        self.conn.close()
+
+
+def busy_database_checks() -> None:
+    saved = prep.WRITE_WAIT_SECONDS
+    prep.WRITE_WAIT_SECONDS = 0.3
+    try:
+        # The reply is paid for, then the database stays busy: it is held, and
+        # the next click stores it without a second call.
+        with fresh() as env:
+            oid = env.role()
+            lock = WriteLock(env)
+            MODEL["hook"] = lambda c: lock.take()
+            out = env.prepare(oid)
+            row = env.row(oid)
+            check(out["outcome"] == "score_held" and out["called"] and not out["scored"]
+                  and len(CALLS) == 1 and row["score_basis"] == "card"
+                  and row["description_text"]
+                  and "held in memory" in out["notices"][0]["text"]
+                  and out["notices"][0]["retry"] is True,
+                  "the reply is paid for and the database stays busy: nothing is "
+                  "stored, the click says the score is held, and offers Try again")
+            lock.release()
+            MODEL["hook"] = None
+            out = env.prepare(oid)
+            row = env.row(oid)
+            runs = env.runs()
+            check(out["outcome"] == "scored" and not out["called"] and out["scored"]
+                  and len(CALLS) == 1 and len(FETCHES) == 1
+                  and row["score_basis"] == "spec"
+                  and prep.load_working(row) is not None,
+                  "the next click stores the held reply without a second call or "
+                  "a second fetch")
+            check(len(runs) == 1 and runs[0]["items_new"] == 1,
+                  "and the call is recorded once, when it is stored")
+            check(env.prepare(oid)["outcome"] == "reused" and len(CALLS) == 1,
+                  "after which the role is simply done")
+            lock.close()
+
+        # The page is read, then the database stays busy.
+        with fresh() as env:
+            oid = env.role()
+            lock = WriteLock(env)
+            FETCH_HOOK["fn"] = lambda u: lock.take()
+            out = env.prepare(oid)
+            check(out["outcome"] == "no_description" and out["fetched"]
+                  and env.row(oid)["description_text"] is None and not CALLS
+                  and "held in memory" in out["notices"][0]["text"]
+                  and "without asking LinkedIn again" in out["notices"][0]["text"]
+                  and out["notices"][0]["retry"] is True,
+                  "a page that was read when the database was busy is held, and the "
+                  "click says Try again stores it without asking LinkedIn again")
+            lock.release()
+            FETCH_HOOK["fn"] = None
+            out = env.prepare(oid)
+            row = env.row(oid)
+            check(len(FETCHES) == 1 and not out["fetched"] and out["outcome"] == "scored"
+                  and row["description_text"].startswith("About the role")
+                  and ISO.fullmatch(row["description_fetched_at"] or "") is not None
+                  and len(CALLS) == 1,
+                  "the next click stores the held page without a second fetch, then "
+                  "scores it once")
+            lock.close()
+
+        # A lock that is let go inside the wait is waited out, nothing is parked.
+        prep.WRITE_WAIT_SECONDS = 5.0
+        with fresh() as env:
+            oid = env.role()
+            lock = WriteLock(env)
+
+            def hold_briefly(call):
+                lock.take()
+                threading.Timer(0.5, lock.release).start()
+            MODEL["hook"] = hold_briefly
+            out = env.prepare(oid)
+            check(out["outcome"] == "scored" and out["scored"] and len(CALLS) == 1
+                  and env.row(oid)["score_basis"] == "spec",
+                  "a lock that is let go inside the wait is waited out, and the score "
+                  "is stored by the same click")
+            lock.close()
+        prep.WRITE_WAIT_SECONDS = 0.3
+
+        # What is held is for the same question and not for long.
+        for how in ("a CV that has changed", "half an hour"):
+            with fresh() as env:
+                oid = env.role()
+                lock = WriteLock(env)
+                MODEL["hook"] = lambda c: lock.take()
+                env.prepare(oid)
+                lock.release()
+                MODEL["hook"] = None
+                if how == "half an hour":
+                    CLOCK[0] += prep.PARK_SECONDS + 1
+                else:
+                    CV_LABEL[0] = "cv-test-2.md"
+                out = env.prepare(oid)
+                check(out["outcome"] == "scored" and out["called"] and len(CALLS) == 2,
+                      f"after {how} a held reply is not used, and the click asks again")
+                lock.close()
+    finally:
+        prep.WRITE_WAIT_SECONDS = saved
+        MODEL["hook"] = None
+        FETCH_HOOK["fn"] = None
+
+
+def changed_under_the_click_checks() -> None:
+    for column in ("acknowledged_at", "closed_at", "dismissed_at", "expired_at"):
+        # While the page is being fetched.
+        with fresh() as env:
+            oid = env.role()
+            FETCH_HOOK["fn"] = lambda u, c=column: env.sql(
+                f"UPDATE opportunities SET {c} = '2026-11-12T09:00:00Z' WHERE id = ?",
+                (oid,))
+            before = score_of(env.row(oid))
+            out = env.prepare(oid)
+            row = env.row(oid)
+            check(out["outcome"] == "not_open" and row["description_text"] is None
+                  and score_of(row) == before and not CALLS and not env.history(oid),
+                  f"{column} set while the page is fetched: nothing is stored, no "
+                  "model is called")
+        # While the model answers.
+        with fresh() as env:
+            oid = env.role()
+            MODEL["hook"] = lambda c, col=column: env.sql(
+                f"UPDATE opportunities SET {col} = '2026-11-12T09:00:00Z' WHERE id = ?",
+                (oid,))
+            before = score_of(env.row(oid))
+            out = env.prepare(oid)
+            row = env.row(oid)
+            runs = env.runs()
+            check(out["outcome"] == "not_open" and out["called"] and not out["scored"]
+                  and score_of(row) == before and not env.history(oid)
+                  and len(runs) == 1 and "no longer open" in runs[0]["note"],
+                  f"{column} set while the model answers: the reply is not stored, "
+                  "the score and the history are as they were, and the call that was "
+                  "paid for is recorded")
+
+
+def stale_description_checks() -> None:
+    with fresh() as env:
+        oid = env.role()
+        env.prepare(oid)
+        env.sql("UPDATE opportunities SET description_text = ? WHERE id = ?",
+                ("A new advert. Rate: £500 per day.\n- Kubernetes certification", oid))
+        inner = render_inner(env, oid)
+        text = page_text(inner)
+        check("Scored against an earlier description" in text
+              and "pay quoted from the earlier one is not shown" in text
+              and "asks listed from the earlier one are not shown" in text
+              and "“£700 to £800 per day”" not in text
+              and "IEC 62304 and ISO 13485" not in text
+              and "✓ Met" not in text and BUTTON.search(inner),
+              "a description the page checker has since replaced hides the asks and "
+              "the pay quoted from the old one, says so, and offers to score the new")
+        out = env.prepare(oid)
+        text = page_text(render_inner(env, oid))
+        check(out["outcome"] == "scored" and len(CALLS) == 2
+              and "Kubernetes certification" in text and "✗ Missing" in text
+              and "has changed since" not in text,
+              "and scoring it once more shows the asks and the pay of the new one")
+    # A prompt that has moved on is not a description that has.
+    with fresh() as env:
+        oid = env.role()
+        env.prepare(oid)
+        env.sql("UPDATE opportunities SET score_working = NULL, prompt_version = ?"
+                " WHERE id = ?", ("abcd1234", oid))
+        text = page_text(render_inner(env, oid))
+        check("the prompt has changed since" in text
+              and "has changed since this role was scored" not in text
+              and "No per-ask working is stored" in text
+              and "Not read yet" in text,
+              "a score made on this very description, whose working has been lost, "
+              "under a prompt that has moved on, says the prompt has changed and "
+              "does not say the description has")
+
+
+def odd_replies_checks() -> None:
+    lines = score_item._line_numbers
+    check(lines(["²", "٣", "1" * 7, "12 ", " 3", "-4", "5.5", "0x10"]) == [12, 3]
+          and lines("²") == [] and lines(["²", 4]) == [4],
+          "a superscript, an Arabic-Indic digit, a long run of digits, a sign, a "
+          "fraction and hex are not line numbers, and none of them raises")
+    reset()
+    with captured_stderr():
+        blocks = score_item.build_scorer_system(CFG, basis="spec")
+    opp = {"company": "Veltrix Diagnostics", "title": "Director of Software",
+           "location": "Ghent", "salary_rate": "", "basis": "spec",
+           "description": "- IEC 62304 and ISO 13485 in a Class C IVD"}
+
+    def reply_with(cv_lines):
+        def hook(call):
+            text, usage = _real_claude_call(call["model"], call["system"], call["user"],
+                                            max_tokens=call["max_tokens"],
+                                            mock_fn=mocks.mock_scorer)
+            reply = json.loads(text)
+            reply["asks"][0]["cv_lines"] = cv_lines
+            return json.dumps(reply), usage
+        return hook
+    MODEL["hook"] = reply_with(["²", "٣", {"n": 1}, None, "9" * 4000, 13])
+    scored, usage, why = score_item.score_opportunity(
+        opp, blocks, CFG, mock_fn=mocks.mock_scorer, floors=FLOORS, basis="spec")
+    check(why is None and scored["asks"][0]["lines"] == [{"n": 13, "text": FIXTURE_LINES[12]}]
+          and len(CALLS) == 1,
+          "a reply with odd entries among its CV lines is still a score, with the "
+          "line it did cite")
+    # A reply that cannot be read after it has been paid for is a failed score with
+    # a note, not an exception that loses what it cost.
+    reset()
+    real = score_item.normalise_asks
+
+    def broken(raw, cv_lines):
+        raise ValueError("unreadable")
+    score_item.normalise_asks = broken
+    try:
+        with fresh() as env:
+            oid = env.role()
+            out = env.prepare(oid)
+            runs = env.runs()
+            check(out["outcome"] == "score_failed" and out["called"] and len(CALLS) == 1
+                  and "could not be read (ValueError)" in out["notices"][0]["text"]
+                  and "The reply was paid for." in out["notices"][0]["text"]
+                  and len(runs) == 1 and runs[0]["items_new"] == 0
+                  and "not stored" in runs[0]["note"],
+                  "a reply that cannot be read is one paid-for failure with a note, "
+                  "recorded in runs, and not mistaken for a scorer that could not be "
+                  "reached")
+            out = env.prepare(oid)
+            check(out["outcome"] == "cooling" and "5 minutes" in out["notices"][0]["text"]
+                  and len(CALLS) == 1,
+                  "and it is not paid for again for five minutes")
+    finally:
+        score_item.normalise_asks = real
+
+
+def page_failure_checks() -> None:
+    url = lambda jid: f"https://www.linkedin.com/jobs/view/{jid}/"
+    # A page that a second try would give again is not asked for again.
+    with fresh() as env:
+        oid = env.role()
+        other = env.role(title="Head of Quality", company="Orbase Diagnostics")
+        PAGES[env.jid(oid)] = (200, url(env.jid(oid)),
+                               linkedin_page(env.jid(oid), "A Different Job", DESCRIPTION))
+        out = env.prepare(oid)
+        out2 = env.prepare(oid)
+        text = out2["notices"][0]["text"]
+        check(len(FETCHES) == 1 and out["notices"][0]["retry"] is False
+              and out2["outcome"] == "no_description" and not out2["fetched"]
+              and text.startswith("The full description could not be fetched.")
+              and "could not match" in text and "not asked for again for 5 minutes" in text
+              and out2["notices"][0]["retry"] is False,
+              "a page that could not be matched is not asked for again for five "
+              "minutes, the second click says so and offers no button that would be "
+              "refused")
+        out3 = env.prepare(other)
+        check(len(FETCHES) == 2 and out3["outcome"] == "scored",
+              "and it is remembered for that role only")
+        CLOCK[0] += 299
+        env.prepare(oid)
+        check(len(FETCHES) == 2, "not one second short of the five minutes")
+        CLOCK[0] += 2
+        env.prepare(oid)
+        check(len(FETCHES) == 3, "and asked for again after them")
+    # A network that was down is a try again, not a wait.
+    with fresh() as env:
+        oid = env.role()
+        PAGES[env.jid(oid)] = (0, url(env.jid(oid)), "")
+        a = env.prepare(oid)
+        PAGES[env.jid(oid)] = (200, url(env.jid(oid)), linkedin_page(
+            env.jid(oid), "Director of Software", DESCRIPTION))
+        b = env.prepare(oid)
+        check(len(FETCHES) == 2 and a["notices"][0]["retry"] is True
+              and b["outcome"] == "scored",
+              "a network that was down is asked again at once, with a button for it")
+
+
+def fetch_spacing_checks() -> None:
+    slept: list = []
+    real = prep._sleep
+    prep._sleep = lambda seconds: slept.append(round(seconds, 3)) if seconds > 0 else None
+    try:
+        with fresh() as env:
+            a = env.role()
+            b = env.role(title="Head of Quality", company="Orbase Diagnostics")
+            c = env.role(title="Regulatory Lead", company="Fenix Diagnostics")
+            env.prepare(a)
+            check(slept == [], "the first page request waits for nobody")
+            CLOCK[0] += 3
+            env.prepare(b)
+            check(slept == [round(check_jobs.SPACING_SECONDS[0] - 3, 3)],
+                  "a second one three seconds later waits out the rest of the page "
+                  f"checker's eight ({slept})")
+            del slept[:]
+            CLOCK[0] += check_jobs.SPACING_SECONDS[0] + 1
+            env.prepare(c)
+            check(slept == [], "and one that comes after the gap does not wait")
+    finally:
+        prep._sleep = real
+
+
 # --------------------------------------------------------------- the fetch
 
 def fetch_reuse_checks() -> None:
@@ -1486,12 +1867,16 @@ def fetch_reuse_checks() -> None:
             row = dict(conn.execute("SELECT * FROM opportunities WHERE id = ?",
                                     (oid,)).fetchone())
             out = {"notices": [], "outcome": None, "fetched": False}
-            text = prep._fetch_and_store(conn, row, out)
+            with no_outside_network() as refused:
+                text = prep._fetch_and_store(conn, row, out)
         finally:
             conn.close()
             ur.urlopen = real_urlopen
             os.environ["RADAR_MOCK"] = "1"
             check_jobs.fetch_job_page = fake_fetch
+        check(not refused,
+              "and no name outside this machine was looked up while the real fetch "
+              f"code ran ({refused})")
         sent = calls[0] if calls else {}
         headers = sent.get("headers", {})
         check(len(calls) == 1 and sent.get("method") == "GET"
@@ -1682,6 +2067,21 @@ def page_checks() -> None:
               and "names no pay" not in text,
               "a quote the advert does not carry is not shown, and the page does "
               "not claim the advert names none either")
+    # The scorer says there is no pay and the advert has wording that may be.
+    with fresh() as env:
+        oid = env.role(description="<p>A medical device team. RADAR-NOQUOTE</p>"
+                                   "<p>Rate: £650 per day, inside IR35.</p>")
+        env.prepare(oid)
+        working = prep.load_working(env.row(oid))
+        text = page_text(render_inner(env, oid))
+        check(working is not None and working["rate_quote_from"] == "disagrees"
+              and "The scorer reported no pay, but the description has wording that "
+                  "may be pay" in text
+              and "“£650 per day”" in text
+              and "may not be pay" in text and "names no pay" not in text,
+              "a scorer that reports no pay over an advert with a figure and a period "
+              "is shown as a disagreement, with the wording quoted and a warning that "
+              "it may not be pay, never as the advert naming none")
 
     # Everything the advert or the model wrote is escaped.
     with fresh() as env:
@@ -1782,17 +2182,48 @@ def server_checks() -> None:
         with serving(env.db) as port:
             own = f"127.0.0.1:{port}"
             before = env.dump()
+            # What the browser sends when the Jobs link is followed.
+            followed = {"Sec-Fetch-Site": "same-origin"}
             for _ in range(5):
-                status, headers, data = call(port, "GET", f"/prepare/{oid}?go=1")
+                status, headers, data = call(port, "GET", f"/prepare/{oid}?go=1",
+                                             headers=followed)
             check(status == 200 and "text/html" in headers.get("content-type", "")
                   and headers.get("cache-control") == "no-store"
                   and b'id="prepare-body"' in data and b'data-run="1"' in data
                   and headers.get("x-frame-options") == "DENY",
                   "GET /prepare/<id> is a page, never cached, under the enforce "
-                  "guard's framing rules")
+                  "guard's framing rules, and the Jobs link followed from this "
+                  "site tells its script to run")
             check(env.dump() == before and not FETCHES and not CALLS,
                   "and five opens by the click's address write nothing, fetch "
                   "nothing and call nothing")
+            # A GET that spends money must not be one another site can send the
+            # browser to, so the click's address only starts the work when the
+            # browser says it came from here. Every other way of arriving gets
+            # the page and a button.
+            arrivals = {"another site": {"Sec-Fetch-Site": "cross-site"},
+                        "a sibling site": {"Sec-Fetch-Site": "same-site"},
+                        "a typed address or a bookmark": {"Sec-Fetch-Site": "none"},
+                        "a browser that sends no such header": {},
+                        "a header in capitals": {"Sec-Fetch-Site": "SAME-ORIGIN"}}
+            seen = {}
+            for how, extra in arrivals.items():
+                status, _h, data = call(port, "GET", f"/prepare/{oid}?go=1",
+                                        headers=extra)
+                seen[how] = (status, b'data-run="1"' in data, bool(BUTTON.search(
+                    data.decode("utf-8", "replace"))))
+            check(seen == {"another site": (200, False, True),
+                           "a sibling site": (200, False, True),
+                           "a typed address or a bookmark": (200, False, True),
+                           "a browser that sends no such header": (200, False, True),
+                           "a header in capitals": (200, True, False)}
+                  and env.dump() == before and not FETCHES and not CALLS,
+                  "reached from another site, a sibling site, a typed address, a "
+                  "bookmark or a browser with no such header, the page offers a "
+                  f"button and does not start the work ({seen})")
+            status, _h, data = call(port, "GET", f"/prepare/{oid}", headers=followed)
+            check(b'data-run="0"' in data,
+                  "and the plain address never starts it, whoever asks")
             for path in ("/prepare/abc", "/prepare/", "/prepare/99999999999999999999",
                          "/prepare/%C2%B2", "/prepare/-1", "/prepare/1.5",
                          "/prepare/999999", f"/prepare/{oid}x"):
@@ -1847,7 +2278,8 @@ def server_checks() -> None:
             check(status == 200 and parsed.get("outcome") == "reused"
                   and len(FETCHES) == 1 and len(CALLS) == 1,
                   "and the same POST again finds it done and spends nothing")
-            status, _h, data = call(port, "GET", f"/prepare/{oid}?go=1")
+            status, _h, data = call(port, "GET", f"/prepare/{oid}?go=1",
+                                    headers=followed)
             check(status == 200 and b'data-run="0"' in data and len(CALLS) == 1,
                   "as does opening the page by the click again")
 
@@ -2274,7 +2706,8 @@ def docs_checks() -> None:
     section = " ".join(doc.split("## Prepare application")[1].split("\n## ")[0].split())
     for needle in ("GET /prepare/<id>", "POST /prepare", "go=1", "description_hash",
                    "score_working", "tier_from", "SPEC_MAX_TOKENS", "429", "begin_write",
-                   "once per version", "no retry", "applied", "Rescore", "second first-open"):
+                   "once per version", "no retry", "applied", "Rescore", "second first-open",
+                   "Sec-Fetch-Site", "WRITE_WAIT_SECONDS", "PARK_SECONDS", "disagreement"):
         if needle not in section:
             check(False, f"the notes say {needle!r}")
             break
@@ -2293,8 +2726,10 @@ def main() -> int:
     for section in (migration_checks, cv_numbering_checks, prompt_checks,
                     ceiling_checks, asks_checks, rate_checks, first_click_checks,
                     tier_move_checks, fetch_failure_checks, score_failure_checks,
-                    applied_checks, double_click_checks, fetch_reuse_checks,
-                    page_checks, jobs_page_checks, server_checks,
+                    applied_checks, double_click_checks, busy_database_checks,
+                    changed_under_the_click_checks, stale_description_checks,
+                    odd_replies_checks, page_failure_checks, fetch_spacing_checks,
+                    fetch_reuse_checks, page_checks, jobs_page_checks, server_checks,
                     page_script_checks, static_checks, box_query_checks,
                     docs_checks):
         # One section that raises is one FAIL that names it. The sections

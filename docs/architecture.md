@@ -455,10 +455,15 @@ score made against it, each ask the advert makes with the CV lines that evidence
 it, and the pay the description names. Its address carries `go=1`. A page opened
 with that, for a role with work to do, tells its script to make the one write
 this feature has, `POST /prepare` with the role id, behind the guard every other
-write is behind. The script cleans the address before it posts, so a reload, the
-back button and a second tab open the page and do nothing more, and a page opened
-any other way offers a button instead. The page reads on a read-only connection.
-An id that is not plain digits, or not a role, is a 404.
+write is behind. The browser also has to say the click came from this site, with
+`Sec-Fetch-Site: same-origin`, as it does for a link followed from the Jobs page.
+A link from another site or a sibling site, a typed address, a bookmark and a
+browser that sends no such header all get the button instead, so no other page can
+send a browser to an address that spends money. The script cleans the address
+before it posts, so a reload, the back button and a second tab open the page and
+do nothing more, and a page opened any other way offers a button instead. The page
+reads on a read-only connection. An id that is not plain digits, or not a role, is
+a 404.
 
 What one POST does for an open role. If the row stores no description, it
 fetches the advert's public LinkedIn page once, with `check_jobs.fetch_job_page`,
@@ -470,8 +475,12 @@ stored in `description_text` as the checker's reader cuts it, at its 20,000
 characters, with `description_fetched_at`. A 429 stores nothing and stops every
 later fetch from this page for the checker's backoff, ten minutes, held in memory
 and so forgotten by a restart. Fetches are also spaced by the checker's eight
-seconds. The 45 day expiry is not touched, and neither is `last_checked_at` or
-`closed_at`: a click is not a sighting, and nothing here ever closes a role.
+seconds. Any other page that cannot be used, an expired redirect, a closed advert,
+the authwall, a page for another advert or one with no description, is remembered
+for five minutes for that role, so the click that follows says why and asks nobody;
+a network that was down is not remembered, and the page offers Try again. The 45
+day expiry is not touched, and neither is `last_checked_at` or `closed_at`: a click
+is not a sighting, and nothing here ever closes a role.
 
 Then it scores the role against the stored description, once per version of it.
 The version of a description is `description_version`, twelve hex characters of
@@ -495,7 +504,9 @@ and the working as `description_hash` and `working`, so it now keeps twelve
 fields of a score, and `tier_from`. The working carries the date of the score it
 belongs to, and a reader only shows it beside a spec score of that date, so a
 writer that replaces the score and knows nothing of the working cannot leave an
-old one looking current.
+old one looking current. A description the page checker has replaced since the
+score was made is not drawn beside the asks and the pay read from the old one: the
+page says so and offers to score the new one.
 
 The asks. `prompts/scorer.md` has a marker line, and everything below it is sent
 only when the advert is the full description. A card is scored with the file
@@ -528,8 +539,13 @@ regard to case and with white space folded, and what is shown is the advert's ow
 characters. A quote that is not found is replaced by the page checker's own
 reader, labelled as found by pattern, and where that finds nothing either the page
 says the scorer reported pay the advert cannot be made to show. A reply that names
-none is believed, and the page says the description names no pay. Nothing is
-hard-coded: the floors are read from the preferences file where the gate is made.
+none is believed only if the pattern reader finds nothing either, and then the page
+says the description names no pay. Where the reader finds a sterling figure with
+its period, or one of the advert's own words for pay that is not a figure
+(competitive, negotiable, market rate, depending on experience), the page shows
+that wording as a disagreement and says it may not be pay, because a bonus reads
+the same. Nothing is hard-coded: the floors are read from the preferences file
+where the gate is made.
 The gate itself is as it was, a figure on the row is judged in code against its
 floor and a figure only the description states is the model's reading, because the
 page checker's pay reader misreads a bonus for the pay and nothing here writes its
@@ -543,15 +559,30 @@ minutes, and a call that raised is not repeated for twenty seconds, both
 remembered for the same role, description, prompt and CV and forgotten by a
 restart. The script sends one POST per click and none on a timer. These guards live
 in one dashboard process, which is how it runs. Every model call is a row in
-`runs` under the workflow `prepare`, so the week's cost counts it.
+`runs` under the workflow `prepare`, so the week's cost counts it. One click is one
+model call from this code. The Anthropic client under `claude_call` keeps its
+default of two retries for a request that failed in transit, as it does for every
+caller, and this feature does not change that because the function is shared.
 
 An applied role, and every row of its chain, is shown and touched by nothing: no
 fetch, no model call, no write. A role that is acknowledged, closed, dismissed or
 expired is the same. The write that stores a description and the write that stores
 a score both take the write lock with `radar_common.begin_write` and look at the
-marker again under it, so a role applied for while the page is fetched or while the
-model answers keeps the score it was applied with, and the reply that was paid for
-is not stored. Both writes also carry `NOT_APPLIED_SQL` on their statements.
+role again under it, applied or not open, so a role applied for, acknowledged,
+closed, dismissed or expired while the page is fetched or while the model answers
+keeps what it had, the page says so, and the reply that was paid for is not stored,
+though what it cost is still a row in `runs`, marked not stored. Both writes also
+carry `NOT_APPLIED_SQL` on their statements.
+
+Work that has been paid for is not thrown away because the database is busy. The
+inbox run holds the write lock for the whole of an email, model calls included, so
+a click can land in the middle of one. Both writes wait for the lock for up to 90
+seconds (`WRITE_WAIT_SECONDS`), not the five the connection otherwise waits. If the
+database is still busy, the page that was read, or the reply that was paid for, is
+held in memory for 30 minutes (`PARK_SECONDS`), the click says so and offers Try
+again, and the next click stores it without a second fetch or a second call. What
+is held is for the same role, description, prompt and CV, so a changed CV or a
+changed description asks again, and a restart of the dashboard forgets it.
 
 What it leaves alone. The Rescore button on the CV page, `/cv/rescore` and
 `rescore.py`, are not changed. They share `score_opportunity` and the history

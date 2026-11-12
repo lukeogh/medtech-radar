@@ -442,8 +442,14 @@ def _line_numbers(value) -> list[int]:
     for item in value[:24]:
         if isinstance(item, bool):
             continue
-        if isinstance(item, str) and item.strip().isdigit():
-            item = int(item.strip())
+        if isinstance(item, str):
+            # Plain ASCII digits and no more than six of them. str.isdigit is
+            # also true of a superscript two, which int() cannot read, and
+            # int() will not read a very long run of digits either, so a reply
+            # that has one is not allowed to raise after it has been paid for.
+            digits = item.strip()
+            if digits.isascii() and digits.isdigit() and len(digits) <= 6:
+                item = int(digits)
         elif isinstance(item, float) and item.is_integer():
             item = int(item)
         if isinstance(item, int):
@@ -639,34 +645,42 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
         "engagement_note": sanitise(str(parsed.get("engagement_note") or "").strip()) or None,
     })
     if spec:
-        cv_lines = list(getattr(system_blocks, "cv_lines", None) or [])
-        asks, dropped = normalise_asks(parsed.get("asks"), cv_lines)
-        counts = {status: sum(1 for a in asks if a["status"] == status)
-                  for status in ASK_STATUSES}
-        counts["unanchored"] = sum(1 for a in asks if a["anchored"] is False)
-        counts["dropped"] = dropped
-        description_hash = radar_common.description_version(
-            opp.get("description"))
-        scored.update({
-            "asks": asks,
-            "description_hash": description_hash,
-            # Exactly what the model wrote, never run through the voice rules,
-            # because the caller holds it to the description word for word.
-            "rate_quote_raw": str(parsed.get("rate_quote") or "").strip(),
-            # What belongs beside the score it was made with. scored_at is
-            # in it so that a reader can tell the working still belongs to
-            # the score the row holds, and the pay quote is filled in by the
-            # caller once it has held the model's quote to the description.
-            "working": {
-                "v": 1, "basis": basis, "scored_at": scored["scored_at"],
-                "prompt_version": scored["prompt_version"],
-                "cv_version": getattr(system_blocks, "cv_version", None),
-                "cv_line_count": len(cv_lines),
+        # A reply that has been paid for and cannot be read is a failed score
+        # with a note, never an exception that loses its usage on the way out.
+        try:
+            cv_lines = list(getattr(system_blocks, "cv_lines", None) or [])
+            asks, dropped = normalise_asks(parsed.get("asks"), cv_lines)
+            counts = {status: sum(1 for a in asks if a["status"] == status)
+                      for status in ASK_STATUSES}
+            counts["unanchored"] = sum(1 for a in asks if a["anchored"] is False)
+            counts["dropped"] = dropped
+            description_hash = radar_common.description_version(
+                opp.get("description"))
+            scored.update({
+                "asks": asks,
                 "description_hash": description_hash,
-                "asks": asks, "counts": counts,
-                "rate_quote": None, "rate_quote_from": None,
-            },
-        })
+                # Exactly what the model wrote, never run through the voice
+                # rules, because the caller holds it to the description word
+                # for word.
+                "rate_quote_raw": str(parsed.get("rate_quote") or "").strip(),
+                # What belongs beside the score it was made with. scored_at is
+                # in it so that a reader can tell the working still belongs to
+                # the score the row holds, and the pay quote is filled in by
+                # the caller once it has held the model's quote to the
+                # description.
+                "working": {
+                    "v": 1, "basis": basis, "scored_at": scored["scored_at"],
+                    "prompt_version": scored["prompt_version"],
+                    "cv_version": getattr(system_blocks, "cv_version", None),
+                    "cv_line_count": len(cv_lines),
+                    "description_hash": description_hash,
+                    "asks": asks, "counts": counts,
+                    "rate_quote": None, "rate_quote_from": None,
+                },
+            })
+        except Exception as err:  # noqa: BLE001  see above
+            return None, usage, ("the asks in the reply could not be read "
+                                 f"({type(err).__name__})")
     if cv is None:
         return scored, usage, "scorer returned no usable cv match"
     return scored, usage, None

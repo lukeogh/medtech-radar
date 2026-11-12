@@ -2,14 +2,16 @@
 """Prepare application. The advert's full description, scored once, with its asks.
 
 The button on a Jobs row opens /prepare/<id>. That page only reads. When it is
-opened by the click (it says so in its address) its script makes the one write
-this module serves, POST /prepare, and this is what that does for an open role:
+opened by the click (it says so in its address, and the browser says the click
+came from this site) its script makes the one write this module serves,
+POST /prepare, and this is what that does for an open role:
 
 1. If the row stores no description, fetch the advert's public LinkedIn page
    once, with the page checker's own fetch, user agent and ladder, and store
    what it says with the time. No login, no retry, no loop. A 429 is a wait,
    not a failure to hammer: nothing is stored, and nothing is asked of LinkedIn
-   again from this page for the page checker's backoff, ten minutes. If the
+   again from this page for the page checker's backoff, ten minutes. Any other
+   page that cannot be read is not asked for again for five minutes. If the
    page cannot be had, the page opens with the card's score and says so.
 2. Score the role against the stored description, once per version of it. The
    score is stamped spec, with the prompt version and the model, the old score
@@ -28,9 +30,18 @@ inside five minutes and a call that raised is not repeated inside twenty
 seconds, so a failure that repeats cannot be clicked into a bill. The page
 script sends one POST per click and none on its own after that.
 
+Work that has been paid for is not thrown away because the database is busy.
+The inbox run holds the write lock for the whole of an email, model calls
+included, so a click can land in the middle of one. The writes below wait for
+the lock for up to a minute and a half. If it stays busy, the page that was
+read or the reply that was paid for is held in memory for half an hour and the
+next click stores it, without a second fetch or a second call.
+
 An applied role is shown, never touched. Nothing is fetched, scored or written
-for a role marked applied or for any row of its chain, and the writes below
-check that again under the write lock, after the model has answered.
+for a role marked applied or for any row of its chain, and the same goes for a
+role that is acknowledged, closed, dismissed or expired. The writes below look
+at the role again under the write lock, after the page has come and after the
+model has answered, because either can take long enough for that to change.
 
 Nothing here runs on a schedule, and nothing here closes, dismisses or
 acknowledges a role.
@@ -40,6 +51,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import sys
 import threading
 import time
@@ -58,6 +70,9 @@ SPEC = rc.SCORE_BASIS_SPEC
 LOCK_WAIT_SECONDS = 150          # a second click waits this long for the first
 UNUSABLE_COOLDOWN_SECONDS = 300  # a reply that was no use is not paid for again
 ERROR_COOLDOWN_SECONDS = 20      # a call that raised is not repeated at once
+PAGE_FAILURE_COOLDOWN_SECONDS = 300  # a page that could not be read is not asked for again
+WRITE_WAIT_SECONDS = 90          # a write waits this long for another process's lock
+PARK_SECONDS = 1800              # work paid for, held when it could not be stored
 RATE_QUOTE_MAX = 200             # a pay quote is short or it is not a quote
 
 # The columns a score writes, the same ones a re-score writes beside the
@@ -92,7 +107,8 @@ class Guard:
 
     One per process, which is one per dashboard. A restart forgets it, and
     forgets only what is safe to forget: the locks are held for the length of
-    a click, and the waits and the failure memos are a few minutes long.
+    a click, the waits and the failure memos are a few minutes long, and what
+    is parked is work that costs a fetch or a call to do again.
     """
 
     def __init__(self) -> None:
@@ -102,6 +118,7 @@ class Guard:
         self.last_fetch = None          # monotonic time of the last page request
         self.blocked_until = 0.0        # no page request before this, after a 429
         self._failures: dict = {}       # key -> (monotonic expiry, text)
+        self._parked: dict = {}         # (kind, key) -> (monotonic expiry, value)
 
     def lock_for(self, item_id: int) -> threading.Lock:
         with self._master:
@@ -130,11 +147,26 @@ class Guard:
                 return None
             return held[1], left
 
+    def park(self, kind: str, key, value, seconds: float | None = None) -> None:
+        """Hold work that was paid for and could not be stored, for the next click."""
+        with self._master:
+            self._parked[(kind, key)] = (
+                _mono() + (PARK_SECONDS if seconds is None else seconds), value)
+
+    def take_parked(self, kind: str, key):
+        """The work parked under this key if it is still fresh, taken out, else None."""
+        with self._master:
+            held = self._parked.pop((kind, key), None)
+        if held is None or held[0] <= _mono():
+            return None
+        return held[1]
+
     def reset(self) -> None:
         """For tests, which start every scenario with nothing remembered."""
         with self._master:
             self._locks.clear()
             self._failures.clear()
+            self._parked.clear()
         self.last_fetch = None
         self.blocked_until = 0.0
 
@@ -157,7 +189,9 @@ def load_working(row: dict) -> dict | None:
     is only returned for a row whose score is a spec score and whose working
     carries the very date that score was made, so a writer that has since
     replaced the score, and knows nothing about the working, cannot leave an
-    old working looking like the current one.
+    old working looking like the current one. A page also asks whether the
+    score was made on the description the row stores now, see
+    scored_on_description, before it draws anything from the working.
     """
     raw = row.get("score_working")
     if not raw or row.get("score_basis") != SPEC:
@@ -205,8 +239,28 @@ def pending(row: dict, applied: bool) -> bool:
 
 # ----------------------------------------------------------------- the pay
 
+# The advert's own words for pay that is not a figure.
+PAY_WORDS = re.compile(
+    r"\b(?:competitive(?: salary| rate| pay| package)?|negotiable|market rate"
+    r"|(?:depending|dependent) on experience)\b", re.IGNORECASE)
+
+
 def _flat(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _pay_candidate(flat: str) -> str | None:
+    """Wording in a description that may be pay, by pattern, short and word for word.
+
+    A sterling figure with its period beside it, through the page checker's own
+    reader, else one of the advert's own pay words. It cannot tell a salary from
+    a bonus or a budget, which is why it only ever speaks beside the scorer.
+    """
+    pay = check_jobs.stated_pay(flat)
+    if pay and 0 < len(pay["text"]) <= RATE_QUOTE_MAX:
+        return pay["text"]
+    words = PAY_WORDS.search(flat)
+    return words.group(0) if words else None
 
 
 def rate_line(description: str, model_quote: str | None) -> dict:
@@ -217,26 +271,34 @@ def rate_line(description: str, model_quote: str | None) -> dict:
     shown unless that stretch is found in the description, which makes the
     quote the advert's own words: what is returned is the description's
     characters, found without regard to case and with runs of white space
-    folded. A reply that names none is believed, from none. A quote that is
-    not in the description, or is not short, is not shown, and the page
-    checker's own reader takes a turn over the description instead, from
-    pattern, which is word for word by construction. Where that finds nothing
-    either, the model said there was pay and the advert cannot be made to
-    show it, from unverified, and the page says so and does not claim the
-    advert names none. The floors the pay is judged against are not here, they
-    are read from the preferences file where the gate is made.
+    folded, from model. A quote that is not in the description, or is not
+    short, is not shown, and the pattern reader takes a turn over the
+    description instead, from pattern, which is word for word by construction.
+    Where that finds nothing either, the model said there was pay and the
+    advert cannot be made to show it, from unverified.
+
+    A reply that names none is not taken on its word alone, because "the
+    description names no pay" is the claim most worth being right about. The
+    pattern reader looks too. If it finds wording that may be pay the page
+    shows it as a disagreement, from disagrees, and says it may not be pay.
+    Only when both find nothing is the answer none. The floors the pay is
+    judged against are not here, they are read from the preferences file where
+    the gate is made.
     """
     quote = _flat(model_quote)
-    if not quote:
-        return {"quote": None, "from": "none"}
     flat = _flat(description)
+    if not quote:
+        candidate = _pay_candidate(flat)
+        if candidate:
+            return {"quote": candidate, "from": "disagrees"}
+        return {"quote": None, "from": "none"}
     if len(quote) <= RATE_QUOTE_MAX:
         found = re.search(re.escape(quote), flat, re.IGNORECASE)
         if found:
             return {"quote": found.group(0), "from": "model"}
-    pay = check_jobs.stated_pay(flat)
-    if pay and 0 < len(pay["text"]) <= RATE_QUOTE_MAX:
-        return {"quote": pay["text"], "from": "pattern"}
+    candidate = _pay_candidate(flat)
+    if candidate:
+        return {"quote": candidate, "from": "pattern"}
     return {"quote": None, "from": "unverified"}
 
 
@@ -258,6 +320,12 @@ def _minutes(seconds: float) -> str:
 NOT_LINKEDIN_WHY = ("This advert's link is not a LinkedIn job page, and "
                     "LinkedIn job pages are the only ones Radar reads.")
 
+APPLIED_NOTE = ("This role is marked applied. Prepare application shows what "
+                "is stored and fetches, scores and writes nothing for it.")
+NOT_OPEN_NOTE = ("This role is not open, it has been acknowledged, closed, "
+                 "dismissed or retired. Prepare application shows what is "
+                 "stored and fetches, scores and writes nothing for it.")
+
 
 def fetch_failed_text(why: str) -> str:
     """The sentence a page says when the full description is not to be had."""
@@ -265,29 +333,112 @@ def fetch_failed_text(why: str) -> str:
             "shown is the one made from the advert card.")
 
 
-def _fetch_failed(out: dict, why: str, retry: bool = True) -> None:
+def _fetch_failed(out: dict, why: str, retry: bool = False) -> None:
+    """A page that was not had. Try again is only offered where trying again
+    could work, which is a network that was down and not much else: a 429 and a
+    page that could not be read are not asked for again for minutes."""
     out["outcome"] = "no_description"
     _notice(out, "fetch", fetch_failed_text(why), retry)
 
 
+def _refuse(out: dict, why: str, during: str) -> None:
+    """The role changed while this click was working. Said, and nothing stored."""
+    if why == "applied":
+        out["outcome"] = "applied"
+        _notice(out, "info", f"This role was marked applied while {during}, so "
+                "nothing was stored. " + APPLIED_NOTE)
+    elif why == "not_open":
+        out["outcome"] = "not_open"
+        _notice(out, "info", f"This role was acknowledged, closed, dismissed or "
+                f"retired while {during}, so nothing was stored. " + NOT_OPEN_NOTE)
+    else:
+        out["outcome"] = "score_failed"
+        _notice(out, "info", f"This role was no longer there while {during}, "
+                "so nothing was stored.")
+
+
+# ------------------------------------------------------- the write helpers
+
+def _begin_write(conn) -> bool:
+    """Take the write lock, waiting for another process's. False if it stayed busy.
+
+    The inbox run holds the lock for the whole of an email, so the default five
+    second wait is too short for a click that lands in the middle of one.
+    """
+    try:
+        conn.execute(f"PRAGMA busy_timeout={int(WRITE_WAIT_SECONDS * 1000)}")
+        rc.begin_write(conn)
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
+def _fresh_open_row(conn, item_id: int):
+    """Under the write lock: the row as it is now, and why it may not be written.
+
+    Returns (row or None, None | "applied" | "not_open" | "gone"). The
+    statement carries the applied condition, so an applied role is never
+    returned however it got there.
+    """
+    raw = conn.execute("SELECT * FROM opportunities WHERE id = ? AND "
+                       + rc.NOT_APPLIED_SQL, (item_id,)).fetchone()
+    if raw is None:
+        return None, ("applied" if rc.role_is_applied(conn, item_id)
+                      else "gone")
+    row = dict(raw)
+    return row, (None if is_open(row) else "not_open")
+
+
+def _log_run(conn, usage: dict, config: dict, stored: bool, note: str,
+             commit: bool = True) -> None:
+    """One row in runs for a model call, so the week's cost counts it.
+
+    With commit False the row joins the transaction the caller is in, so that a
+    score and the record of what it cost are stored together or not at all.
+    """
+    if not usage:
+        return
+    try:
+        conn.execute(
+            "INSERT INTO runs (ts, workflow, mode, items_in, items_new, model,"
+            " input_tokens, output_tokens, cache_read_tokens, note)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (rc.now_iso(), "prepare",
+             "mock" if rc.mock_mode_active() else "live", 1, 1 if stored else 0,
+             usage.get("model") or config.get("claude_model_score"),
+             usage.get("input_tokens", 0), usage.get("output_tokens", 0),
+             usage.get("cache_read_tokens", 0), note))
+        if commit:
+            conn.commit()
+    except Exception as err:  # noqa: BLE001  a log line never costs the result
+        print(f"prepare: the run record was not written ({type(err).__name__})",
+              file=sys.stderr)
+
+
 # ----------------------------------------------------------- the one fetch
 
-def _fetch_and_store(conn, row: dict, out: dict) -> str:
-    """Fetch the page once and store its description. Returns it, or "".
+def _fetch_page(row: dict, out: dict):
+    """Ask LinkedIn for the advert's page once. (description, fetched_at) or None.
 
-    Everything that stops this from fetching is told to the page in a notice,
-    and so is everything that goes wrong after it has.
+    None means a notice has said why. Everything that stops this from asking,
+    and everything that goes wrong after it has, is told to the page.
     """
     job_id = job_id_of(row)
     if job_id is None:
-        _fetch_failed(out, NOT_LINKEDIN_WHY, retry=False)
-        return ""
+        _fetch_failed(out, NOT_LINKEDIN_WHY)
+        return None
+    key = ("page", row["id"])
+    held = GUARD.recent_failure(key)
+    if held:
+        _fetch_failed(out, f"{held[0]} That was a moment ago, and it is not "
+                           f"asked for again for {_minutes(held[1])}.")
+        return None
     wait = GUARD.blocked_for()
     if wait > 0:
         _fetch_failed(out, "LinkedIn answered 429, too many requests, a "
                            f"moment ago, so Radar is not asking again for "
                            f"{_minutes(wait)}.")
-        return ""
+        return None
     url = f"https://www.linkedin.com/jobs/view/{job_id}/"
     with GUARD.fetch_lock:
         # The checker spaces its requests 8 to 12 seconds apart. Clicks on
@@ -298,7 +449,7 @@ def _fetch_and_store(conn, row: dict, out: dict) -> str:
             _fetch_failed(out, "LinkedIn answered 429, too many requests, a "
                                "moment ago, so Radar is not asking again for "
                                f"{_minutes(GUARD.blocked_for())}.")
-            return ""
+            return None
         out["fetched"] = True
         try:
             status, final_url, body = check_jobs.fetch_job_page(url)
@@ -310,62 +461,90 @@ def _fetch_and_store(conn, row: dict, out: dict) -> str:
         if status == 429:
             GUARD.block(check_jobs.BACKOFF_SECONDS)
     if status == 0:
-        _fetch_failed(out, "Radar could not reach LinkedIn from this machine.")
-        return ""
+        _fetch_failed(out, "Radar could not reach LinkedIn from this machine.",
+                      retry=True)
+        return None
     if status == 429:
         _fetch_failed(out, "LinkedIn answered 429, too many requests. Nothing "
                            "was stored, and Radar will not ask again for "
                            f"{_minutes(check_jobs.BACKOFF_SECONDS)}.")
-        return ""
+        return None
+
+    def cannot(why: str):
+        """A page a second try would give again, so it is not asked for again."""
+        GUARD.remember_failure(key, PAGE_FAILURE_COOLDOWN_SECONDS, why)
+        _fetch_failed(out, why)
+        return None
+
     verdict, reason = check_jobs.classify(status, final_url, body,
                                           row.get("title"), job_id)
     if verdict == "gone":
-        _fetch_failed(out, "LinkedIn sent the link to its expired job page, "
-                           "so the advert looks gone.", retry=False)
-        return ""
+        return cannot("LinkedIn sent the link to its expired job page, so the "
+                      "advert looks gone.")
     if verdict == "closed":
-        _fetch_failed(out, "LinkedIn shows this advert as closed. Radar has "
-                           "not closed the role in its own records, use Closed "
-                           "on the Jobs row if you agree.", retry=False)
-        return ""
+        return cannot("LinkedIn shows this advert as closed. Radar has not "
+                      "closed the role in its own records, use Closed on the "
+                      "Jobs row if you agree.")
     if verdict != "live":
         if "authwall" in reason:
-            _fetch_failed(out, "LinkedIn asked for a login, and Radar never "
-                               "logs in.")
-        else:
-            _fetch_failed(out, "LinkedIn served a page Radar could not match "
-                               f"to this advert ({reason}).")
-        return ""
+            return cannot("LinkedIn asked for a login, and Radar never logs in.")
+        return cannot("LinkedIn served a page Radar could not match to this "
+                      f"advert ({reason}).")
     description = check_jobs.read_page(body).get("description") or ""
     if not description.strip():
-        _fetch_failed(out, "The page was served but carried no description "
-                           "text.")
+        return cannot("The page was served but carried no description text.")
+    return description, rc.now_iso()
+
+
+def _store_description(conn, row: dict, description: str, fetched_at: str,
+                       out: dict) -> str:
+    """Store a description that was read, if the role is still open to it.
+
+    The write lock first, then look again: the page took a while to come, and a
+    role can be applied for or dismissed in that time. An applied role keeps
+    what it has, and a description stored by someone else in the meantime
+    stays. If the database stays busy the page is parked, so that the next click
+    stores it without asking LinkedIn again. Returns the description stored, or
+    "" with a notice said.
+    """
+    if not _begin_write(conn):
+        GUARD.park("page", row["id"], (description, fetched_at))
+        out["outcome"] = "no_description"
+        _notice(out, "fetch",
+                "The full description was read from LinkedIn, but it could not "
+                "be stored yet because the database was busy. It is held in "
+                "memory, and Try again stores it without asking LinkedIn "
+                "again. The score shown is the one made from the advert card.",
+                retry=True)
         return ""
-    # The write lock first, then look again. The page took a while to come,
-    # and a role can be applied for in that time. An applied role keeps what
-    # it has, and a description stored by someone else in the meantime stays.
-    rc.begin_write(conn)
-    if rc.role_is_applied(conn, row["id"]):
+    _current, why = _fresh_open_row(conn, row["id"])
+    if why:
         conn.rollback()
-        out["outcome"] = "applied"
-        _notice(out, "info", APPLIED_NOTE)
+        _refuse(out, why, "the page was being fetched")
         return ""
     conn.execute(
         "UPDATE opportunities SET description_text = ?,"
         " description_fetched_at = ? WHERE id = ? AND"
         " (description_text IS NULL OR TRIM(description_text) = '') AND "
-        + rc.NOT_APPLIED_SQL, (description, rc.now_iso(), row["id"]))
+        + rc.NOT_APPLIED_SQL, (description, fetched_at, row["id"]))
     conn.commit()
     stored = conn.execute("SELECT description_text FROM opportunities"
                           " WHERE id = ?", (row["id"],)).fetchone()
     return (stored["description_text"] or "") if stored else ""
 
 
-APPLIED_NOTE = ("This role is marked applied. Prepare application shows what "
-                "is stored and fetches, scores and writes nothing for it.")
-NOT_OPEN_NOTE = ("This role is not open, it has been acknowledged, closed, "
-                 "dismissed or retired. Prepare application shows what is "
-                 "stored and fetches, scores and writes nothing for it.")
+def _fetch_and_store(conn, row: dict, out: dict) -> str:
+    """Get the description of a role that stores none, and store it. "" if not.
+
+    A page parked by an earlier click that could not store it is used before
+    LinkedIn is asked for another.
+    """
+    got = GUARD.take_parked("page", row["id"])
+    if got is None:
+        got = _fetch_page(row, out)
+    if got is None:
+        return ""
+    return _store_description(conn, row, got[0], got[1], out)
 
 
 # ------------------------------------------------------------- the score
@@ -388,25 +567,10 @@ def _spec_opportunity(row: dict, description: str) -> dict:
     }
 
 
-def _log_call(conn, usage: dict, config: dict, stored: bool, note: str) -> None:
-    """One row in runs for a model call, so the week's cost counts it."""
-    if not usage:
-        return
-    try:
-        rc.log_run(conn, "prepare",
-                   mode="mock" if rc.mock_mode_active() else "live",
-                   items_in=1, items_new=1 if stored else 0,
-                   model=usage.get("model") or config.get("claude_model_score"),
-                   usage=usage, note=note)
-    except Exception as err:  # noqa: BLE001  a log line never costs the result
-        print(f"prepare: the run record was not written ({type(err).__name__})",
-              file=sys.stderr)
-
-
 def _failure_key(row: dict, description: str, config: dict) -> tuple:
-    """What a remembered failure is about: this role, this version of its
-    description, this rubric and this CV. Change any of them and it is a new
-    question, which a person may ask at once."""
+    """What a remembered failure, or parked work, is about: this role, this
+    version of its description, this rubric and this CV. Change any of them and
+    it is a new question, which a person may ask at once."""
     try:
         return (row["id"], rc.description_version(description),
                 rc.prompt_version(), score_item.get_cv_version(config))
@@ -414,9 +578,81 @@ def _failure_key(row: dict, description: str, config: dict) -> tuple:
         return (row["id"], rc.description_version(description))
 
 
+def _store_score(conn, row: dict, payload: dict, config: dict, key: tuple,
+                 out: dict) -> None:
+    """Store a score that was paid for, if the role is still open to one.
+
+    The write lock first, then look again: the role may have been applied for
+    or dismissed while the model answered. It keeps what it had, and the reply
+    that was paid for is not stored, but its cost is still recorded. If the
+    database stays busy the reply is parked, so that the next click stores it
+    without a second call. The score, its history and the record of what it
+    cost are one transaction.
+    """
+    scored, usage = payload["scored"], payload["usage"]
+    working = scored["working"]
+    if not _begin_write(conn):
+        GUARD.park("score", key, payload)
+        out["outcome"] = "score_held"
+        _notice(out, "score",
+                "The scorer answered, but the score could not be stored yet "
+                "because the database was busy. It is held in memory, and Try "
+                "again stores it without another call.", retry=True)
+        return
+    current, why = _fresh_open_row(conn, row["id"])
+    if why:
+        _log_run(conn, usage, config, False,
+                 f"id {row['id']}, "
+                 + ("applied" if why == "applied" else "no longer open")
+                 + " while scoring, not stored")
+        _refuse(out, why, "the scorer was answering")
+        return
+    old_tier = current["tier"]
+    rc.archive_score(conn, row["id"], "prepare")
+    params = ((scored["cv_match"], scored["one_line_why"],
+               json.dumps(scored["red_flags"]), scored["suggested_action"],
+               scored["act_by"], scored["thread_type"],
+               payload.get("cv_version"),
+               json.dumps(working, ensure_ascii=False))
+              + tuple(scored.get(c) for c in GATE_COLS + RECORD_COLS)
+              + (row["id"],))
+    cur = conn.execute(
+        "UPDATE opportunities SET cv_match = ?, one_line_why = ?,"
+        " red_flags = ?, suggested_action = ?, act_by = ?, thread_type = ?,"
+        " notes = NULL, cv_version = ?, score_working = ?, "
+        + ", ".join(f"{c} = ?" for c in GATE_COLS + RECORD_COLS)
+        + " WHERE id = ? AND " + rc.NOT_APPLIED_SQL, params)
+    if not cur.rowcount:
+        # Nothing was written, so the history row kept above goes with it.
+        conn.rollback()
+        _log_run(conn, usage, config, False,
+                 f"id {row['id']}, the row was not there to write, not stored")
+        out["outcome"] = "score_failed"
+        _notice(out, "score", "The score could not be stored, the role is "
+                "gone or has been applied for. Nothing was changed.")
+        return
+    moved = old_tier if (old_tier and old_tier != scored["tier"]) else None
+    rc.record_score(conn, row["id"], "prepare", tier_from=moved)
+    _log_run(conn, usage, config, True,
+             f"id {row['id']}, {len(working['asks'])} asks"
+             + (f", tier {old_tier} to {scored['tier']}" if moved else ""),
+             commit=False)
+    conn.commit()
+    out["outcome"] = "scored"
+    out["scored"] = True
+    if moved:
+        out["tier_move"] = {"from": moved, "to": scored["tier"]}
+
+
 def _score(conn, row: dict, description: str, config: dict, out: dict) -> None:
     """Score the role against its description. One model call, no more."""
     key = _failure_key(row, description, config)
+    # A reply paid for on an earlier click that the database was too busy to
+    # take is stored first, and no call is made.
+    parked = GUARD.take_parked("score", key)
+    if parked is not None:
+        _store_score(conn, row, parked, config, key, out)
+        return
     held = GUARD.recent_failure(key)
     if held:
         out["outcome"] = "cooling"
@@ -455,8 +691,8 @@ def _score(conn, row: dict, description: str, config: dict, out: dict) -> None:
                 f"({note or 'no tier came back'}). Nothing was stored for "
                 "the score.")
         GUARD.remember_failure(key, UNUSABLE_COOLDOWN_SECONDS, text)
-        _log_call(conn, usage, config, False, f"id {row['id']}, not stored, "
-                  f"{note or 'no tier'}")
+        _log_run(conn, usage, config, False, f"id {row['id']}, not stored, "
+                 f"{note or 'no tier'}")
         out["outcome"] = "score_failed"
         # This click paid for the reply, and says so. The memory above does
         # not, because a later click that reads it paid for nothing.
@@ -466,55 +702,9 @@ def _score(conn, row: dict, description: str, config: dict, out: dict) -> None:
     working = scored["working"]
     line = rate_line(description, scored.get("rate_quote_raw"))
     working["rate_quote"], working["rate_quote_from"] = line["quote"], line["from"]
-
-    # The write lock, then look again: the role may have been applied for while
-    # the model answered. It keeps the score it was applied with, and the reply
-    # that was paid for is not stored.
-    rc.begin_write(conn)
-    if rc.role_is_applied(conn, row["id"]):
-        conn.rollback()
-        _log_call(conn, usage, config, False,
-                  f"id {row['id']}, applied while scoring, not stored")
-        out["outcome"] = "applied"
-        _notice(out, "info", "This role was marked applied while the scorer "
-                "was answering, so the reply was not stored. " + APPLIED_NOTE)
-        return
-    held_tier = conn.execute("SELECT tier FROM opportunities WHERE id = ?",
-                             (row["id"],)).fetchone()
-    old_tier = held_tier["tier"] if held_tier else None
-    rc.archive_score(conn, row["id"], "prepare")
-    params = ((scored["cv_match"], scored["one_line_why"],
-               json.dumps(scored["red_flags"]), scored["suggested_action"],
-               scored["act_by"], scored["thread_type"],
-               getattr(blocks, "cv_version", None),
-               json.dumps(working, ensure_ascii=False))
-              + tuple(scored.get(c) for c in GATE_COLS + RECORD_COLS)
-              + (row["id"],))
-    cur = conn.execute(
-        "UPDATE opportunities SET cv_match = ?, one_line_why = ?,"
-        " red_flags = ?, suggested_action = ?, act_by = ?, thread_type = ?,"
-        " notes = NULL, cv_version = ?, score_working = ?, "
-        + ", ".join(f"{c} = ?" for c in GATE_COLS + RECORD_COLS)
-        + " WHERE id = ? AND " + rc.NOT_APPLIED_SQL, params)
-    if not cur.rowcount:
-        # Nothing was written, so the history row kept above goes with it.
-        conn.rollback()
-        _log_call(conn, usage, config, False,
-                  f"id {row['id']}, the row was not there to write, not stored")
-        out["outcome"] = "score_failed"
-        _notice(out, "score", "The score could not be stored, the role is "
-                "gone or has been applied for. Nothing was changed.")
-        return
-    moved = old_tier if (old_tier and old_tier != scored["tier"]) else None
-    rc.record_score(conn, row["id"], "prepare", tier_from=moved)
-    conn.commit()
-    _log_call(conn, usage, config, True,
-              f"id {row['id']}, {len(working['asks'])} asks"
-              + (f", tier {old_tier} to {scored['tier']}" if moved else ""))
-    out["outcome"] = "scored"
-    out["scored"] = True
-    if moved:
-        out["tier_move"] = {"from": moved, "to": scored["tier"]}
+    _store_score(conn, row, {"scored": scored, "usage": usage,
+                             "cv_version": getattr(blocks, "cv_version", None)},
+                 config, key, out)
 
 
 # ------------------------------------------------------------ the click
@@ -527,10 +717,12 @@ def prepare(item_id: int, db_path: Path | None = None,
     model call was made and answered), "scored": bool (and stored),
     "tier_move": {from, to} or None, "notices": [...]}. The
     outcome is scored, reused (the score for this version of the description
-    was already stored), no_description (it could not be had), score_failed,
-    cooling (a failure still remembered), applied, not_open or busy. A role
+    was already stored), no_description (it could not be had or stored),
+    score_failed, score_held (paid for, parked for the next click), cooling (a
+    failure still remembered), applied, not_open or busy. A role
     that does not exist is {"ok": False, "note": ...}. A database that stays
-    locked raises sqlite3.OperationalError, for the route to answer politely.
+    locked while it is opened raises sqlite3.OperationalError, for the route to
+    answer politely.
     """
     out: dict = {"ok": True, "id": item_id, "outcome": None, "fetched": False,
                  "called": False, "scored": False, "tier_move": None,
