@@ -106,7 +106,9 @@ read-only.
 The writes it takes. Acknowledge and its undo (POST /ack and /unack)
 stamp or clear `acknowledged_at` on one opportunity row. Applied and its
 undo (POST /apply and /unapply) mark a role applied for, see "Roles applied
-for" below. The /cv page
+for" below. Prepare application (POST /prepare, behind a read-only page at
+GET /prepare/<id>) fetches an advert's full description and scores the role
+against it, see "Prepare application" below. The /cv page
 accepts a CV as md, txt, docx or pdf, extracts it to markdown, shows the
 extracted text, and on an explicit confirm saves it as a dated version
 under `config/profile/` with the `cv.active` marker pointing at it. Every
