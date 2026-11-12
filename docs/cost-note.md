@@ -23,6 +23,8 @@ text rather than a bare headline, so a signal call carries roughly 1,000 to
 1,500 extra input tokens. Better judgement for about half a cent more per
 item. Add $0.30 to $0.70 a week.
 
+**Prepare application, Sonnet.** One call each time you open a role's page by its Prepare application link and the role has a description that has not been scored, never in a batch and never on a schedule. About 0.9 cent a role for the description alone and about 1.7 cents with the per-ask working. The reply is capped at 4,096 tokens, so the most one call can bill for its reply is about 6 cents, and a reply that runs into the cap is thrown away after being paid for. A role is scored once per version of its description, so opening its page again, reloading it or double clicking costs nothing, and a failed fetch costs nothing because nothing is sent. Not in the weekly figures below, which stay as they were, because it only happens when you press it.
+
 ## The numbers
 
 | | Weekly | Monthly |
@@ -41,7 +43,8 @@ SELECT workflow, model, SUM(input_tokens), SUM(output_tokens)
 FROM runs GROUP BY workflow, model;
 ```
 
-## The two guardrails
+## The three guardrails
 
 1. **Dedupe before scoring.** An advert whose URL hash is already in the database never reaches the API. Re-running a workflow costs nothing.
 2. **Batch with a cached system prompt.** Scoring calls share one stable system block with cache control on it, so the expensive part of the prompt is paid for roughly once per batch, not once per advert.
+3. **One role, one call, once per description.** Prepare application takes a lock per role, scores a description once per version of it, makes one call with no retry, and does not pay again for an unusable reply for five minutes. `SELECT COUNT(*), SUM(input_tokens), SUM(output_tokens) FROM runs WHERE workflow = 'prepare';` is what it has cost.

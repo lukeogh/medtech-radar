@@ -1584,6 +1584,9 @@ def page_checks() -> None:
               "and with their text, and the one with none is warned about")
         check("“£700 to £800 per day”" in text,
               "the rate line quotes the advert's own words")
+        check(f"</b> {FIXTURE_LINES[12]}</li>" in render_inner(env, oid),
+              "a cited line's number and its text are separate words in the markup, "
+              "not only apart by the style")
         check(FIXTURE_LINES[32] not in text and "Luke Keogh" not in text
               and FIXTURE_LINES[6] not in text,
               "and no CV line that was not cited is on the page")
@@ -1619,6 +1622,40 @@ def page_checks() -> None:
               and "No per-ask working is stored" in text,
               "a working whose date is not the date of the score the row holds is "
               "not shown, even beside another score made on a description")
+
+    # A role with nothing to fetch says why on a plain open, where no click
+    # will ever carry the reason. A role that could be fetched says nothing
+    # until a click has tried.
+    with fresh() as env:
+        reed = env.role(page=False, source="reed-alert",
+                        source_url="https://www.reed.co.uk/jobs/director/55555")
+        linked = env.role()
+        inner = render_inner(env, reed)
+        text = page_text(inner)
+        check("The full description could not be fetched. This advert's link is not "
+              "a LinkedIn job page" in text and "made from the advert card" in text
+              and "Not read. There is no full description stored" in text
+              and "No per-ask working. It is read from the full description, and "
+                  "none is stored" in text and not BUTTON.search(inner),
+              "an advert that is not a LinkedIn page says on a plain open that its "
+              "full description could not be fetched and why, with no button to try")
+        twice = page_text(render_inner(env, reed, notices=[
+            {"kind": "fetch", "text": prep.fetch_failed_text(prep.NOT_LINKEDIN_WHY),
+             "retry": False}]))
+        check(twice.count("could not be fetched") == 1,
+              "and says it once when a click has said it already")
+        text = page_text(render_inner(env, linked))
+        check("could not be fetched" not in text
+              and "Not read. There is no full description stored" in text,
+              "while an advert that can be fetched claims no failure before one is tried")
+        stored = env.role(page=False, description_text="- IEC 62304 experience")
+        text = page_text(render_inner(env, stored))
+        check("Not read yet. The pay is quoted from the full description once the "
+              "role is scored against it" in text
+              and "No per-ask working is stored. It is made when the role is scored"
+              in text,
+              "and one with a description stored that has not been scored says the "
+              "pay and the asks come once it is")
 
     # No pay named.
     with fresh() as env:
@@ -2066,6 +2103,17 @@ def static_checks() -> None:
 # ----------------------------------------------------- the queries for the box
 
 BOX_QUERIES = {
+    "briefs 2 and 5 are live (expect 4, 2 and 1)":
+        "SELECT (SELECT COUNT(*) FROM pragma_table_info('opportunities') WHERE name"
+        " IN ('score_basis','prompt_version','score_model','scored_at')) AS record_columns,"
+        " (SELECT COUNT(*) FROM pragma_table_info('opportunities') WHERE name IN"
+        " ('applied_at','applied_cv')) AS applied_columns, (SELECT COUNT(*) FROM"
+        " sqlite_master WHERE name = 'score_history') AS history_table;",
+    "row counts, to compare after":
+        "SELECT COUNT(*) AS roles, SUM(expired_at IS NOT NULL) AS expired,"
+        " SUM(closed_at IS NOT NULL) AS closed, SUM(dismissed_at IS NOT NULL) AS"
+        " dismissed, SUM(applied_at IS NOT NULL) AS applied, (SELECT COUNT(*) FROM"
+        " score_history) AS history_rows FROM opportunities;",
     "the file is sound": "PRAGMA integrity_check;",
     "the new columns are there (expect 3 and 3)":
         "SELECT (SELECT COUNT(*) FROM pragma_table_info('opportunities') WHERE name"
@@ -2080,6 +2128,11 @@ BOX_QUERIES = {
         "SELECT id, company, title, tier, scored_at, description_fetched_at,"
         " LENGTH(description_text) AS chars, description_hash FROM opportunities"
         " WHERE score_basis = 'spec' ORDER BY scored_at DESC, id DESC LIMIT 20;",
+    "the history of the role prepared last":
+        "SELECT id, event, writer, score_basis, tier, tier_from, description_hash IS"
+        " NOT NULL AS has_hash, working IS NOT NULL AS has_working, recorded_at FROM"
+        " score_history WHERE opportunity_id = (SELECT id FROM opportunities WHERE"
+        " score_basis = 'spec' ORDER BY scored_at DESC, id DESC LIMIT 1) ORDER BY id;",
     "every full description score has its hash, working and record (expect 0)":
         "SELECT COUNT(*) AS spec_scores_missing_something FROM opportunities"
         " WHERE score_basis = 'spec' AND (description_hash IS NULL OR score_working"
@@ -2126,6 +2179,12 @@ def box_query_checks() -> None:
         for oid in (a, b, c):
             env.prepare(oid)
         conn = env.conn()
+        check(ask(conn, "briefs 2 and 5") == [(4, 2, 1)],
+              "the prerequisite query reads 4, 2 and 1 on a database that has the "
+              "score record, the applied marker and the history table")
+        counts = ask(conn, "row counts")[0]
+        check(counts[0] == 3 and counts[1:5] == (0, 0, 0, 0) and counts[5] >= 3,
+              f"the row count query counts three roles and their history ({counts})")
         check(ask(conn, "the file is sound") == [("ok",)]
               and ask(conn, "the new columns") == [(3, 3)],
               "the integrity and column queries answer ok and 3 and 3")
@@ -2142,6 +2201,11 @@ def box_query_checks() -> None:
         moves = ask(conn, "tier moves")
         check(len(moves) == 1 and moves[0][:3] == (b, "top", "filtered"),
               "the one tier move is listed")
+        last = ask(conn, "the history of the role prepared last")
+        check(last and last[-1][1:4] == ("scored", "prepare", "spec")
+              and last[-1][6] == 1 and last[-1][7] == 1,
+              f"the history of the role prepared last ends with its spec score, "
+              f"with a hash and a working ({[r[1:4] for r in last]})")
         calls = ask(conn, "the model calls")[0]
         check(calls[0] == 3 and calls[1] == 3,
               f"the cost query counts three calls, all stored ({calls})")

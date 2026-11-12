@@ -255,11 +255,19 @@ def _minutes(seconds: float) -> str:
     return f"{whole} minute" + ("" if whole == 1 else "s")
 
 
+NOT_LINKEDIN_WHY = ("This advert's link is not a LinkedIn job page, and "
+                    "LinkedIn job pages are the only ones Radar reads.")
+
+
+def fetch_failed_text(why: str) -> str:
+    """The sentence a page says when the full description is not to be had."""
+    return (f"The full description could not be fetched. {why} The score "
+            "shown is the one made from the advert card.")
+
+
 def _fetch_failed(out: dict, why: str, retry: bool = True) -> None:
     out["outcome"] = "no_description"
-    _notice(out, "fetch",
-            f"The full description could not be fetched. {why} The score "
-            "shown is the one made from the advert card.", retry)
+    _notice(out, "fetch", fetch_failed_text(why), retry)
 
 
 # ----------------------------------------------------------- the one fetch
@@ -272,9 +280,7 @@ def _fetch_and_store(conn, row: dict, out: dict) -> str:
     """
     job_id = job_id_of(row)
     if job_id is None:
-        _fetch_failed(out, "This advert's link is not a LinkedIn job page, "
-                           "and LinkedIn job pages are the only ones Radar "
-                           "reads.", retry=False)
+        _fetch_failed(out, NOT_LINKEDIN_WHY, retry=False)
         return ""
     wait = GUARD.blocked_for()
     if wait > 0:

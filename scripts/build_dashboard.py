@@ -3310,6 +3310,8 @@ PREPARE_CSS = """
 .desc{white-space:pre-wrap;overflow-wrap:anywhere;font:400 var(--text-sm)/1.65 var(--font-sans);color:var(--ink-1);padding:var(--space-16) 0 var(--space-4);margin:0}
 .prep-gates{list-style:none;margin:0;padding:var(--space-8) 0;font:400 var(--text-sm)/1.7 var(--font-sans);color:var(--ink-2)}
 .prep-gates b{font-weight:var(--weight-strong);color:var(--ink-1)}
+.prep-wrap .masthead-sub{overflow-wrap:anywhere}
+@media (max-width:600px){.prep-fact{grid-template-columns:minmax(0,1fr);gap:var(--space-4)}}
 """
 
 PREPARE_SCRIPT = """
@@ -3390,7 +3392,7 @@ def _prepare_ask(ask: dict) -> str:
     lines = [l for l in (ask.get("lines") or []) if isinstance(l, dict)]
     if status != "missing" and lines:
         out.append('<ul class="ask-lines">' + "".join(
-            f'<li><b>CV line {esc(l.get("n"))}</b>{esc(l.get("text"))}</li>'
+            f'<li><b>CV line {esc(l.get("n"))}</b> {esc(l.get("text"))}</li>'
             for l in lines) + "</ul>")
     elif status != "missing":
         out.append('<p class="ask-warn">Unanchored. The scorer says the CV '
@@ -3435,6 +3437,11 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
         out.append(_prepare_notice("info", prep.APPLIED_NOTE))
     elif not is_open:
         out.append(_prepare_notice("info", prep.NOT_OPEN_NOTE))
+    elif not description and not notices and prep.job_id_of(row) is None:
+        # Nothing here can be fetched, so no click will ever say why. The page
+        # says it, in the words a failed fetch uses.
+        out.append(_prepare_notice(
+            "fetch", prep.fetch_failed_text(prep.NOT_LINKEDIN_WHY)))
 
     # The tier move, from the history, for as long as the score it came from
     # is the score the row holds.
@@ -3544,6 +3551,9 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
         else:
             pay.append('<p class="detail-body">The full description names no '
                        'pay.</p>')
+    elif not description:
+        pay.append('<p class="detail-body">Not read. There is no full '
+                   'description stored, so there is nothing to quote.</p>')
     else:
         pay.append('<p class="detail-body">Not read yet. The pay is quoted '
                    'from the full description once the role is scored '
@@ -3575,6 +3585,10 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
         else:
             asks_html.append('<p class="detail-body">The scorer found no '
                              'asks in this advert.</p>')
+    elif not description:
+        asks_html.append('<p class="detail-body">No per-ask working. It is '
+                         'read from the full description, and none is '
+                         'stored.</p>')
     else:
         asks_html.append('<p class="detail-body">No per-ask working is '
                          'stored. It is made when the role is scored '
