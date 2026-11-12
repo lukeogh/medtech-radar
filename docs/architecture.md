@@ -276,8 +276,9 @@ set by hand only.
 
 Every score says how it was made. The opportunity row keeps four things beside
 the score. The basis is `card` for the advert card an alert email carries, or
-`spec` for a full job spec. No scorer is given a full spec yet, so every score
-reads `card` today. The prompt version is a short hash of `prompts/scorer.md`,
+`spec` for a full job description. Only Prepare application, below, gives a
+scorer one, so every score the inbox and the re-score make reads `card`. The
+prompt version is a short hash of `prompts/scorer.md`,
 the first eight hex characters of its sha256 with the line endings made alike,
 taken from the file when the rubric is loaded, so it cannot drift from what the
 model was shown. The model is the one that answered. The date is when. A row
@@ -303,7 +304,8 @@ state when it is replaced. A re-tier by code changes the tier and the rate gate
 and leaves the date, prompt version and model of the model's answer where they
 were, because the answer is unchanged. A score the newest history row already
 holds is not kept twice, and a dry run writes nothing. The history keeps those
-ten fields and no more. The gate notes, red flags, suggested action and the
+ten fields, and for a score made on a full description the hash of that
+description and the per-ask working, and no more. The gate notes, red flags, suggested action and the
 rate and engagement columns are overwritten without a copy, and so is the
 employment type the page checker reads off a page.
 
