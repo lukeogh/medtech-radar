@@ -210,6 +210,39 @@ def confirm(token: str, base: Path | None = None) -> dict:
         return {"file": dest.name, "version": dest.name}
 
 
+# --------------------------------------------------------- numbering lines
+
+def cv_lines(text: str) -> list[str]:
+    """The lines of a CV, in the one way anything numbers them.
+
+    Line n is element n - 1 of the list. A line break is a line feed, a
+    carriage return and line feed, or a lone carriage return, and nothing
+    else, so the vertical tab, form feed and Unicode separators that
+    str.splitlines would also split on stay inside their line. A final line
+    break does not make another, empty line. A blank line in the middle
+    counts and keeps its number. This is the rule the scorer numbers the CV
+    by, the rule its citations are checked against, and the rule a page that
+    shows the CV beside them has to number by, so it lives here and nowhere
+    else.
+    """
+    text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+def numbered_cv(text: str) -> str:
+    """The CV as the scorer reads a full description's: [12] then the line.
+
+    Every line gets its number in square brackets, a blank line included and
+    left empty after its number, so that a number can be cited and checked
+    and the model is never asked to count.
+    """
+    return "\n".join(f"[{n}] {line}".rstrip()
+                     for n, line in enumerate(cv_lines(text), 1))
+
+
 def active_cv_name(base: Path | None = None) -> str | None:
     """The filename the marker points at, when it points at a real file."""
     base = base or PROFILE_DIR

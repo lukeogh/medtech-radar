@@ -193,6 +193,26 @@ _MIGRATIONS = (
     # APPLIED_SQL.
     ("opportunities", "applied_at", "TEXT"),
     ("opportunities", "applied_cv", "TEXT"),
+    # Prepare application. description_text has held the advert's own words
+    # since the page checker first read a page. These three say more about
+    # it and about the score made on it. All nullable, set in code, never by a
+    # model, and NULL on every row that Prepare application has not touched.
+    # description_fetched_at is when the text was stored. description_hash is
+    # the version of the description the score the row holds was made against
+    # (description_version), NULL for a card score, and is what lets a stored
+    # description be scored once per version and no more. score_working is the
+    # per-ask working of that score as JSON: each ask the advert makes, met,
+    # partly or missing, with the CV lines that evidence it. It only means
+    # anything beside the score it was made with, and readers check that.
+    ("opportunities", "description_fetched_at", "TEXT"),
+    ("opportunities", "description_hash", "TEXT"),
+    ("opportunities", "score_working", "TEXT"),
+    # The history keeps the same two for every score it holds, and tier_from,
+    # which is set only on the score that moved a role from one tier to
+    # another, with the tier it moved from.
+    ("score_history", "description_hash", "TEXT"),
+    ("score_history", "working", "TEXT"),
+    ("score_history", "tier_from", "TEXT"),
 )
 
 # What the score record says about a row scored before the record existed.
@@ -211,6 +231,11 @@ _SCORED_SQL = ("(cv_match IS NOT NULL OR want_match IS NOT NULL"
 def _migrate(conn: sqlite3.Connection) -> None:
     for table, column, decl in _MIGRATIONS:
         have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if not have:
+            # No such table, so nothing to add to. get_db has always run the
+            # schema first, which creates every table here, so this is only a
+            # file opened by hand without it.
+            continue
         if column not in have:
             try:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
@@ -688,10 +713,30 @@ def log_run(conn: sqlite3.Connection, workflow: str, mode: str = "live",
 PROMPTS_DIR = REPO_ROOT / "prompts"
 GATE_NAMES = ("sector", "cv", "location", "rate")
 
-# The fields of a score the history keeps, in the order of its columns.
+# The fields of a score the history keeps, in the order of its columns. The
+# last two arrived with Prepare application: the version of the description a
+# score was made against, and its per-ask working. A card score holds neither,
+# so both read None for every score made before, and the comparison in
+# archive_score is unchanged for them.
 _HISTORY_FIELDS = ("scored_at", "score_basis", "prompt_version", "score_model",
                    "cv_version", "cv_match", "gates", "tier", "filter_reason",
-                   "one_line_why")
+                   "one_line_why", "description_hash", "working")
+
+
+def description_version(text) -> str | None:
+    """Twelve hex characters of the sha256 of an advert's description.
+
+    The version of a stored description, so that the same text is the same
+    version wherever it is read and an edit to it is another. White space at
+    either end and the line endings do not make another version, because the
+    text is scored stripped and a stored copy with a trailing newline must
+    still be the version that was scored. None for no text at all, because
+    nothing was read and a hash of nothing would look like a version.
+    """
+    if text is None or not str(text).strip():
+        return None
+    return hashlib.sha256(
+        str(text).strip().replace("\r\n", "\n").encode("utf-8")).hexdigest()[:12]
 
 
 def prompt_hash(text: str) -> str:
@@ -731,7 +776,8 @@ def _held_score(conn: sqlite3.Connection, opportunity_id: int) -> dict | None:
     raw = cur.execute(
         "SELECT cv_match, want_match, combined, tier, one_line_why, scored_at,"
         " score_basis, prompt_version, score_model, cv_version, filter_reason,"
-        " gate_sector, gate_cv, gate_location, gate_rate"
+        " gate_sector, gate_cv, gate_location, gate_rate,"
+        " description_hash, score_working"
         " FROM opportunities WHERE id = ?", (opportunity_id,)).fetchone()
     if raw is None:
         return None
@@ -741,17 +787,28 @@ def _held_score(conn: sqlite3.Connection, opportunity_id: int) -> dict | None:
         return None
     row["gates"] = json.dumps({name: row[f"gate_{name}"] for name in GATE_NAMES},
                               sort_keys=True)
+    # The history column is called working, the row's is score_working.
+    row["working"] = row["score_working"]
+    # Only a score made against a full description has a version of one and a
+    # working. A card score holds neither, whatever the columns still say: a
+    # writer that replaces a spec score with a card score, and knows nothing of
+    # these two columns, leaves the old values on the row, and the history must
+    # not file them under a score they were not made with.
+    if row["score_basis"] != SCORE_BASIS_SPEC:
+        row["description_hash"] = None
+        row["working"] = None
     return {field: row[field] for field in _HISTORY_FIELDS}
 
 
 def _write_history(conn: sqlite3.Connection, opportunity_id: int, event: str,
-                   writer: str, state: dict, now: str | None) -> None:
+                   writer: str, state: dict, now: str | None,
+                   tier_from: str | None = None) -> None:
     conn.execute(
         "INSERT INTO score_history (opportunity_id, recorded_at, event, writer,"
-        " " + ", ".join(_HISTORY_FIELDS) + ")"
-        " VALUES (?,?,?,?" + ",?" * len(_HISTORY_FIELDS) + ")",
+        " " + ", ".join(_HISTORY_FIELDS) + ", tier_from)"
+        " VALUES (?,?,?,?" + ",?" * len(_HISTORY_FIELDS) + ",?)",
         (opportunity_id, now or now_iso(), event, writer,
-         *(state[f] for f in _HISTORY_FIELDS)))
+         *(state[f] for f in _HISTORY_FIELDS), tier_from))
 
 
 def archive_score(conn: sqlite3.Connection, opportunity_id: int, writer: str,
@@ -791,17 +848,21 @@ def archive_score(conn: sqlite3.Connection, opportunity_id: int, writer: str,
 
 
 def record_score(conn: sqlite3.Connection, opportunity_id: int, writer: str,
-                 now: str | None = None) -> bool:
+                 now: str | None = None, tier_from: str | None = None) -> bool:
     """Write the score a row now holds to the history as a new score.
 
     Called after a model has scored the row, once for a first score and
     once for a re-score. Returns True when it wrote a row. The caller
-    commits.
+    commits. tier_from is set by a caller whose score moved the role from
+    one tier to another, and is the tier it moved from. It is kept on the
+    row for the new score, so the move can be read off the history without
+    comparing one row with the next.
     """
     state = _held_score(conn, opportunity_id)
     if state is None:
         return False
-    _write_history(conn, opportunity_id, "scored", writer, state, now)
+    _write_history(conn, opportunity_id, "scored", writer, state, now,
+                   tier_from)
     return True
 
 

@@ -825,6 +825,11 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False,
             parts.append(f'<button type="button" class="act-btn" '
                          f'data-ack="{o["id"]}">Acknowledge, seen it</button>')
             if can_apply:
+                # Prepare application opens a page of its own, one click to
+                # open it and nothing fetched or scored until that page asks.
+                parts.append(f'<a class="act-btn" data-prepare="{o["id"]}" '
+                             f'href="/prepare/{int(o["id"])}?go=1">'
+                             'Prepare application</a>')
                 # Applied takes the whole role out of the open tiers into
                 # the Applied list, which holds the undo.
                 parts.append(f'<button type="button" class="act-btn" '
@@ -1271,6 +1276,7 @@ a:hover{text-decoration-color:var(--accent)}
 .act-btn{font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;white-space:nowrap;border:1px solid var(--hairline-strong);border-radius:var(--radius-pill);padding:4px 12px;cursor:pointer;background:var(--surface);color:var(--ink-2);justify-self:start;transition:color var(--dur-instant) var(--ease),border-color var(--dur-instant) var(--ease)}
 .act-btn:hover{color:var(--accent);border-color:var(--accent-quiet)}
 .act-btn:disabled{color:var(--ink-3);cursor:wait}
+a.act-btn{display:inline-block;text-decoration:none}
 .retired-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 2px;border-top:1px solid var(--hairline);color:var(--ink-2)}
 .retired-row:first-child{border-top:0}
 .applied-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-8) var(--space-12);padding:var(--space-10) 2px;border-top:1px solid var(--hairline);color:var(--ink-2)}
@@ -3273,5 +3279,385 @@ def render_company_page(conn, company_id: int, config: dict,
 <a href="/insights">Insights</a>.</p></footer>
 </main>
 <script>{SCRIPT}{COMPANY_SCRIPT}</script>
+</body>
+</html>"""
+
+
+# ------------------------------------------------------- prepare application
+
+PREPARE_CSS = """
+.prep-wrap{max-width:84ch}
+.prep-notice{border-left:3px solid var(--accent-quiet);background:var(--accent-wash);border-radius:var(--radius-sm);padding:var(--space-10) var(--space-12);margin:var(--space-12) 0;font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2)}
+.prep-notice.bad{border-left-color:var(--fail)}
+.prep-notice.working{border-left-color:var(--settled)}
+.prep-notice .act-btn{margin-top:var(--space-8)}
+.prep-facts{display:grid;gap:var(--space-8);padding:var(--space-16) 0}
+.prep-fact{display:grid;grid-template-columns:9rem minmax(0,1fr);gap:var(--space-12);align-items:baseline}
+.prep-fact .detail-label{margin:0}
+.prep-quote{font:400 var(--text-base)/1.55 var(--font-serif);margin:var(--space-8) 0 0;color:var(--ink-1)}
+.ask-list{list-style:none;margin:0;padding:0}
+.ask{padding:var(--space-12) 0;border-top:1px solid var(--panel-rule)}
+.ask:first-child{border-top:0}
+.ask-head{display:flex;gap:var(--space-10);align-items:baseline}
+.ask-text{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-1);min-width:0;overflow-wrap:anywhere}
+.ask-status{flex:none;font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;border:1px solid var(--hairline-strong);border-radius:var(--radius-pill);padding:1px 9px;white-space:nowrap;color:var(--ink-3)}
+.ask-met{color:var(--settled);border-color:var(--settled)}
+.ask-partly{color:var(--ink-1);border-color:#c08a1d}
+.ask-missing{color:var(--fail);border-color:var(--fail)}
+.ask-lines{margin:var(--space-6) 0 0 var(--space-4);padding:0 0 0 var(--space-12);border-left:2px solid var(--hairline-strong);list-style:none;font:400 var(--text-xs)/1.6 var(--font-mono);color:var(--ink-2)}
+.ask-lines b{font-weight:var(--weight-strong);color:var(--ink-3);margin-right:var(--space-8)}
+.ask-warn{margin:var(--space-6) 0 0 var(--space-4);font:var(--weight-strong) var(--text-xs)/1.55 var(--font-sans);color:var(--fail)}
+.desc{white-space:pre-wrap;overflow-wrap:anywhere;font:400 var(--text-sm)/1.65 var(--font-sans);color:var(--ink-1);padding:var(--space-16) 0 var(--space-4);margin:0}
+.prep-gates{list-style:none;margin:0;padding:var(--space-8) 0;font:400 var(--text-sm)/1.7 var(--font-sans);color:var(--ink-2)}
+.prep-gates b{font-weight:var(--weight-strong);color:var(--ink-1)}
+"""
+
+PREPARE_SCRIPT = """
+(function () {
+  var root = document.getElementById('prepare-body');
+  if (!root) return;
+  var id = Number(root.getAttribute('data-id'));
+  var busy = false;
+  function say(text, bad) {
+    var slot = root.querySelector('[data-status]');
+    if (!slot) {
+      slot = document.createElement('p');
+      slot.setAttribute('data-status', '');
+      root.insertBefore(slot, root.firstChild);
+    }
+    slot.className = 'prep-notice' + (bad ? ' bad' : ' working');
+    slot.textContent = text;
+  }
+  // One POST per click. The address is cleaned before it goes, so a reload
+  // while it works, or the back button after it, opens the page and does
+  // nothing more. Nothing here calls start() but a click or the first load.
+  function start() {
+    if (busy) return;
+    busy = true;
+    try { history.replaceState(null, '', location.pathname); } catch (err) {}
+    root.setAttribute('data-run', '0');
+    say('Working. The advert is fetched if it is not stored, then scored '
+        + 'once. This takes a few seconds.', false);
+    fetch('/prepare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id })
+    }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        busy = false;
+        if (j && j.ok === false) { say(j.note || 'That did not run.', true); return; }
+        if (j && typeof j.html === 'string') root.innerHTML = j.html;
+      })
+      .catch(function () {
+        busy = false;
+        say('No usable answer came back. The role may still be working. '
+            + 'Reload this page in a minute to see what was stored.', true);
+      });
+  }
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-prepare-go]');
+    if (!btn) return;
+    btn.disabled = true;
+    start();
+  });
+  if (root.getAttribute('data-run') === '1') start();
+})();
+"""
+
+GATE_WORDS = {1: "Passes", 0: "Fails"}
+
+
+def _prepare_gate_line(label: str, value, note) -> str:
+    word = GATE_WORDS.get(value, "Not judged")
+    text = f" {esc(sentence(note))}" if note else ""
+    return f"<li><b>{esc(label)}</b> {word}.{text}</li>"
+
+
+def _prepare_notice(kind: str, text: str, retry: bool = False) -> str:
+    cls = {"fetch": " bad", "score": " bad"}.get(kind, "")
+    button = ('<br><button type="button" class="act-btn" data-prepare-go>'
+              'Try again</button>' if retry else "")
+    return f'<p class="prep-notice{cls}">{esc(text)}{button}</p>'
+
+
+def _prepare_ask(ask: dict) -> str:
+    status = ask.get("status") if ask.get("status") in ("met", "partly", "missing") else "missing"
+    mark = {"met": "&#10003; Met", "partly": "&#9680; Partly",
+            "missing": "&#10007; Missing"}[status]
+    out = [f'<li class="ask"><div class="ask-head">'
+           f'<span class="ask-status ask-{status}">{mark}</span>'
+           f'<span class="ask-text">{esc(ask.get("ask"))}</span></div>']
+    lines = [l for l in (ask.get("lines") or []) if isinstance(l, dict)]
+    if status != "missing" and lines:
+        out.append('<ul class="ask-lines">' + "".join(
+            f'<li><b>CV line {esc(l.get("n"))}</b>{esc(l.get("text"))}</li>'
+            for l in lines) + "</ul>")
+    elif status != "missing":
+        out.append('<p class="ask-warn">Unanchored. The scorer says the CV '
+                   'evidences this and cites no line that exists.</p>')
+    out.append("</li>")
+    return "".join(out)
+
+
+def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
+                         running: bool = False) -> str | None:
+    """The inside of the Prepare application page, read only. None if no such role.
+
+    Everything comes from the database, so the same function draws the page
+    when it is opened and the answer to the one POST it makes. notices are the
+    things that click had to say, the fetch that failed or the reply that was
+    no use. The rest is derived from the row: what the full description is,
+    the score made against it, its asks, the pay it names, whether the tier
+    moved. A role that is applied for, or not open, is drawn the same way and
+    says it will not be touched.
+    """
+    import prepare_application as prep
+    row = conn.execute("SELECT * FROM opportunities WHERE id = ?",
+                       (item_id,)).fetchone()
+    if row is None:
+        return None
+    row = dict(row)
+    applied = radar_common.role_is_applied(conn, item_id)
+    is_open = prep.is_open(row)
+    description = (row.get("description_text") or "").strip()
+    working = prep.load_working(row)
+    on_description = prep.scored_on_description(row)
+    out: list[str] = []
+
+    if running:
+        out.append('<p class="prep-notice working" data-status>Working. The '
+                   'advert is fetched if it is not stored, then scored once. '
+                   'This takes a few seconds.</p>')
+    for n in notices or []:
+        out.append(_prepare_notice(n.get("kind", "info"), n.get("text", ""),
+                                   bool(n.get("retry"))))
+    if applied:
+        out.append(_prepare_notice("info", prep.APPLIED_NOTE))
+    elif not is_open:
+        out.append(_prepare_notice("info", prep.NOT_OPEN_NOTE))
+
+    # The tier move, from the history, for as long as the score it came from
+    # is the score the row holds.
+    last = conn.execute(
+        "SELECT tier, tier_from, scored_at FROM score_history"
+        " WHERE opportunity_id = ? AND event = 'scored' AND writer = 'prepare'"
+        " ORDER BY id DESC LIMIT 1", (item_id,)).fetchone()
+    if (last is not None and last["tier_from"] and on_description
+            and last["scored_at"] == row.get("scored_at")):
+        words = prep.TIER_WORDS
+        text = (f"The full description moved this role from "
+                f"{words.get(last['tier_from'], last['tier_from'])} to "
+                f"{words.get(last['tier'], last['tier'])}. Nothing was "
+                "dismissed.")
+        if last["tier"] == "filtered":
+            text += (" The Jobs page counts a Filtered role instead of "
+                     "listing it, so it will not appear there as a row. "
+                     "This page still opens.")
+        out.append(_prepare_notice("info", text))
+
+    # The role.
+    tier = row.get("tier")
+    chip = (f'<span class="chip">{esc(prep.TIER_WORDS.get(tier, tier))}</span>'
+            if tier else '<span class="chip">Not scored</span>')
+    facts = [("Company", esc(row.get("company") or "Unknown company")),
+             ("Title", esc(row.get("title") or "Untitled role")),
+             ("Where", esc(row.get("location") or "Not stated")),
+             ("Type", esc(str(row.get("engagement_type") or "unknown").capitalize())),
+             ("Source", esc(via(row.get("source"))))]
+    link = source_link(row.get("source_url"), "View the advert")
+    rows = "".join(f'<div class="prep-fact"><span class="detail-label">'
+                   f'{label}</span><span class="detail-body">{value}</span></div>'
+                   for label, value in facts)
+    if link:
+        rows += (f'<div class="prep-fact"><span class="detail-label">Link'
+                 f'</span><span class="detail-body">{link}</span></div>')
+    out.append(f'<section class="section"><div class="section-head">'
+               f'<h2>The role</h2>{chip}</div><div class="prep-facts">'
+               f'{rows}</div></section>')
+
+    # The score and how it was made.
+    score = []
+    basis = str(row.get("score_basis") or "").strip().lower()
+    if on_description:
+        when = fmt_day(row["scored_at"]) if row.get("scored_at") else "date not recorded"
+        score.append(
+            f'<p class="row-sub">Scored against the full description, {when}, '
+            f'by {esc(row.get("score_model") or "an unknown model")}, prompt '
+            f'{esc(row.get("prompt_version") or "unknown")}, CV '
+            f'{esc(row.get("cv_version") or "unknown")}.</p>')
+        stale = []
+        try:
+            if row.get("prompt_version") != radar_common.prompt_version():
+                stale.append("the prompt has changed since")
+            import score_item
+            if row.get("cv_version") != score_item.get_cv_version(config):
+                stale.append("the CV has changed since")
+        except Exception:  # noqa: BLE001  a missing file is not a failed page
+            stale = []
+        if stale:
+            score.append('<p class="row-sub">This score is shown as it was '
+                         'made: ' + esc(" and ".join(stale)) + '. A '
+                         'description that has been scored is not scored '
+                         'again from this page.</p>')
+    elif basis:
+        what = {"card": "the advert card", "spec": "an earlier description"
+                }.get(basis, basis)
+        when = fmt_day(row["scored_at"]) if row.get("scored_at") else "date not recorded"
+        score.append(f'<p class="row-sub">Scored against {esc(what)}, {when}. '
+                     + ('The stored description has not been scored yet.'
+                        if description else 'There is no full description '
+                        'stored for this role.') + '</p>')
+    else:
+        score.append('<p class="row-sub">This role has no score yet.</p>')
+    if row.get("cv_match") is not None:
+        score.append(f'<p class="row-sub">CV match {int(row["cv_match"])}.</p>')
+    if row.get("tier"):
+        score.append('<ul class="prep-gates">'
+                     + _prepare_gate_line("Sector", row.get("gate_sector"),
+                                          row.get("gate_sector_note"))
+                     + _prepare_gate_line("CV match", row.get("gate_cv"),
+                                          row.get("gate_cv_note"))
+                     + _prepare_gate_line("Location", row.get("gate_location"),
+                                          row.get("gate_location_note"))
+                     + _prepare_gate_line("Rate", row.get("gate_rate"),
+                                          row.get("gate_rate_note"))
+                     + '</ul>')
+    if row.get("one_line_why"):
+        score.append(f'<p class="row-why">{esc(sentence(row["one_line_why"]))}</p>')
+    out.append('<section class="section"><div class="section-head">'
+               '<h2>The score</h2></div>' + "".join(score) + '</section>')
+
+    # The pay, as the full description words it.
+    pay = []
+    if working is not None:
+        quote, source = working.get("rate_quote"), working.get("rate_quote_from")
+        if quote:
+            pay.append(f'<p class="prep-quote">&ldquo;{esc(quote)}&rdquo;</p>')
+            if source == "pattern":
+                pay.append('<p class="row-sub">Found by pattern matching, '
+                           'not by the scorer. Check it against the '
+                           'description below.</p>')
+        elif source == "unverified":
+            pay.append('<p class="detail-body">The scorer reported pay, but '
+                       'its wording could not be found in the advert, so '
+                       'nothing is quoted. Read the description below.</p>')
+        else:
+            pay.append('<p class="detail-body">The full description names no '
+                       'pay.</p>')
+    else:
+        pay.append('<p class="detail-body">Not read yet. The pay is quoted '
+                   'from the full description once the role is scored '
+                   'against it.</p>')
+    pay.append(f'<p class="row-sub">On the card: '
+               f'{esc(rate_detail(row))}</p>')
+    out.append('<section class="section"><div class="section-head">'
+               '<h2>The rate line</h2></div>' + "".join(pay) + '</section>')
+
+    # The asks.
+    asks_html = []
+    if working is not None:
+        asks = [a for a in working["asks"] if isinstance(a, dict)]
+        counts = working.get("counts") or {}
+        summary = (f'{int(counts.get("met") or 0)} met, '
+                   f'{int(counts.get("partly") or 0)} partly, '
+                   f'{int(counts.get("missing") or 0)} missing')
+        if counts.get("unanchored"):
+            summary += f', {int(counts["unanchored"])} without a CV line'
+        if counts.get("dropped"):
+            summary += (f'. {int(counts["dropped"])} the scorer returned '
+                        'could not be read and were left out')
+        asks_html.append(f'<p class="row-sub">{esc(summary)}. Judged on the '
+                         f'CV text alone, CV lines as numbered in '
+                         f'{esc(working.get("cv_version") or "the CV")}.</p>')
+        if asks:
+            asks_html.append('<ul class="ask-list">'
+                             + "".join(_prepare_ask(a) for a in asks) + '</ul>')
+        else:
+            asks_html.append('<p class="detail-body">The scorer found no '
+                             'asks in this advert.</p>')
+    else:
+        asks_html.append('<p class="detail-body">No per-ask working is '
+                         'stored. It is made when the role is scored '
+                         'against its full description.</p>')
+    out.append('<section class="section"><div class="section-head">'
+               '<h2>The asks</h2></div>' + "".join(asks_html) + '</section>')
+
+    # The description itself, and the button when there is work to do.
+    desc_html = []
+    if description:
+        fetched = row.get("description_fetched_at")
+        desc_html.append(
+            '<p class="row-sub">'
+            + (f'Stored {fmt_day(fetched)}.' if fetched else
+               'Stored by the page checker, date not recorded.')
+            + (' It is cut at the stored limit of '
+               f'{prep.check_jobs.DESCRIPTION_CAP:,} characters.'
+               if len(description) >= prep.check_jobs.DESCRIPTION_CAP else '')
+            + '</p>')
+        desc_html.append(f'<pre class="desc">{esc(description)}</pre>')
+    else:
+        desc_html.append('<p class="detail-body">No full description is '
+                         'stored for this role.</p>')
+    # A click that has just said something does not also offer a second
+    # button under it, the notice carries its own Try again where one makes
+    # sense. A page opened any other way offers the work if there is some.
+    if prep.pending(row, applied) and not running and not notices:
+        desc_html.append(
+            '<p><button type="button" class="act-btn" data-prepare-go>'
+            + ('Score it against the stored description' if description
+               else 'Fetch the description and score it')
+            + '</button></p>')
+    out.append('<section class="section"><div class="section-head">'
+               '<h2>The full description</h2></div>' + "".join(desc_html)
+               + '</section>')
+    return "".join(out)
+
+
+def render_prepare_page(conn, item_id: int, config: dict, db_label: str,
+                        go: bool = False) -> str | None:
+    """The Prepare application page, or None when there is no such role.
+
+    Opening the page reads and writes nothing. When it is opened by the click
+    on the Jobs row (go) and there is work to do, the page says so and its
+    script makes the one POST. A page opened any other way, or for a role
+    with nothing to do, only shows what is stored.
+    """
+    import prepare_application as prep
+    row = conn.execute("SELECT * FROM opportunities WHERE id = ?",
+                       (item_id,)).fetchone()
+    if row is None:
+        return None
+    row = dict(row)
+    applied = radar_common.role_is_applied(conn, item_id)
+    run = bool(go) and prep.pending(row, applied)
+    inner = render_prepare_inner(conn, item_id, config, running=run)
+    title = row.get("title") or "Untitled role"
+    company = row.get("company") or "Unknown company"
+    now = radar_common.now_iso()
+    return f"""<!doctype html>
+<html lang="en-GB" data-appearance="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MedTech Radar. Prepare application.</title>
+<link rel="icon" href="{FAVICON}">
+<style>{CSS}{PREPARE_CSS}</style>
+</head>
+<body>
+<main class="page prep-wrap">
+<header class="masthead">
+<div>
+<div class="brand">{MARK_SVG}<h1>Prepare application</h1></div>
+<p class="masthead-sub">{esc(title)} at {esc(company)}. Generated
+{esc(fmt_long(now))} from {esc(db_label)}.</p>
+</div>
+<div class="controls">
+<nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav>
+</div>
+</header>
+<div id="prepare-body" data-id="{int(item_id)}" data-run="{1 if run else 0}">{inner}</div>
+<noscript><p class="prep-notice bad">This page needs JavaScript to fetch and score. What is stored is shown above.</p></noscript>
+</main>
+<script>{SCRIPT}{PREPARE_SCRIPT}</script>
 </body>
 </html>"""

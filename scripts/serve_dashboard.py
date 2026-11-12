@@ -17,7 +17,10 @@ rest.
 Since the 29 July brief this server is also the write path for human
 actions. Acknowledge and its undo land on POST /ack and /unack, Applied
 and its undo on POST /apply and /unapply, and the CV update section
-lives at /cv. Page renders stay read only, the same
+lives at /cv. Prepare application is the page /prepare/<id>, which only
+reads, and the one POST /prepare it makes when a click on a Jobs row opens
+it: that fetches the advert's full description once and scores it once
+(prepare_application.py has the guards). Page renders stay read only, the same
 guarantee as build_dashboard.py. Writes open their own short-lived
 connection through radar_common.get_db, which also applies migrations.
 
@@ -60,7 +63,7 @@ import traceback
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 
 class RadarServer(ThreadingHTTPServer):
@@ -77,6 +80,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import radar_common
 import build_dashboard
 import cv_store
+import prepare_application
 import score_item
 
 REPO_ROOT = radar_common.REPO_ROOT
@@ -134,6 +138,57 @@ def render_company(company_id: int):
     finally:
         conn.close()
     return page.encode("utf-8") if page else None
+
+
+def render_prepare(item_id: int, go: bool = False):
+    """The Prepare application page for one role, or None for no such id.
+
+    Reads only, on a read-only connection, whatever the address says. The go
+    flag only changes what the page's script is told to do when it loads, see
+    build_dashboard.render_prepare_page.
+    """
+    config = radar_common.load_config()
+    dbp = db_path()
+    conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        try:
+            db_label = dbp.relative_to(REPO_ROOT).as_posix()
+        except ValueError:
+            db_label = str(dbp)
+        page = build_dashboard.render_prepare_page(conn, item_id, config,
+                                                   db_label, go=go)
+    finally:
+        conn.close()
+    return page.encode("utf-8") if page else None
+
+
+def run_prepare(item_id: int) -> dict:
+    """The one write Prepare application makes: fetch, score, store, answer.
+
+    prepare_application.prepare does the work under its guards and says what
+    it did. This adds the page's new inside, drawn from the database after
+    the write, so the script that made the POST can swap it in. A database
+    that stays locked comes back as a polite failure like the other routes.
+    """
+    try:
+        result = prepare_application.prepare(item_id, db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    if not result.get("ok"):
+        return result
+    config = radar_common.load_config()
+    conn = sqlite3.connect(f"file:{db_path().as_posix()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        inner = build_dashboard.render_prepare_inner(
+            conn, item_id, config, notices=result.get("notices"))
+    finally:
+        conn.close()
+    if inner is None:
+        return {"ok": False, "note": f"no opportunity {item_id}"}
+    result["html"] = inner
+    return result
 
 
 def set_company_state(company_id: int, state: str, confirmed: bool) -> dict:
@@ -1075,6 +1130,27 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, page, "text/html; charset=utf-8")
             return
+        if path.startswith("/prepare/"):
+            raw = path[len("/prepare/"):].strip("/")
+            # Ascii digits only and short enough for SQLite, because int()
+            # takes digits that isdigit() does and SQLite will not hold.
+            if not (raw.isascii() and raw.isdigit() and len(raw) <= 18):
+                self._send(404, b"Role ids are numbers.",
+                           "text/plain; charset=utf-8")
+                return
+            go = "1" in parse_qs(urlsplit(self.path).query).get("go", [])
+            try:
+                page = render_prepare(int(raw), go)
+            except Exception as err:  # noqa: BLE001
+                self._send(500, f"Render failed. {type(err).__name__}: {err}"
+                           .encode(), "text/plain; charset=utf-8")
+                return
+            if page is None:
+                self._send(404, b"No role with that id.",
+                           "text/plain; charset=utf-8")
+                return
+            self._send(200, page, "text/html; charset=utf-8")
+            return
         if path in ("/insights", "/jobs", "/archive"):
             try:
                 self._send(200, render(path.lstrip("/")),
@@ -1232,6 +1308,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
             result = set_applied(item_id, path == "/apply", cv)
             self._send(200 if result["ok"] else 409,
+                       json.dumps(result).encode(), "application/json")
+            return
+        if path == "/prepare":
+            body = self._read_json_body()
+            item_id = body.get("id") if isinstance(body, dict) else None
+            # The same id rule as /apply: a real integer that SQLite can hold.
+            if (not isinstance(item_id, int) or isinstance(item_id, bool)
+                    or not -2 ** 63 <= item_id < 2 ** 63):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            result = run_prepare(item_id)
+            self._send(200 if result.get("ok") else 409,
                        json.dumps(result).encode(), "application/json")
             return
         if path == "/profile/setting":

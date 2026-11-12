@@ -443,6 +443,138 @@ condition nor is named, with a reason, in its list of exceptions. It reads the
 strings that name the table, so a statement put together out of variables is
 beyond it.
 
+## Prepare application
+
+The Prepare application link in an expanded Jobs row opens `GET /prepare/<id>`,
+a page that only reads. It shows the role, the advert's full description, the
+score made against it, each ask the advert makes with the CV lines that evidence
+it, and the pay the description names. Its address carries `go=1`. A page opened
+with that, for a role with work to do, tells its script to make the one write
+this feature has, `POST /prepare` with the role id, behind the guard every other
+write is behind. The script cleans the address before it posts, so a reload, the
+back button and a second tab open the page and do nothing more, and a page opened
+any other way offers a button instead. The page reads on a read-only connection.
+An id that is not plain digits, or not a role, is a 404.
+
+What one POST does for an open role. If the row stores no description, it
+fetches the advert's public LinkedIn page once, with `check_jobs.fetch_job_page`,
+the page checker's own fetch with its user agent, its identity encoding, its
+timeout, no cookie and no login. Only a page the checker's ladder calls live is
+read, so a closed advert, an expired redirect, the authwall and a page for some
+other advert are told to the page and nothing is stored. The description is
+stored in `description_text` as the checker's reader cuts it, at its 20,000
+characters, with `description_fetched_at`. A 429 stores nothing and stops every
+later fetch from this page for the checker's backoff, ten minutes, held in memory
+and so forgotten by a restart. Fetches are also spaced by the checker's eight
+seconds. The 45 day expiry is not touched, and neither is `last_checked_at` or
+`closed_at`: a click is not a sighting, and nothing here ever closes a role.
+
+Then it scores the role against the stored description, once per version of it.
+The version of a description is `description_version`, twelve hex characters of
+its sha256, and the score records the version it was made against in
+`description_hash`, so a description that has been scored is not scored again
+however often the page is opened, and one that has changed is scored once more.
+The score is stamped `spec`, with the prompt version, the model and the date, the
+score it replaces goes to `score_history` first, and the new one is recorded
+there. The four gates and the tiers are the scorer's and `derive_tier`'s as ever.
+A tier that moves is recorded in the history on the score that moved it
+(`tier_from`), reported on the page, and never dismisses anything. A role that
+moves to Filtered stops being listed on the Jobs page, which counts Filtered
+roles, and its Prepare page still opens.
+
+Three columns on `opportunities` and three on `score_history` arrive through
+`_MIGRATIONS`, all nullable. `description_fetched_at` is when the text was stored
+(the page checker sets it too, beside the text it stores). `description_hash` is
+the version of the description the held score was made against, empty for a card
+score. `score_working` is the per-ask working as JSON. The history keeps the hash
+and the working as `description_hash` and `working`, so it now keeps twelve
+fields of a score, and `tier_from`. The working carries the date of the score it
+belongs to, and a reader only shows it beside a spec score of that date, so a
+writer that replaces the score and knows nothing of the working cannot leave an
+old one looking current.
+
+The asks. `prompts/scorer.md` has a marker line, and everything below it is sent
+only when the advert is the full description. A card is scored with the file
+above the marker, the bytes it always was, and a full description with the whole
+file and the CV numbered line by line, `[12] text`. The prompt version is the hash
+of the whole file either way. The scorer returns each ask as met, partly or
+missing, with the CV line numbers that evidence it, and the code checks every
+one: a line must exist and have text, at most four are kept for an ask, at most
+25 asks are kept, a met or partly with no valid line is recorded as unanchored and
+keeps its status, and a missing ask keeps no line. The lines are numbered by
+`cv_store.cv_lines`, one rule for the scorer and for any page that shows the CV
+beside the asks: a line break is a line feed, a carriage return and line feed or a
+lone carriage return, and a blank line keeps its number. The working keeps the
+text of each cited line and the label of the CV it numbered, so a later page can
+find the line again and tell whether the CV has changed. A reply with no list of
+asks is not a score. The code does not recompute the CV match from the asks, it
+reports the asks that are unevidenced.
+
+The ceiling. `MAX_TOKENS` is still 1,024 for the extractor and for a card, whose
+replies run 160 to 360 tokens. A full description's call uses `SPEC_MAX_TOKENS`,
+4,096, which is about twice the largest reply the prompt allows. What is billed is
+what the model writes, about 540 tokens more than a card for a typical twelve
+asks, and a reply that ran out of the ceiling is thrown away after being paid for,
+so the margin is the cheap part. `test/run_prepare_test.py` builds the largest
+reply and holds the ceiling to it.
+
+The pay. The scorer is asked for the shortest stretch of the description that
+states pay. The code shows it only if it is found in the description, without
+regard to case and with white space folded, and what is shown is the advert's own
+characters. A quote that is not found is replaced by the page checker's own
+reader, labelled as found by pattern, and where that finds nothing either the page
+says the scorer reported pay the advert cannot be made to show. A reply that names
+none is believed, and the page says the description names no pay. Nothing is
+hard-coded: the floors are read from the preferences file where the gate is made.
+The gate itself is as it was, a figure on the row is judged in code against its
+floor and a figure only the description states is the model's reading, because the
+page checker's pay reader misreads a bonus for the pay and nothing here writes its
+figure onto a row.
+
+What stops a click being paid for twice. A role has one lock in the process, so a
+second click waits for the first and then finds the work done. A description is
+scored once per version. One click is one model call with no retry, where a card
+still gets two. A reply that could not be used is not paid for again for five
+minutes, and a call that raised is not repeated for twenty seconds, both
+remembered for the same role, description, prompt and CV and forgotten by a
+restart. The script sends one POST per click and none on a timer. These guards live
+in one dashboard process, which is how it runs. Every model call is a row in
+`runs` under the workflow `prepare`, so the week's cost counts it.
+
+An applied role, and every row of its chain, is shown and touched by nothing: no
+fetch, no model call, no write. A role that is acknowledged, closed, dismissed or
+expired is the same. The write that stores a description and the write that stores
+a score both take the write lock with `radar_common.begin_write` and look at the
+marker again under it, so a role applied for while the page is fetched or while the
+model answers keeps the score it was applied with, and the reply that was paid for
+is not stored. Both writes also carry `NOT_APPLIED_SQL` on their statements.
+
+What it leaves alone. The Rescore button on the CV page, `/cv/rescore` and
+`rescore.py`, are not changed. They share `score_opportunity` and the history
+writers with this feature, whose default paths are unchanged. A role scored on its
+full description stays eligible for a card re-score if it still carries a legacy
+`combined` score, which that button selects on, and the button would replace the
+spec score with a card one, keeping the old one in the history.
+
+This is a second first-open event, like the ones above it. The first open of a
+database that lacks the six columns adds them, which needs the write lock for a
+moment, and the inbox run holds that lock for the whole of an email. A restart of
+the dashboard that lands in the middle of one waits five seconds, then exits with
+`database is locked`. Open the database by hand between runs, as the user that owns
+it and from the repository root, before the restart:
+
+```bash
+python -c "import sys; sys.path.insert(0, 'scripts'); import radar_common; radar_common.get_db().close(); print('opened')"
+```
+
+n8n runs the scripts fresh for each execution, so the prompt and the scripts reach
+the inbox with no restart, and only the dashboard needs `docker restart
+medtech-radar`. The dashboard process needs the API key in its environment, as the
+CV page's re-score button does, and a route to linkedin.com, which nothing else the
+dashboard runs needs. Rolling back is code only. The columns stay and old code
+ignores them, a spec score on a row reads fine, and a full description that was
+stored stays. `test/run_prepare_test.py` checks all of it.
+
 ## The renderer, and the one page to trust
 
 `serve_dashboard.py` is canonical. It re-renders from the database on every load
