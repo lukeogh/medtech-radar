@@ -485,11 +485,23 @@ def main(argv=None) -> int:
                               (company_id,)).fetchone()
             region = radar_common.region_for(co["country"], co["city"], config) if co else None
 
-        insert_opportunity(conn, h, now, source, opp, scored, s_note,
-                           pay_columns(opp, config, floors), cv_version,
-                           buying_window=int(is_window),
-                           company_id=company_id, region=region)
-        if is_window:
+        new_id = insert_opportunity(
+            conn, h, now, source, opp, scored, s_note,
+            pay_columns(opp, config, floors), cv_version,
+            buying_window=int(is_window),
+            company_id=company_id, region=region)
+        if is_window and radar_common.role_is_applied(conn, new_id):
+            # A repost of a role already applied for, at a company in the
+            # touch log. It is stored, and the chain rule has it applied from
+            # the moment it exists, but it is not news. The window would be a
+            # signal the push sweep sends to the phone about a role the
+            # application is already in, and would spend the company's one
+            # window on it. The row keeps its buying_window flag, which is a
+            # fact about the touch log and not a record that a window was
+            # written. An ignored insert has no id, and is not applied.
+            notes_extra.append(f"{company}: role already applied for, no "
+                               "buying window raised")
+        elif is_window:
             record_buying_window(conn, company, role_title, advert_url, h, now,
                                  company_id=company_id)
         else:

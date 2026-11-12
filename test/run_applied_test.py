@@ -28,6 +28,11 @@ What it checks:
 - a repost of an applied role, stored through the inbox, stays out of the open
   tiers, the digest and the Home counts, and the Jobs page lists the role once
   in a folded Applied section with everything the brief asks for,
+- a repost of an applied role at a touched company raises no buying-window
+  signal, so the push sweep sends nothing, while an advert for a role that is
+  not applied for still raises one and is still sent, in either order in one
+  email and again for a repost that arrives after Undo, and the first-hire
+  tripwire at an untouched company is left as it was,
 - the 45-day expiry (in the several statements a big pass makes), the page
   checker (its selection, its --id spot check, its close and the race where a
   role is applied while a page is being fetched, through the advert fetched
@@ -87,6 +92,7 @@ import backfill_pay
 import build_dashboard
 import build_digest
 import check_jobs
+import check_signals
 import process_email
 import radar_common
 import regate_rates
@@ -1195,6 +1201,272 @@ def repost_checks() -> None:
               "the digest announces the other role and never the applied one "
               "or its repost as new")
         conn.close()
+
+
+# ----------------------------------------- the signals a repost might raise
+
+def touch_company(db, company: str) -> None:
+    """A line in the touch log, written by touch.py add itself."""
+    with captured_stdout():
+        code = touch.main(["--db", str(db), "add", company, "--channel",
+                           "comment", "--note", "messaged the hiring manager"])
+    assert code == 0, "touch.py add did not log the touch"
+
+
+def sweep(db) -> tuple[list, list]:
+    """The push sweep the signals workflow runs once it is armed, with the
+    phone stubbed. Returns what it sent, as (title, first line of the
+    message), and the signal rows afterwards."""
+    sent: list = []
+    real = radar_common.push_ntfy
+
+    def recording(_config, title, message, **_kw):
+        sent.append((title, message.splitlines()[0]))
+        return "sent:stub"
+
+    radar_common.push_ntfy = recording
+    # Even if a later change binds push_ntfy by name and walks round the stub,
+    # the address it would POST to is one that nothing listens on.
+    nowhere = {**CFG, "ntfy_url": "http://127.0.0.1:9"}
+    try:
+        conn = radar_common.get_db(db)
+        try:
+            check_signals.catch_up_pushes(
+                conn, nowhere, {"pushed": 0, "payloads": [], "notes": []})
+            rows = [dict(r) for r in conn.execute(
+                "SELECT company, source_id, relevance, pushed, source_url"
+                " FROM signals ORDER BY id")]
+        finally:
+            conn.close()
+    finally:
+        radar_common.push_ntfy = real
+    return sent, rows
+
+
+def inbox_note(db) -> str:
+    conn = reader(db)
+    try:
+        row = conn.execute("SELECT note FROM runs WHERE workflow = 'inbox'"
+                           " ORDER BY id DESC LIMIT 1").fetchone()
+    finally:
+        conn.close()
+    return (row[0] if row else "") or ""
+
+
+def signals_checks() -> None:
+    """The inbox opens a buying window for an advert at a touched company,
+    and the push sweep sends the window to the phone. A repost of a role
+    already applied for raises none, and an advert for a role that is not
+    applied for raises one as it always did. The first-hire tripwire, which
+    is for an untouched company, is left as it was."""
+    sw = ("Head of Software Engineering", "Veltrix Diagnostics")
+    ra = ("Head of Regulatory Affairs", "Veltrix Diagnostics")
+    fh = ("QA Manager, IVD spin-off", "Zentrix Diagnostics")   # 85 under the mock
+    with tempfile.TemporaryDirectory() as tmp:
+
+        def applied_then_touched(name: str, link: int):
+            """The role arrives while its company is untouched, so it raises
+            nothing, is applied for, and the company is touched afterwards.
+            That is how a repost finds a touched company and a role already
+            applied for."""
+            db = Path(tmp) / name
+            first_run = run_inbox(db, alert(*sw, link))
+            look = reader(db)
+            first = look.execute("SELECT id FROM opportunities"
+                                 " ORDER BY id").fetchone()[0]
+            look.close()
+            with pointed_at(db):
+                done = serve_dashboard.set_applied(first, True)["ok"]
+            touch_company(db, sw[1])
+            return db, first, first_run["code"] == 0 and done
+
+        # ---- a repost of an applied role at a touched company
+        db, first, ready = applied_then_touched("window.sqlite", 5100000001)
+        sent, rows = sweep(db)
+        check(ready and rows == [] and sent == [],
+              "the role applied for raised nothing when it first arrived, "
+              "and the company is touched now")
+        run = run_inbox(db, alert(*sw, 5100000002, where="London, England"))
+        look = reader(db)
+        ids = [r["id"] for r in look.execute(
+            "SELECT id FROM opportunities ORDER BY id")]
+        repost = row_of(look, ids[-1])
+        chain_applied = radar_common.role_is_applied(look, ids[-1])
+        look.close()
+        check(run["code"] == 0 and run["json"]["new"] == 1 and len(ids) == 2
+              and chain_applied and repost["applied_at"] is None,
+              "the repost is stored, and is applied by the chain rule")
+        check(repost["tier"] is not None and repost["cv_match"] is not None
+              and repost["buying_window"] == 1,
+              "scored as ever, and its row still says its company was touched")
+        sent, rows = sweep(db)
+        check(rows == [],
+              "it raises no buying-window signal, so nothing is left for the "
+              "sweep")
+        check(sent == [] and "role already applied for" in inbox_note(db),
+              "so the push sweep has nothing to send, and the run record says "
+              "why")
+
+        # ---- the same for a role whose first advert fired a tripwire. A
+        # Quality Director at a medtech firm is a first quality hire, and the
+        # once per company rule for the window looks only at the window's own
+        # signals, so a tripwire does not stop a repost getting one.
+        db = Path(tmp) / "realistic.sqlite"
+        run_inbox(db, alert(*QD, 5100000091))
+        look = reader(db)
+        first = look.execute("SELECT id FROM opportunities"
+                             " ORDER BY id").fetchone()[0]
+        day_one = [r[0] for r in look.execute(
+            "SELECT source_id FROM signals ORDER BY id")]
+        look.close()
+        with pointed_at(db):
+            done = serve_dashboard.set_applied(first, True)["ok"]
+        touch_company(db, QD[1])
+        run_inbox(db, alert(*QD, 5100000092, where="London, England"))
+        sent, rows = sweep(db)
+        check(done and day_one == ["qa-tripwire"]
+              and [r["source_id"] for r in rows] == ["qa-tripwire"]
+              and not any(s[1].startswith("Buying window.") for s in sent),
+              "a role whose first advert fired a tripwire gets no buying "
+              "window for its repost either")
+
+        # ---- an advert for another role at that touched company
+        db, first, ready = applied_then_touched("other.sqlite", 5100000011)
+        run_inbox(db, alert(*ra, 5100000012))
+        sent, rows = sweep(db)
+        check(ready and len(rows) == 1 and rows[0]["source_id"] == "job-advert"
+              and rows[0]["relevance"] == process_email.BUYING_WINDOW_RELEVANCE
+              and rows[0]["source_url"].endswith("/5100000012/"),
+              "another role at the touched company still opens its buying "
+              "window")
+        check(len(sent) == 1 and sent[0][0] == "Radar signal. Veltrix Diagnostics"
+              and sent[0][1].startswith("Buying window.")
+              and rows[0]["pushed"] == 1,
+              "and the push sweep sends it")
+        check("role already applied for" not in inbox_note(db),
+              "with no word in the run record about an applied role")
+
+        # ---- both in one email, in either order
+        for name, order, base in (("repost_first.sqlite", "repost first", 5100000020),
+                                  ("other_first.sqlite", "other role first", 5100000030)):
+            db, first, ready = applied_then_touched(name, base + 1)
+            repost_card = alert(*sw, base + 2, where="London, England")
+            other_card = alert(*ra, base + 3)
+            cards = ((repost_card, other_card) if order == "repost first"
+                     else (other_card, repost_card))
+            run_inbox(db, "\n".join(cards))
+            sent, rows = sweep(db)
+            shows = ("so a skipped advert does not use up the company's "
+                     "window" if order == "repost first" else
+                     "and the repost adds nothing to it")
+            check(ready and len(rows) == 1 and len(sent) == 1
+                  and rows[0]["source_url"].endswith(f"/{base + 3}/"),
+                  f"with the repost and the other role in one email, {order}, "
+                  f"exactly one window opens, for the other role, {shows}")
+
+        # ---- the application undone
+        db, first, ready = applied_then_touched("undo.sqlite", 5100000051)
+        with pointed_at(db):
+            undone = serve_dashboard.set_applied(first, False)["ok"]
+        run_inbox(db, alert(*sw, 5100000052, where="London, England"))
+        sent, rows = sweep(db)
+        check(ready and undone and len(rows) == 1
+              and rows[0]["source_id"] == "job-advert" and len(sent) == 1,
+              "undo the application and a repost at the touched company opens "
+              "its window again, the skip follows the marker and nothing else")
+
+        # ---- a title the role key does not forgive
+        respelled = (sw[0] + " (Contract)", sw[1])
+        db, first, ready = applied_then_touched("spelling.sqlite", 5100000061)
+        run_inbox(db, alert(*respelled, 5100000062))
+        sent, rows = sweep(db)
+        check(ready and radar_common.role_key(*respelled)
+              != radar_common.role_key(*sw) and len(rows) == 1
+              and len(sent) == 1,
+              "a title respelled past what the role key forgives is another "
+              "role by the chain rule and opens its window, so the skip is as "
+              "wide as the rule and no wider")
+
+        # ---- the same title at another touched company is another role
+        db, first, ready = applied_then_touched("company.sqlite", 5100000101)
+        touch_company(db, "Caldora Medical")
+        run_inbox(db, alert(sw[0], "Caldora Medical", 5100000102))
+        sent, rows = sweep(db)
+        check(ready and len(rows) == 1 and rows[0]["company"] == "Caldora Medical"
+              and len(sent) == 1,
+              "the same title at another touched company is another role and "
+              "opens its window")
+
+        # ---- the stamp on a later advert of the chain, not the first
+        db = Path(tmp) / "second_row.sqlite"
+        run_inbox(db, alert(*sw, 5100000111))
+        run_inbox(db, alert(*sw, 5100000112, where="London, England"))
+        look = reader(db)
+        ids = [r["id"] for r in look.execute(
+            "SELECT id FROM opportunities ORDER BY id")]
+        look.close()
+        with pointed_at(db):
+            done = serve_dashboard.set_applied(ids[1], True)["ok"]
+        touch_company(db, sw[1])
+        run_inbox(db, alert(*sw, 5100000113, where="Paris, France"))
+        sent, rows = sweep(db)
+        check(done and len(ids) == 2 and rows == [] and sent == [],
+              "a stamp on a later advert of the chain counts as much as one on "
+              "the first, a third advert of the role is skipped")
+
+        # ---- an advert the scorer could not score
+        nebulon = ("Head of Software Engineering", "Nebulon Diagnostics")
+        db = Path(tmp) / "unscored.sqlite"
+        run_inbox(db, alert(*nebulon, 5100000121))
+        look = reader(db)
+        first = look.execute("SELECT id FROM opportunities"
+                             " ORDER BY id").fetchone()[0]
+        unscored = row_of(look, first)
+        look.close()
+        with pointed_at(db):
+            done = serve_dashboard.set_applied(first, True)["ok"]
+        touch_company(db, nebulon[1])
+        run_inbox(db, alert(*nebulon, 5100000122, where="London, England"))
+        sent, rows = sweep(db)
+        check(done and unscored["tier"] is None and rows == [] and sent == [],
+              "a role the scorer could not score is skipped the same way when "
+              "it is reposted")
+
+        # ---- a failed score must not cost the window, applied or not
+        db = Path(tmp) / "unscored_window.sqlite"
+        touch_company(db, nebulon[1])
+        run_inbox(db, alert(*nebulon, 5100000131))
+        sent, rows = sweep(db)
+        check(len(rows) == 1 and rows[0]["source_id"] == "job-advert"
+              and rows[0]["company"] == nebulon[1] and len(sent) == 1,
+              "an advert the scorer could not score, for a role that is not "
+              "applied for, still opens its window")
+
+        # ---- the first-hire tripwire is left as it was. It is for a company
+        # that is not touched, and a company only trips once, so a repost
+        # rarely meets it, but where the original never tripped a repost of
+        # an applied role still can.
+        db = Path(tmp) / "tripwire.sqlite"
+        conn = radar_common.get_db(db)
+        role(conn, fh, applied_at=days_ago(3),      # arrived once, raised no signal
+             company_id=radar_common.resolve_company(conn, fh[1]))
+        conn.close()
+        run = run_inbox(db, alert(*fh, 5100000071, where="Leuven, Belgium"))
+        sent, rows = sweep(db)
+        check(run["json"]["new"] == 1 and len(rows) == 1
+              and rows[0]["source_id"] == "qa-tripwire"
+              and rows[0]["relevance"] >= int(CFG.get("fast_signal_threshold", 75))
+              and len(sent) == 1
+              and "role already applied for" not in inbox_note(db),
+              "at an untouched company a repost of an applied first quality "
+              "hire still fires its tripwire and the sweep sends it, as before"
+              f" (relevance {rows[0]['relevance'] if rows else None})")
+        db = Path(tmp) / "first_hire.sqlite"
+        run_inbox(db, alert(*fh, 5100000081, where="Leuven, Belgium"))
+        sent, rows = sweep(db)
+        check(len(rows) == 1 and rows[0]["source_id"] == "qa-tripwire"
+              and rows[0]["pushed"] == 1 and len(sent) == 1,
+              "and so does a first quality hire that was never applied for")
 
 
 # ---------------------------------------------------------------- expiry
@@ -2634,13 +2906,17 @@ def docs_checks() -> None:
     check("## Roles applied for" in doc and "NOT_APPLIED_SQL" in doc
           and "applied_at" in doc and "/apply" in doc,
           "the architecture notes describe the marker, the rule, and the routes")
-    section = doc.split("## Roles applied for")[1].split("\n## ")[0]
+    # Line breaks in the notes are not part of what they say.
+    section = " ".join(doc.split("## Roles applied for")[1]
+                       .split("\n## ")[0].split())
     check("second first-open event" in section and "begin_write" in section
           and "Restoring the pre-deploy backup" in section
-          and "prospect trend" in section,
+          and "prospect trend" in section
+          and "writes no buying-window signal" in section,
           "and they say what old code does to an applied role, why the "
           "pre-deploy backup is the wrong rollback, that this is a second "
-          "first-open event, and which writers take the lock")
+          "first-open event, which writers take the lock, and that a repost "
+          "of an applied role raises no buying window")
     cfg = (REPO_ROOT / "test" / "run_all.sh").read_text(encoding="utf-8")
     check("run_applied_test.py" in cfg, "and run_all.sh runs this file")
 
@@ -2651,7 +2927,7 @@ def main() -> int:
     parser.parse_args()
     for section in (migration_checks, status_checks, chain_rule_checks,
                     routes_checks, concurrency_checks,
-                    guard_checks, page_script_checks, repost_checks,
+                    guard_checks, page_script_checks, repost_checks, signals_checks,
                     expiry_checks, checker_checks, apply_page_checks, regate_checks,
                     rescore_checks, backfill_checks, digest_checks,
                     touch_checks, page_checks, applied_days_checks,

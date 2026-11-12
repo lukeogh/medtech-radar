@@ -379,6 +379,19 @@ entry per role, newest application first, with the company, the title, the day
 applied and the days since, the source, a link to the advert and an Undo. Undo
 asks first, because it throws the day away.
 
+The inbox still stores a repost of an applied role, scores it and gives it its
+role key, so the chain rule has it applied from the moment it exists. At a
+company in the touch log it writes no buying-window signal for it, because the
+signals sweep would push that to the phone about a role already applied for, and
+a company only ever gets one window. The run record notes each such advert. The
+row keeps its `buying_window` flag, which is a fact about the touch log and not
+a record that a window was written, so the company's dossier marks the advert
+and reads touched rather than window open. An advert for another role at the
+same company still opens the window, and so does a repost that arrives after the
+application is undone, but a repost that was skipped is not revisited by Undo.
+The first-hire tripwire, which is for a company that is not touched, is left as
+it was.
+
 A click can land at any moment, and the model calls and page fetches are long
 enough for one to land in the middle of a pass. Every writer that reads, decides
 and then writes closes that gap one of two ways, and a click that arrives while
@@ -419,7 +432,9 @@ that owns it and from the repository root, before the restart:
 python -c "import sys; sys.path.insert(0, 'scripts'); import radar_common; radar_common.get_db().close(); print('opened')"
 ```
 
-The open changes nothing else, and a second open takes no lock at all.
+Once that earlier event has happened this open changes nothing else, and a
+second open takes no lock at all. On a file that predates it, the open also does
+that event's work.
 
 `test/run_applied_test.py` checks all of it, including a scan of the syntax of
 every script that fails when a statement picks open rows by a lifecycle stamp,
