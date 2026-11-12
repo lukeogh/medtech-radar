@@ -2085,6 +2085,21 @@ def static_checks() -> None:
     check(src.count("score_item.score_opportunity(") == 1
           and src.count("check_jobs.read_page(") == 1,
           "and it scores in one place, once")
+    askers = []
+    for path in scripts:
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call):
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                if name == "fetch_job_page":
+                    askers.append(path.name)
+    check(sorted(askers) == ["check_jobs.py", "prepare_application.py"],
+          "and the only two places in the code that ask LinkedIn for a page are the "
+          f"page checker and this one ({sorted(askers)})")
+    arch = (REPO_ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
+    check("does not fetch LinkedIn on a schedule" in arch
+          and "check_jobs.fetch_job_page" in arch.split("hard rule")[1][:400],
+          "the architecture notes say so, in the place that states the rule about LinkedIn")
 
     serve = (REPO_ROOT / "scripts" / "serve_dashboard.py").read_text(encoding="utf-8")
     render = serve[serve.index("def render_prepare("):serve.index("def run_prepare(")]

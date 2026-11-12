@@ -4,7 +4,7 @@ How the pieces fit, and why they fit that way.
 
 ## The shape of it
 
-Email is the ingestion bus. Every job alert, Google Alert and Dealroom notification lands in one Gmail aggregator inbox. That gives us one door to watch, free deduplication of sources, and no scraping of anywhere that would rather not be scraped. LinkedIn data arrives this way only. That is a hard rule.
+Email is the ingestion bus. Every job alert, Google Alert and Dealroom notification lands in one Gmail aggregator inbox. That gives us one door to watch, free deduplication of sources, and no scraping of anywhere that would rather not be scraped. LinkedIn data arrives this way, and the radar does not fetch LinkedIn on a schedule. That is a hard rule. The one function that asks LinkedIn for a page is `check_jobs.fetch_job_page`, an anonymous read of a public job page with no login. It has two callers, the page checker, whose workflow is committed inactive and dry run, and the one fetch a click on Prepare application makes.
 
 n8n is a thin shell. It handles triggers, Gmail OAuth and email sending, and nothing else. All logic lives in versioned Python scripts under `scripts/`, which n8n calls through Execute Command nodes. The reason is one source of truth. The acceptance tests in `test/` exercise the exact code the workflows run, so there is no drift between what was tested and what runs in production. If a scoring rule changes, it changes in one file under version control.
 
