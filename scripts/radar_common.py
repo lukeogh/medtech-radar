@@ -186,11 +186,11 @@ _MIGRATIONS = (
     # cleared by its Undo, never by a model or a script, and both are NULL on
     # a role that has not been applied for. Columns and not a status, because
     # the status CHECK cannot take a new word without a table rebuild.
-    # applied_cv stays empty until a CV page hands the route a reference, and
-    # until then it is untrusted text: one printable line a request chose,
-    # to be escaped wherever it is shown and never joined onto a path. One
-    # row carries the stamp and the whole repost chain counts as applied, see
-    # APPLIED_SQL.
+    # applied_cv is the name Save CV gave the role's tailored copy, read from
+    # tailored_cvs as the role is stamped, or empty when no copy was saved.
+    # It is still text to escape wherever it is shown and never to join onto
+    # a path. One row carries the stamp and the whole repost chain counts as
+    # applied, see APPLIED_SQL.
     ("opportunities", "applied_at", "TEXT"),
     ("opportunities", "applied_cv", "TEXT"),
     # Prepare application. description_text has held the advert's own words

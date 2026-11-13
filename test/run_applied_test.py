@@ -711,13 +711,17 @@ def routes_checks() -> None:
             check(status == 409 and "no opportunity 99999" in got.get("note", ""),
                   "and so is Undo on a row that does not exist")
 
-            # The saved CV reference.
+            # The saved CV reference. Brief 4 records the name Save CV gave the
+            # role's tailored copy, or nothing, and never what a request names:
+            # the reference is still checked, and not recorded.
             status, got, _ = post(port, "/apply", {"id": a, "cv": "  cv-2026-11-12.pdf "})
-            check(status == 200 and state(a)["applied_cv"] == "cv-2026-11-12.pdf",
-                  "a CV reference is kept, trimmed")
+            check(status == 200 and state(a)["applied_at"] is not None
+                  and state(a)["applied_cv"] is None,
+                  "a CV reference a request names is taken, and not recorded where no "
+                  "copy was saved")
             post(port, "/unapply", {"id": a})
             check(state(a)["applied_cv"] is None and state(a)["applied_at"] is None,
-                  "and Undo clears it with the date")
+                  "and Undo clears the date")
             for label, junk in (("a number", 123), ("a list", ["x"]),
                                 ("a line break", "two\nlines"),
                                 ("a control character", "bad\x07bell"),
@@ -727,8 +731,9 @@ def routes_checks() -> None:
                 check(status == 400 and everything() == before,
                       f"a CV reference that is {label} is a 400 and writes nothing")
             status, got, _ = post(port, "/apply", {"id": a, "cv": "c" * 200})
-            check(status == 200 and state(a)["applied_cv"] == "c" * 200,
-                  "two hundred characters is allowed")
+            check(status == 200 and state(a)["applied_at"] is not None
+                  and state(a)["applied_cv"] is None,
+                  "two hundred characters is allowed, and not recorded either")
             post(port, "/unapply", {"id": a})
             status, got, _ = post(port, "/apply", {"id": a, "cv": "   "})
             check(status == 200 and state(a)["applied_cv"] is None,
@@ -2856,6 +2861,14 @@ def box_query_checks() -> None:
         old_sibling = role(conn, QD, closed_at=days_ago(40),
                            closed_source="page_check")             # before applying
         lone = seed(conn, title=None, company="Anon", role_key=None, tier="top")
+        # Since Brief 4, Applied records the name Save CV gave the role's
+        # tailored copy, not a name the request carries, so the role is given
+        # a saved copy by that name.
+        conn.execute("INSERT INTO tailored_cvs (role_ref, opportunity_id, cv_text,"
+                     " saved_text, saved_name) SELECT COALESCE('key:' || role_key,"
+                     " 'id:' || id), id, '# L', '# L', 'cv-a.pdf' FROM opportunities"
+                     " WHERE id = ?", (a,))
+        conn.commit()
         conn.close()
         with pointed_at(db):
             check(serve_dashboard.set_applied(a, True, "cv-a.pdf")["ok"]

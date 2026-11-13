@@ -1873,8 +1873,10 @@ def main() -> int:
                 with urllib.request.urlopen(
                         f"http://127.0.0.1:{port}/cv", timeout=10) as resp:
                     cv_page = resp.read().decode("utf-8")
-                check(resp.status == 200 and "Upload a new CV" in cv_page,
-                      "GET /cv serves the update section")
+                check(resp.status == 200
+                      and "One-off import from a Word file" in cv_page,
+                      "GET /cv serves the update section, the upload now "
+                      "relabelled as the one-off import")
                 req = urllib.request.Request(
                     f"http://127.0.0.1:{port}/cv/preview",
                     data="A CV as plain text.\n".encode("utf-8"),

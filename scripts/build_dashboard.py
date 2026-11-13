@@ -3427,18 +3427,25 @@ def _cited_label(cited: dict) -> str:
 
 
 def _cited_li(cited: dict) -> str:
-    """One cited CV line: its number and its text, as separate words."""
+    """One cited CV line: its number and its text, as separate words. The
+    page script finds the line again by data-cv-text, which is the whole line
+    even where the working keeps only the start of a long one beside the
+    citation (cv_doc.cited_text), so an edit past that start is seen too."""
     gone = ' class="cv-gone"' if "now" in cited and cited["now"] is None else ""
+    whole = cited.get("whole") or cited.get("text")
     return (f'<li data-cv-n="{esc(cited.get("n"))}" '
-            f'data-cv-text="{esc(cited.get("text"))}"{gone}>'
+            f'data-cv-text="{esc(whole)}"{gone}>'
             f'<b>{_cited_label(cited)}</b> {esc(cited.get("text"))}</li>')
 
 
 def _prepare_ask(ask: dict, change: dict | None = None) -> str:
     """One ask, with its mark, its cited lines and what the page script needs
-    to light them: data-ask, its status, and each cited line's number and
-    text as the working stored them. An ask placed in a copy (cv_doc.place_asks)
-    shows where its lines are now, and is stale when one has gone."""
+    to light them: data-ask, its status in data-ask-status, and each cited
+    line's number and text as the working stored them. The status has an
+    attribute of its own because data-status is where the Prepare application
+    script looks for its Working notice. An ask placed in a copy
+    (cv_doc.place_asks) shows where its lines are now, and is stale when one
+    has gone."""
     status = ask.get("status") if ask.get("status") in ("met", "partly", "missing") else "missing"
     stale = bool(ask.get("stale"))
     mark = ({"met": "&#10003; Met", "partly": "&#9680; Partly",
@@ -3446,7 +3453,7 @@ def _prepare_ask(ask: dict, change: dict | None = None) -> str:
             else f"! Stale, was {status}")
     was = _change_words(change)
     out = [f'<li class="ask{" ask-stale" if stale else ""}" data-ask '
-           f'data-status="{status}" tabindex="0"><div class="ask-head">'
+           f'data-ask-status="{status}" tabindex="0"><div class="ask-head">'
            f'<span class="ask-status ask-{status}">{mark}</span>'
            f'<span class="ask-text">{esc(ask.get("ask"))}</span>'
            + (f'<span class="ask-was">{esc(was)}</span>' if was else "")
@@ -3512,13 +3519,15 @@ def _change_line(change: dict) -> str:
             f' {ask}</li>')
 
 
-def _tailored_card(copy, standing, can_edit: bool, has_description: bool) -> str:
+def _tailored_card(copy, standing, can_edit: bool, has_description: bool,
+                   unlaid: bool = False) -> str:
     """The tailored copy's score, beside the master CV's.
 
     A copy's score belongs to the copy. It says what it was made against, what
     it replaced and which asks moved, and says plainly when the copy has been
     edited since, when it was made on another advert's description, or when
-    the copy is the master CV itself as it was scored.
+    the copy is the master CV itself as it was scored. unlaid is a role with
+    no copy whose master is not in the editor's layout, so none is made yet.
     """
     import prepare_application as prep
     out = ['<div class="score-card score-tailored" id="tailored-score">'
@@ -3527,7 +3536,10 @@ def _tailored_card(copy, standing, can_edit: bool, has_description: bool) -> str
     record = (standing or {}).get("record")
     if copy is None:
         out.append('<p class="row-sub">'
-                   + ("No tailored copy yet. It is made from the master CV when "
+                   + ("No tailored copy yet. One is made from the master CV "
+                      "once the master has been saved on the CV page."
+                      if can_edit and unlaid else
+                      "No tailored copy yet. It is made from the master CV when "
                       "this page opens, and is scored only when Rescore role is "
                       "pressed." if can_edit else
                       "No tailored copy was made for this role.") + '</p>')
@@ -3761,8 +3773,15 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
         score.append(f'<p class="row-why">{esc(sentence(row["one_line_why"]))}</p>')
     # The tailored copy's score beside it. It is the copy's and not the
     # role's: the Jobs page shows the master CV's score above.
+    unlaid = False
+    if copy is None and is_open and not applied:
+        import cv_doc
+        try:
+            unlaid = not tailored_cv.master(config)["canonical"]
+        except cv_doc.CvError:   # said on the left, where the copy would be
+            unlaid = False
     tailored = _tailored_card(copy, standing, is_open and not applied,
-                              bool(description))
+                              bool(description), unlaid)
     out.append('<section class="section"><div class="section-head">'
                '<h2>The score</h2></div><div class="score-pair">'
                '<div class="score-card score-master">' + "".join(score)
@@ -3821,17 +3840,24 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
     # been edited away is stale and not met.
     asks_html = []
     if asks_working is not None:
-        asks = [a for a in asks_working["asks"] if isinstance(a, dict)]
-        if shown_lines is not None:
-            import cv_doc
-            asks = cv_doc.place_asks(asks, shown_lines)
-        counts = asks_working.get("counts") or {}
+        import cv_doc
+        # Placed even with no copy, which leaves every line where it was and
+        # nothing stale, so that each cited line carries its whole text.
+        asks = cv_doc.place_asks(
+            [a for a in asks_working["asks"] if isinstance(a, dict)],
+            shown_lines, asks_working.get("long_lines"))
+        counts = dict(asks_working.get("counts") or {})
+        # A stale ask is counted as stale and not as what it was: its mark
+        # was judged on a line that is not in the copy any more.
+        gone = sum(1 for a in asks if a.get("stale"))
+        for a in asks:
+            if a.get("stale"):
+                counts[a["status"]] = max(0, int(counts.get(a["status"]) or 0) - 1)
         summary = (f'{int(counts.get("met") or 0)} met, '
                    f'{int(counts.get("partly") or 0)} partly, '
                    f'{int(counts.get("missing") or 0)} missing')
         if counts.get("unanchored"):
             summary += f', {int(counts["unanchored"])} without a CV line'
-        gone = sum(1 for a in asks if a.get("stale"))
         if gone:
             summary += (f', {gone} stale because a line {"it" if gone == 1 else "they"} '
                         'cited has been edited')
@@ -3906,10 +3932,14 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str,
                         go: bool = False) -> str | None:
     """The Prepare application page, or None when there is no such role.
 
-    Opening the page reads and writes nothing. When it is opened by the click
-    on the Jobs row (go) and there is work to do, the page says so and its
-    script makes the one POST. A page opened any other way, or for a role
-    with nothing to do, only shows what is stored.
+    Drawing the page writes nothing and spends nothing. When it is opened by
+    the click on the Jobs row (go) and there is work to do, the page says so
+    and its script makes the one POST that may spend. A page opened any other
+    way, or for a role with nothing to do, only shows what is stored. Apart
+    from that, the CV editor's script makes one POST of its own, the first
+    time the page of an open role is opened: it makes the role's tailored
+    copy from the master, which is a write and costs nothing, no model is
+    asked anything. Every other write is a button press.
     """
     import prepare_application as prep
     import cv_page
@@ -3968,9 +3998,12 @@ def render_cv_pane(conn, row: dict, applied: bool, config: dict) -> str:
 
     Read only, like the rest of the page. For an open role it is the copy as
     stored, or, the first time, the master CV the copy is about to be made
-    from, which the script asks the server to make. For an applied role, or one
-    that is not open, it is the copy that was saved for it, as it was sent,
-    with no button that would change anything.
+    from, which the script asks the server to make. A master that is not in
+    the editor's layout yet is shown as the editor would lay it out, read
+    only, with no copy made and a word on why (prepare_application
+    MASTER_NOT_LAID_OUT). For an applied role, or one that is not open, it is
+    the copy that was saved for it, as it was sent, with no button that would
+    change anything.
     """
     import cv_doc
     import cv_page
@@ -3979,15 +4012,18 @@ def render_cv_pane(conn, row: dict, applied: bool, config: dict) -> str:
     rid = int(row["id"])
     copy = tailored_cv.for_row(conn, row)
     can_edit = prep.is_open(row) and not applied
-    text, needs_copy, problem = None, False, None
+    text, needs_copy, problem, unlaid = None, False, None, False
     if copy is not None:
         text = _copy_shown(copy, can_edit)
     elif can_edit:
         try:
-            text = tailored_cv.master(config)["text"]
-            needs_copy = True
+            start = tailored_cv.master(config)
+            text = start["text"]
+            needs_copy = bool(start["canonical"])
+            unlaid = not start["canonical"]
         except cv_doc.CvError as err:
             problem = str(err)
+    editable = can_edit and not unlaid
     saved = None
     if copy is not None and copy.get("saved_text"):
         saved = {"name": copy.get("saved_name"), "at": copy.get("saved_at"),
@@ -4004,6 +4040,10 @@ def render_cv_pane(conn, row: dict, applied: bool, config: dict) -> str:
     elif not can_edit:
         out.append('<p class="cv-banner">This role is not open, so its CV is '
                    'shown as it was stored and cannot be changed.</p>')
+    elif unlaid:
+        out.append(f'<p class="cv-banner">{esc(prep.MASTER_NOT_LAID_OUT)} '
+                   '<a href="/cv">Open the CV page</a>. Shown below as the '
+                   'editor would lay it out, read only.</p>')
     elif needs_copy:
         out.append('<p class="row-sub" id="cv-status">This is the master CV. The '
                    'tailored copy for this role is made from it as the page opens, '
@@ -4013,7 +4053,7 @@ def render_cv_pane(conn, row: dict, applied: bool, config: dict) -> str:
                    f'{esc(copy.get("master_version") or "")} on '
                    f'{esc(_when_words(copy.get("created_at")))}. Nothing done to '
                    'the copy changes the master.</p>')
-    if can_edit and text is not None:
+    if editable and text is not None:
         out.append('<p class="row-sub" id="cv-saved">'
                    + (f'Saved as {esc(saved["name"])}, {esc(_when_words(saved["at"]))}.'
                       if saved else 'Not saved yet. Save CV stores this copy for '
@@ -4038,9 +4078,12 @@ def render_cv_pane(conn, row: dict, applied: bool, config: dict) -> str:
                    f'href="/prepare/{rid}/cv.docx">Download</a></div>')
     out.append('<p class="cv-note" id="cv-say" aria-live="polite"></p>')
     if text is not None:
+        # hash is the copy the page took, sent back with Rescore role and
+        # Save CV so that a copy changed in another tab is not written over.
         out.append(cv_page.editor_html(text, {
-            "mode": "tailored", "id": rid, "editable": can_edit,
-            "needsCopy": needs_copy, "saved": saved}))
+            "mode": "tailored", "id": rid, "editable": editable,
+            "needsCopy": needs_copy, "saved": saved,
+            "hash": copy.get("cv_hash") if copy is not None else None}))
     elif problem:
         out.append(f'<p class="prep-notice bad">The master CV could not be read, '
                    f'so there is no copy to tailor. {esc(problem)}</p>')

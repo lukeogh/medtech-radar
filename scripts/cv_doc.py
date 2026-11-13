@@ -52,7 +52,6 @@ CV_TEXT_MAX = 20_000     # characters of CV text, about five pages
 CV_LINES_MAX = 400       # lines of it, blank ones included
 CV_LINE_MAX = 1_000      # characters on one line
 RAW_TEXT_MAX = 200_000   # what a request may carry before it is read at all
-KEY_CHARS = 200          # characters of a line a cited line is found again by
 
 OWNER = "Luke Keogh"     # the name in "CV - Luke Keogh - <Company> - <Job title>"
 NAME_MAX = 150           # characters in a saved copy's name, before .docx
@@ -94,14 +93,23 @@ _ALIASES = {
 }
 _ALIAS = {alias: title for title, words in _ALIASES.items() for alias in words}
 
+# Other sections a CV written in Word often has. A plain line that is only one
+# of these words starts a section of that name, as a heading would. No other
+# plain line is ever taken for a heading, however short or however loud.
+_OTHER_SECTIONS = frozenset((
+    "interests", "hobbies", "hobbies and interests", "interests and hobbies",
+    "languages", "publications", "awards", "awards and honours", "honours",
+    "achievements", "key achievements", "projects", "key projects",
+    "volunteering", "voluntary work", "memberships", "professional memberships",
+    "affiliations", "references", "additional information", "personal details",
+    "contact", "contact details"))
+
 # A bullet in a CV that was not written here. The editor writes "- " only.
 _ANY_BULLET = re.compile(r"^([-*•+·–—▪◦‣●○■□➢➤✓✔♦◆»])\s+")
 # A heading in a CV that was not written here, a Word heading of any depth.
 _ANY_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 # A heading as the editor writes one. Greedy, so "### x" is level three.
 _HEADING = re.compile(r"^(#{1,3}) (.*)$")
-# What a layout adds to the front of a line, for finding a cited line again.
-_LINE_MARK = re.compile(r"^(#{1,6}\s+|[-*•+·–—▪◦‣●○■□➢➤✓✔♦◆»]\s+)")
 _PLAIN_HEADING = re.compile(r"^#{1,3} ")
 
 
@@ -119,19 +127,29 @@ class CvError(ValueError):
 def clean(value) -> str:
     """One line of text as the CV holds it.
 
-    NFC, every control character and line or paragraph separator a space,
-    lone surrogates, the byte order mark and the two non-characters dropped,
-    white space run together, the ends trimmed. What is left is one line that
-    a Word file can hold and that reads back the same.
+    Lone surrogates, the byte order mark and the two non-characters dropped,
+    every control character and line or paragraph separator a space, then NFC,
+    white space run together and the ends trimmed. What is dropped goes before
+    the text is composed, so that what is left composes once and cleaning it
+    again changes nothing. What is left is one line that a Word file can hold
+    and that reads back the same.
     """
-    text = unicodedata.normalize("NFC", str(value or ""))
     out = []
-    for ch in text:
+    for ch in str(value or ""):
         cat = unicodedata.category(ch)
         if cat == "Cs" or ch in _DROPPED:
             continue
         out.append(" " if cat in ("Cc", "Zl", "Zp") else ch)
-    return " ".join("".join(out).split())
+    return " ".join(unicodedata.normalize("NFC", "".join(out)).split())
+
+
+def strip_marks(text: str) -> str:
+    """A line without the bullet marks in front of it, however many."""
+    while True:
+        found = _ANY_BULLET.match(text)
+        if not found:
+            return text
+        text = clean(text[found.end():])
 
 
 def clean_plain(value, allow_bullet: bool = True) -> str:
@@ -139,8 +157,9 @@ def clean_plain(value, allow_bullet: bool = True) -> str:
 
     A paragraph line has no mark of its own, so one that began "## " would be
     read back as a heading. Such a start is taken off. Where a bullet is not
-    allowed, a headline line, a "- " start is taken off as well. Where it is,
-    the caller reads a "- " start as a bullet.
+    allowed, a headline line, any bullet mark in front is taken off as well.
+    Where it is, the caller reads a line that starts with a bullet mark as a
+    bullet.
     """
     text = clean(value)
     while True:
@@ -148,8 +167,8 @@ def clean_plain(value, allow_bullet: bool = True) -> str:
         if found:
             text = clean(text[found.end():])
             continue
-        if not allow_bullet and text.startswith("- "):
-            text = clean(text[2:])
+        if not allow_bullet and _ANY_BULLET.match(text):
+            text = strip_marks(text)
             continue
         return text
 
@@ -161,14 +180,16 @@ def _list(value) -> list:
 
 def _line(item) -> dict:
     """One line of a section or an entry, cleaned. A paragraph line that
-    starts "- " is a bullet, which is how it reads back anyway."""
+    starts with a bullet mark, "- " or one a paste from Word brings, is a
+    bullet, and a bullet keeps no mark of its own in its words, so a pasted
+    list item is never stored as "- - item"."""
     if not isinstance(item, dict):
         item = {"b": False, "t": item}
     if item.get("b"):
-        return {"b": True, "t": clean(item.get("t"))}
+        return {"b": True, "t": strip_marks(clean(item.get("t")))}
     text = clean_plain(item.get("t"))
-    if text.startswith("- "):
-        return {"b": True, "t": clean(text[2:])}
+    if _ANY_BULLET.match(text):
+        return {"b": True, "t": strip_marks(text)}
     return {"b": False, "t": text}
 
 
@@ -341,28 +362,32 @@ def validate(doc: dict) -> str:
 
 # ------------------------------------------------- reading another layout
 
+def _word_key(words) -> str:
+    """Words as a heading is matched by: case, "&" and punctuation set aside."""
+    text = clean(words).casefold().replace("&", " and ")
+    return " ".join(re.sub(r"[^\w\s]", " ", text).split())
+
+
 def section_title(words) -> str | None:
     """The standard section a heading names, by the usual words for it."""
-    text = clean(words).casefold().replace("&", " and ")
-    key = " ".join(re.sub(r"[^\w\s]", " ", text).split())
-    return _ALIAS.get(key)
+    return _ALIAS.get(_word_key(words))
 
 
 def _bare_heading(line: str) -> str | None:
-    """The title a line on its own gives, when a Word CV wrote its section
-    headings as plain text: the usual word for a section, or a short line in
-    capitals that does not end a sentence. None for any other line, so an
-    abbreviation that ends a wrapped sentence, "SSE.", is not a heading."""
+    """The title a plain line on its own gives, when a Word CV wrote a
+    section heading as plain text: only the usual word for a section, "Key
+    skills" or "PROFILE:", or for one of the other sections a CV often has,
+    "INTERESTS". Any other line is content, however short or however loud,
+    so that nothing a CV says is ever taken for a heading and lost. A
+    bulleted line is never asked."""
     words = line.rstrip(":").strip()
     if len(words) > 60:
         return None
     if section_title(words):
         return words
-    letters = [ch for ch in words if ch.isalpha()]
-    if (len(letters) >= 4 and len(words) <= 40 and words == words.upper()
-            and not words.endswith(".")
-            and not any(ch.isdigit() for ch in words)):
-        return words.capitalize()
+    key = _word_key(words)
+    if key in _OTHER_SECTIONS:
+        return key[:1].upper() + key[1:]
     return None
 
 
@@ -378,54 +403,98 @@ def _section_for(doc: dict, title: str) -> dict:
     return sec
 
 
+def _heading_of(line: str):
+    """(level, words) for a line that is a heading, else None. A bulleted
+    line is never a heading."""
+    if _ANY_BULLET.match(line):
+        return None
+    found = _ANY_HEADING.match(line)
+    if found:
+        return len(found.group(1)), clean(found.group(2))
+    bare = _bare_heading(line)
+    return (0, bare) if bare else None
+
+
 def import_text(text) -> dict:
-    """A doc for any text, the way a person would read the layout.
+    """A doc for any text, the way a person would read the layout, keeping
+    every word of it.
 
     For a CV the editor did not write, a version imported from Word or a
-    hand-made cv.txt. The first heading or line is the name, the lines before
-    the first section are the headline, a heading or a line on its own that
-    is the usual word for a section starts that section, deeper headings start
-    entries, and the usual bullet marks are bullets. What comes out is
-    normalized, and is shown to be checked before it is saved.
+    hand-made cv.txt. The first line with words is the name, unless it is
+    only the heading of a section, and then the CV has no name, which the
+    editor asks for. The lines before the first section are the headline,
+    and the usual bullet marks are bullets. A heading that names one of the
+    usual sections starts that section, at whatever depth it was written.
+    For any other heading, which depth starts a section is read from the CV
+    itself: the shallowest heading that names one of the usual sections, or
+    failing that the shallowest heading, so a Word CV with its sections in
+    Heading 1 and its jobs in Heading 2 reads as sections and entries, as one
+    with sections in Heading 2 and jobs in Heading 3 does. A plain line that
+    is only the usual word for a section starts that section too. A heading
+    deeper than a section's starts an entry. A section that ends up with
+    nothing in it, and is not one of the four, gives its words back as a line
+    of the section before it, so nothing the CV said is lost. What comes out
+    is normalized, and is shown to be checked before it is saved.
     """
+    lines = [clean(raw) for raw in _lines_of(text)]
+    lines = [line for line in lines if line]
+    found = [_heading_of(line) for line in lines]
+    named_first = bool(lines) and not (found[0] and section_title(found[0][1]))
+    rest = found[1:] if named_first else found
+    naming = [h[0] for h in rest if h and h[0] and section_title(h[1])]
+    depths = [h[0] for h in rest if h and h[0]]
+    section_depth = min(naming) if naming else min(depths, default=2)
     doc = {"name": "", "headline": [], "sections": []}
     sec = entry = None
-    for raw in _lines_of(text):
-        line = clean(raw)
-        if not line:
+    made: list[tuple[dict, dict | None, str]] = []   # (section, the one before, words)
+    for i, line in enumerate(lines):
+        heading = found[i]
+        if i == 0 and named_first:
+            doc["name"] = heading[1] if heading and heading[0] else strip_marks(line)
             continue
-        level, content = 0, line
-        found = _ANY_HEADING.match(line)
-        if found:
-            level, content = len(found.group(1)), clean(found.group(2))
-            if not content:
+        if heading:
+            depth, words = heading
+            if not words:
                 continue
-        elif doc["name"] and _bare_heading(line):
-            level, content = 2, _bare_heading(line)
-        if level == 1 and not doc["name"] and sec is None:
-            doc["name"] = content
-            continue
-        if level and level <= 2:
-            sec = _section_for(doc, section_title(content) or content)
-            entry = None
-            continue
-        if level:
+            standard = section_title(words)
+            if standard or depth <= section_depth:
+                before = sec
+                title = standard or words
+                sec = _section_for(doc, title)
+                if title not in STANDARD_SECTIONS:
+                    # The words as the CV wrote them: a plain line as it was.
+                    made.append((sec, before, words if depth else line))
+                entry = None
+                continue
             if sec is None:
                 sec = _section_for(doc, "Experience")
-            entry = {"heading": content, "lines": []}
+            entry = {"heading": words, "lines": []}
             sec["entries"].append(entry)
             continue
         bullet = _ANY_BULLET.match(line)
-        body = clean(line[bullet.end():]) if bullet else line
-        if not doc["name"] and sec is None:
-            doc["name"] = body
-            continue
+        body = strip_marks(line) if bullet else line
         if sec is None:
             doc["headline"].append(body)
             continue
         item = {"b": bool(bullet), "t": body}
         (entry["lines"] if entry is not None else sec["lines"]).append(item)
+    # Last first, so that two empty headings in a row fold into each other and
+    # their words are not written twice.
+    for sec, before, words in reversed(made):
+        if sec["lines"] or sec["entries"]:
+            continue
+        if before is None:
+            doc["headline"].append(words)
+        else:
+            before["lines"].append({"b": False, "t": words})
     return normalize(doc)
+
+
+def is_canonical(text) -> bool:
+    """Is this text the editor's own layout of itself, so that a copy made
+    from it, and the editor showing it, number its lines exactly as the
+    scorer does."""
+    return render(load_doc(text)) == "\n".join(_lines_of(text)) + "\n"
 
 
 def is_layout(text) -> bool:
@@ -493,22 +562,32 @@ def saved_name(company, title) -> str:
 def line_key(line) -> str:
     """How a cited CV line is found again in a copy that has been edited.
 
-    Its words, without the mark a layout puts in front of a line, so a bullet
-    written "* " in an imported master is the same line as "- " in the copy
-    made from it, and only the first KEY_CHARS characters, because a working
-    keeps 240 of a cited line and the white space in those may not survive.
+    All its words, without the heading or bullet marks a layout puts in front
+    of a line, so a bullet written "* " in an imported master is the same line
+    as "- " in the copy made from it. The whole line counts: an edit anywhere
+    in it, its last word included, makes it another line.
     """
-    text = _LINE_MARK.sub("", clean(line), count=1)
-    return clean(text)[:KEY_CHARS].rstrip()
+    text = clean(line)
+    text = clean(re.sub(r"^#{1,6}\s+", "", text, count=1))
+    return strip_marks(text)
 
 
-def find_line(cited: dict, lines: list[str]) -> int | None:
+def cited_text(cited: dict, long_lines: dict | None = None) -> str:
+    """The whole text of a cited line. A working keeps CV_LINE_TEXT_MAX
+    characters of a line with its citation, and the whole of a longer line
+    beside it in long_lines, so that an edit past the cut is seen too."""
+    whole = (long_lines or {}).get(str(cited.get("n")))
+    return whole if isinstance(whole, str) and whole else str(cited.get("text") or "")
+
+
+def find_line(cited: dict, lines: list[str],
+              long_lines: dict | None = None) -> int | None:
     """The number of the line a cited line is now, or None if it has gone.
 
     Its own number if the text there is still the text cited, else the
     nearest line with that text, else None. lines are numbered from one.
     """
-    key = line_key(cited.get("text"))
+    key = line_key(cited_text(cited, long_lines))
     if not key:
         return None
     n = cited.get("n")
@@ -521,13 +600,15 @@ def find_line(cited: dict, lines: list[str]) -> int | None:
     return min(hits, key=lambda i: (abs(i - anchor), i))
 
 
-def place_asks(asks: list, lines: list[str] | None) -> list[dict]:
+def place_asks(asks: list, lines: list[str] | None,
+               long_lines: dict | None = None) -> list[dict]:
     """Each ask with where its cited lines are now, and whether it is stale.
 
     An ask is stale when it was met or partly and a line it cited is no
     longer in the text, because its status was judged on text that is not
     there any more. A missing ask and an unanchored one are never stale. With
     no text to place them in, nothing is placed and nothing is stale.
+    long_lines is the working's map of whole cited lines, see cited_text.
     """
     out = []
     for ask in asks or []:
@@ -537,9 +618,10 @@ def place_asks(asks: list, lines: list[str] | None) -> list[dict]:
         for cited in ask.get("lines") or []:
             if not isinstance(cited, dict):
                 continue
-            now = find_line(cited, lines) if lines is not None else cited.get("n")
+            now = (find_line(cited, lines, long_lines) if lines is not None
+                   else cited.get("n"))
             placed.append({"n": cited.get("n"), "text": cited.get("text"),
-                           "now": now, "key": line_key(cited.get("text"))})
+                           "whole": cited_text(cited, long_lines), "now": now})
         stale = (lines is not None and ask.get("status") in ("met", "partly")
                  and any(p["now"] is None for p in placed))
         out.append({**ask, "placed": placed, "stale": stale})
