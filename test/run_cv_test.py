@@ -613,7 +613,8 @@ def layout_checks() -> None:
     early = cv_doc.load_doc("Luke Keogh\n# Board roles\n# Experience\n## Job\n- x\n")
     patents = sections_of("Luke Keogh\n# Experience\n## Job\n- x\n# Patents\n## US 123\n- y\n")
     check(early["headline"] == ["Board roles"]
-          and [e["heading"] for e in patents["Patents"]["entries"]] == ["US 123"],
+          and [e["heading"] for e in patents["Patents"]["entries"]] == ["US 123"]
+          and patents["Experience"]["entries"][0]["lines"] == [{"b": True, "t": "x"}],
           "an empty heading before any section gives its words to the headline, and a "
           "section with an entry and no lines of its own keeps its heading")
     edu = sections_of("Luke Keogh\n# Education\n- BEng\n# Certifications\n- ISO 13485\n")
