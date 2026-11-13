@@ -2933,6 +2933,14 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   w.click(w.q('#cv-editor [data-add="bullet"][data-at="s2"]'));
   say(!w.q('[data-place="s1.e1.l0"]') && w.q('[data-place="s1.e1.h"]'),
       'a field a redraw took away that then says it lost focus changes nothing, and leaves no empty line behind');
+  const riskField = w.q('textarea[data-edit="' + data.places.risk + '"]');
+  riskField.value = 'Own the risk file.';
+  w.fire(riskField, 'input');
+  w.q('#prepare-body').innerHTML = data.answers.rescore.html;
+  say(riskAsk().classList.contains('ask-stale') && riskAsk().querySelector('.ask-status').textContent === '! Stale, was met',
+      'a right side swapped in by the Prepare application script is marked against the copy on screen as well');
+  riskField.value = 'Own the software risk file under ISO 14971.';
+  w.fire(riskField, 'input');
 
   // ----------------------------------------- Start again and Applied
   const calls = w.calls.length;
@@ -2981,6 +2989,126 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   w.answer({ ok: true, saved: true, version: 'cv-new.md' });
   await settle(); await settle();
   say(w.events.includes('reload'), 'and reloads to show the new version');
+
+  w = world(data.pages.differs);
+  await settle();
+  say(w.calls.length === 0 && /Save CV again/.test(w.q('#cv-download-hint').textContent) && !w.q('#cv-download').hidden,
+      'a page whose copy was edited after its save says at once that Download gives the save');
+
+  // ----------------------------------------------- the editing buttons
+  w = world(data.pages.ops);
+  await settle();
+  say(w.calls.length === 0, 'a role that has a copy sends nothing when its page opens');
+  const val = (p) => { const t = w.q('textarea[data-edit="' + p + '"]'); return t ? t.value : null; };
+  const opAt = (p, kind) => { const b = w.q('[data-op="' + kind + '"][data-at="' + p + '"]'); if (b) w.click(b); return !!b; };
+  const rowAt = (p) => w.q('[data-place="' + p + '"]');
+  say(rowAt('s2.l0').querySelector('.cvl-mark').textContent === '•' && rowAt('s0.l0').querySelector('.cvl-mark').textContent === ''
+      && rowAt('s0.l0').querySelector('.cvl-n').getAttribute('aria-hidden') === 'true'
+      && w.q('textarea[data-edit="name"]').getAttribute('aria-label') === 'Name'
+      && w.q('textarea[data-edit="h.0"]').getAttribute('aria-label') === 'Headline line'
+      && w.q('textarea[data-edit="s0.l0"]').getAttribute('aria-label') === 'Line'
+      && w.q('textarea[data-edit="s2.l0"]').getAttribute('aria-label') === 'Bullet'
+      && w.q('textarea[data-edit="s1.e0.h"]').getAttribute('aria-label') === 'Entry heading'
+      && w.q('textarea[data-edit="s4.t"]').getAttribute('aria-label') === 'Section title',
+      'a bullet shows a dot and a line none, the numbers are hidden from screen readers, and every field is labelled');
+  const nameField = w.q('textarea[data-edit="name"]');
+  nameField.value = 'Luke Keogh';
+  w.fire(nameField, 'input');
+  say(nameField.style.height === '22px', 'a field grows to fit what is in it');
+  opAt('s1.e0.l1', 'up');
+  say(val('s1.e0.l0') === 'Built the software team from nothing.' && val('s1.e0.l1').startsWith('Lead software'),
+      'Move up swaps a line with the one above');
+  opAt('s1.e0.l0', 'up');
+  opAt('s1.e0.l2', 'down');
+  say(val('s1.e0.l0') === 'Built the software team from nothing.' && val('s1.e0.l2') === 'Own the software risk file under ISO 14971.',
+      'and the first line does not move up, nor the last down');
+  opAt('s1.e0.l0', 'down');
+  say(val('s1.e0.l0').startsWith('Lead software') && val('s1.e0.l1') === 'Built the software team from nothing.',
+      'Move down swaps a line with the one below');
+  opAt('s1.e0.l1', 'kind');
+  say(rowAt('s1.e0.l1').classList.contains('cvl-plain') && val('s1.e0.l1') === 'Built the software team from nothing.',
+      'the bullet button makes a bullet a paragraph line, keeping its words');
+  opAt('s1.e0.l1', 'kind');
+  say(rowAt('s1.e0.l1').classList.contains('cvl-bullet'), 'and back');
+  opAt('s1.e0.l2', 'del');
+  say(val('s1.e0.l2') === null && numbered(w).length === data.opsLines - 1, 'Delete removes the line, and the lines are numbered again');
+  say(!w.q('[data-op="kind"][data-at="h.0"]') && w.q('[data-op="up"][data-at="h.0"]'), 'a headline line can move but has no bullet button');
+  opAt('s1.e1.h', 'eup');
+  say(val('s1.e0.h').includes('miDiagnostics') && val('s1.e0.l0') === 'Oversaw FDA clearance for a Class B IVD.'
+      && val('s1.e1.h').includes('Axithra'),
+      'an entry moves up past the one above, taking its lines with it');
+  opAt('s1.e0.h', 'eup');
+  opAt('s1.e1.h', 'edown');
+  say(val('s1.e0.h').includes('miDiagnostics') && val('s1.e1.h').includes('Axithra'),
+      'and the first entry does not move up, nor the last down');
+  opAt('s1.e0.h', 'edown');
+  say(val('s1.e0.h').includes('Axithra') && val('s1.e1.h').includes('miDiagnostics'), 'an entry moves down');
+  w.setConfirm(false);
+  opAt('s1.e1.h', 'edel');
+  say(val('s1.e1.h') !== null && w.confirms.length === 1 && /Delete this entry and its 1 line\?/.test(w.confirms[0]),
+      'deleting an entry with lines asks first, saying how many, and keeps it on a no');
+  w.setConfirm(true);
+  opAt('s1.e1.h', 'edel');
+  say(val('s1.e1.h') === null && w.confirms.length === 2, 'and deletes it on a yes');
+  w.click(w.q('#cv-editor [data-add="entry"][data-at="s1"]'));
+  say(w.document.activeElement === w.q('textarea[data-edit="s1.e1.h"]') && rowAt('s1.e1.l0').classList.contains('cvl-bullet'),
+      '+ Entry adds an entry with an empty bullet, and puts the cursor on its heading');
+  opAt('s1.e1.h', 'edel');
+  say(val('s1.e1.h') === null && w.confirms.length === 2, 'an entry with no words is deleted without asking');
+  w.click(w.q('#cv-editor [data-add="line"][data-at="s1.e0"]'));
+  say(rowAt('s1.e0.l2').classList.contains('cvl-plain') && w.document.activeElement === w.q('textarea[data-edit="s1.e0.l2"]'),
+      '+ Line adds a paragraph line to an entry, with the cursor in it');
+  w.click(w.q('#cv-editor [data-add="bullet"][data-at="s1.e0"]'));
+  say(rowAt('s1.e0.l3').classList.contains('cvl-bullet'), '+ Bullet adds a bullet to it');
+  w.click(w.q('#cv-editor [data-add="line"][data-at="h"]'));
+  const hl = w.q('textarea[data-edit="h.2"]');
+  say(hl && hl.value === '' && w.document.activeElement === hl, '+ Headline line adds an empty headline line, with the cursor in it');
+  hl.value = 'One\nTwo';
+  w.fire(hl, 'input');
+  say(val('h.2') === 'One' && val('h.3') === 'Two' && w.document.activeElement === w.q('textarea[data-edit="h.3"]'),
+      'a paste with a line break in the headline becomes two headline lines, the cursor on the last');
+  say(!w.q('textarea[data-edit="s0.t"]') && !w.q('[data-op="delsec"][data-at="s0.t"]')
+      && w.q('textarea[data-edit="s4.t"]') && w.q('[data-op="delsec"][data-at="s4.t"]'),
+      'a standard section\'s title cannot be edited or deleted, and another section\'s can');
+  w.setConfirm(false);
+  opAt('s4.t', 'delsec');
+  say(w.q('textarea[data-edit="s4.t"]') && w.confirms.length === 3, 'deleting a section asks first and keeps it on a no');
+  w.setConfirm(true);
+  opAt('s4.t', 'delsec');
+  say(!w.q('textarea[data-edit="s4.t"]'), 'and deletes it on a yes');
+  const back0 = w.q('textarea[data-edit="s0.l0"]');
+  back0.value = '';
+  w.fire(back0, 'input');
+  w.document.activeElement = null;
+  w.fire(back0, 'keydown', { key: 'Backspace' });
+  say(val('s0.l0').startsWith('Took a Class B IVD') && w.document.activeElement === null,
+      'Backspace in an empty first line removes it and moves the cursor nowhere');
+
+  // ------------------------------------------------- the other answers
+  const rescoreOps = w.q('[data-cv-act="rescore"]');
+  w.click(rescoreOps);
+  await settle();
+  say(w.sayText() === data.doing.rescore && !w.sayBad(), 'while Rescore role is out the page says what it is doing, not in red');
+  w.answer({ ok: true, outcome: 'reused', notices: [{ kind: 'info', text: 'Scored before, nothing was spent.' }] });
+  await settle(); await settle();
+  say(w.sayText() === 'Scored before, nothing was spent.' && !w.sayBad(), 'a press that spent nothing says what the server said');
+  w.click(rescoreOps);
+  await settle();
+  w.answer({ ok: true, outcome: 'scored', notices: [], tailored: { cv_match: 90, tier: 'top', before_cv_match: null, changes: 0 } });
+  await settle(); await settle();
+  say(w.sayText() === 'Rescored. CV match 90.', 'a first score with nothing before it says only the new match');
+  w.click(rescoreOps);
+  await settle();
+  w.answer({ ok: true, outcome: 'cooling', notices: [{ kind: 'score', text: 'Not tried again yet.' }] });
+  await settle(); await settle();
+  say(w.sayText() === 'Not tried again yet.' && w.sayBad(), 'a press held back by a recent failure says so in red');
+  w.click(w.q('[data-cv-act="reset"]'));
+  await settle();
+  w.answer({ ok: true, outcome: 'reset', notices: [], copy: Object.assign({}, data.answers.open.copy, { master_version: 'cv-new.md' }) });
+  await settle(); await settle();
+  say(w.sayText() === 'Done.' && w.q('#cv-status').textContent.includes('Made from the master CV cv-new.md')
+      && val('s1.e0.l2') === 'Own the software risk file under ISO 14971.',
+      'Start again puts the master back on screen, says it is done, and names the master it came from');
   process.exit(bad ? 1 : 0);
 })();
 """
@@ -3027,6 +3155,23 @@ def editor_script_checks() -> None:
         rescored["tailored"] = {**rescored["tailored"], "before_cv_match": 80, "cv_match": 90}
         saved = env.save(oid, MASTER_TEXT)
         saved["copy"] = {**opened["copy"], "saved": saved["copy"]["saved"]}
+        # A copy with a section of its own, for the editing buttons.
+        ops_role = env.role(title="Ops", company="Mu Diagnostics")
+        env.open(ops_role)
+        ops_text = cv_doc.render(cv_doc.normalize({**MASTER_DOC, "sections": MASTER_DOC["sections"] + [
+            {"title": "Patents", "lines": [{"b": True, "t": "One patent."}], "entries": []}]}))
+        # A copy edited since it was saved.
+        differs_role = env.role(title="Differs", company="Nu Diagnostics")
+        env.save(differs_role, MASTER_TEXT)
+        conn = radar_common.get_db(env.db)
+        try:
+            tailored_cv.store_text(conn, env.copy(ops_role)["role_ref"], ops_text)
+            tailored_cv.store_text(conn, env.copy(differs_role)["role_ref"], COPY_TEXT)
+            conn.commit()
+        finally:
+            conn.close()
+        ops_page = render_page(env, ops_role)
+        differs_page = render_page(env, differs_role)
         mismatch = open_page.replace("Chichester, West Sussex", "Chichester, West Sussex!", 1)
         import html as htmllib
         attr = re.search(r'data-cv="([^"]*)"', mismatch)
@@ -3059,12 +3204,27 @@ def editor_script_checks() -> None:
                   {"n": 1, "text": ""}, {"n": risk_n, "text": "* Own the software risk file under ISO 14971."}):
         finds.append({"cited": cited, "keys": keys,
                       "now": cv_doc.find_line(cited, lines + [lines[risk_n - 1]])})
+    for small, cited in ((["X", "A", "B"], {"n": 3, "text": "A"}),
+                         (["A", "X", "A"], {"n": 2, "text": "A"}),
+                         (["A", "X", "A"], {"n": None, "text": "A"}),
+                         (["X", "A"], {"n": 2, "text": "A"}),
+                         (["A", "X"], {"n": 1, "text": "A"})):
+        finds.append({"cited": cited, "keys": [cv_doc.line_key(l) for l in small],
+                      "now": cv_doc.find_line(cited, small)})
+    edges = [chr(c) for c in (0x1f, 0x20, 0x7e, 0x7f, 0x80, 0x9f, 0xa0, 0x2027, 0x2028,
+                              0x2029, 0x202a, 0xd7ff, 0xd800, 0xdbff, 0xdc00, 0xdfff,
+                              0xe000, 0xfefe, 0xfeff, 0xfffd, 0xfffe, 0xffff)]
+    strings += ["a" + ch + "b" for ch in edges] + [ch + "- x" for ch in edges]
     payload = {
         "scripts": scripts, "header": HEADER, "version": MASTER_LABEL[0],
         "ids": {"open": oid}, "savedName": "CV - Luke Keogh - Veltrix Diagnostics - Head of Software",
         "hashes": {"open": opened["copy"]["hash"]}, "copyMoved": prep.COPY_MOVED,
         "pages": {"open": open_page, "applied": applied_page, "mismatch": mismatch,
-                  "unsaved": unsaved_page, "master": master_page},
+                  "unsaved": unsaved_page, "master": master_page, "ops": ops_page,
+                  "differs": differs_page},
+        "opsLines": len(cv_store.cv_lines(ops_text)),
+        "doing": {"rescore": "Scoring the copy on screen against the full description, once. "
+                             "This takes a few seconds."},
         "answers": {"open": open_answer, "rescore": rescored, "save": saved},
         "texts": {"master": MASTER_TEXT, "masterPage": MASTER_TEXT},
         "lines": {"master": lines, "saved": cv_store.cv_lines(saved_text), "riskN": risk_n,
