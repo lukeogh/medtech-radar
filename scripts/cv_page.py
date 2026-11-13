@@ -244,7 +244,9 @@ CV_EDITOR_JS = r"""
   var doc = data.doc;
   var editable = !!data.editable;
   var busy = false;
-  var dirty = false;
+  // Set as the page reloads itself, after Applied or a master save, so
+  // leaving does not ask about a text that has just been stored.
+  var leaving = false;
   var current = C.layout(doc);
   var note = document.getElementById('cv-say');
   var WORD = { met: '✓ Met', partly: '◐ Partly', missing: '✗ Missing' };
@@ -459,6 +461,14 @@ CV_EDITOR_JS = r"""
       else div.removeAttribute('data-n');
     });
     mark();
+    shown(false);
+  }
+  // Is the copy on screen another text than the one the page took. What
+  // the Download hint, the edited-since note, Applied and leaving the page
+  // go by: an edit typed and undone again is no edit, and neither is an
+  // empty line added, which is not in the text.
+  function edited() {
+    return editable && JSON.stringify(current.lines) !== JSON.stringify(data.lines || []);
   }
 
   // -------------------------------------------- the asks beside the lines
@@ -558,7 +568,6 @@ CV_EDITOR_JS = r"""
     t.focus();
     if (typeof at === 'number' && t.setSelectionRange) t.setSelectionRange(at, at);
   }
-  function changed() { dirty = true; shown(false); }
   host.addEventListener('input', function (e) {
     var t = e.target;
     var place = t.getAttribute ? t.getAttribute('data-edit') : null;
@@ -570,7 +579,6 @@ CV_EDITOR_JS = r"""
       parts.slice(1).forEach(function (p, i) {
         o.list.splice(o.i + 1 + i, 0, o.item ? { b: !!o.list[o.i].b, t: p } : p);
       });
-      changed();
       draw();
       focus(placeOf(o.base, o.i + parts.length - 1));
       return;
@@ -578,7 +586,6 @@ CV_EDITOR_JS = r"""
     write(place, parts.join(' '));
     if (parts.length > 1) t.value = parts.join(' ');
     grow(t);
-    changed();
     renumber();
   });
   host.addEventListener('keydown', function (e) {
@@ -594,13 +601,11 @@ CV_EDITOR_JS = r"""
       var end = typeof t.selectionEnd === 'number' ? t.selectionEnd : cut;
       write(place, v.slice(0, cut));
       o.list.splice(o.i + 1, 0, o.item ? { b: !!o.list[o.i].b, t: v.slice(end) } : v.slice(end));
-      changed();
       draw();
       focus(placeOf(o.base, o.i + 1), 0);
     } else if (e.key === 'Backspace' && t.value === '' && o) {
       e.preventDefault();
       o.list.splice(o.i, 1);
-      changed();
       draw();
       if (o.i > 0) focus(placeOf(o.base, o.i - 1), read(placeOf(o.base, o.i - 1)).length);
     }
@@ -640,13 +645,13 @@ CV_EDITOR_JS = r"""
       var held = o.list[o.i];
       o.list[o.i] = o.list[j];
       o.list[j] = held;
-      changed(); draw(); focus(placeOf(o.base, j));
+      draw(); focus(placeOf(o.base, j));
     } else if (o && kind === 'kind' && o.item) {
       o.list[o.i] = { b: !o.list[o.i].b, t: o.list[o.i].t };
-      changed(); draw(); focus(place);
+      draw(); focus(place);
     } else if (o && kind === 'del') {
       o.list.splice(o.i, 1);
-      changed(); draw();
+      draw();
     } else if ((m = /^s(\d+)\.e(\d+)\.h$/.exec(place))) {
       var list = doc.sections[+m[1]].entries;
       var k = +m[2];
@@ -655,43 +660,43 @@ CV_EDITOR_JS = r"""
         if (lines.length && !window.confirm('Delete this entry and its '
             + lines.length + ' line' + (lines.length === 1 ? '' : 's') + '?')) return;
         list.splice(k, 1);
-        changed(); draw();
+        draw();
       } else {
         var to = kind === 'eup' ? k - 1 : k + 1;
         if (to < 0 || to >= list.length) return;
         var e = list[k];
         list[k] = list[to];
         list[to] = e;
-        changed(); draw(); focus('s' + m[1] + '.e' + to + '.h');
+        draw(); focus('s' + m[1] + '.e' + to + '.h');
       }
     } else if ((m = /^s(\d+)\.t$/.exec(place)) && kind === 'delsec') {
       if (!window.confirm('Delete this section and everything in it?')) return;
       doc.sections.splice(+m[1], 1);
-      changed(); draw();
+      draw();
     }
   }
   function add(kind, at) {
     var m;
     if (at === 'h') {
       doc.headline.push('');
-      changed(); draw(); focus('h.' + (doc.headline.length - 1));
+      draw(); focus('h.' + (doc.headline.length - 1));
       return;
     }
     if ((m = /^s(\d+)$/.exec(at))) {
       var sec = doc.sections[+m[1]];
       if (kind === 'entry') {
         sec.entries.push({ heading: '', lines: [{ b: true, t: '' }] });
-        changed(); draw(); focus(at + '.e' + (sec.entries.length - 1) + '.h');
+        draw(); focus(at + '.e' + (sec.entries.length - 1) + '.h');
         return;
       }
       sec.lines.push({ b: kind === 'bullet', t: '' });
-      changed(); draw(); focus(at + '.l' + (sec.lines.length - 1));
+      draw(); focus(at + '.l' + (sec.lines.length - 1));
       return;
     }
     if ((m = /^s(\d+)\.e(\d+)$/.exec(at))) {
       var entry = doc.sections[+m[1]].entries[+m[2]];
       entry.lines.push({ b: kind === 'bullet', t: '' });
-      changed(); draw(); focus(at + '.l' + (entry.lines.length - 1));
+      draw(); focus(at + '.l' + (entry.lines.length - 1));
     }
   }
   host.addEventListener('click', function (e) {
@@ -719,11 +724,11 @@ CV_EDITOR_JS = r"""
     }
     if (link) link.hidden = !data.saved;
     if (hint) {
-      hint.textContent = data.saved && (dirty || !data.saved.same)
+      hint.textContent = data.saved && (edited() || !data.saved.same)
         ? 'Download gives the copy as it was saved. Save CV again to include what is on screen.' : '';
     }
-    var edited = document.getElementById('copy-edited-note');
-    if (edited) edited.hidden = !dirty;
+    var note = document.getElementById('copy-edited-note');
+    if (note) note.hidden = !edited();
   }
   function take(copy) {
     doc = copy.doc;
@@ -731,7 +736,6 @@ CV_EDITOR_JS = r"""
     data.saved = copy.saved;
     data.hash = copy.hash || null;
     data.needsCopy = false;
-    dirty = false;
     var status = document.getElementById('cv-status');
     if (status && copy.master_version) {
       status.textContent = 'Made from the master CV ' + copy.master_version
@@ -780,7 +784,7 @@ CV_EDITOR_JS = r"""
           return;
         }
         if (act === 'apply' || act === 'master') {
-          dirty = false;
+          leaving = true;
           window.location.reload();
           return;
         }
@@ -811,7 +815,7 @@ CV_EDITOR_JS = r"""
     if (act === 'apply') {
       var ask = !data.saved ? 'No CV has been saved for this role, so none will be '
           + 'recorded with the application. Mark it applied anyway?'
-        : (dirty || !data.saved.same) ? 'The copy on screen is not the copy saved as '
+        : (edited() || !data.saved.same) ? 'The copy on screen is not the copy saved as '
           + data.saved.name + '. Applied records the saved copy, and once the role is '
           + 'applied nothing more can be saved for it. Mark it applied anyway?'
         : null;
@@ -820,7 +824,7 @@ CV_EDITOR_JS = r"""
     send(act, b);
   });
   window.addEventListener('beforeunload', function (e) {
-    if (!dirty) return;
+    if (leaving || !edited()) return;
     e.preventDefault();
     e.returnValue = '';
   });

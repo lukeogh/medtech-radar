@@ -929,9 +929,10 @@ COPY_MOVED = ("The copy was changed in another tab or window after this page "
               "page to see the copy as it is now.")
 UNCHANGED_COPY = (
     "This copy is the master CV as it stands, and the role has no score of its "
-    "own on this description yet. That score is the role's: make it with the "
-    "button under the description, which scores the master once. Rescore role "
-    "scores the copy once it differs from the master. Nothing was spent.")
+    "own on this description yet. That score is the role's, and the button "
+    "under the description makes it, once, whenever the page offers it. "
+    "Rescore role scores the copy once it differs from the master. Nothing was "
+    "spent.")
 
 
 def summary(record: dict | None) -> dict | None:

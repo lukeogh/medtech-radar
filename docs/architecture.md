@@ -656,9 +656,12 @@ words open an entry when it has entries, so "Certifications" after a degree
 comes after it); one met again further on becomes a section of its own; an
 empty heading gives its words back as the last line before it. Bullet and
 heading marks are taken off a line in one pass, so a line of nothing but marks
-costs no more than any other. A master read that way is not in the editor's
-layout until it is saved once on the CV page, and `cv_doc.is_canonical` says
-which a text is.
+costs no more than any other, and a text no CV could be, over 200,000
+characters, 2,000 lines or 5,000 characters on a line, is refused before any
+of it is read (`cv_doc.check_raw`), whether a request sent it or it is the
+master on file, so neither a POST nor a page can be held up by one. A master
+read that way is not in the editor's layout until it is saved once on the CV
+page, and `cv_doc.is_canonical` says which a text is.
 
 The line numbers agree everywhere. The text the editor produces is the text the
 scorer is given, so `cv_store.cv_lines` and `cv_store.numbered_cv` number the
@@ -705,7 +708,9 @@ characters, so such a line is found as the line that starts with them
 partly is marked stale the moment a line it cited is gone, and the counts above
 the asks count it as stale and not as met, in the page script as it is typed
 as on the server; the tailored score says the copy was edited since it was
-made. Start again from
+made. The page script goes by the text: an edit typed and undone again is no
+edit, for that note, the Download hint, Applied and leaving the page. Start
+again from
 master (POST /prepare/cv/reset) puts the master back on the copy, and keeps
 the saved copy and the scores. The copy is capped at 20,000 characters, 400
 lines and 1,000 characters a line, and a CV with no name, or an entry with
@@ -764,7 +769,10 @@ as Heading 1, sections as Heading 2, entries as Heading 3 and bullets as real
 List Bullet paragraphs with their numbering on the paragraph. The route reads
 only, is behind the same Host check as every page, and names the file by the
 saved copy; the link carries `download`, so the browser fetches the file
-without leaving the page and without asking about unsaved edits. Applied
+without leaving the page and without asking about unsaved edits. The price is
+that a refusal from the route, the 503 of a dashboard without python-docx
+included, shows as a download that failed rather than as its words; deploy
+step 8 checks python-docx is there. Applied
 records the saved copy's name in `applied_cv`, in the same statement that
 stamps the role, and records none where no copy was saved; a `cv` the request
 names is still checked and is not recorded. Pressed while the copy on screen
@@ -776,12 +784,15 @@ expired: no copy is made, nothing is saved, reset or scored, every write looks
 again under the write lock, and the page shows the copy that was saved for an
 applied role, as it was sent, read only, with Download. The score beside it is
 that copy's own (`tailored_cv.sent_standing`): the one the history keeps for
-the sent text, not one made later on a text that was never saved, or a plain
-word that the sent copy was not scored on its own.
+the shown text, not one made later on a text that was never saved, or a plain
+word that it was not scored on its own. The words name the copy shown
+(`build_dashboard.shown_copy_words`): the copy saved and sent, the copy saved
+for a role that closed, or the copy as it was left, never saved.
 
 python-docx is in `requirements.txt` on the 1.2 line. Only the dashboard
 imports it, inside the download, so a dashboard without it serves every page and
-answers the download with a 503 that says so, and n8n's Python never needs it.
+answers the download with a 503 that says so (which the browser shows as a
+failed download, see above), and n8n's Python never needs it.
 The dashboard container installs `requirements.txt` when it starts.
 
 This is a third first-open event: the first open of a database without them adds

@@ -3522,8 +3522,20 @@ def _change_line(change: dict) -> str:
             f' {ask}</li>')
 
 
+def shown_copy_words(copy, can_edit: bool, applied: bool) -> str:
+    """Which copy the page shows, in the words the score beside it uses: the
+    copy being tailored, or, where nothing can change any more, the copy that
+    was saved and sent, the one saved for a role that closed, or the copy as
+    it was left when nothing was ever saved."""
+    if can_edit or copy is None:
+        return "this copy"
+    if copy.get("saved_text"):
+        return "the copy saved and sent" if applied else "the copy saved for this role"
+    return "the copy as it was left, never saved"
+
+
 def _tailored_card(copy, standing, can_edit: bool, has_description: bool,
-                   unlaid: bool = False) -> str:
+                   unlaid: bool = False, which: str = "this copy") -> str:
     """The tailored copy's score, beside the master CV's.
 
     A copy's score belongs to the copy. It says what it was made against, what
@@ -3531,6 +3543,7 @@ def _tailored_card(copy, standing, can_edit: bool, has_description: bool,
     edited since, when it was made on another advert's description, or when
     the copy is the master CV itself as it was scored. unlaid is a role with
     no copy whose master is not in the editor's layout, so none is made yet.
+    which names the copy the page shows (shown_copy_words).
     """
     import prepare_application as prep
     out = ['<div class="score-card score-tailored" id="tailored-score">'
@@ -3558,7 +3571,7 @@ def _tailored_card(copy, standing, can_edit: bool, has_description: bool,
     elif kind in ("current", "earlier") and record:
         when = fmt_day(record["scored_at"]) if record.get("scored_at") else "date not recorded"
         out.append(f'<p class="row-sub">Scored against the full description and '
-                   f'{"this copy" if can_edit else "the copy saved and sent"}, '
+                   f'{esc(which)}, '
                    f'{when}, by '
                    f'{esc(record.get("score_model") or "an unknown model")}, prompt '
                    f'{esc(record.get("prompt_version") or "unknown")}.</p>')
@@ -3608,8 +3621,8 @@ def _tailored_card(copy, standing, can_edit: bool, has_description: bool,
                    + (' Rescore role scores it against this one.' if can_edit else '')
                    + '</p>')
     elif not can_edit:
-        out.append('<p class="row-sub">The copy saved for this role was not scored '
-                   'on its own against this description.</p>')
+        out.append(f'<p class="row-sub">{esc(which[:1].upper() + which[1:])} was not '
+                   'scored on its own against this description.</p>')
     else:
         out.append('<p class="row-sub">Not scored yet. Rescore role scores the '
                    'copy on the left against the full description, once.'
@@ -3802,7 +3815,8 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
         except cv_doc.CvError:   # said on the left, where the copy would be
             unlaid = False
     tailored = _tailored_card(copy, standing, is_open and not applied,
-                              bool(description), unlaid)
+                              bool(description), unlaid,
+                              shown_copy_words(copy, is_open and not applied, applied))
     out.append('<section class="section"><div class="section-head">'
                '<h2>The score</h2></div><div class="score-pair">'
                '<div class="score-card score-master">' + "".join(score)
