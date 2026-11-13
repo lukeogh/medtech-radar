@@ -1229,7 +1229,8 @@ def rescore_copy(item_id: int, text, db_path: Path | None = None,
         out["copy"] = tailored_cv.view(copy)
         desc_hash = rc.description_version(description)
         cv_hash = copy["cv_hash"]
-        standing = tailored_cv.standing(current, copy, cv_hash)
+        standing = tailored_cv.standing(current, copy, cv_hash,
+                                        tailored_cv.scored_master_hash(current, cfg))
         if standing["kind"] in ("current", "master"):
             out["outcome"] = "reused"
             out["tailored"] = summary(standing["record"])

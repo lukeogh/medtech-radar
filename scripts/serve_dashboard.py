@@ -229,13 +229,15 @@ def run_copy(action: str, item_id: int, text=None, base=None) -> dict:
     if (not result.get("ok") or action == "open"
             or result.get("outcome") == "copy_moved"):
         return result
+    # The right side as a page opened now would draw it, with no notices of
+    # its own: what the button had to say goes beside the editor, and a page
+    # drawn with a notice leaves out the button under the description that a
+    # notice may point to.
     config = radar_common.load_config()
     conn = sqlite3.connect(f"file:{db_path().as_posix()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
-        inner = build_dashboard.render_prepare_inner(
-            conn, item_id, config, notices=result.get("notices")
-            if action == "rescore" else None)
+        inner = build_dashboard.render_prepare_inner(conn, item_id, config)
     finally:
         conn.close()
     if inner is not None:

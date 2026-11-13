@@ -549,27 +549,84 @@ def layout_checks() -> None:
         fixed &= cv_doc.render(cv_doc.load_doc(once)) == once
     check(fixed, "any text is read into the layout, and what that gives is the "
                  "editor's own layout, which then reads back as itself")
-    legacy = ("Luke Keogh\nChichester | luke@example.com\n\nPROFILE\n"
-              "Software leader.\n\n## Professional Experience\n### Director, Axithra\n"
-              "* Led the IEC 62304 programme.\n\n#### Earlier role, Fujitsu\n"
-              "• Defence work.\n\nKey Skills:\n- IEC 62304\n\n"
-              "# Education & Certifications\n- BEng\nCertifications\n"
-              "- ISO 13485 Lead Auditor\n\nINTERESTS\n- Sailing\n")
-    doc = cv_doc.load_doc(legacy)
+    # A CV with no headings of its own: sections from the usual words alone.
+    plain = ("Luke Keogh\nChichester | luke@example.com\n\nPROFILE\nSoftware leader.\n\n"
+             "EXPERIENCE\nDirector, Axithra\nKey achievements:\n* Led the IEC 62304 programme.\n\n"
+             "Key Skills:\n- IEC 62304\n\nEDUCATION & CERTIFICATIONS\n- BEng\n\nINTERESTS\n- Sailing\n")
+    doc = cv_doc.load_doc(plain)
     titles = [s["title"] for s in doc["sections"]]
     check(doc["name"] == "Luke Keogh" and doc["headline"] == ["Chichester | luke@example.com"]
           and titles == ["Summary", "Experience", "Skills",
-                         "Education and certifications", "Interests"],
-          f"a Word CV is read the way a person reads it: the first line is the name, "
-          f"the usual words for a section start it at any heading depth or on a line "
-          f"of their own, and Education and Certifications become one ({titles})")
-    exp = doc["sections"][1]
-    check([e["heading"] for e in exp["entries"]] == ["Director, Axithra",
-                                                    "Earlier role, Fujitsu"]
-          and exp["entries"][0]["lines"] == [{"b": True, "t": "Led the IEC 62304 programme."}]
-          and exp["entries"][1]["lines"] == [{"b": True, "t": "Defence work."}]
-          and doc["sections"][3]["lines"][-1] == {"b": True, "t": "ISO 13485 Lead Auditor"},
-          "deeper headings are entries, and star, dot and dash bullets are bullets")
+                         "Education and certifications", "Interests"]
+          and doc["sections"][1]["lines"] == [{"b": False, "t": "Director, Axithra"},
+                                              {"b": False, "t": "Key achievements:"},
+                                              {"b": True, "t": "Led the IEC 62304 programme."}],
+          "a CV with no headings of its own is read the way a person reads it: the first "
+          "line is the name, a line that is only the usual word for a section starts it, "
+          "Education and Certifications become one, and a label under a job, Key "
+          f"achievements:, stays where it is ({titles})")
+    # A Word CV, whose Heading styles came through as headings.
+    word = ("Luke Keogh\nChichester\n\n# Profile\nSoftware leader.\n\n# Experience\n"
+            "## Director, Axithra\nOverview:\nLed a team.\nKey skills:\n"
+            "- Led the IEC 62304 programme.\n#### Earlier role, Fujitsu\n• Defence work.\n\n"
+            "# Education\n## BEng, Limerick, 2006\nFirst class.\n# Certifications\n"
+            "* ISO 13485 Lead Auditor\n# Career history\nEarlier roles, in brief:\n"
+            "## Engineer, L3\n- ATC.\n# Interests\n- Sailing\n# Board roles\n")
+    wdoc = cv_doc.load_doc(word)
+    by = {s["title"]: s for s in wdoc["sections"]}
+    exp = by["Experience"]
+    check([s["title"] for s in wdoc["sections"]] == [
+              "Summary", "Experience", "Skills", "Education and certifications",
+              "Career history", "Interests"]
+          and [e["heading"] for e in exp["entries"]] == ["Director, Axithra",
+                                                        "Earlier role, Fujitsu"]
+          and exp["entries"][0]["lines"] == [{"b": False, "t": "Overview:"},
+                                             {"b": False, "t": "Led a team."},
+                                             {"b": False, "t": "Key skills:"},
+                                             {"b": True, "t": "Led the IEC 62304 programme."}]
+          and exp["entries"][1]["lines"] == [{"b": True, "t": "Defence work."}],
+          "a Word CV is read by its own headings: sections at the depth that names a "
+          "usual section, deeper headings as entries, star, dot and dash bullets as "
+          "bullets, and a label under a job, Overview: or Key skills:, stays with the job")
+    edu = by["Education and certifications"]
+    check([e["heading"] for e in edu["entries"]] == ["BEng, Limerick, 2006", "Certifications"]
+          and edu["entries"][1]["lines"] == [{"b": True, "t": "ISO 13485 Lead Auditor"}]
+          and by["Career history"]["lines"] == [{"b": False, "t": "Earlier roles, in brief:"}]
+          and [e["heading"] for e in by["Career history"]["entries"]] == ["Engineer, L3"]
+          and by["Interests"]["lines"] == [{"b": True, "t": "Sailing"},
+                                           {"b": False, "t": "Board roles"}],
+          "nothing moves up the page: Certifications after the degree becomes an entry "
+          "after it, a usual section named again further on is a section of its own, and "
+          "an empty heading gives its words back as the last line before it")
+
+    # And over many: every line of words comes out in the order it went in.
+    rng = random.Random(23)
+    heads = ["Summary", "Experience", "Skills", "Education", "Certifications", "Profile",
+             "Key skills", "Interests", "Patents", "Board roles", "Career history",
+             "Overview", "Key achievements"]
+    kept_order = True
+    for trial in range(400):
+        marked = trial % 2 == 0
+        out, content = ["Luke Keogh"], []
+        for i in range(rng.randint(3, 40)):
+            pick = rng.random()
+            if pick < 0.25:
+                word_ = rng.choice(heads)
+                out.append("#" * rng.randint(1, 3) + " " + word_ if marked
+                           else rng.choice([word_.upper(), word_ + ":", word_]))
+            elif pick < 0.35 and marked:
+                out.append("#" * rng.randint(2, 4) + f" Job {i}")
+            else:
+                text_ = f"c{i} words"
+                out.append(rng.choice(["", "- ", "* ", "• "]) + text_)
+                content.append(text_)
+        rendered = cv_doc.render_lines(cv_doc.load_doc("\n".join(out) + "\n"))
+        seen = [re.sub(r"^(#{1,3} |- )", "", line) for line in rendered]
+        if [line for line in seen if line in set(content)] != content:
+            kept_order = False
+            break
+    check(kept_order, "over 400 CVs with and without headings of their own, every line of "
+                      "words is kept, in the order it came in")
     # Lines a person would never take for a heading stay lines: an acronym, a
     # short line in capitals, a line that only ends in a colon.
     loud = cv_doc.load_doc("Luke Keogh\nIVD\nSSE.\n## Experience\n### Director\n"
@@ -598,12 +655,19 @@ def layout_checks() -> None:
           "a heading at a section's depth that names no usual section starts a section "
           "of its own, and one left empty gives its words back to the section before, "
           f"so nothing is lost ({titles})")
-    words = set(re.findall(r"\w+", legacy)) - {"Certifications", "Education", "PROFILE",
-                                                "Professional", "Experience", "Key",
-                                                "Skills", "INTERESTS"}
-    kept = set(re.findall(r"\w+", cv_doc.render(doc)))
+    words = set(re.findall(r"\w+", word)) - {"Profile"}
+    kept = set(re.findall(r"\w+", cv_doc.render(wdoc)))
     check(words <= kept, "every word of the Word CV is in the layout read from it, "
-                         f"but for the headings it renamed ({sorted(words - kept)})")
+                         f"but for the heading it renamed ({sorted(words - kept)})")
+    check(cv_doc.CITED_TEXT_MAX == score_item.CV_LINE_TEXT_MAX,
+          "the layout knows how much of a cited line a working keeps")
+    start = time.time()
+    flood = cv_doc.accept("# A\n\n## Summary\n" + "- " * 99_990 + "x\n")[1]
+    heads_flood = cv_doc.load_doc("Name\n- " + "## " * 60_000 + "x\n")
+    took = time.time() - start
+    check(flood.endswith("## Summary\n- x\n") and heads_flood["headline"] == ["x"] and took < 5,
+          f"a line of a hundred thousand bullet marks, or of sixty thousand heading marks, "
+          f"is read in one pass, not one per mark ({took:.2f} s)")
     fixture = (REPO_ROOT / "test" / "fixtures" / "profile_snapshot.md").read_text(encoding="utf-8")
     fdoc = cv_doc.load_doc(fixture)
     check(not cv_doc.is_layout(fixture) and fdoc["name"].startswith("Profile snapshot")
@@ -1395,13 +1459,29 @@ def gate_checks() -> None:
         page = render_page(env, oid)
         left = page[page.index('id="cv-pane"'):page.index('id="prepare-body"')]
         data = pane_data(page)
+        rows = re.findall(r'<div class="cvl cvl-\w+" data-n="(\d+)">.*?<span class="cvl-t">(.*?)</span>',
+                          left)
+        import html as htmllib
         check("has not been saved on the CV page" in page_text(left)
               and '<a href="/cv">Open the CV page</a>' in left
+              and "as it is stored, numbered as the scorer numbers it" in page_text(left)
               and data["editable"] is False and data["needsCopy"] is False
               and "data-cv-act" not in left
-              and data["lines"] == cv_store.cv_lines(cv_doc.render(cv_doc.load_doc(UNLAID))),
-              "the page shows the master as the editor would lay it out, read only, with "
-              "no button and no copy to make, and links to the CV page")
+              and data["lines"] == cv_store.cv_lines(UNLAID)
+              and [(int(n), htmllib.unescape(t)) for n, t in rows if t]
+              == [(n, l) for n, l in enumerate(cv_store.cv_lines(UNLAID), 1) if l],
+              "the page shows the master as it is stored, each line under the number the "
+              "scorer gives it, read only, with no button and no copy to make, and links "
+              "to the CV page")
+        env.prepare(oid)
+        inner = render_inner(env, oid)
+        cited = re.findall(r'<li data-cv-n="(\d+)" data-cv-text="([^"]*)"', inner)
+        stored = cv_store.cv_lines(UNLAID)
+        check(len(CALLS) == 1 and cited
+              and all(stored[int(n) - 1].strip() == htmllib.unescape(t) for n, t in cited),
+              "and once the role is scored on the master as it is, every line an ask "
+              "cites is the line the page shows under that number")
+        del CALLS[:]
         check("once the master has been saved on the CV page" in page_text(render_inner(env, oid)),
               "and the tailored score says when a copy will be made")
         MASTER[0] = MASTER_TEXT
@@ -1469,9 +1549,20 @@ def unchanged_checks() -> None:
         before = env.dump()
         out = env.rescore(oid, MASTER_TEXT)
         check(out["outcome"] == "unchanged_copy" and not CALLS and env.dump() == before
-              and out["notices"][0]["text"] == prep.UNCHANGED_COPY and not out["scored"],
+              and out["notices"][0]["text"] == prep.UNCHANGED_COPY and not out["scored"]
+              and not out["called"],
               "the master unchanged, on a role scored only on its card, is not scored by "
               "Rescore role: nothing is spent and nothing is written")
+        other = env.role(title="Other", company="Xi Diagnostics")
+        env.open(other)
+        with serving(env.db) as port, captured_stderr():
+            status, got, _h = post(port, "/prepare/cv/rescore", {"id": other, "text": MASTER_TEXT})
+        check(status == 200 and got["outcome"] == "unchanged_copy"
+              and "data-prepare-go" in got["html"]
+              and "Score it against the stored description" in got["html"]
+              and prep.UNCHANGED_COPY not in page_text(got["html"]),
+              "the right side it hands back still has the button under the description "
+              "that its words point to, and the words themselves go beside the editor")
         env.rescore(oid, COPY_TEXT)
         env.reset_copy(oid)
         out = env.rescore(oid, MASTER_TEXT)
@@ -1487,6 +1578,82 @@ def unchanged_checks() -> None:
         check(out["outcome"] == "scored" and len(CALLS) == 3,
               "but a master changed since the role's own score is a copy to score, because "
               "the click does not score a description twice")
+
+
+def legacy_checks() -> None:
+    """Scores the Prepare application click stored before this branch: their
+    workings keep no cv_hash and no whole long lines."""
+    def as_brief3(env, oid):
+        old = json.loads(env.row(oid)["score_working"])
+        old.pop("cv_hash", None)
+        old.pop("long_lines", None)
+        env.sql("UPDATE opportunities SET score_working = ? WHERE id = ?",
+                (json.dumps(old), oid))
+
+    with fresh() as env:
+        oid = env.role()
+        env.prepare(oid)
+        as_brief3(env, oid)
+        env.open(oid)
+        out = env.rescore(oid, MASTER_TEXT)
+        check(out["outcome"] == "reused" and len(CALLS) == 1
+              and "master CV as it was scored" in out["notices"][0]["text"]
+              and "The copy is the master CV as it was scored against this description"
+              in page_text(render_inner(env, oid)),
+              "an unchanged copy of a role scored before workings kept the CV's hash is "
+              "known for the master by the dated version the role names, and nothing is "
+              "spent")
+    with fresh() as env:
+        MASTER_LABEL[0] = "cv.txt"
+        oid = env.role()
+        env.prepare(oid)
+        as_brief3(env, oid)
+        env.open(oid)
+        out = env.rescore(oid, MASTER_TEXT)
+        check(out["outcome"] == "scored" and len(CALLS) == 2,
+              "under a name that may hold another text since, cv.txt, nothing is "
+              "assumed and the copy is scored")
+    with fresh() as env:
+        MASTER_LABEL[0] = "cv-20261111-090000.md"
+        oid = env.role()
+        env.prepare(oid)
+        as_brief3(env, oid)
+        MASTER_LABEL[0] = "cv-20261112-090000.md"
+        env.open(oid)
+        out = env.rescore(oid, MASTER_TEXT)
+        check(out["outcome"] == "scored" and len(CALLS) == 2,
+              "nor when the role was scored on a version that is no longer the active one")
+
+    with fresh() as env:
+        long_master = cv_doc.render(cv_doc.normalize({**MASTER_DOC, "sections": [
+            {"title": "Summary", "entries": [], "lines": [
+                {"b": False, "t": "Regulated software in IVD. " * 12 + "Ends with Rust."}]}]
+            + MASTER_DOC["sections"][1:]}))
+        lines = cv_store.cv_lines(long_master)
+        n = next(i for i, l in enumerate(lines, 1) if l.endswith("Ends with Rust."))
+        MASTER[0] = long_master
+        oid = env.role()
+        MODEL["hook"] = lambda call: (json.dumps({**json.loads(spec_reply(call)[0]), "asks": [
+            {"ask": "Rust in regulated software", "status": "met", "cv_lines": [n]}]}), usage())
+        env.prepare(oid)
+        MODEL["hook"] = None
+        as_brief3(env, oid)
+        env.open(oid)
+        inner = render_inner(env, oid)
+        check('data-cv-cut="1"' in inner and "stale" not in page_text(inner)
+              and f"CV line {n} " in page_text(inner),
+              "a long cited line kept only in part by such a score is found again on an "
+              "unedited copy, and marked for the page script to find by how it starts")
+        conn = radar_common.get_db(env.db)
+        try:
+            tailored_cv.store_text(conn, env.copy(oid)["role_ref"],
+                                   long_master.replace("Regulated software in IVD. ",
+                                                       "Regulated medical software. ", 1))
+            conn.commit()
+        finally:
+            conn.close()
+        check("1 stale because a line it cited has been edited" in page_text(render_inner(env, oid)),
+              "while an edit to the start it kept makes the ask stale")
 
 
 def click_lock_checks() -> None:
@@ -2263,7 +2430,7 @@ def page_checks() -> None:
               "a role with no copy yet shows the master, and tells its script to make the "
               "copy from it")
         check(re.findall(r'data-cv-act="(\w+)" disabled', pane) == ["rescore", "save", "reset", "apply"]
-              and re.search(r'<a class="act-btn" id="cv-download" href="/prepare/\d+/cv.docx" hidden>', pane)
+              and re.search(r'<a class="act-btn" id="cv-download" href="/prepare/\d+/cv.docx" download hidden>', pane)
               and "This is the master CV." in page_text(pane),
               "it has Rescore role, Save CV, Start again from master and Applied, off until "
               "the script runs, and no Download before a save")
@@ -2418,16 +2585,46 @@ def page_checks() -> None:
               in page_text(left) and "as it was sent" in page_text(left)
               and data["lines"] == cv_store.cv_lines(saved) and data["editable"] is False
               and "data-cv-act" not in left and "<textarea" not in left
-              and re.search(r'<a class="act-btn" id="cv-download" href="/prepare/\d+/cv.docx">Download</a>', left),
+              and re.search(r'<a class="act-btn" id="cv-download" href="/prepare/\d+/cv.docx" download>Download</a>', left),
               "an applied role shows the copy that was saved and sent, read only, with "
               "Download and no button that would change anything")
         check(env.dump() == before, "and drawing it writes nothing")
+        right = page_text(render_inner(env, oid))
+        check("The copy saved for this role was not scored on its own against this "
+              "description." in right and "edited since" not in right
+              and "stale" not in right and "Rescore role" not in right,
+              "beside it, a score made later on an unsaved text is not shown as the sent "
+              "copy's, and nothing offers a Rescore role the page does not have")
         acked = env.role(title="Acked", company="Epsilon", acknowledged_at="2026-11-11T09:00:00Z")
         page = render_page(env, acked)
         left = page[page.index('id="cv-pane"'):page.index('id="prepare-body"')]
         check("This role is not open" in page_text(left) and "data-cv-act" not in left
               and "No tailored CV was made for this role." in page_text(left),
               "a role that is not open gets no copy and no buttons")
+
+    with fresh() as env:
+        # Scored, saved, then scored again on a later text that was never saved,
+        # then applied: the page shows the sent copy beside the sent copy's score.
+        oid = env.role()
+        env.open(oid)
+        env.rescore(oid, COPY_TEXT)
+        env.save(oid, COPY_TEXT)
+        later = cv_doc.accept(edited(COPY_TEXT, "- SpiraPlan and regulated ALM configuration",
+                                     "- SpiraPlan and regulated ALM configuration\n"
+                                     "- Kubernetes and cloud deployment of clinical systems"))[1]
+        env.rescore(oid, later)
+        env.apply(oid, "CV - Luke Keogh - Veltrix Diagnostics - Head of Software")
+        inner = render_inner(env, oid)
+        right = page_text(inner)
+        check(len(CALLS) == 2
+              and "Scored against the full description and the copy saved and sent" in right
+              and "CV match 80, Top prospects." in right and "CV match 90" not in right
+              and "edited since" not in right and "Before this rescore" not in right
+              and "stale" not in right and 'class="ask ask-stale"' not in inner
+              and "Kubernetes and cloud deployment of clinical systems" in right
+              and "✗ Missing" in right,
+              "an applied role shows the sent copy's own score, from the history, with its "
+              "own asks, not the score of a text made later and never sent")
 
     with fresh() as env:
         # Escaping, whoever wrote the words.
@@ -2627,7 +2824,16 @@ function world(html) {
       if (i < 0) this.children.push(c); else this.children.splice(i, 0, c); return c; }
     get firstChild() { return this.children[0] || null; }
     get textContent() { return this.children.length ? this.children.map((c) => c.textContent).join('') : this._text; }
-    set textContent(v) { this.children.forEach((c) => { c.parentNode = null; }); this.children = []; this._text = String(v); }
+    set textContent(v) {
+      // As Chrome and Edge do: a focused field that is taken away is told it
+      // lost focus first, while it is still in the page.
+      const active = document.activeElement;
+      if (active && active !== this && this.contains(active)) {
+        document.activeElement = null;
+        fire(active, 'focusout');
+      }
+      this.children.forEach((c) => { c.parentNode = null; }); this.children = []; this._text = String(v);
+    }
     set innerHTML(h) { this.textContent = ''; parse(String(h), this);
       observers.forEach((o) => { if (o.target === this) o.fn([]); }); }
     walk(fn) { for (const c of this.children) { if (c.nodeType === 1) { fn(c); c.walk(fn); } } }
@@ -2638,7 +2844,7 @@ function world(html) {
     addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
     focus() { document.activeElement = this; }
     setSelectionRange(a) { this.selectionStart = this.selectionEnd = a; }
-    scrollIntoView() { events.push('scroll'); }
+    scrollIntoView() { events.push('scroll:' + (this.getAttribute('data-place') || this.getAttribute('data-n'))); }
     get scrollHeight() { return 20; }
     get clientWidth() { return 600; }
   }
@@ -2784,6 +2990,9 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   say(body(w, 0).base === undefined && body(w, 1).base === data.hashes.open,
       'and the version of the copy the page took from the server, so a copy changed in another tab is not written over');
   say(rescore.textContent === 'Working' && rescore.disabled, 'its button says it is working');
+  const rowsOut = w.qa('#cv-editor .cvl').length;
+  w.click(w.q('#cv-editor [data-add="bullet"][data-at="s2"]'));
+  say(w.qa('#cv-editor .cvl').length === rowsOut, 'while a press is out, the editing buttons do nothing');
   w.answer(data.answers.rescore);
   await settle(); await settle();
   say(w.sayText() === 'Rescored. CV match 80 to 90. 1 ask changed.' && !w.sayBad()
@@ -2793,6 +3002,10 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
       && w.q('#prepare-body .ask-was').textContent === 'was missing',
       'and the new score and asks are swapped in on the right');
   say(w.calls.length === 2 && w.timers.length === 0, 'and nothing else is sent, and no timer is set');
+  const counts = () => w.q('#prepare-body [data-ask-counts]').textContent;
+  const editedNote = () => w.q('#copy-edited-note');
+  say(counts() === data.summaries.master && editedNote() && editedNote().hidden,
+      'the counts over the asks are counted for the copy on screen, in the server\'s own words, and the score is not said to be out of date');
 
   // ----------------------------------------------------------- editing
   const risk = () => w.q('textarea[data-edit="' + data.places.risk + '"]');
@@ -2805,11 +3018,13 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   say(riskAsk().classList.contains('ask-stale') && riskAsk().querySelector('.ask-status').textContent === '! Stale, was met'
       && label.textContent === 'CV line ' + data.lines.riskN + ' when scored, since changed',
       'editing a cited line away marks its ask stale, not met, as it is typed');
+  say(counts() === data.summaries.risk && !editedNote().hidden,
+      'and at once the counts count it as stale, as the server would, and the score card says the copy was edited since');
   risk().value = was;
   w.fire(risk(), 'input');
   say(!riskAsk().classList.contains('ask-stale') && riskAsk().querySelector('.ask-status').textContent === '✓ Met'
-      && label.textContent === 'CV line ' + data.lines.riskN,
-      'and putting it back makes it met again');
+      && label.textContent === 'CV line ' + data.lines.riskN && counts() === data.summaries.master,
+      'and putting it back makes it met again, and counted as met');
   const above = w.q('textarea[data-edit="' + data.places.above + '"]');
   const whole = above.value;
   above.selectionStart = above.selectionEnd = 5;
@@ -2830,6 +3045,9 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   const halves = w.q('textarea[data-edit="' + data.places.splitNext + '"]');
   halves.value = '';
   w.fire(halves, 'input');
+  const num = (p) => { const r = w.q('[data-place="' + p + '"]'); return r ? r.querySelector('.cvl-n').textContent : null; };
+  say(num(data.places.splitNext) === '' && num('s1.e0.l3') === String(data.lines.riskN),
+      'a line emptied by typing loses its number at once, and the lines below take theirs back');
   const back = w.fire(halves, 'keydown', { key: 'Backspace' });
   await settle();
   const before = w.q('textarea[data-edit="' + data.places.above + '"]');
@@ -2862,15 +3080,20 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
 
   // ------------------------------------------------------- highlighting
   w.fire(riskAsk(), 'mouseover');
-  const lit = w.qa('#cv-editor .cvl.cv-hl').map((r) => r.getAttribute('data-place'));
-  say(lit.includes(data.places.risk) && riskAsk().classList.contains('ask-hl'),
-      'hovering an ask lights the CV lines it cites');
+  const lit = w.qa('#cv-editor .cvl.cv-hl').map((r) => r.getAttribute('data-n'));
+  const cites = riskAsk().querySelectorAll('[data-now]').map((li) => li.getAttribute('data-now')).filter(Boolean);
+  say(lit.length === cites.length && cites.every((n) => lit.includes(n))
+      && w.q('[data-place="' + data.places.risk + '"]').classList.contains('cv-hl')
+      && riskAsk().classList.contains('ask-hl'),
+      'hovering an ask lights the CV lines it cites, and only those');
   w.fire(w.q('[data-place="' + data.places.risk + '"]'), 'mouseover');
   const asksLit = w.qa('#prepare-body .ask-hl').map((a) => a.textContent);
-  say(asksLit.length === 1 && asksLit[0].includes('ISO 14971 risk') && !riskAsk().classList.contains('cv-hl'),
-      'hovering a CV line lights the asks that cite it, and only those');
+  say(asksLit.length === 1 && asksLit[0].includes('ISO 14971 risk')
+      && w.qa('#cv-editor .cvl.cv-hl').map((r) => r.getAttribute('data-place')).join() === data.places.risk,
+      'hovering a CV line lights that line and the asks that cite it, and only those');
   w.fire(riskAsk().querySelector('[data-cv-text]'), 'click');
-  say(w.events.includes('scroll'), 'a click on a cited line brings that line into view');
+  say(w.events.includes('scroll:' + data.places.risk) && w.events.filter((e) => e.startsWith('scroll')).length === 1,
+      'a click on a cited line brings that line, and no other, into view');
 
   // ---------------------------------------------------- Save CV, refused
   const ev = w.fire(w.sandbox, 'beforeunload');
@@ -2878,8 +3101,12 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   const save = w.q('[data-cv-act="save"]');
   w.click(save);
   await settle();
-  say(w.calls.length === 3 && w.calls[2].url === '/prepare/cv/save' && typeof body(w, 2).text === 'string',
-      'Save CV sends one POST with the CV as text');
+  const sentText = body(w, 2).text;
+  say(w.calls.length === 3 && w.calls[2].url === '/prepare/cv/save' && typeof sentText === 'string'
+      && sentText.includes('\n- Lead\n') && !sentText.includes('software for a Class C IVD')
+      && sentText.includes('\n- One\n- Two\n') && sentText.includes('\n- now a bullet\n')
+      && sentText.includes('\n- Own the software risk file under ISO 14971.\n'),
+      'Save CV sends one POST with the copy as it is on screen, every edit in it');
   w.answer({ ok: false, note: 'The write guard refused this request.' });
   await settle(); await settle();
   say(w.sayText() === 'The write guard refused this request.' && w.sayBad() && !save.disabled,
@@ -2887,7 +3114,8 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   const linesBefore = numbered(w).length;
   w.click(save);
   await settle();
-  say(body(w, w.calls.length - 1).base === data.hashes.open, 'Save CV sends the version of the copy it took, too');
+  say(body(w, w.calls.length - 1).base === data.hashes.rescored,
+      'Save CV sends the version of the copy it took, the one the rescore handed back');
   w.answer({ ok: true, outcome: 'copy_moved', notices: [{ kind: 'info', text: data.copyMoved }] });
   await settle(); await settle();
   say(w.sayText() === data.copyMoved && w.sayBad() && numbered(w).length === linesBefore && !save.disabled,
@@ -2948,8 +3176,13 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   w.click(w.q('[data-cv-act="reset"]'));
   w.click(w.q('[data-cv-act="apply"]'));
   await settle();
-  say(w.calls.length === calls + 1 && w.confirms.length === 1 && w.calls[calls].url === '/apply',
-      'Start again from master asks first and sends nothing when the answer is no, while Applied with a saved copy just goes');
+  say(w.calls.length === calls && w.confirms.length === 2
+      && /not the copy saved as/.test(w.confirms[1]) && w.confirms[1].includes(data.savedName),
+      'Start again asks first, and so does Applied while the copy on screen is not the copy saved, naming it, and on a no neither sends anything');
+  w.setConfirm(true);
+  w.click(w.q('[data-cv-act="apply"]'));
+  await settle();
+  say(w.calls.length === calls + 1 && w.calls[calls].url === '/apply', 'on a yes Applied goes');
   w.answer({ ok: true, id: data.ids.open, applied: true });
   await settle(); await settle();
   say(w.events.includes('reload'), 'and the page reloads to show the role applied');
@@ -3109,14 +3342,73 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   say(w.sayText() === 'Done.' && w.q('#cv-status').textContent.includes('Made from the master CV cv-new.md')
       && val('s1.e0.l2') === 'Own the software risk file under ISO 14971.',
       'Start again puts the master back on screen, says it is done, and names the master it came from');
+
+  // ----------------------- a field a redraw takes away, in two browsers
+  // A paste leaves "- x" a paragraph line until it is left, and the line
+  // removed before it names the place it then has.
+  const pasteAt = w.q('textarea[data-edit="s0.l0"]');
+  pasteAt.value = 'a\n- x\nb';
+  w.fire(pasteAt, 'input');
+  const gone0 = w.q('textarea[data-edit="s0.l0"]');
+  gone0.focus();
+  gone0.value = '';
+  w.fire(gone0, 'input');
+  w.fire(gone0, 'keydown', { key: 'Backspace' });
+  say(rowAt('s0.l0').classList.contains('cvl-plain') && val('s0.l0') === '- x',
+      'as Chrome does, a field told it lost focus while the redraw takes it away touches no line, not even the one that now has its place');
+  w.q('#cv-editor').listeners.focusout.forEach((fn) => fn({ type: 'focusout', target: gone0 }));
+  say(rowAt('s0.l0').classList.contains('cvl-plain') && val('s0.l0') === '- x',
+      'and a browser that tells it after the field is gone does no more');
+
+  // ------------------------------------------- opened from the Jobs row
+  w = world(data.pages.go);
+  await settle();
+  say(w.calls.length === 2 && w.calls[0].url === '/prepare' && body(w, 0).id === data.go.id
+      && w.calls[1].url === '/prepare/cv/open' && body(w, 1).id === data.go.id,
+      'a page opened from its Jobs row with work to do makes the Prepare application POST and the copy\'s, one each');
+  w.answer({ ok: true, outcome: 'scored', html: data.go.html });
+  await settle(); await settle();
+  w.answer({ ok: true, outcome: 'made', copy: data.go.copy, notices: [] });
+  await settle(); await settle();
+  const goCited = w.qa('#prepare-body [data-cv-text]');
+  say(goCited.length > 0 && goCited.every((li) => li.getAttribute('data-now') === li.getAttribute('data-cv-n'))
+      && w.qa('#prepare-body .ask-stale').length === 0 && w.calls.length === 2,
+      'and the asks the Prepare application answer swaps in are marked against the copy on screen, each cited line where it was cited');
+
+  // ------------------------------------- Applied, saved copy on screen
+  w = world(data.pages.same);
+  await settle();
+  w.setConfirm(false);
+  w.click(w.q('[data-cv-act="apply"]'));
+  await settle();
+  say(w.confirms.length === 0 && w.calls.length === 1 && w.calls[0].url === '/apply',
+      'Applied with the saved copy on screen, unedited, goes without asking');
+
+  // -------------------- a long line, from a score made before this branch
+  w = world(data.pages.legacy);
+  await settle();
+  const longLi = w.q('#prepare-body [data-cv-cut="1"]');
+  say(w.calls.length === 0 && longLi && longLi.getAttribute('data-now') === String(data.longN)
+      && w.qa('#prepare-body .ask-stale').length === 0,
+      'a long cited line kept only in part by a score made before this branch is found by how it starts, so an unedited copy shows nothing stale');
+  const longField = w.q('textarea[data-edit="s0.l0"]');
+  const longWas = longField.value;
+  longField.value = 'Changed at the start. ' + longWas;
+  w.fire(longField, 'input');
+  say(w.qa('#prepare-body .ask-stale').length === 1, 'and an edit to its start makes the ask stale');
+  longField.value = longWas.replace('Rust', 'Go');
+  w.fire(longField, 'input');
+  say(w.qa('#prepare-body .ask-stale').length === 0,
+      'while an edit past the part such a score kept cannot be seen, as the score never had it');
   process.exit(bad ? 1 : 0);
 })();
 """
 
 
 def editor_script_checks() -> None:
-    scripts = (build_dashboard.SCRIPT + "\n" + cv_page.CV_MODEL_JS + "\n"
-               + cv_page.CV_EDITOR_JS)
+    # The page's scripts in the page's order, Brief 3's own among them.
+    scripts = (build_dashboard.SCRIPT + "\n" + build_dashboard.PREPARE_SCRIPT + "\n"
+               + cv_page.CV_MODEL_JS + "\n" + cv_page.CV_EDITOR_JS)
     code = re.sub(r"//[^\n]*", "", cv_page.CV_EDITOR_JS)
     check(not re.search(r"setTimeout|setInterval|requestAnimationFrame|XMLHttpRequest|sendBeacon",
                         code)
@@ -3151,7 +3443,28 @@ def editor_script_checks() -> None:
                                       "- Kubernetes and cloud deployment of clinical systems"))[1]
         rescored = env.rescore(oid, better)
         rescored["html"] = render_inner(env, oid)
-        rescored["copy"] = opened["copy"]
+        # The right side the server draws for the text the runs below keep on
+        # screen, the master's, beside this score: before the risk line is
+        # edited away and after. The script's own counts must read the same.
+        import html as htmllib
+
+        def counts_of(inner):
+            return htmllib.unescape(re.search(r"data-ask-counts[^>]*>([^<]*)</span>", inner).group(1))
+        risk_line = "- Own the software risk file under ISO 14971."
+        conn = radar_common.get_db(env.db)
+        try:
+            ref = env.copy(oid)["role_ref"]
+            tailored_cv.store_text(conn, ref, MASTER_TEXT)
+            conn.commit()
+            summary_master = counts_of(render_inner(env, oid))
+            tailored_cv.store_text(conn, ref, edited(MASTER_TEXT, risk_line, "- Own the risk file."))
+            conn.commit()
+            summary_risk = counts_of(render_inner(env, oid))
+        finally:
+            conn.close()
+        # The copy the answer hands back is the one on screen, under the
+        # version the server gave it after the rescore.
+        rescored["copy"] = {**opened["copy"], "hash": cv_store.cv_hash(better)}
         rescored["tailored"] = {**rescored["tailored"], "before_cv_match": 80, "cv_match": 90}
         saved = env.save(oid, MASTER_TEXT)
         saved["copy"] = {**opened["copy"], "saved": saved["copy"]["saved"]}
@@ -3172,6 +3485,41 @@ def editor_script_checks() -> None:
             conn.close()
         ops_page = render_page(env, ops_role)
         differs_page = render_page(env, differs_role)
+        # A role opened from its Jobs row, with work to do: both scripts post.
+        go_role = env.role(title="Go", company="Omicron Diagnostics")
+        c = env.conn()
+        try:
+            go_page = build_dashboard.render_prepare_page(c, go_role, CFG, "test.sqlite", go=True)
+        finally:
+            c.close()
+        env.prepare(go_role)
+        go_html = render_inner(env, go_role)
+        go_copy = env.open(go_role)["copy"]
+        # A saved copy that is the copy on screen.
+        same_role = env.role(title="Same", company="Pi Diagnostics")
+        env.save(same_role, MASTER_TEXT)
+        same_page = render_page(env, same_role)
+        # A role scored before this branch, on a master with a long line: its
+        # working keeps the start of the line and no whole line, and no hash.
+        long_master = cv_doc.render(cv_doc.normalize({**MASTER_DOC, "sections": [
+            {"title": "Summary", "entries": [], "lines": [
+                {"b": False, "t": "Regulated software in IVD. " * 12 + "Ends with Rust."}]}]
+            + MASTER_DOC["sections"][1:]}))
+        long_n = next(i for i, l in enumerate(cv_store.cv_lines(long_master), 1)
+                      if l.endswith("Ends with Rust."))
+        MASTER[0] = long_master
+        legacy_role = env.role(title="Legacy", company="Rho Diagnostics")
+        MODEL["hook"] = lambda call: (json.dumps({**json.loads(spec_reply(call)[0]), "asks": [
+            {"ask": "Rust in regulated software", "status": "met", "cv_lines": [long_n]}]}), usage())
+        env.prepare(legacy_role)
+        MODEL["hook"] = None
+        old = json.loads(env.row(legacy_role)["score_working"])
+        old.pop("cv_hash", None)
+        old.pop("long_lines", None)
+        env.sql("UPDATE opportunities SET score_working = ? WHERE id = ?", (json.dumps(old), legacy_role))
+        env.open(legacy_role)
+        legacy_page = render_page(env, legacy_role)
+        MASTER[0] = MASTER_TEXT
         mismatch = open_page.replace("Chichester, West Sussex", "Chichester, West Sussex!", 1)
         import html as htmllib
         attr = re.search(r'data-cv="([^"]*)"', mismatch)
@@ -3204,12 +3552,22 @@ def editor_script_checks() -> None:
                   {"n": 1, "text": ""}, {"n": risk_n, "text": "* Own the software risk file under ISO 14971."}):
         finds.append({"cited": cited, "keys": keys,
                       "now": cv_doc.find_line(cited, lines + [lines[risk_n - 1]])})
+    long_line = "- " + "word " * 60 + "end"
+    cut = long_line.strip()[:cv_doc.CITED_TEXT_MAX]
     for small, cited in ((["X", "A", "B"], {"n": 3, "text": "A"}),
                          (["A", "X", "A"], {"n": 2, "text": "A"}),
                          (["A", "X", "A"], {"n": None, "text": "A"}),
                          (["X", "A"], {"n": 2, "text": "A"}),
-                         (["A", "X"], {"n": 1, "text": "A"})):
-        finds.append({"cited": cited, "keys": [cv_doc.line_key(l) for l in small],
+                         (["A", "X"], {"n": 1, "text": "A"}),
+                         # The start of a long line, as a working stored before
+                         # whole lines were kept.
+                         (["X", long_line, "B"], {"n": 2, "text": cut}),
+                         (["X", "B", long_line], {"n": 2, "text": cut}),
+                         ([long_line.replace("end", "fin"), "X"], {"n": 2, "text": cut}),
+                         (["X", "word " * 40], {"n": 2, "text": cut}),
+                         (["X", long_line], {"n": 2, "text": long_line[:120]})):
+        finds.append({"cited": {**cited, "cut": cv_doc.cited_is_cut(cited)},
+                      "keys": [cv_doc.line_key(l) for l in small],
                       "now": cv_doc.find_line(cited, small)})
     edges = [chr(c) for c in (0x1f, 0x20, 0x7e, 0x7f, 0x80, 0x9f, 0xa0, 0x2027, 0x2028,
                               0x2029, 0x202a, 0xd7ff, 0xd800, 0xdbff, 0xdc00, 0xdfff,
@@ -3218,10 +3576,15 @@ def editor_script_checks() -> None:
     payload = {
         "scripts": scripts, "header": HEADER, "version": MASTER_LABEL[0],
         "ids": {"open": oid}, "savedName": "CV - Luke Keogh - Veltrix Diagnostics - Head of Software",
-        "hashes": {"open": opened["copy"]["hash"]}, "copyMoved": prep.COPY_MOVED,
+        "hashes": {"open": opened["copy"]["hash"], "rescored": cv_store.cv_hash(better)},
+        "copyMoved": prep.COPY_MOVED,
+        "summaries": {"master": summary_master, "risk": summary_risk},
+        "go": {"html": go_html, "copy": go_copy, "id": go_role},
+        "longN": long_n,
         "pages": {"open": open_page, "applied": applied_page, "mismatch": mismatch,
                   "unsaved": unsaved_page, "master": master_page, "ops": ops_page,
-                  "differs": differs_page},
+                  "differs": differs_page, "go": go_page, "same": same_page,
+                  "legacy": legacy_page},
         "opsLines": len(cv_store.cv_lines(ops_text)),
         "doing": {"rescore": "Scoring the copy on screen against the full description, once. "
                              "This takes a few seconds."},
@@ -3462,8 +3825,8 @@ def main() -> int:
     for section in (migration_checks, layout_checks, agreement_checks,
                     scorer_checks, copy_checks, master_untouched_checks, copy_busy_checks,
                     rescore_checks, rescore_guard_checks, gate_checks, base_checks,
-                    unchanged_checks, click_lock_checks, memo_checks, edge_checks,
-                    history_checks,
+                    unchanged_checks, legacy_checks, click_lock_checks, memo_checks,
+                    edge_checks, history_checks,
                     stale_checks, word_checks, route_checks, applied_checks,
                     page_checks, master_page_checks, editor_script_checks,
                     static_checks, box_query_checks, docs_checks):

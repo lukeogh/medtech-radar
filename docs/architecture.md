@@ -645,11 +645,20 @@ in the text. `render` turns the structure into text and `parse` turns the text
 back, so a CV the editor wrote reads back to the byte; `load_doc` reads any
 other text, a version imported from Word, the way a person would, by the usual
 words for the sections and the usual bullet marks. That reading keeps every
-line: the first line is the name, the shallowest heading that names a usual
-section sets the section depth, deeper headings are entries, and an empty
-heading that is not a section folds its words into the section before it. A
-master read that way is not in the editor's layout until it is saved once on
-the CV page, and `cv_doc.is_canonical` says which a text is.
+line, in the order it came in. The first line is the name. A CV with headings
+of its own, a Word file's Heading styles, is read by those headings alone: the
+shallowest heading that names a usual section sets the section depth, deeper
+headings are entries, and a plain line is content, so a label under a job such
+as "Overview:" or "Key skills:" stays with the job. Only a CV with no headings
+at all has its sections read from plain lines that are only the usual word for
+one. A usual section met again while it is still being read carries on (its
+words open an entry when it has entries, so "Certifications" after a degree
+comes after it); one met again further on becomes a section of its own; an
+empty heading gives its words back as the last line before it. Bullet and
+heading marks are taken off a line in one pass, so a line of nothing but marks
+costs no more than any other. A master read that way is not in the editor's
+layout until it is saved once on the CV page, and `cv_doc.is_canonical` says
+which a text is.
 
 The line numbers agree everywhere. The text the editor produces is the text the
 scorer is given, so `cv_store.cv_lines` and `cv_store.numbered_cv` number the
@@ -680,17 +689,23 @@ leaves the right of the page as it was drawn, which the Prepare application
 click may be filling at that moment. A copy is made only from a master in the
 editor's layout, because only then are its line numbers the ones the master's
 own score cites; until the master has been saved on the CV page, the left of
-the page shows it as the editor would lay it out, read only, says why, and
-links to the CV page. The copy is edited on the left of the page; the role,
+the page shows it as it is stored, each line under the number the scorer gives
+it, read only, says why, and links to the CV page. The copy is edited on the
+left of the page; the role,
 the score, the asks and the description are on the right. On a narrow screen
 the two stack. Hovering an ask lights the CV lines it cites, and hovering a
 line lights the asks that cite it, from the cited lines the working stores. A
 cited line is found again in an edited copy by all its words, without the
 heading or bullet marks a layout puts in front of it; the working keeps the
 first 240 characters of a line with its citation and the whole of a longer
-line in `long_lines`, so an edit past that point is seen too. An ask that was
-met or partly is marked stale the moment a line it cited is gone, and the
-counts above the asks count it as stale and not as met. Start again from
+line in `long_lines`, so an edit past that point is seen too. A score the
+Prepare application click made before this branch kept only those 240
+characters, so such a line is found as the line that starts with them
+(`cv_doc.cited_is_cut`, `data-cv-cut` for the script). An ask that was met or
+partly is marked stale the moment a line it cited is gone, and the counts above
+the asks count it as stale and not as met, in the page script as it is typed
+as on the server; the tailored score says the copy was edited since it was
+made. Start again from
 master (POST /prepare/cv/reset) puts the master back on the copy, and keeps
 the saved copy and the scores. The copy is capped at 20,000 characters, 400
 lines and 1,000 characters a line, and a CV with no name, or an entry with
@@ -718,10 +733,16 @@ and nothing else changed; the prompt is not changed. A pair of description and
 copy is scored once, by `description_version` and `cv_store.cv_hash` (the hash
 of the copy as numbered): a pair scored before, on the copy, in the history, or
 as the master itself (whose working records its `cv_hash`), is shown again and
-nothing is spent. A copy that is the master unchanged, for a role whose own
-score is not on this description yet, is not scored by Rescore role: that is
-the role's own score, which the click under the description makes once
-(`UNCHANGED_COPY`).
+nothing is spent. A working the click stored before this branch has no
+`cv_hash`; for one made on a dated master version that is still the active
+one, the active master's hash stands in (`tailored_cv.scored_master_hash`), and
+for any other nothing is assumed and the copy is scored. A copy that is the
+master unchanged, for a role whose own score is not on this description yet,
+is not scored by Rescore role: that is the role's own score, which the click
+under the description makes once (`UNCHANGED_COPY`). The right side every copy
+button hands back is drawn as a page opened then would be, without the
+button's words, which go beside the editor, so a word that points to the
+button under the description finds it there.
 
 Where the tailored score goes. It belongs to the copy: it is stored on the copy
 as JSON (`tailored_cvs.score`) with the score it replaced and the asks that
@@ -742,15 +763,21 @@ boxes, images, fields, header or footer, one plain font in black on A4, the name
 as Heading 1, sections as Heading 2, entries as Heading 3 and bullets as real
 List Bullet paragraphs with their numbering on the paragraph. The route reads
 only, is behind the same Host check as every page, and names the file by the
-saved copy. Applied records the saved copy's name in `applied_cv`, in the same
-statement that stamps the role, and records none where no copy was saved; a
-`cv` the request names is still checked and is not recorded. Undo is as it
-was.
+saved copy; the link carries `download`, so the browser fetches the file
+without leaving the page and without asking about unsaved edits. Applied
+records the saved copy's name in `applied_cv`, in the same statement that
+stamps the role, and records none where no copy was saved; a `cv` the request
+names is still checked and is not recorded. Pressed while the copy on screen
+is not the copy saved, Applied asks first, since once the role is applied
+nothing more can be saved for it. Undo is as it was.
 
 Nothing here touches an applied role, or one acknowledged, closed, dismissed or
 expired: no copy is made, nothing is saved, reset or scored, every write looks
 again under the write lock, and the page shows the copy that was saved for an
-applied role, as it was sent, read only, with Download.
+applied role, as it was sent, read only, with Download. The score beside it is
+that copy's own (`tailored_cv.sent_standing`): the one the history keeps for
+the sent text, not one made later on a text that was never saved, or a plain
+word that the sent copy was not scored on its own.
 
 python-docx is in `requirements.txt` on the 1.2 line. Only the dashboard
 imports it, inside the download, so a dashboard without it serves every page and
