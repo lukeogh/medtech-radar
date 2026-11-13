@@ -24,6 +24,7 @@ What a copy holds:
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -91,9 +92,10 @@ def read_score(copy: dict | None) -> dict | None:
 def master(config: dict) -> dict:
     """The master CV, as a copy of it would start.
 
-    {"doc", "text", "version", "canonical"}. The text is the master in the
-    editor's layout. canonical says whether that is the master file itself,
-    as it is for a master saved on the CV page. Only then does a copy made
+    {"doc", "text", "stored", "version", "canonical"}. The text is the
+    master in the editor's layout, and stored the master file as the scorer
+    reads and numbers it. canonical says whether the two are the same lines,
+    as they are for a master saved on the CV page. Only then does a copy made
     from it number its lines as the scorer numbers the master, so only then
     is a copy made from it. A master that cannot be read is a CvError, so a
     page can say so.
@@ -107,7 +109,7 @@ def master(config: dict) -> dict:
         raise cv_doc.CvError(f"The master CV could not be read. {err}") from None
     doc = cv_doc.load_doc(text)
     laid_out = cv_doc.render(doc)
-    return {"doc": doc, "text": laid_out, "version": version,
+    return {"doc": doc, "text": laid_out, "stored": text, "version": version,
             "canonical": laid_out == "\n".join(cv_store.cv_lines(text)) + "\n"}
 
 
@@ -133,14 +135,42 @@ def master_working(row) -> dict | None:
     return working
 
 
+# A master CV version that is never written over, as cv_store names them.
+_DATED_VERSION = re.compile(r"cv-\d{8}-\d{6}(?:-\d+)?\.md")
+
+
+def scored_master_hash(row, config: dict) -> str | None:
+    """The hash of the master CV the role's own score was made on, for a
+    working that does not record it: one the Prepare application click stored
+    before workings kept cv_hash.
+
+    Only a dated version names one text for good, cv.txt and cv.pdf can change
+    under the same name, and only the active one is read here. None whenever
+    that cannot be known, which leaves the copy to be scored, the safe way.
+    """
+    version = rc._row_field(row, "cv_version")
+    if not isinstance(version, str) or not _DATED_VERSION.fullmatch(version):
+        return None
+    try:
+        if score_item.get_cv_version(config) != version:
+            return None
+        text, _source = score_item.load_cv_text(config)
+    except (SystemExit, OSError):
+        return None
+    return cv_store.cv_hash(text)
+
+
 def master_scored_pair(row, description_hash: str | None,
-                       cv_hash: str | None) -> bool:
+                       cv_hash: str | None, master_hash: str | None = None) -> bool:
     """Is the role's own score one of exactly this description and this CV
-    text, so that a copy that is the master unchanged has a score already."""
+    text, so that a copy that is the master unchanged has a score already.
+    master_hash stands in for a working that does not record the hash of the
+    CV it numbered (scored_master_hash)."""
     working = master_working(row)
+    scored = (working or {}).get("cv_hash") or master_hash
     return bool(working and description_hash and cv_hash
                 and rc._row_field(row, "description_hash") == description_hash
-                and working.get("cv_hash") == cv_hash)
+                and scored == cv_hash)
 
 
 def chain_ids(conn, row) -> list[int]:
@@ -369,7 +399,8 @@ def view(copy: dict | None, text: str | None = None) -> dict | None:
             "updated_at": copy.get("updated_at"), "saved": saved}
 
 
-def standing(row, copy: dict | None, cv_hash: str | None) -> dict:
+def standing(row, copy: dict | None, cv_hash: str | None,
+             master_hash: str | None = None) -> dict:
     """Which tailored score belongs beside the copy the page shows.
 
     {"kind": ..., "record": record or None}. current is the copy's score, made
@@ -377,7 +408,7 @@ def standing(row, copy: dict | None, cv_hash: str | None) -> dict:
     description and an earlier text of the copy. master means the copy is the
     master CV unchanged, as the role's own score was made on it, so that score
     stands for it. elsewhere is a score the copy has, made on another advert's
-    description. none is no score.
+    description. none is no score. master_hash, see master_scored_pair.
     """
     desc = rc.description_version(rc._row_field(row, "description_text"))
     record = read_score(copy)
@@ -387,11 +418,32 @@ def standing(row, copy: dict | None, cv_hash: str | None) -> dict:
         # The copy changed since its own score. If it changed back to the
         # master as the role's own score was made on it, that score is this
         # copy's, whatever the copy was scored as in between.
-        if master_scored_pair(row, desc, cv_hash):
+        if master_scored_pair(row, desc, cv_hash, master_hash):
             return {"kind": "master", "record": None}
         return {"kind": "earlier", "record": record}
-    if master_scored_pair(row, desc, cv_hash):
+    if master_scored_pair(row, desc, cv_hash, master_hash):
         return {"kind": "master", "record": None}
     if record:
         return {"kind": "elsewhere", "record": record}
     return {"kind": "none", "record": None}
+
+
+def sent_standing(conn, row, shown_hash: str | None, found: dict) -> dict:
+    """standing, for a role that can no longer change, whose page shows the
+    copy saved and sent rather than the copy as it was left.
+
+    A score made since on a later, unsaved text of the copy is not the sent
+    copy's. The sent copy's own score is the one the history keeps for the
+    same description and text, shown as it was made with nothing set before
+    it, else the master's when the sent copy is the master as scored, else
+    none. found is standing() for the sent text.
+    """
+    if found["kind"] in ("current", "master"):
+        return found
+    desc = rc.description_version(rc._row_field(row, "description_text"))
+    kept = history_pair(conn, row, desc, shown_hash)
+    if kept is None:
+        return {"kind": "none", "record": None}
+    return {"kind": "current",
+            "record": make_record(row, _record_from_history(kept), desc,
+                                  shown_hash, None)}

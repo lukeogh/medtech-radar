@@ -3433,8 +3433,11 @@ def _cited_li(cited: dict) -> str:
     citation (cv_doc.cited_text), so an edit past that start is seen too."""
     gone = ' class="cv-gone"' if "now" in cited and cited["now"] is None else ""
     whole = cited.get("whole") or cited.get("text")
+    # The start of a long line, from a working stored before whole lines were
+    # kept: the script finds it as the line that starts with it.
+    cut = ' data-cv-cut="1"' if cited.get("cut") else ""
     return (f'<li data-cv-n="{esc(cited.get("n"))}" '
-            f'data-cv-text="{esc(whole)}"{gone}>'
+            f'data-cv-text="{esc(whole)}"{cut}{gone}>'
             f'<b>{_cited_label(cited)}</b> {esc(cited.get("text"))}</li>')
 
 
@@ -3534,6 +3537,11 @@ def _tailored_card(copy, standing, can_edit: bool, has_description: bool,
            '<h3 class="score-card-head">Tailored copy</h3>']
     kind = (standing or {}).get("kind")
     record = (standing or {}).get("record")
+    # Said by the page script the moment the copy on screen is edited, since
+    # the score above it is then no longer the score of what is on screen.
+    edited_note = ('<p class="row-sub" id="copy-edited-note" hidden>The copy on '
+                   'the left has been edited since this score. Rescore role '
+                   'scores it as it is now.</p>' if can_edit else '')
     if copy is None:
         out.append('<p class="row-sub">'
                    + ("No tailored copy yet. One is made from the master CV "
@@ -3546,16 +3554,19 @@ def _tailored_card(copy, standing, can_edit: bool, has_description: bool,
     elif kind == "master":
         out.append('<p class="row-sub">The copy is the master CV as it was scored '
                    'against this description, so the master CV&rsquo;s score '
-                   'stands for it.</p>')
+                   'stands for it.</p>' + edited_note)
     elif kind in ("current", "earlier") and record:
         when = fmt_day(record["scored_at"]) if record.get("scored_at") else "date not recorded"
         out.append(f'<p class="row-sub">Scored against the full description and '
-                   f'this copy, {when}, by '
+                   f'{"this copy" if can_edit else "the copy saved and sent"}, '
+                   f'{when}, by '
                    f'{esc(record.get("score_model") or "an unknown model")}, prompt '
                    f'{esc(record.get("prompt_version") or "unknown")}.</p>')
         if kind == "earlier":
             out.append('<p class="row-sub">The copy has been edited since this '
                        'score. Rescore role scores the copy as it is now.</p>')
+        else:
+            out.append(edited_note)
         if record.get("reused"):
             out.append('<p class="row-sub">Shown again from an earlier score of '
                        'this same copy. Nothing was spent on it.</p>')
@@ -3593,8 +3604,12 @@ def _tailored_card(copy, standing, can_edit: bool, has_description: bool,
     elif kind == "elsewhere" and record:
         when = fmt_day(record["scored_at"]) if record.get("scored_at") else "date not recorded"
         out.append(f'<p class="row-sub">Last scored against another advert&rsquo;s '
-                   f'description, {when}. Rescore role scores it against this '
-                   'one.</p>')
+                   f'description, {when}.'
+                   + (' Rescore role scores it against this one.' if can_edit else '')
+                   + '</p>')
+    elif not can_edit:
+        out.append('<p class="row-sub">The copy saved for this role was not scored '
+                   'on its own against this description.</p>')
     else:
         out.append('<p class="row-sub">Not scored yet. Rescore role scores the '
                    'copy on the left against the full description, once.'
@@ -3643,9 +3658,15 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
     shown_lines = None
     standing = None
     if copy is not None:
-        shown = _copy_shown(copy, is_open and not applied)
+        can_edit = is_open and not applied
+        shown = _copy_shown(copy, can_edit)
         shown_lines = cv_store_lines(shown)
-        standing = tailored_cv.standing(row, copy, cv_store_hash(shown))
+        shown_hash = cv_store_hash(shown)
+        standing = tailored_cv.standing(row, copy, shown_hash,
+                                        tailored_cv.scored_master_hash(row, config))
+        if not can_edit:
+            # The copy shown is the one saved and sent, so its score is too.
+            standing = tailored_cv.sent_standing(conn, row, shown_hash, standing)
     asks_from = "master"
     asks_working = working
     if standing and standing["kind"] in ("current", "earlier"):
@@ -3866,7 +3887,12 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
                         'could not be read and were left out')
         numbered = ("the tailored copy as it was scored" if asks_from == "tailored"
                     else asks_working.get("cv_version") or "the CV")
-        asks_html.append(f'<p class="row-sub">{esc(summary)}. Judged on the '
+        # The counts sit in their own span, which the page script counts
+        # again as the copy is edited, in the same words.
+        asks_html.append(f'<p class="row-sub"><span data-ask-counts '
+                         f'data-unanchored="{int(counts.get("unanchored") or 0)}" '
+                         f'data-dropped="{int(counts.get("dropped") or 0)}">'
+                         f'{esc(summary)}</span>. Judged on the '
                          f'CV text alone, CV lines as numbered in '
                          f'{esc(numbered)}.</p>')
         changes = {}
@@ -3999,8 +4025,9 @@ def render_cv_pane(conn, row: dict, applied: bool, config: dict) -> str:
     Read only, like the rest of the page. For an open role it is the copy as
     stored, or, the first time, the master CV the copy is about to be made
     from, which the script asks the server to make. A master that is not in
-    the editor's layout yet is shown as the editor would lay it out, read
-    only, with no copy made and a word on why (prepare_application
+    the editor's layout yet is shown as it is stored, numbered as the scorer
+    numbers it so that the asks beside it cite the lines shown, read only,
+    with no copy made and a word on why (prepare_application
     MASTER_NOT_LAID_OUT). For an applied role, or one that is not open, it is
     the copy that was saved for it, as it was sent, with no button that would
     change anything.
@@ -4018,9 +4045,9 @@ def render_cv_pane(conn, row: dict, applied: bool, config: dict) -> str:
     elif can_edit:
         try:
             start = tailored_cv.master(config)
-            text = start["text"]
             needs_copy = bool(start["canonical"])
             unlaid = not start["canonical"]
+            text = start["stored"] if unlaid else start["text"]
         except cv_doc.CvError as err:
             problem = str(err)
     editable = can_edit and not unlaid
@@ -4042,8 +4069,8 @@ def render_cv_pane(conn, row: dict, applied: bool, config: dict) -> str:
                    'shown as it was stored and cannot be changed.</p>')
     elif unlaid:
         out.append(f'<p class="cv-banner">{esc(prep.MASTER_NOT_LAID_OUT)} '
-                   '<a href="/cv">Open the CV page</a>. Shown below as the '
-                   'editor would lay it out, read only.</p>')
+                   '<a href="/cv">Open the CV page</a>. Shown below as it is '
+                   'stored, numbered as the scorer numbers it, read only.</p>')
     elif needs_copy:
         out.append('<p class="row-sub" id="cv-status">This is the master CV. The '
                    'tailored copy for this role is made from it as the page opens, '
@@ -4064,7 +4091,9 @@ def render_cv_pane(conn, row: dict, applied: bool, config: dict) -> str:
             'Rescore role</button>'
             '<button type="button" class="act-btn" data-cv-act="save" disabled>'
             'Save CV</button>'
-            f'<a class="act-btn" id="cv-download" href="/prepare/{rid}/cv.docx"'
+            # download, so the browser fetches the file without leaving the
+            # page, and so without asking about unsaved edits first.
+            f'<a class="act-btn" id="cv-download" href="/prepare/{rid}/cv.docx" download'
             f'{"" if saved else " hidden"}>Download</a>'
             '<button type="button" class="act-btn" data-cv-act="reset" disabled>'
             'Start again from master</button>'
@@ -4075,7 +4104,7 @@ def render_cv_pane(conn, row: dict, applied: bool, config: dict) -> str:
         out.append(f'<p class="row-sub">Saved as {esc(saved["name"])}, '
                    f'{esc(_when_words(saved["at"]))}.</p>'
                    f'<div class="cv-actions"><a class="act-btn" id="cv-download" '
-                   f'href="/prepare/{rid}/cv.docx">Download</a></div>')
+                   f'href="/prepare/{rid}/cv.docx" download>Download</a></div>')
     out.append('<p class="cv-note" id="cv-say" aria-live="polite"></p>')
     if text is not None:
         # hash is the copy the page took, sent back with Rescore role and

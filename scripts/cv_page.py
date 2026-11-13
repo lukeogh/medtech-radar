@@ -103,7 +103,7 @@ textarea.cvl-t:disabled{color:var(--ink-2)}
 .cvl-ops button:hover,.cv-add button:hover{color:var(--accent);border-color:var(--accent-quiet)}
 .cv-add{display:flex;flex-wrap:wrap;gap:var(--space-6);margin:2px 0 var(--space-6) calc(3.4em + var(--space-12))}
 .cv-actions{display:flex;flex-wrap:wrap;gap:var(--space-8);align-items:center;position:sticky;top:0;z-index:2;background:var(--paper);padding:var(--space-10) 0}
-.cv-actions [hidden]{display:none !important}
+.cv-actions [hidden],#copy-edited-note[hidden]{display:none !important}
 .cv-note{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2);margin:var(--space-8) 0;min-height:1.2em}
 .cv-note.bad{color:var(--fail)}
 .cv-hint{font:400 var(--text-xs)/1.55 var(--font-sans);color:var(--ink-3);margin:var(--space-4) 0}
@@ -120,8 +120,12 @@ var RadarCv = (function () {
   var STANDARD = ['Summary', 'Experience', 'Skills', 'Education and certifications'];
   // cv_doc._ANY_BULLET: a bullet mark, the editor's or one a paste brings.
   var BULLET = /^[-*•+·–—▪◦‣●○■□➢➤✓✔♦◆»]\s+/;
+  // cv_doc._BULLET_RUN, _HEADING_RUN and _HEADING_OR_BULLET_RUN: every mark
+  // in front of a line at once, one pass however many there are.
+  var BULLET_RUN = /^(?:[-*•+·–—▪◦‣●○■□➢➤✓✔♦◆»]\s+)+/;
+  var HEADING_RUN = /^(?:#{1,3} )+/;
+  var HEADING_OR_BULLET_RUN = /^(?:#{1,3} |[-*•+·–—▪◦‣●○■□➢➤✓✔♦◆»]\s+)+/;
   var HEADING_MARK = /^#{1,6}\s+/;
-  var PLAIN_HEADING = /^#{1,3} /;
   // Code points, not escapes, so that the tool chain cannot turn one into the
   // character it names inside a regular expression.
   function dropped(c) {
@@ -141,20 +145,13 @@ var RadarCv = (function () {
     return s.split(/\s+/).filter(Boolean).join(' ');
   }
   function stripMarks(t) {
-    for (;;) {
-      var m = BULLET.exec(t);
-      if (!m) return t;
-      t = clean(t.slice(m[0].length));
-    }
+    var m = BULLET_RUN.exec(t);
+    return m ? clean(t.slice(m[0].length)) : t;
   }
   function cleanPlain(value, allowBullet) {
     var t = clean(value);
-    for (;;) {
-      var m = PLAIN_HEADING.exec(t);
-      if (m) { t = clean(t.slice(m[0].length)); continue; }
-      if (!allowBullet && BULLET.test(t)) { t = stripMarks(t); continue; }
-      return t;
-    }
+    var m = (allowBullet ? HEADING_RUN : HEADING_OR_BULLET_RUN).exec(t);
+    return m ? clean(t.slice(m[0].length)) : t;
   }
   function line(item) {
     if (item && item.b) return { b: true, t: stripMarks(clean(item.t)) };
@@ -214,15 +211,19 @@ var RadarCv = (function () {
   function key(value) {
     return stripMarks(clean(clean(value).replace(HEADING_MARK, '')));
   }
+  // cv_doc.find_line. A cited text that is only the start of a long line
+  // (cv_doc.cited_is_cut, data-cv-cut on the page) is found in the line
+  // that starts with it.
   function findLine(cited, keys) {
     var k = key(cited.text);
     if (!k) return null;
+    function same(other) { return cited.cut ? other.indexOf(k) === 0 : other === k; }
     var n = cited.n;
-    if (typeof n === 'number' && n >= 1 && n <= keys.length && keys[n - 1] === k) return n;
+    if (typeof n === 'number' && n >= 1 && n <= keys.length && same(keys[n - 1])) return n;
     var anchor = typeof n === 'number' ? n : 0;
     var best = null;
     keys.forEach(function (other, i) {
-      if (other !== k) return;
+      if (!same(other)) return;
       if (best === null || Math.abs(i + 1 - anchor) < Math.abs(best - anchor)) best = i + 1;
     });
     return best;
@@ -271,13 +272,17 @@ CV_EDITOR_JS = r"""
   // given, or a number on the page could name another line than the scorer's.
   // If they are not, the rows the server drew stay as they are, numbered by
   // the server, and the asks are found in the server's lines.
+  // A page that was never to be edited, a master not yet in the editor's
+  // layout, is drawn that way on purpose, so it is kept without a word.
   var frozen = false;
   if (JSON.stringify(current.lines) !== JSON.stringify(data.lines || [])) {
+    if (editable) {
+      say('The editor could not line up its line numbers with the stored CV, so '
+          + 'the CV is shown as stored and cannot be edited on this page.', true);
+    }
     editable = false;
     frozen = true;
     current = { lines: (data.lines || []).slice(), at: {} };
-    say('The editor could not line up its line numbers with the stored CV, so '
-        + 'the CV is shown as stored and cannot be edited on this page.', true);
   }
 
   // ------------------------------------------------------------ the model
@@ -384,7 +389,15 @@ CV_EDITOR_JS = r"""
   }
   var LINE_OPS = [['up', '↑', 'Move up'], ['down', '↓', 'Move down'],
                   ['kind', '•', 'Bullet or paragraph'], ['del', '×', 'Delete this line']];
+  // A browser tells a field it lost focus while the redraw takes it away,
+  // when the place it names may already be another line. Nothing is tidied
+  // while the editor is being drawn: the model is already what was typed.
+  var drawing = false;
   function draw() {
+    drawing = true;
+    try { drawRows(); } finally { drawing = false; }
+  }
+  function drawRows() {
     host.textContent = '';
     row('name', 'h1', doc.name, { edit: true, label: 'Name' });
     doc.headline.forEach(function (h, i) {
@@ -457,7 +470,8 @@ CV_EDITOR_JS = r"""
       var gone = false;
       all('[data-cv-text]', ask).forEach(function (li) {
         var n = Number(li.getAttribute('data-cv-n'));
-        var now = C.findLine({ n: n, text: li.getAttribute('data-cv-text') }, keys);
+        var now = C.findLine({ n: n, text: li.getAttribute('data-cv-text'),
+                               cut: li.getAttribute('data-cv-cut') === '1' }, keys);
         li.setAttribute('data-now', now ? String(now) : '');
         var b = li.querySelector('b');
         if (b) {
@@ -474,6 +488,30 @@ CV_EDITOR_JS = r"""
         chip.textContent = stale ? '! Stale, was ' + status : WORD[status];
       }
     });
+    recount();
+  }
+  // The counts above the asks, in the server's words: a stale ask is counted
+  // as stale and not as what it was (build_dashboard.render_prepare_inner).
+  function recount() {
+    var slot = document.querySelector('#prepare-body [data-ask-counts]');
+    if (!slot) return;
+    var n = { met: 0, partly: 0, missing: 0 };
+    var stale = 0;
+    asks().forEach(function (ask) {
+      if (ask.classList && ask.classList.contains('ask-stale')) { stale += 1; return; }
+      var s = ask.getAttribute('data-ask-status');
+      if (n[s] !== undefined) n[s] += 1;
+    });
+    var unanchored = Number(slot.getAttribute('data-unanchored') || 0);
+    var dropped = Number(slot.getAttribute('data-dropped') || 0);
+    var words = n.met + ' met, ' + n.partly + ' partly, ' + n.missing + ' missing';
+    if (unanchored) words += ', ' + unanchored + ' without a CV line';
+    if (stale) {
+      words += ', ' + stale + ' stale because a line ' + (stale === 1 ? 'it' : 'they')
+        + ' cited has been edited';
+    }
+    if (dropped) words += '. ' + dropped + ' the scorer returned could not be read and were left out';
+    slot.textContent = words;
   }
   function lit(on) {
     all('.cv-hl').forEach(function (el) { el.classList.remove('cv-hl'); });
@@ -509,7 +547,8 @@ CV_EDITOR_JS = r"""
   });
   var body = document.getElementById('prepare-body');
   if (body && window.MutationObserver) {
-    new window.MutationObserver(function () { mark(); }).observe(body, { childList: true });
+    new window.MutationObserver(function () { mark(); shown(false); })
+      .observe(body, { childList: true });
   }
 
   // ------------------------------------------------------------ editing
@@ -567,11 +606,12 @@ CV_EDITOR_JS = r"""
     }
   });
   host.addEventListener('focusout', function (e) {
+    if (drawing) return;
     var t = e.target;
     var place = t.getAttribute ? t.getAttribute('data-edit') : null;
     if (!place) return;
-    // A field that a redraw has just taken away, after Enter or Backspace,
-    // names a place that may now be another line or none: leave it.
+    // A field that a redraw has already taken away, after Enter or
+    // Backspace, names a place that may now be another line or none.
     if (typeof host.contains === 'function' && !host.contains(t)) return;
     var o = owner(place);
     if (o && o.i >= o.list.length) return;
@@ -682,6 +722,8 @@ CV_EDITOR_JS = r"""
       hint.textContent = data.saved && (dirty || !data.saved.same)
         ? 'Download gives the copy as it was saved. Save CV again to include what is on screen.' : '';
     }
+    var edited = document.getElementById('copy-edited-note');
+    if (edited) edited.hidden = !dirty;
   }
   function take(copy) {
     doc = copy.doc;
@@ -766,9 +808,15 @@ CV_EDITOR_JS = r"""
     if (act === 'reset' && !window.confirm('Start again from the master CV? The copy on '
         + 'screen is replaced by the master as it is now. The saved copy and the '
         + 'scores are kept.')) return;
-    if (act === 'apply' && !data.saved && !window.confirm('No CV has been saved for '
-        + 'this role, so none will be recorded with the application. Mark it applied '
-        + 'anyway?')) return;
+    if (act === 'apply') {
+      var ask = !data.saved ? 'No CV has been saved for this role, so none will be '
+          + 'recorded with the application. Mark it applied anyway?'
+        : (dirty || !data.saved.same) ? 'The copy on screen is not the copy saved as '
+          + data.saved.name + '. Applied records the saved copy, and once the role is '
+          + 'applied nothing more can be saved for it. Mark it applied anyway?'
+        : null;
+      if (ask && !window.confirm(ask)) return;
+    }
     send(act, b);
   });
   window.addEventListener('beforeunload', function (e) {
