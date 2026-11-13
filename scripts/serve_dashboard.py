@@ -813,12 +813,17 @@ def render_cv_page() -> bytes:
         # Read once, and refused before it is read when no CV could be that
         # size (cv_doc.check_raw), as an import of up to 5 MB could be.
         doc = cv_doc.load_doc(master_text)
+        # The editor reads the master again in its layout, which puts a blank
+        # line and a mark before every heading, so a file under the caps can
+        # be over them laid out. That is refused here too, so the page says
+        # why and keeps the import that would replace it, and is not a 500.
+        laid_text = cv_doc.render(doc)
+        editor = cv_page.editor_html(laid_text, {
+            "mode": "master", "editable": True, "version": marker})
     except (SystemExit, OSError, cv_doc.CvError) as err:
         master_text, problem = None, str(err)
     if master_text is not None:
-        laid_out = cv_doc.render(doc) == "\n".join(cv_store.cv_lines(master_text)) + "\n"
-        editor = cv_page.editor_html(cv_doc.render(doc), {
-            "mode": "master", "editable": True, "version": marker})
+        laid_out = laid_text == "\n".join(cv_store.cv_lines(master_text)) + "\n"
         when = version_when(active)
         banner = ("" if laid_out else
                   '<p class="cv-banner">This version was not written by this '

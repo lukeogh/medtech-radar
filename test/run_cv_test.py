@@ -2892,6 +2892,25 @@ def master_page_checks() -> None:
                   and 'id="cv-editor"' not in page and took < 5,
                   "a master too big for any CV is refused before it is read, and the page "
                   f"says why instead of laying it out ({took:.2f} s)")
+            # Under the caps as a file, over them in the editor's layout, which
+            # adds a blank line and a mark before every heading.
+            under = "Luke Keogh\n" + "".join(f"# Heading {i}\nline {i}\n" for i in range(999))
+            check(len(cv_store.cv_lines(under)) <= cv_doc.RAW_LINES_MAX
+                  and len(cv_store.cv_lines(cv_doc.render(cv_doc.load_doc(under))))
+                  > cv_doc.RAW_LINES_MAX,
+                  "a master can be under the line cap as a file and over it laid out")
+            (tmp / "cv-20261113-090000.md").write_text(under, encoding="utf-8")
+            (tmp / "cv.active").write_text("cv-20261113-090000.md\n", encoding="utf-8")
+            try:
+                page = serve_dashboard_page(env)
+            except cv_doc.CvError as err:
+                page = f"raised CvError: {err}"
+            check("The master CV could not be read." in page_text(page)
+                  and f"no CV needs more than {cv_doc.RAW_LINES_MAX:,}" in page_text(page)
+                  and 'id="cv-editor"' not in page
+                  and "One-off import from a Word file" in page_text(page),
+                  "and such a master is refused the same way: the page says why, and still "
+                  "offers the import that would replace it, where it was a 500")
     finally:
         cv_store.PROFILE_DIR = saved_dir
         score_item.PROFILE_DIR = saved_dir
