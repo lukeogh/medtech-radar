@@ -367,9 +367,13 @@ the chain, and the role is back in the tiers with the tier it left them with.
 
 The marker is two nullable columns that arrive through `_MIGRATIONS`, not a
 status. The status check (new, digested, actioned, dead) cannot take a new word
-without rebuilding the table. `applied_cv` is empty until a CV page hands a
-reference to POST /apply, which takes an optional `cv`, one printable line of at
-most 200 characters. Nothing displays it yet.
+without rebuilding the table. `applied_cv` is the name Save CV gave the role's
+tailored copy on its Prepare application page, read in the statement that
+stamps the role, or empty when no copy was saved (see "The CV page and the
+tailored CV"). POST /apply still takes an optional `cv`, and still refuses one
+that is not one printable line of at most 200 characters, but what it names is
+not recorded: the column holds what Save CV stored, not what a request says.
+The Prepare application page of an applied role shows the name.
 
 What leaves an applied role alone, and so keeps its tier as it was on the day:
 the forty-five day expiry, the page checker's selection, its close and its
@@ -640,7 +644,12 @@ certifications, are always in the editor, and an empty one puts no bare heading
 in the text. `render` turns the structure into text and `parse` turns the text
 back, so a CV the editor wrote reads back to the byte; `load_doc` reads any
 other text, a version imported from Word, the way a person would, by the usual
-words for the sections and the usual bullet marks.
+words for the sections and the usual bullet marks. That reading keeps every
+line: the first line is the name, the shallowest heading that names a usual
+section sets the section depth, deeper headings are entries, and an empty
+heading that is not a section folds its words into the section before it. A
+master read that way is not in the editor's layout until it is saved once on
+the CV page, and `cv_doc.is_canonical` says which a text is.
 
 The line numbers agree everywhere. The text the editor produces is the text the
 scorer is given, so `cv_store.cv_lines` and `cv_store.numbered_cv` number the
@@ -664,19 +673,32 @@ leaves full description scores alone, see below.
 The tailored copy. One per role, in the table `tailored_cvs` (`schema.sql`),
 keyed on the role: `key:` and the role_key, so the adverts of a repost chain
 share it, or `id:` and the row for a row with no key. It is made from the
-master, laid out the editor's way, the first time the role's Prepare
-application page opens: the page reads only, and its script makes POST
-/prepare/cv/open, which costs nothing. The copy is edited on the left of the
-page; the role, the score, the asks and the description are on the right. On a
-narrow screen the two stack. Hovering an ask lights the CV lines it cites, and
-hovering a line lights the asks that cite it, from the cited lines the working
-stores; a cited line is found again in an edited copy by its words, without the
-mark a layout puts in front of it, and an ask that was met or partly is marked
-stale the moment a line it cited is gone. Start again from master (POST
-/prepare/cv/reset) puts the master back on the copy, and keeps the saved copy
-and the scores. The copy is capped at 20,000 characters, 400 lines and 1,000
-characters a line, and a CV with no name, or an entry with lines and no
-heading, is refused.
+master the first time the role's Prepare application page opens: drawing the
+page writes nothing, and its script then makes POST /prepare/cv/open, a write
+that asks no model anything and costs nothing. The answer carries the copy and
+leaves the right of the page as it was drawn, which the Prepare application
+click may be filling at that moment. A copy is made only from a master in the
+editor's layout, because only then are its line numbers the ones the master's
+own score cites; until the master has been saved on the CV page, the left of
+the page shows it as the editor would lay it out, read only, says why, and
+links to the CV page. The copy is edited on the left of the page; the role,
+the score, the asks and the description are on the right. On a narrow screen
+the two stack. Hovering an ask lights the CV lines it cites, and hovering a
+line lights the asks that cite it, from the cited lines the working stores. A
+cited line is found again in an edited copy by all its words, without the
+heading or bullet marks a layout puts in front of it; the working keeps the
+first 240 characters of a line with its citation and the whole of a longer
+line in `long_lines`, so an edit past that point is seen too. An ask that was
+met or partly is marked stale the moment a line it cited is gone, and the
+counts above the asks count it as stale and not as met. Start again from
+master (POST /prepare/cv/reset) puts the master back on the copy, and keeps
+the saved copy and the scores. The copy is capped at 20,000 characters, 400
+lines and 1,000 characters a line, and a CV with no name, or an entry with
+lines and no heading, is refused.
+
+Rescore role and Save CV send the version of the copy the page took, its
+`cv_hash`. A copy changed in another tab or window since is not written over:
+nothing is stored or spent, and the page says to reload (`COPY_MOVED`).
 
 Rescore role (POST /prepare/cv/rescore) stores the text on screen as the copy,
 then scores it against the stored description through `prepare_application._score`,
@@ -684,13 +706,22 @@ the same code as the Prepare application click: one call at `SPEC_MAX_TOKENS`
 with no retry, the same failure windows (an unusable reply five minutes, a call
 that raised twenty seconds), the same parking of a paid-for reply for half an
 hour when the database is busy, the same 90 second wait for the write lock, and
-a lock per role in the process, so a double click and a storm pay once. The
-scorer is given `score_item.build_scorer_system` with the copy's text in place
-of the master's and nothing else changed; the prompt is not changed. A pair of
-description and copy is scored once, by `description_version` and
-`cv_store.cv_hash` (the hash of the copy as numbered): a pair scored before, on
-the copy, in the history, or as the master itself (whose working records its
-`cv_hash`), is shown again and nothing is spent.
+a lock per role in the process, so a double click and a storm pay once. It also
+takes the Prepare application click's lock for the advert, after the copy's
+own, so a Rescore role pressed while the click is still scoring the master
+waits for it and then finds its score; the click never takes the copy's lock,
+so the two cannot wait on each other. The failure windows are remembered by
+the copy and its version, so a failure on the copy never holds up the master's
+click, nor the other way round. The scorer is given
+`score_item.build_scorer_system` with the copy's text in place of the master's
+and nothing else changed; the prompt is not changed. A pair of description and
+copy is scored once, by `description_version` and `cv_store.cv_hash` (the hash
+of the copy as numbered): a pair scored before, on the copy, in the history, or
+as the master itself (whose working records its `cv_hash`), is shown again and
+nothing is spent. A copy that is the master unchanged, for a role whose own
+score is not on this description yet, is not scored by Rescore role: that is
+the role's own score, which the click under the description makes once
+(`UNCHANGED_COPY`).
 
 Where the tailored score goes. It belongs to the copy: it is stored on the copy
 as JSON (`tailored_cvs.score`) with the score it replaced and the asks that
@@ -712,8 +743,9 @@ as Heading 1, sections as Heading 2, entries as Heading 3 and bullets as real
 List Bullet paragraphs with their numbering on the paragraph. The route reads
 only, is behind the same Host check as every page, and names the file by the
 saved copy. Applied records the saved copy's name in `applied_cv`, in the same
-statement that stamps the role, and records none where no copy was saved. Undo
-is as it was.
+statement that stamps the role, and records none where no copy was saved; a
+`cv` the request names is still checked and is not recorded. Undo is as it
+was.
 
 Nothing here touches an applied role, or one acknowledged, closed, dismissed or
 expired: no copy is made, nothing is saved, reset or scored, every write looks

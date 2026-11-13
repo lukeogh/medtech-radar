@@ -146,6 +146,11 @@ MASTER_DOC = {
     ],
 }
 MASTER_TEXT = cv_doc.render(MASTER_DOC)
+# A copy tailored by the smallest edit, one that moves no line and no ask.
+# Rescore role does not score the master unchanged for a role whose own score
+# is not on its description (UNCHANGED_COPY), so a run that wants a first call
+# on a copy starts from this.
+COPY_TEXT = MASTER_TEXT.replace("Chichester, West Sussex", "Chichester, West Sussex, UK", 1)
 MASTER = [MASTER_TEXT]
 MASTER_LABEL = ["cv-20261110-090000.md"]
 score_item.load_cv_text = lambda config: (MASTER[0], "config/profile/" + MASTER_LABEL[0])
@@ -556,8 +561,8 @@ def layout_checks() -> None:
           and titles == ["Summary", "Experience", "Skills",
                          "Education and certifications", "Interests"],
           f"a Word CV is read the way a person reads it: the first line is the name, "
-          f"the usual words and lines in capitals start sections, and Education and "
-          f"Certifications become one ({titles})")
+          f"the usual words for a section start it at any heading depth or on a line "
+          f"of their own, and Education and Certifications become one ({titles})")
     exp = doc["sections"][1]
     check([e["heading"] for e in exp["entries"]] == ["Director, Axithra",
                                                     "Earlier role, Fujitsu"]
@@ -565,6 +570,40 @@ def layout_checks() -> None:
           and exp["entries"][1]["lines"] == [{"b": True, "t": "Defence work."}]
           and doc["sections"][3]["lines"][-1] == {"b": True, "t": "ISO 13485 Lead Auditor"},
           "deeper headings are entries, and star, dot and dash bullets are bullets")
+    # Lines a person would never take for a heading stay lines: an acronym, a
+    # short line in capitals, a line that only ends in a colon.
+    loud = cv_doc.load_doc("Luke Keogh\nIVD\nSSE.\n## Experience\n### Director\n"
+                           "- NHS\nFDA:\nRESULTS DRIVEN\n")
+    exp = [s for s in loud["sections"] if s["title"] == "Experience"][0]
+    check(loud["headline"] == ["IVD", "SSE."]
+          and exp["entries"][0]["lines"] == [{"b": True, "t": "NHS"},
+                                             {"b": False, "t": "FDA:"},
+                                             {"b": False, "t": "RESULTS DRIVEN"}],
+          "an acronym, a line in capitals or a line ending in a colon is content, kept "
+          "where it was, and never taken for a heading")
+    word1 = cv_doc.load_doc("Luke Keogh\n# Experience\n## Director, Axithra\n- Led.\n"
+                            "# Skills\n- IEC 62304\n")
+    word2 = cv_doc.load_doc("Luke Keogh\n## Experience\n### Director, Axithra\n- Led.\n"
+                            "## Skills\n- IEC 62304\n")
+    check(word1 == word2 and [e["heading"] for e in word1["sections"][1]["entries"]]
+          == ["Director, Axithra"],
+          "sections in Heading 1 with jobs in Heading 2 read as sections in Heading 2 "
+          "with jobs in Heading 3 do")
+    custom = cv_doc.load_doc("Luke Keogh\n## Experience\n### Director\n- Led.\n"
+                             "## Patents\n- One.\n## Board roles\n## Skills\n- x\n")
+    titles = [s["title"] for s in custom["sections"]]
+    check("Patents" in titles and "Board roles" not in titles
+          and {"b": False, "t": "Board roles"} in
+          [s for s in custom["sections"] if s["title"] == "Patents"][0]["lines"],
+          "a heading at a section's depth that names no usual section starts a section "
+          "of its own, and one left empty gives its words back to the section before, "
+          f"so nothing is lost ({titles})")
+    words = set(re.findall(r"\w+", legacy)) - {"Certifications", "Education", "PROFILE",
+                                                "Professional", "Experience", "Key",
+                                                "Skills", "INTERESTS"}
+    kept = set(re.findall(r"\w+", cv_doc.render(doc)))
+    check(words <= kept, "every word of the Word CV is in the layout read from it, "
+                         f"but for the headings it renamed ({sorted(words - kept)})")
     fixture = (REPO_ROOT / "test" / "fixtures" / "profile_snapshot.md").read_text(encoding="utf-8")
     fdoc = cv_doc.load_doc(fixture)
     check(not cv_doc.is_layout(fixture) and fdoc["name"].startswith("Profile snapshot")
@@ -617,7 +656,11 @@ def layout_checks() -> None:
         except cv_doc.CvError as err:
             return str(err)
         return ""
-    check("no name" in refused("## Skills\n- x\n"), "a CV with no name is refused")
+    check("no name" in refused("## Skills\n- x\n") and "no name" in refused("PROFILE\nx\n")
+          and cv_doc.load_doc("## Skills\n- x\n")["sections"][2]["lines"]
+          == [{"b": True, "t": "x"}],
+          "a CV whose first line is a section heading has no name, and is refused "
+          "until it has one, its section read as a section")
     check("no heading" in refused(cv_doc.render({
         "name": "L", "headline": [], "sections": [{"title": "Experience", "lines": [],
             "entries": [{"heading": "", "lines": [{"b": True, "t": "x"}]}]}]})),
@@ -719,8 +762,45 @@ def agreement_checks() -> None:
                            f"the version of the CV it numbered ({bad_working[:5]})")
     check(not bad_data, "and the page's script is handed exactly those lines and a "
                         f"doc that renders back to the text ({bad_data[:5]})")
-    check(score_item.CV_LINE_TEXT_MAX >= cv_doc.KEY_CHARS,
-          "a cited line keeps at least as much text as it is found again by")
+    # A cited line longer than a citation keeps is found again by all of it.
+    long_doc = cv_doc.normalize({**MASTER_DOC, "sections": [
+        {"title": "Summary", "entries": [], "lines": [
+            {"b": False, "t": "Regulated software in IVD. " * 12 + "Ends with Rust."}]}]})
+    long_text = cv_doc.render(long_doc)
+    long_lines = cv_store.cv_lines(long_text)
+    n = next(i for i, l in enumerate(long_lines, 1) if l.endswith("Ends with Rust."))
+    blocks = score_item.build_scorer_system(CFG, basis=SPEC, cv={
+        "text": long_text, "label": "tailored copy x", "version": "tailored-x"})
+
+    def cite_long(call):
+        reply = json.loads(spec_reply(call)[0])
+        reply["asks"] = [{"ask": "Rust", "status": "met", "cv_lines": [n]},
+                         {"ask": "Name", "status": "met", "cv_lines": [1]}]
+        return json.dumps(reply), usage()
+    MODEL["hook"] = cite_long
+    scored, _usage, _note = score_item.score_opportunity(
+        {"title": "Head of Software", "company": "Veltrix Diagnostics",
+         "description": DESCRIPTION, "basis": SPEC}, blocks, CFG,
+        mock_fn=mocks.mock_scorer, basis=SPEC)
+    MODEL["hook"] = None
+    working = scored["working"]
+    whole = long_lines[n - 1]
+    check(len(whole) > score_item.CV_LINE_TEXT_MAX
+          and working["asks"][0]["lines"][0]["text"] == whole[:score_item.CV_LINE_TEXT_MAX]
+          and working["long_lines"] == {str(n): whole},
+          "a working keeps the start of a long cited line with the citation and the "
+          "whole of it beside, by number, and nothing for a short one")
+    rust_gone = long_lines[:n - 1] + [whole.replace("Rust", "Go")] + long_lines[n:]
+    after = cv_doc.place_asks(working["asks"], rust_gone, working["long_lines"])
+    check(after[0]["stale"] and after[0]["placed"][0]["now"] is None
+          and after[0]["placed"][0]["whole"] == whole and not after[1]["stale"]
+          and not cv_doc.place_asks(working["asks"], long_lines, working["long_lines"])[0]["stale"],
+          "an edit past the start a citation keeps is seen, and makes the ask stale, "
+          "and the line as it was is found")
+    check(cv_doc.line_key("- " + whole) == cv_doc.line_key("* " + whole) == whole
+          and cv_doc.line_key("## Skills") == "Skills"
+          and cv_doc.line_key(whole + " more") != cv_doc.line_key(whole),
+          "a line is known by all its words, its marks set aside")
 
     # The cited lines found again in a copy that has been edited.
     lines = cv_store.cv_lines(MASTER_TEXT)
@@ -871,7 +951,7 @@ def copy_checks() -> None:
         env.save(nameless, MASTER_TEXT)
         check(env.copy(nameless)["saved_name"] == "CV - Luke Keogh - Quality Lead",
               "a role whose company is not known is saved as CV - Luke Keogh - <Job title>")
-        check(env.save(oid, "## No name\n- x\n") == {
+        check(env.save(oid, "## Skills\n- x\n") == {
             "ok": False, "invalid": True, "note": "The CV has no name on its first line."}
               and env.copy(oid)["saved_text"] == text2,
               "a CV that cannot be taken is refused, and the save before stays")
@@ -919,6 +999,44 @@ def copy_checks() -> None:
         check(out["outcome"] == "no_master" and "could not be read" in out["notices"][0]["text"]
               and env.copy(fresh_role) is None,
               "a master that cannot be read makes no copy and says so")
+
+
+def master_untouched_checks() -> None:
+    """The master CV is never changed by tailoring (journey step 4, C4)."""
+    tmp = Path(tempfile.mkdtemp(prefix="radar-cv-master-"))
+    real_load, real_version = score_item.load_cv_text, score_item.get_cv_version
+    saved_dir = cv_store.PROFILE_DIR
+    (tmp / "cv-20261110-090000.md").write_text(MASTER_TEXT, encoding="utf-8", newline="\n")
+    (tmp / "cv.active").write_text("cv-20261110-090000.md\n", encoding="utf-8")
+
+    def from_profile(config):
+        name = cv_store.active_cv_name(tmp)
+        return (tmp / name).read_text(encoding="utf-8"), f"config/profile/{name}"
+    cv_store.PROFILE_DIR = tmp
+    score_item.load_cv_text = from_profile
+    score_item.get_cv_version = lambda config: cv_store.active_cv_name(tmp)
+
+    def snapshot():
+        return {p.name: p.read_bytes() for p in sorted(tmp.iterdir())}
+    try:
+        before = snapshot()
+        with fresh() as env:
+            oid = env.role()
+            env.open(oid)
+            changed = edited(MASTER_TEXT, "Built the software team", "Built and led the team")
+            env.rescore(oid, changed)
+            env.save(oid, changed)
+            env.reset_copy(oid)
+            env.save(oid, changed)
+            copy = env.copy(oid)
+        check(snapshot() == before and copy["saved_text"] == changed
+              and copy["master_version"] == "cv-20261110-090000.md",
+              "opening, editing, rescoring, saving and starting again on a role's copy "
+              "leave every file of the master CV, and its marker, exactly as they were")
+    finally:
+        cv_store.PROFILE_DIR = saved_dir
+        score_item.load_cv_text, score_item.get_cv_version = real_load, real_version
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 class WriteLock:
@@ -983,7 +1101,7 @@ def rescore_checks() -> None:
         oid = env.role()
         env.open(oid)
         role_before = opp_row_of(env, oid)
-        out = env.rescore(oid, MASTER_TEXT)
+        out = env.rescore(oid, COPY_TEXT)
         copy = env.copy(oid)
         record = tailored_cv.read_score(copy)
         hist = env.history(oid)
@@ -994,12 +1112,12 @@ def rescore_checks() -> None:
               "the first Rescore role is one model call, at the full description's "
               "ceiling")
         check("tailored copy " + copy["cv_hash"] in CALLS[0]["system"][0]["text"]
-              and cv_store.numbered_cv(MASTER_TEXT) in CALLS[0]["system"][0]["text"]
+              and cv_store.numbered_cv(COPY_TEXT) in CALLS[0]["system"][0]["text"]
               and '"basis": "spec"' in CALLS[0]["user"]
               and DESCRIPTION.splitlines()[1] in json.loads(CALLS[0]["user"].split("\n\n", 1)[1])["description"],
               "it shows the scorer the copy, numbered, and the stored description")
         check(record and record["description_hash"] == desc_hash
-              and record["cv_hash"] == copy["cv_hash"] == cv_store.cv_hash(MASTER_TEXT)
+              and record["cv_hash"] == copy["cv_hash"] == cv_store.cv_hash(COPY_TEXT)
               and record["cv_match"] == 80 and record["tier"] == "top"
               and record["prompt_version"] == radar_common.prompt_version()
               and record["score_model"] == "mock"
@@ -1023,13 +1141,13 @@ def rescore_checks() -> None:
               "the role's own score, the one the Jobs page shows, is not touched")
 
         # Pressed again with the same text: nothing spent.
-        out = env.rescore(oid, MASTER_TEXT)
+        out = env.rescore(oid, COPY_TEXT)
         check(out["outcome"] == "reused" and len(CALLS) == 1 and len(env.history(oid)) == 1
               and "nothing was spent" in out["notices"][0]["text"],
               "pressed again on the same copy, nothing is spent and nothing is written")
 
         # An edit, then scored: before is the copy's own last score.
-        text = cv_doc.accept(edited(MASTER_TEXT, "- SpiraPlan and regulated ALM configuration",
+        text = cv_doc.accept(edited(COPY_TEXT, "- SpiraPlan and regulated ALM configuration",
                                     "- SpiraPlan and regulated ALM configuration\n"
                                     "- Kubernetes and cloud deployment of clinical systems"))[1]
         out = env.rescore(oid, text)
@@ -1048,10 +1166,10 @@ def rescore_checks() -> None:
         check(opp_row_of(env, oid) == role_before, "and the role's own score is still not touched")
 
         # Back to the earlier text: the history has that pair.
-        out = env.rescore(oid, MASTER_TEXT)
+        out = env.rescore(oid, COPY_TEXT)
         record = tailored_cv.read_score(env.copy(oid))
         check(out["outcome"] == "reused" and len(CALLS) == 2
-              and record["cv_hash"] == cv_store.cv_hash(MASTER_TEXT) and record["reused"]
+              and record["cv_hash"] == cv_store.cv_hash(COPY_TEXT) and record["reused"]
               and record["cv_match"] == 80 and record["before"]["cv_match"] == 90
               and len(env.history(oid)) == 2,
               "a copy put back to text scored before is shown that score again from the "
@@ -1111,7 +1229,7 @@ def rescore_guard_checks() -> None:
             return spec_reply(call)
         MODEL["hook"] = slow
         outs = []
-        threads = [threading.Thread(target=lambda: outs.append(env.rescore(oid, MASTER_TEXT)))
+        threads = [threading.Thread(target=lambda: outs.append(env.rescore(oid, COPY_TEXT)))
                    for _ in range(12)]
         for t in threads:
             t.start()
@@ -1123,7 +1241,7 @@ def rescore_guard_checks() -> None:
               ["reused"] * 11 + ["scored"] and len(env.history(oid)) == 1,
               "twelve clicks at once on the same copy pay for one call")
         repost = env.role()
-        out = env.rescore(repost, MASTER_TEXT)
+        out = env.rescore(repost, COPY_TEXT)
         check(out["outcome"] == "reused" and len(CALLS) == 1,
               "and the same copy pressed from a repost of the role finds the score made")
 
@@ -1132,7 +1250,7 @@ def rescore_guard_checks() -> None:
         oid = env.role()
         env.open(oid)
         MODEL["hook"] = lambda call: ("not json {{{", usage())
-        out = env.rescore(oid, MASTER_TEXT)
+        out = env.rescore(oid, COPY_TEXT)
         check(out["outcome"] == "score_failed" and len(CALLS) == 1
               and "could not be used" in out["notices"][0]["text"]
               and "tailored copy" in out["notices"][0]["text"]
@@ -1143,17 +1261,17 @@ def rescore_guard_checks() -> None:
               and "not stored" in env.runs()[0]["note"],
               "a reply that cannot be used stores nothing, says it was paid for, and its "
               "cost is a runs row marked not stored")
-        out = env.rescore(oid, MASTER_TEXT)
+        out = env.rescore(oid, COPY_TEXT)
         check(out["outcome"] == "cooling" and len(CALLS) == 1,
               "the same copy pressed again inside five minutes calls nothing")
-        text = edited(MASTER_TEXT, "Built the software team", "Built and led the team")
+        text = edited(COPY_TEXT, "Built the software team", "Built and led the team")
         MODEL["hook"] = None
         out = env.rescore(oid, text)
         check(out["outcome"] == "scored" and len(CALLS) == 2,
               "while an edited copy is a new question, asked at once")
         MODEL["hook"] = lambda call: ("not json {{{", usage())
         CLOCK[0] += prep.UNUSABLE_COOLDOWN_SECONDS + 1
-        out = env.rescore(oid, MASTER_TEXT)
+        out = env.rescore(oid, COPY_TEXT)
         check(out["outcome"] == "score_failed" and len(CALLS) == 3,
               "and after the five minutes the first copy may be asked again")
 
@@ -1166,15 +1284,15 @@ def rescore_guard_checks() -> None:
             raise RuntimeError("no network")
         MODEL["hook"] = boom
         with captured_stderr():
-            out = env.rescore(oid, MASTER_TEXT)
+            out = env.rescore(oid, COPY_TEXT)
         check(out["outcome"] == "score_failed" and len(CALLS) == 1
               and "could not be reached (RuntimeError)" in out["notices"][0]["text"]
               and "tailored copy was not scored" in out["notices"][0]["text"],
               "a call that raised stores nothing and says so")
-        env.rescore(oid, MASTER_TEXT)
+        env.rescore(oid, COPY_TEXT)
         CLOCK[0] += prep.ERROR_COOLDOWN_SECONDS + 1
         MODEL["hook"] = None
-        out = env.rescore(oid, MASTER_TEXT)
+        out = env.rescore(oid, COPY_TEXT)
         check(len(CALLS) == 2 and out["outcome"] == "scored",
               "it is not tried again for twenty seconds, then it is")
     with fresh() as env:
@@ -1186,8 +1304,8 @@ def rescore_guard_checks() -> None:
             raise SystemExit("no floor line")
         score_item.build_scorer_system = broken
         try:
-            out = env.rescore(oid, MASTER_TEXT)
-            again = env.rescore(oid, MASTER_TEXT)
+            out = env.rescore(oid, COPY_TEXT)
+            again = env.rescore(oid, COPY_TEXT)
         finally:
             score_item.build_scorer_system = real
         check(out["outcome"] == "score_failed" and not CALLS
@@ -1207,22 +1325,22 @@ def rescore_guard_checks() -> None:
             return spec_reply(call)
         MODEL["hook"] = lock_then_answer
         with short_write_wait():
-            out = env.rescore(oid, MASTER_TEXT)
+            out = env.rescore(oid, COPY_TEXT)
         holder["lock"].__exit__(None, None, None)
         check(out["outcome"] == "score_held" and len(CALLS) == 1
               and tailored_cv.read_score(env.copy(oid)) is None
               and "held in memory" in out["notices"][0]["text"],
               "a reply that comes while the database is busy is held, not lost")
         MODEL["hook"] = None
-        other = edited(MASTER_TEXT, "Built the software team", "Built and led the team")
+        other = edited(COPY_TEXT, "Built the software team", "Built and led the team")
         out = env.rescore(oid, other)
         check(out["outcome"] == "scored" and len(CALLS) == 2
               and tailored_cv.read_score(env.copy(oid))["cv_hash"] == cv_store.cv_hash(other),
               "what is held is for its own copy only, another text is a call of its own")
-        out = env.rescore(oid, MASTER_TEXT)
+        out = env.rescore(oid, COPY_TEXT)
         record = tailored_cv.read_score(env.copy(oid))
         check(out["outcome"] == "scored" and len(CALLS) == 2
-              and record["cv_hash"] == cv_store.cv_hash(MASTER_TEXT)
+              and record["cv_hash"] == cv_store.cv_hash(COPY_TEXT)
               and len(env.runs()) == 2,
               "and the click that brings the held copy back stores the held reply with no "
               "second call")
@@ -1234,7 +1352,7 @@ def rescore_guard_checks() -> None:
             oid = env.role()
             env.open(oid)
             MODEL["hook"] = lambda call, oid=oid, stamp=stamp: (env.sql(stamp, (oid,)), spec_reply(call))[1]
-            out = env.rescore(oid, MASTER_TEXT)
+            out = env.rescore(oid, COPY_TEXT)
             check(len(CALLS) == 1 and out["outcome"] in ("applied", "not_open")
                   and tailored_cv.read_score(env.copy(oid)) is None
                   and not env.history(oid)
@@ -1243,12 +1361,213 @@ def rescore_guard_checks() -> None:
                   "is not stored, and its cost is recorded as not stored")
 
 
+# ------------------------------------------------------- the review's fixes
+
+# A master as a Word import leaves it, not yet saved on the CV page.
+UNLAID = ("Luke Keogh\nChichester, West Sussex\n\nPROFILE\nSoftware leader in regulated "
+          "industries.\n\nEXPERIENCE\nSoftware Director, Axithra\n* Built the software "
+          "team from nothing.\n")
+
+
+def gate_checks() -> None:
+    """A copy is made only from a master in the editor's layout, so its line
+    numbers are the ones the master's own score cites (item 2, item 3)."""
+    with fresh() as env:
+        MASTER[0] = UNLAID
+        check(not cv_doc.is_canonical(UNLAID) and cv_doc.is_canonical(MASTER_TEXT)
+              and not tailored_cv.master(CFG)["canonical"],
+              "a master imported from Word is not in the editor's layout, and one saved "
+              "on the CV page is")
+        oid = env.role()
+        before = env.dump()
+        outs = [env.open(oid), env.reset_copy(oid)]
+        check([o["outcome"] for o in outs] == ["master_not_laid_out"] * 2
+              and env.dump() == before and not CALLS
+              and all(o["notices"][0]["text"] == prep.MASTER_NOT_LAID_OUT for o in outs),
+              "open and Start again make no copy from it, write nothing, and say why")
+        page = render_page(env, oid)
+        left = page[page.index('id="cv-pane"'):page.index('id="prepare-body"')]
+        data = pane_data(page)
+        check("has not been saved on the CV page" in page_text(left)
+              and '<a href="/cv">Open the CV page</a>' in left
+              and data["editable"] is False and data["needsCopy"] is False
+              and "data-cv-act" not in left
+              and data["lines"] == cv_store.cv_lines(cv_doc.render(cv_doc.load_doc(UNLAID))),
+              "the page shows the master as the editor would lay it out, read only, with "
+              "no button and no copy to make, and links to the CV page")
+        check("once the master has been saved on the CV page" in page_text(render_inner(env, oid)),
+              "and the tailored score says when a copy will be made")
+        MASTER[0] = MASTER_TEXT
+        check(env.open(oid)["outcome"] == "made" and not CALLS,
+              "once the master is in the layout, the copy is made")
+
+
+def base_checks() -> None:
+    """Rescore role and Save CV write over no copy that another tab changed."""
+    with fresh() as env:
+        oid = env.role()
+        taken = env.open(oid)["copy"]["hash"]
+        other_tab = edited(MASTER_TEXT, "Built the software team", "Built and led the team")
+        check(prep.save_copy(oid, other_tab, env.db, CFG, base=taken)["outcome"] == "saved",
+              "a save from the tab that took the copy goes through")
+        before = env.dump()
+        mine = edited(MASTER_TEXT, "Oversaw FDA clearance", "Led FDA clearance")
+        outs = [prep.save_copy(oid, mine, env.db, CFG, base=taken),
+                prep.rescore_copy(oid, mine, env.db, CFG, base=taken)]
+        check([o["outcome"] for o in outs] == ["copy_moved"] * 2 and env.dump() == before
+              and not CALLS and all(o["notices"][0]["text"] == prep.COPY_MOVED for o in outs)
+              and all(o.get("copy") is None for o in outs),
+              "a tab that took the copy before another tab changed it stores nothing, "
+              "spends nothing, and says to reload")
+        now = env.copy(oid)["cv_hash"]
+        out = prep.rescore_copy(oid, mine, env.db, CFG, base=now)
+        check(out["outcome"] == "scored" and len(CALLS) == 1
+              and out["copy"]["hash"] == cv_store.cv_hash(mine),
+              "with the copy as it is now it goes through, and hands back the new version")
+        check(prep.save_copy(oid, mine, env.db, CFG)["outcome"] == "saved",
+              "a request that names no version, from a page before this check, is not checked")
+        lone = env.role(title="New", company="Theta")
+        check(prep.save_copy(lone, mine, env.db, CFG, base="0123456789ab")["outcome"] == "saved",
+              "and a role with no copy yet has no copy to have moved")
+        with serving(env.db) as port, captured_stderr():
+            bad = []
+            for base in (5, ["x"], {"a": 1}, "", "x" * 65, True):
+                for path in ("/prepare/cv/save", "/prepare/cv/rescore"):
+                    status, got, _h = post(port, path, {"id": oid, "text": mine, "base": base})
+                    if status != 400:
+                        bad.append(f"{path} {base!r} {status}")
+            check(not bad and len(CALLS) == 1,
+                  f"a version that is not short text is a 400 and runs nothing ({bad[:3]})")
+            before = env.dump()
+            status, got, _h = post(port, "/prepare/cv/save", {"id": oid, "text": other_tab,
+                                                              "base": taken})
+            check(status == 200 and got["outcome"] == "copy_moved" and "html" not in got
+                  and got.get("copy") is None and env.dump() == before,
+                  "over HTTP a moved copy is an answer that says so, and leaves the page "
+                  "as it is to be reloaded")
+            status, got, _h = post(port, "/prepare/cv/save", {"id": oid, "text": other_tab,
+                                                              "base": env.copy(oid)["cv_hash"]})
+            check(status == 200 and got["outcome"] == "saved" and got["copy"]["hash"]
+                  == cv_store.cv_hash(other_tab),
+                  "and the version that is stored now lets it through")
+
+
+def unchanged_checks() -> None:
+    """Rescore role does not score the master unchanged for a role whose own
+    score is not on its description yet: that is the click's question, asked
+    once."""
+    with fresh() as env:
+        oid = env.role()
+        env.open(oid)
+        before = env.dump()
+        out = env.rescore(oid, MASTER_TEXT)
+        check(out["outcome"] == "unchanged_copy" and not CALLS and env.dump() == before
+              and out["notices"][0]["text"] == prep.UNCHANGED_COPY and not out["scored"],
+              "the master unchanged, on a role scored only on its card, is not scored by "
+              "Rescore role: nothing is spent and nothing is written")
+        env.rescore(oid, COPY_TEXT)
+        env.reset_copy(oid)
+        out = env.rescore(oid, MASTER_TEXT)
+        check(out["outcome"] == "unchanged_copy" and len(CALLS) == 1,
+              "nor after Start again from master puts the master back on the copy")
+        env.prepare(oid)
+        out = env.rescore(oid, MASTER_TEXT)
+        check(len(CALLS) == 2 and out["outcome"] == "reused",
+              "once the click has scored the master on the description, the same copy "
+              "finds that score and spends nothing")
+        MASTER[0] = edited(MASTER_TEXT, "Chichester", "Brighton")
+        out = env.rescore(oid, MASTER[0])
+        check(out["outcome"] == "scored" and len(CALLS) == 3,
+              "but a master changed since the role's own score is a copy to score, because "
+              "the click does not score a description twice")
+
+
+def click_lock_checks() -> None:
+    """Rescore role waits for the Prepare application click on its advert."""
+    with fresh() as env:
+        oid = env.role()
+        env.open(oid)
+        gate, started = threading.Event(), threading.Event()
+
+        def slow(call):
+            started.set()
+            gate.wait(5)
+            return spec_reply(call)
+        MODEL["hook"] = slow
+        outs = {}
+        click = threading.Thread(target=lambda: outs.update(click=env.prepare(oid)))
+        click.start()
+        started.wait(5)
+        press = threading.Thread(target=lambda: outs.update(press=env.rescore(oid, MASTER_TEXT)))
+        press.start()
+        time.sleep(0.3)
+        waiting = press.is_alive()
+        gate.set()
+        click.join(10)
+        press.join(10)
+        MODEL["hook"] = None
+        check(waiting and len(CALLS) == 1 and outs["click"]["outcome"] == "scored"
+              and outs["press"]["outcome"] == "reused"
+              and not [h for h in env.history(oid) if h["event"] == "tailored"],
+              "Rescore role pressed while the click scores the master waits for it, then "
+              "finds the master's score for the unchanged copy: one call, not two")
+        saved_wait = prep.LOCK_WAIT_SECONDS
+        prep.LOCK_WAIT_SECONDS = 0.05
+        lock = prep.GUARD.lock_for(oid)
+        lock.acquire()
+        try:
+            out = env.rescore(oid, COPY_TEXT)
+        finally:
+            lock.release()
+        copy_lock = prep.GUARD.lock_for(("cv", "key:" + env.row(oid)["role_key"]))
+        copy_lock.acquire()
+        try:
+            click_out = env.prepare(oid)
+        finally:
+            copy_lock.release()
+            prep.LOCK_WAIT_SECONDS = saved_wait
+        check(out["outcome"] == "busy" and len(CALLS) == 1
+              and "Prepare application click" in out["notices"][0]["text"],
+              "a click that stays at work past the wait is said to be, and nothing is spent")
+        check(click_out["outcome"] == "reused",
+              "and the click never waits on the copy's lock, so the two cannot wait on each other")
+
+
+def memo_checks() -> None:
+    """A failure is remembered for the role's copy, which every advert of the
+    role shares, and never holds up the master's own click."""
+    with fresh() as env:
+        a = env.role()
+        b = env.role()
+        env.open(a)
+        MODEL["hook"] = lambda call: ("not json {{{", usage())
+        first = env.rescore(a, COPY_TEXT)
+        MODEL["hook"] = None
+        again = env.rescore(b, COPY_TEXT)
+        check(first["outcome"] == "score_failed" and again["outcome"] == "cooling"
+              and len(CALLS) == 1,
+              "a copy whose reply could not be used is not asked again from a repost of "
+              "the role inside five minutes, the repost shares the copy")
+        out = env.prepare(a)
+        check(out["outcome"] == "scored" and len(CALLS) == 2,
+              "while the master's own click on the advert is not held up by it")
+    with fresh() as env:
+        a = env.role()
+        env.open(a)
+        MODEL["hook"] = lambda call: ("not json {{{", usage())
+        env.prepare(a)
+        MODEL["hook"] = None
+        out = env.rescore(a, COPY_TEXT)
+        check(out["outcome"] == "scored" and len(CALLS) == 2,
+              "nor the copy by a failure of the master's click")
+
+
 def history_checks() -> None:
     """A tailored row in the history is never the role's score to archive_score."""
     with fresh() as env:
         oid = env.role()
         env.open(oid)
-        env.rescore(oid, MASTER_TEXT)
+        env.rescore(oid, COPY_TEXT)
         conn = radar_common.get_db(env.db)
         try:
             wrote = radar_common.archive_score(conn, oid, "test")
@@ -1566,14 +1885,15 @@ def route_checks() -> None:
             check(not bad and env.dump() == dumped and not CALLS,
                   f"an id that is not a real integer, or a CV that is not text, is a 400 "
                   f"and writes nothing ({bad[:3]})")
-            status, got, _h = post(port, "/prepare/cv/rescore", {"id": oid, "text": "## x\n"})
+            status, got, _h = post(port, "/prepare/cv/rescore", {"id": oid, "text": "## Skills\n- x\n"})
             check(status == 400 and got.get("invalid") and "no name" in got.get("note", ""),
                   "a CV that cannot be taken is a 400 with the reason")
             status, got, _h = post(port, "/prepare/cv/open", {"id": oid})
-            check(status == 200 and got["outcome"] == "made" and "html" in got
+            check(status == 200 and got["outcome"] == "made" and "html" not in got
                   and got["copy"]["lines"] == cv_store.cv_lines(MASTER_TEXT),
-                  "open answers 200 with the copy and the page's right hand side")
-            status, got, _h = post(port, "/prepare/cv/rescore", {"id": oid, "text": MASTER_TEXT})
+                  "open answers 200 with the copy, and leaves the right hand side as it was "
+                  "drawn, which the Prepare application click may be filling")
+            status, got, _h = post(port, "/prepare/cv/rescore", {"id": oid, "text": COPY_TEXT})
             check(status == 200 and got["outcome"] == "scored" and len(CALLS) == 1
                   and "Tailored copy" in got["html"] and got["tailored"]["cv_match"] == 80,
                   "Rescore role over HTTP is one call, and answers with the new right hand side")
@@ -1592,7 +1912,16 @@ def route_checks() -> None:
             check(status == 409 and "no opportunity 99999" in got.get("note", ""),
                   "a role that does not exist is a 409 that says so")
 
-            # The download.
+            # The download. The copy is edited past its save first, so that the
+            # file can only be the saved copy if it reads as the saved copy.
+            conn = radar_common.get_db(env.db)
+            try:
+                tailored_cv.store_text(conn, env.copy(oid)["role_ref"], COPY_TEXT)
+                conn.commit()
+            finally:
+                conn.close()
+            check(env.copy(oid)["cv_text"] == COPY_TEXT != env.copy(oid)["saved_text"],
+                  "the copy has been edited since it was saved")
             dumped = env.dump()
             status, got, data = call(port, "GET", f"/prepare/{oid}/cv.docx", headers={"Host": own})
             check(status == 200 and got.get("content-type") == cv_page_mime()
@@ -1605,8 +1934,9 @@ def route_checks() -> None:
                   and got.get("x-frame-options") == "DENY" and got.get("cache-control") == "no-store",
                   "named by the saved copy, not cached, and not to be framed")
             read = cv_store._docx_to_markdown(data).rstrip("\n").split("\n\n")
-            check(read == [l for l in cv_store.cv_lines(MASTER_TEXT) if l.strip()],
-                  "and it is the saved copy")
+            check(read == [l for l in cv_store.cv_lines(MASTER_TEXT) if l.strip()]
+                  and read != [l for l in cv_store.cv_lines(COPY_TEXT) if l.strip()],
+                  "and it is the saved copy, not the copy as edited since")
             status, _got, data = call(port, "GET", f"/prepare/{oid}/cv.docx",
                                       headers={"Host": "evil.example"})
             check(status == 403, "Download is behind the same Host check as every page")
@@ -1671,10 +2001,16 @@ def applied_checks() -> None:
             status, got, _h = post(port, "/apply", {"id": bare})
             check(status == 200 and env.row(bare)["applied_cv"] is None,
                   "and records nothing where no copy was saved")
+            before = env.dump()
+            status, got, _h = post(port, "/apply", {"id": named, "cv": "bad\x07bell"})
+            check(status == 400 and env.dump() == before,
+                  "a reference a request names is still checked, and junk is a 400 that "
+                  "writes nothing, as Brief 5 had it")
             status, got, _h = post(port, "/apply", {"id": named, "cv": "cv-2026-11-12.pdf"})
-            check(status == 200 and env.row(named)["applied_cv"] == "cv-2026-11-12.pdf",
-                  "a reference a request names is still kept where no copy was saved, as "
-                  "Brief 5 had it")
+            check(status == 200 and env.row(named)["applied_at"]
+                  and env.row(named)["applied_cv"] is None,
+                  "but what it names is not recorded: no copy was saved, so the column is "
+                  "left empty (item 9)")
             post(port, "/unapply", {"id": repost})
             row = env.row(repost)
             check(row["applied_at"] is None and row["applied_cv"] is None,
@@ -1764,7 +2100,7 @@ def page_checks() -> None:
               "the tailored score says there is no copy yet")
 
         env.open(oid)
-        env.rescore(oid, MASTER_TEXT)
+        env.rescore(oid, COPY_TEXT)
         page = render_page(env, oid)
         inner = render_inner(env, oid)
         text = page_text(inner)
@@ -1777,14 +2113,23 @@ def page_checks() -> None:
         check(text.count("✓ Met") == 3 and "◐ Partly" in text and "✗ Missing" in text
               and "CV lines as numbered in the tailored copy as it was scored" in text,
               "the asks drawn are the tailored score's, each with its mark")
-        asks = re.findall(r'<li class="ask" data-ask data-status="(\w+)" tabindex="0">', inner)
+        asks = re.findall(r'<li class="ask" data-ask data-ask-status="(\w+)" tabindex="0">', inner)
         cited = re.findall(r'<li data-cv-n="(\d+)" data-cv-text="([^"]*)">', inner)
-        lines = cv_store.cv_lines(MASTER_TEXT)
+        lines = cv_store.cv_lines(COPY_TEXT)
         import html as htmllib
         check(asks == ["met", "partly", "met", "missing", "met"]
               and cited and all(lines[int(n) - 1].strip() == htmllib.unescape(t) for n, t in cited),
               "each ask carries its status, and each cited line its number and its text "
               "as the working stored them, which is what the script lights up by")
+        check(not re.search(r"<li[^>]*\bdata-status=", inner)
+              and inner.count("data-ask-status=") == 5,
+              "an ask's status is in data-ask-status, so the Prepare application script, "
+              "which looks for data-status, can only ever find its Working notice")
+        li = build_dashboard._cited_li({"n": 3, "text": "Short start",
+                                        "whole": "Short start and the rest", "now": 3})
+        check('data-cv-text="Short start and the rest"' in li and "</b> Short start</li>" in li,
+              "a long cited line shows the start the working kept, and hands the script "
+              "the whole line to find it by")
         data = pane_data(page)
         check(not data["needsCopy"] and data["lines"] == lines,
               "with a copy, the page shows the copy and asks for nothing")
@@ -1794,7 +2139,7 @@ def page_checks() -> None:
         conn = radar_common.get_db(env.db)
         try:
             tailored_cv.store_text(conn, env.copy(oid)["role_ref"],
-                                   edited(MASTER_TEXT, risk, "- Own the risk file."))
+                                   edited(COPY_TEXT, risk, "- Own the risk file."))
             conn.commit()
         finally:
             conn.close()
@@ -1806,6 +2151,8 @@ def page_checks() -> None:
               and 'class="cv-gone"' in inner and "1 stale because a line it cited has been edited" in text,
               "a copy edited since its score marks the ask whose cited line is gone as "
               "stale and not met, and says the copy has changed")
+        check("2 met, 1 partly, 1 missing, 1 stale because a line it cited has been edited" in text,
+              "and counts it as stale, not as met")
 
     with fresh() as env:
         # The master as scored stands for the copy, and a score made elsewhere.
@@ -1832,8 +2179,8 @@ def page_checks() -> None:
         # Changes are tagged on the asks they moved.
         oid2 = env.role(title="Second", company="Beta Diagnostics")
         env.open(oid2)
-        env.rescore(oid2, MASTER_TEXT)
-        better = cv_doc.accept(edited(MASTER_TEXT, "- SpiraPlan and regulated ALM configuration",
+        env.rescore(oid2, COPY_TEXT)
+        better = cv_doc.accept(edited(COPY_TEXT, "- SpiraPlan and regulated ALM configuration",
                                       "- SpiraPlan and regulated ALM configuration\n"
                                       "- Kubernetes and cloud deployment of clinical systems"))[1]
         env.rescore(oid2, better)
@@ -1861,7 +2208,7 @@ def page_checks() -> None:
         saved = edited(MASTER_TEXT, "Built the software team", "Built and led the team")
         env.save(oid, saved)
         env.open(oid)
-        env.rescore(oid, MASTER_TEXT)
+        env.rescore(oid, COPY_TEXT)
         env.apply(oid, "CV - Luke Keogh - Veltrix Diagnostics - Head of Software")
         before = env.dump()
         page = render_page(env, oid)
@@ -2087,6 +2434,7 @@ function world(html) {
     querySelectorAll(sel) { const out = []; this.walk((el) => { if (matches(el, sel)) out.push(el); }); return out; }
     querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
     closest(sel) { let cur = this; while (cur && cur.nodeType === 1) { if (matches(cur, sel)) return cur; cur = cur.parentNode; } return null; }
+    contains(node) { let cur = node; while (cur) { if (cur === this) return true; cur = cur.parentNode; } return false; }
     addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
     focus() { document.activeElement = this; }
     setSelectionRange(a) { this.selectionStart = this.selectionEnd = a; }
@@ -2233,6 +2581,8 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   say(w.calls.length === 2 && w.calls[1].url === '/prepare/cv/rescore' && body(w, 1).id === data.ids.open
       && body(w, 1).text === data.texts.master,
       'Rescore role sends one POST with the CV on screen as text, and a second click while it is out sends nothing');
+  say(body(w, 0).base === undefined && body(w, 1).base === data.hashes.open,
+      'and the version of the copy the page took from the server, so a copy changed in another tab is not written over');
   say(rescore.textContent === 'Working' && rescore.disabled, 'its button says it is working');
   w.answer(data.answers.rescore);
   await settle(); await settle();
@@ -2261,6 +2611,7 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
       && label.textContent === 'CV line ' + data.lines.riskN,
       'and putting it back makes it met again');
   const above = w.q('textarea[data-edit="' + data.places.above + '"]');
+  const whole = above.value;
   above.selectionStart = above.selectionEnd = 5;
   const enter = w.fire(above, 'keydown', { key: 'Enter' });
   await settle();
@@ -2268,6 +2619,12 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   say(enter.defaultPrevented && moved === 'CV line ' + (data.lines.riskN + 1) + ' (' + data.lines.riskN + ' when scored)'
       && !riskAsk().classList.contains('ask-stale'),
       'Enter splits a line in two, the lines below move down one, and a cited line pushed down is found by its text, one further on');
+  const firstHalf = w.q('textarea[data-edit="' + data.places.above + '"]');
+  const secondHalf = w.q('textarea[data-edit="' + data.places.splitNext + '"]');
+  say(firstHalf.value === whole.slice(0, 5) && secondHalf.value === whole.slice(5)
+      && w.q('[data-place="' + data.places.splitNext + '"]').classList.contains('cvl-bullet')
+      && w.document.activeElement === secondHalf && secondHalf.selectionStart === 0,
+      'the line keeps the words before the cursor, a new bullet below takes the words after it, and the cursor goes to its start');
   say(JSON.stringify(numbered(w).map((p) => p[0])) === JSON.stringify(data.lines.master.concat(['x']).map((_l, i) => i + 1)),
       'and the numbers stay the numbers of the text that would be sent');
   const halves = w.q('textarea[data-edit="' + data.places.splitNext + '"]');
@@ -2275,8 +2632,11 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   w.fire(halves, 'input');
   const back = w.fire(halves, 'keydown', { key: 'Backspace' });
   await settle();
-  say(back.defaultPrevented && numbered(w).length === data.lines.master.length,
-      'Backspace in an empty line removes it');
+  const before = w.q('textarea[data-edit="' + data.places.above + '"]');
+  say(back.defaultPrevented && numbered(w).length === data.lines.master.length
+      && w.q('textarea[data-edit="' + data.places.splitNext + '"]').value === 'Built the software team from nothing.'
+      && w.document.activeElement === before && before.selectionStart === before.value.length,
+      'Backspace in an empty line removes it, the line below moves up, and the cursor goes to the end of the line above');
   w.fire(w.q('textarea[data-edit="' + data.places.above + '"]'), 'focusout');
   const add = w.q('#cv-editor [data-add="bullet"][data-at="' + data.places.skills + '"]');
   w.click(add);
@@ -2324,6 +2684,14 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   await settle(); await settle();
   say(w.sayText() === 'The write guard refused this request.' && w.sayBad() && !save.disabled,
       'a refusal shows its reason and gives the button back');
+  const linesBefore = numbered(w).length;
+  w.click(save);
+  await settle();
+  say(body(w, w.calls.length - 1).base === data.hashes.open, 'Save CV sends the version of the copy it took, too');
+  w.answer({ ok: true, outcome: 'copy_moved', notices: [{ kind: 'info', text: data.copyMoved }] });
+  await settle(); await settle();
+  say(w.sayText() === data.copyMoved && w.sayBad() && numbered(w).length === linesBefore && !save.disabled,
+      'a copy changed in another tab since is said to be, in red, and the copy on screen is kept as it is');
   w.click(save);
   await settle();
   w.fail();
@@ -2339,6 +2707,32 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
       'a save says the name it was saved under and shows Download');
   const ev2 = w.fire(w.sandbox, 'beforeunload');
   say(!ev2.defaultPrevented, 'and once stored, leaving asks nothing');
+
+  // ------------------------------------------ edits after the save
+  const headline = w.q('textarea[data-edit="h.1"]');
+  say(w.q('#cv-download-hint').textContent === '', 'with nothing edited since the save, Download needs no word');
+  headline.value = '• West Sussex';
+  w.fire(headline, 'input');
+  say(/Save CV again/.test(w.q('#cv-download-hint').textContent),
+      'the moment the copy is edited after a save, the page says Download gives the copy as it was saved');
+  w.fire(headline, 'focusout');
+  say(w.q('textarea[data-edit="h.1"]').value === 'West Sussex' && w.q('[data-place="h.1"]').classList.contains('cvl-plain'),
+      'a headline line pasted with a bullet mark loses the mark and stays a line');
+  const first = w.q('textarea[data-edit="s0.l0"]');
+  first.value = '▪ Pasted from Word';
+  w.fire(first, 'input');
+  w.fire(first, 'focusout');
+  say(w.q('[data-place="s0.l0"]').classList.contains('cvl-bullet')
+      && w.q('textarea[data-edit="s0.l0"]').value === 'Pasted from Word',
+      'a line pasted with a bullet mark from Word becomes a bullet, without the mark');
+  const lone = w.q('textarea[data-edit="s1.e1.l0"]');
+  lone.value = '';
+  w.fire(lone, 'input');
+  w.fire(lone, 'keydown', { key: 'Backspace' });
+  w.q('#cv-editor').listeners.focusout.forEach((fn) => fn({ type: 'focusout', target: lone }));
+  w.click(w.q('#cv-editor [data-add="bullet"][data-at="s2"]'));
+  say(!w.q('[data-place="s1.e1.l0"]') && w.q('[data-place="s1.e1.h"]'),
+      'a field a redraw took away that then says it lost focus changes nothing, and leaves no empty line behind');
 
   // ----------------------------------------- Start again and Applied
   const calls = w.calls.length;
@@ -2364,6 +2758,10 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   say(w.calls.length === 0 && w.qa('#cv-editor textarea').length === 0
       && w.qa('[data-cv-act]').every((b) => b.disabled) && /could not line up/.test(w.sayText()),
       'a CV whose numbers the script cannot match to the server\'s is shown read only, with no button, and says why');
+  say(JSON.stringify(numbered(w).map((p) => p[0])) === JSON.stringify(data.lines.master.map((_l, i) => i + 1))
+      && numbered(w).every((p) => String(p[0]) === p[1])
+      && w.qa('#cv-editor .cvl').every((r) => r.getAttribute('data-place') === null),
+      'and the rows it shows are the ones the server drew and numbered, not redrawn by the script');
   w = world(data.pages.unsaved);
   await settle();
   w.setConfirm(false);
@@ -2419,8 +2817,8 @@ def editor_script_checks() -> None:
         applied_page = render_page(env, applied)
         opened = env.open(oid)
         open_answer = {"ok": True, "outcome": "made", "copy": opened["copy"], "notices": []}
-        env.rescore(oid, MASTER_TEXT)
-        better = cv_doc.accept(edited(MASTER_TEXT, "- SpiraPlan and regulated ALM configuration",
+        env.rescore(oid, COPY_TEXT)
+        better = cv_doc.accept(edited(COPY_TEXT, "- SpiraPlan and regulated ALM configuration",
                                       "- SpiraPlan and regulated ALM configuration\n"
                                       "- Kubernetes and cloud deployment of clinical systems"))[1]
         rescored = env.rescore(oid, better)
@@ -2464,6 +2862,7 @@ def editor_script_checks() -> None:
     payload = {
         "scripts": scripts, "header": HEADER, "version": MASTER_LABEL[0],
         "ids": {"open": oid}, "savedName": "CV - Luke Keogh - Veltrix Diagnostics - Head of Software",
+        "hashes": {"open": opened["copy"]["hash"]}, "copyMoved": prep.COPY_MOVED,
         "pages": {"open": open_page, "applied": applied_page, "mismatch": mismatch,
                   "unsaved": unsaved_page, "master": master_page},
         "answers": {"open": open_answer, "rescore": rescored, "save": saved},
@@ -2579,6 +2978,8 @@ def box_query_checks() -> None:
         "pairs": next(s for s in statements if "pairs_scored_twice" in s),
         "landed": next(s for s in statements if "roles_with_a_tailored_score" in s),
         "after": next(s for s in statements if "tailored_after_applying" in s),
+        "saved_after": next(s for s in statements if "saved_after_applying" in s),
+        "open_role": next(s for s in statements if s.startswith("SELECT id FROM opportunities o")),
         "before4": next(s for s in statements if "copies_table" in s and "copy_columns" not in s),
         "after4": next(s for s in statements if "copy_columns" in s),
         "none_yet": next(s for s in statements if "tailored_scores" in s and "copies" in s),
@@ -2600,11 +3001,15 @@ def box_query_checks() -> None:
         a = env.role()
         b = env.role(title="Second", company="Beta")
         env.open(a)
-        env.rescore(a, MASTER_TEXT)
-        env.rescore(a, edited(MASTER_TEXT, "Built the software team", "Built and led the team"))
-        env.rescore(a, MASTER_TEXT)
+        env.rescore(a, COPY_TEXT)
+        env.rescore(a, edited(COPY_TEXT, "Built the software team", "Built and led the team"))
+        env.rescore(a, COPY_TEXT)
         env.save(b, MASTER_TEXT)
+        # Saved, then applied an hour later, as a person would.
+        env.sql("UPDATE tailored_cvs SET saved_at = '2026-11-12T09:00:00Z',"
+                " updated_at = '2026-11-12T09:00:00Z' WHERE opportunity_id = ?", (b,))
         env.apply(b, "CV - Luke Keogh - Beta - Second")
+        repost_b = env.role(title="Second", company="Beta")
         broken = []
         for sql in statements:
             try:
@@ -2614,9 +3019,20 @@ def box_query_checks() -> None:
         check(not broken, f"every query on the page runs on a database the deploy made ({broken[:2]})")
         check(run_query(env.db, proof["pairs"]) == [(0,)]
               and run_query(env.db, proof["landed"]) == [(0,)]
-              and run_query(env.db, proof["after"]) == [(0,)],
-              "on what the code does, the three proof queries read 0, a copy put back "
+              and run_query(env.db, proof["after"]) == [(0,)]
+              and run_query(env.db, proof["saved_after"]) == [(0, 0)],
+              "on what the code does, the four proof queries read 0, a copy put back "
               "to an earlier text included")
+        picked = [r[0] for r in run_query(env.db, proof["open_role"])]
+        check(picked and picked[0] not in (b, repost_b),
+              "the role the AFTER block tries is an open LinkedIn role that is not applied, "
+              "and not a repost of an applied one")
+        env.sql("UPDATE tailored_cvs SET saved_at = '2026-11-12T11:00:00Z' WHERE opportunity_id = ?", (b,))
+        check(run_query(env.db, proof["saved_after"]) == [(1, 0)],
+              "the fourth catches a copy saved after its role was applied")
+        env.sql("UPDATE tailored_cvs SET updated_at = '2026-11-12T11:00:00Z' WHERE opportunity_id = ?", (b,))
+        check(run_query(env.db, proof["saved_after"]) == [(1, 1)],
+              "and one changed after it")
         env.sql("INSERT INTO score_history (opportunity_id, recorded_at, event, writer,"
                 " description_hash, cv_hash) SELECT opportunity_id, recorded_at, event, writer,"
                 " description_hash, cv_hash FROM score_history WHERE event = 'tailored' LIMIT 1")
@@ -2641,7 +3057,8 @@ def docs_checks() -> None:
                    "GET /prepare/<id>/cv.docx", "tailored_cvs", "cv_hash", "event `tailored`",
                    "cv_store.cv_lines", "CV_MODEL_JS", "_score", "SPEC_MAX_TOKENS",
                    "applied", "python-docx", "first-open", "Re-score stale items",
-                   "CV - Luke Keogh - <Company> - <Job"):
+                   "CV - Luke Keogh - <Company> - <Job", "is_canonical", "long_lines",
+                   "COPY_MOVED", "UNCHANGED_COPY", "Prepare application click's lock"):
         if needle not in section:
             check(False, f"the notes say {needle!r}")
             break
@@ -2653,7 +3070,7 @@ def docs_checks() -> None:
     check(len(blocks) >= 10 and all(lang == "bash" and body.strip() for lang, body in blocks),
           f"the box checks are {len(blocks)} fenced bash blocks, none of them empty")
     for heading in ("## BEFORE", "## The deploy, one block at a time", "## AFTER, before any click",
-                    "## After your first real use", "## Rollback"):
+                    "## The click block, after your first real use", "## Rollback"):
         if heading not in box:
             check(False, f"the box checks have {heading!r}")
             break
@@ -2683,8 +3100,9 @@ def main() -> int:
     parser.add_argument("--db", help="accepted for suite symmetry, unused")
     parser.parse_args()
     for section in (migration_checks, layout_checks, agreement_checks,
-                    scorer_checks, copy_checks, copy_busy_checks,
-                    rescore_checks, rescore_guard_checks, history_checks,
+                    scorer_checks, copy_checks, master_untouched_checks, copy_busy_checks,
+                    rescore_checks, rescore_guard_checks, gate_checks, base_checks,
+                    unchanged_checks, click_lock_checks, memo_checks, history_checks,
                     stale_checks, word_checks, route_checks, applied_checks,
                     page_checks, master_page_checks, editor_script_checks,
                     static_checks, box_query_checks, docs_checks):

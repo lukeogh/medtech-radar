@@ -89,11 +89,14 @@ def read_score(copy: dict | None) -> dict | None:
 
 
 def master(config: dict) -> dict:
-    """The master CV, as a copy of it would start. {"doc", "text", "version"}.
+    """The master CV, as a copy of it would start.
 
-    The text is the master in the editor's layout, which is the text itself
-    for a master saved on the CV page and the imported reading of any other.
-    A master that cannot be read is a CvError, so a page can say so.
+    {"doc", "text", "version", "canonical"}. The text is the master in the
+    editor's layout. canonical says whether that is the master file itself,
+    as it is for a master saved on the CV page. Only then does a copy made
+    from it number its lines as the scorer numbers the master, so only then
+    is a copy made from it. A master that cannot be read is a CvError, so a
+    page can say so.
     """
     try:
         text, _source = score_item.load_cv_text(config)
@@ -103,13 +106,20 @@ def master(config: dict) -> dict:
     except OSError as err:
         raise cv_doc.CvError(f"The master CV could not be read. {err}") from None
     doc = cv_doc.load_doc(text)
-    return {"doc": doc, "text": cv_doc.render(doc), "version": version}
+    laid_out = cv_doc.render(doc)
+    return {"doc": doc, "text": laid_out, "version": version,
+            "canonical": laid_out == "\n".join(cv_store.cv_lines(text)) + "\n"}
 
 
 def master_working(row) -> dict | None:
-    """The per-ask working of the role's own score, when it is a full
-    description score whose working belongs to it. The rule
-    prepare_application.load_working applies, read here without it."""
+    """The per-ask working of the role's own score, or None.
+
+    The one rule for it, which prepare_application.load_working is: the
+    working is stored beside a score and means nothing beside another, so it
+    is only returned for a row whose score is a spec score and whose working
+    carries the very date that score was made. A writer that has since
+    replaced the score, and knows nothing about the working, cannot leave an
+    old working looking like the current one."""
     raw = rc._row_field(row, "score_working")
     if not raw or rc._row_field(row, "score_basis") != rc.SCORE_BASIS_SPEC:
         return None
@@ -372,8 +382,14 @@ def standing(row, copy: dict | None, cv_hash: str | None) -> dict:
     desc = rc.description_version(rc._row_field(row, "description_text"))
     record = read_score(copy)
     if record and desc and record.get("description_hash") == desc:
-        kind = "current" if record.get("cv_hash") == cv_hash else "earlier"
-        return {"kind": kind, "record": record}
+        if record.get("cv_hash") == cv_hash:
+            return {"kind": "current", "record": record}
+        # The copy changed since its own score. If it changed back to the
+        # master as the role's own score was made on it, that score is this
+        # copy's, whatever the copy was scored as in between.
+        if master_scored_pair(row, desc, cv_hash):
+            return {"kind": "master", "record": None}
+        return {"kind": "earlier", "record": record}
     if master_scored_pair(row, desc, cv_hash):
         return {"kind": "master", "record": None}
     if record:

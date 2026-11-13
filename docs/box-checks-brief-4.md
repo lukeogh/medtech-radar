@@ -96,12 +96,21 @@ echo '--- python-docx in the dashboard container (expect not installed before th
 
 9. Run the AFTER block.
 
-10. In your browser, through the proxy name, open the CV page and check the
-    master looks right in the editor. If it says it was not written by the
-    editor, check its sections and save it once. Then open one open LinkedIn
-    role's Prepare application page: the CV is on the left and the copy is made
-    as the page opens. Edit a line, press Rescore role, then Save CV and
-    Download. Then run the click block.
+10. In your browser, through the proxy name, open the CV page first. This step
+    has a decision in it. If the page says the version was not written by this
+    editor, no role's Prepare application page will make a tailored copy until
+    the master has been saved here once, because a copy's line numbers would
+    not be the scorer's. Read the master in the editor, line by line against
+    your Word CV, fix anything the import read wrongly, and press Save as a new
+    version. That makes a new master version, which the scorer reads from then
+    on, and the CV page's After a change section says what a new version means
+    for scores already made. If you would rather not change the master yet,
+    stop here: everything else on the box works as before, and the Prepare
+    pages show the master read only with a link to the CV page.
+
+    Then open one open LinkedIn role's Prepare application page: the CV is on
+    the left and the copy is made as the page opens. Edit a line, press
+    Rescore role, then Save CV and Download. Then run the click block.
 
 ## AFTER, before any click
 
@@ -118,17 +127,20 @@ echo '--- the new table and column are there (expect 1, 13 and 1)'; Q "SELECT (S
 echo '--- no copy and no tailored score yet (expect 0 and 0)'; Q "SELECT (SELECT COUNT(*) FROM tailored_cvs) AS copies, (SELECT COUNT(*) FROM score_history WHERE event = 'tailored') AS tailored_scores;"
 echo '--- the Jobs page: the two counts must still be equal'; curl -s -m 15 $B/jobs | grep -o -E 'data-apply="|data-prepare="' | sort | uniq -c
 echo '--- the CV page: 200, the editor and the relabelled import'; curl -s -m 15 -o /dev/null -w '%{http_code}\n' $B/cv; curl -s -m 15 $B/cv | grep -o -E 'id="cv-editor"|One-off import from a Word file' | sort | uniq -c
-ID=$(sudo -u radar sqlite3 -readonly db/radar.sqlite "SELECT id FROM opportunities WHERE source_url LIKE '%linkedin.com/%jobs/view/%' AND acknowledged_at IS NULL AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL AND applied_at IS NULL ORDER BY id DESC LIMIT 1;"); echo "role $ID"
+ID=$(sudo -u radar sqlite3 -readonly db/radar.sqlite "SELECT id FROM opportunities o WHERE source_url LIKE '%linkedin.com/%jobs/view/%' AND acknowledged_at IS NULL AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL AND applied_at IS NULL AND NOT (role_key IS NOT NULL AND role_key IN (SELECT role_key FROM opportunities WHERE applied_at IS NOT NULL AND role_key IS NOT NULL)) ORDER BY id DESC LIMIT 1;"); echo "role $ID"
 echo '--- its Prepare page by curl, which runs no script, so no copy is made: 200 and the editor'; curl -s -m 15 -o /dev/null -w '%{http_code}\n' "$B/prepare/$ID"; curl -s -m 15 "$B/prepare/$ID" | grep -o -E 'id="cv-editor"|id="cv-pane"' | sort | uniq -c
+echo '--- is the master in the editor layout yet (1 means save it once on the CV page, step 10; 0 means it is)'; curl -s -m 15 "$B/prepare/$ID" | grep -c 'has not been saved on the CV page'
 echo '--- Download for a role with nothing saved is a 404, a foreign Host a 403'; curl -s -m 15 -o /dev/null -w '%{http_code}\n' "$B/prepare/$ID/cv.docx"; curl -s -m 15 -o /dev/null -w '%{http_code}\n' -H 'Host: evil.example' "$B/prepare/$ID/cv.docx"
 echo '--- and opening it wrote nothing (expect 0 and 0, and the same row counts)'; Q "SELECT (SELECT COUNT(*) FROM tailored_cvs) AS copies, (SELECT COUNT(*) FROM score_history WHERE event = 'tailored') AS tailored_scores;"; Q "SELECT COUNT(*) AS roles, SUM(expired_at IS NOT NULL) AS expired, SUM(closed_at IS NOT NULL) AS closed, SUM(dismissed_at IS NOT NULL) AS dismissed, SUM(applied_at IS NOT NULL) AS applied, (SELECT COUNT(*) FROM score_history) AS history_rows FROM opportunities;"
 ```
 
 Expect `ok`, the same row counts as BEFORE, `1`, `13` and `1`, `0` and `0`,
 equal Jobs counts, `200` and both markers on the CV page, `200` and both
-markers on the Prepare page, `404` then `403`, and `0` and `0` again.
+markers on the Prepare page, `1` or `0` for the layout (step 10 says what to do
+with a `1`), `404` then `403`, and `0` and `0` again. If `role` is empty there
+is no open LinkedIn role to try, and the Prepare lines have nothing to show.
 
-## After your first real use
+## The click block, after your first real use
 
 ```bash
 cd /opt/biz-admin/medtech-radar
@@ -139,13 +151,15 @@ echo '--- what Rescore role has cost'; Q "SELECT COUNT(*) AS calls, COALESCE(SUM
 echo '--- no pair of description and copy was scored twice for a role (expect 0)'; Q "SELECT COUNT(*) AS pairs_scored_twice FROM (SELECT COALESCE('key:' || o.role_key, 'id:' || o.id) AS role, h.description_hash, h.cv_hash FROM score_history h JOIN opportunities o ON o.id = h.opportunity_id WHERE h.event = 'tailored' GROUP BY 1, 2, 3 HAVING COUNT(*) > 1);"
 echo '--- no tailored score ever landed on a role (expect 0)'; Q "SELECT COUNT(*) AS roles_with_a_tailored_score FROM opportunities WHERE cv_version LIKE 'tailored-%';"
 echo '--- no role was scored or saved for after it was applied (expect 0)'; Q "WITH chain AS (SELECT role_key, MIN(applied_at) AS first_applied FROM opportunities WHERE applied_at IS NOT NULL AND role_key IS NOT NULL GROUP BY role_key) SELECT COUNT(*) AS tailored_after_applying FROM score_history h JOIN opportunities o ON o.id = h.opportunity_id LEFT JOIN chain c ON c.role_key = o.role_key WHERE h.event = 'tailored' AND COALESCE(c.first_applied, o.applied_at) IS NOT NULL AND h.recorded_at >= COALESCE(c.first_applied, o.applied_at);"
+echo '--- no copy was saved or changed after its role was applied (expect 0 and 0)'; Q "WITH applied AS (SELECT COALESCE('key:' || role_key, 'id:' || id) AS role, MIN(applied_at) AS first_applied FROM opportunities WHERE applied_at IS NOT NULL GROUP BY 1) SELECT COALESCE(SUM(t.saved_at > a.first_applied), 0) AS saved_after_applying, COALESCE(SUM(t.updated_at > a.first_applied), 0) AS changed_after_applying FROM tailored_cvs t JOIN applied a ON a.role = t.role_ref;"
 echo '--- applied roles and the CV recorded with them'; Q "SELECT id, title, applied_at, applied_cv FROM opportunities WHERE applied_at IS NOT NULL ORDER BY applied_at DESC LIMIT 5;"
 echo '--- the master CV versions, if you saved it on the CV page'; cat config/profile/cv.active; ls -l config/profile/ | grep -E 'cv-.*\.md' | tail -3
 ```
 
 Expect a copy for each role you opened, a tailored score for each Rescore role
-that called the model, `0` on the three proof queries, and the saved copy's name
-beside any role you marked applied after saving.
+that called the model, `0` on the three proof queries and `0` and `0` on the
+fourth, and the saved copy's name beside any role you marked applied after
+saving, or an empty `applied_cv` where nothing was saved.
 
 ## Rollback
 

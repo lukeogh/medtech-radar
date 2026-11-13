@@ -204,35 +204,42 @@ COPY_ACTIONS = {
 }
 
 
-def run_copy(action: str, item_id: int, text=None) -> dict:
+def run_copy(action: str, item_id: int, text=None, base=None) -> dict:
     """One button on the tailored CV: open, save, reset or rescore.
 
     prepare_application does the work under its guards, and says what it did.
-    This adds the right-hand side of the page as it now stands, so the
-    script can swap in the new score and asks without touching the editor.
+    Save, reset and rescore add the right-hand side of the page as it now
+    stands, so the script can swap in the new score and asks without touching
+    the editor. Open adds nothing: it runs as the page loads, when the Prepare
+    application click may be at work on that side, and a copy just made is
+    the master in its own layout, numbered as the master is, so the side as
+    drawn is already right. base is the version of the copy the page took,
+    sent with save and rescore, see prepare_application._moved; a copy that
+    has moved on adds nothing either, the page is left as it is and told to
+    reload.
     """
     work = COPY_ACTIONS[action]
     try:
         if action in ("save", "rescore"):
-            result = work(item_id, text, db_path())
+            result = work(item_id, text, db_path(), base=base)
         else:
             result = work(item_id, db_path())
     except sqlite3.OperationalError as err:
         return {"ok": False, "note": f"database busy, try again. {err}"}
-    if not result.get("ok"):
+    if (not result.get("ok") or action == "open"
+            or result.get("outcome") == "copy_moved"):
         return result
-    if action in ("open", "rescore", "reset", "save"):
-        config = radar_common.load_config()
-        conn = sqlite3.connect(f"file:{db_path().as_posix()}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-        try:
-            inner = build_dashboard.render_prepare_inner(
-                conn, item_id, config, notices=result.get("notices")
-                if action == "rescore" else None)
-        finally:
-            conn.close()
-        if inner is not None:
-            result["html"] = inner
+    config = radar_common.load_config()
+    conn = sqlite3.connect(f"file:{db_path().as_posix()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        inner = build_dashboard.render_prepare_inner(
+            conn, item_id, config, notices=result.get("notices")
+            if action == "rescore" else None)
+    finally:
+        conn.close()
+    if inner is not None:
+        result["html"] = inner
     return result
 
 
@@ -240,16 +247,33 @@ def run_copy_open(item_id: int) -> dict:
     return run_copy("open", item_id)
 
 
-def run_copy_save(item_id: int, text) -> dict:
-    return run_copy("save", item_id, text)
+def run_copy_save(item_id: int, text, base=None) -> dict:
+    return run_copy("save", item_id, text, base)
 
 
 def run_copy_reset(item_id: int) -> dict:
     return run_copy("reset", item_id)
 
 
-def run_copy_rescore(item_id: int, text) -> dict:
-    return run_copy("rescore", item_id, text)
+def run_copy_rescore(item_id: int, text, base=None) -> dict:
+    return run_copy("rescore", item_id, text, base)
+
+
+COPY_BASE_MAX = 64
+
+
+def clean_copy_base(value) -> str | None:
+    """The version of the copy a Save or Rescore request says it took.
+
+    None when the request names none, which is not checked, as for a page
+    from before this check. Otherwise short text, or ValueError, which the
+    route turns into a 400 before anything is opened.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str) or not 0 < len(value) <= COPY_BASE_MAX:
+        raise ValueError("base must be the version of the copy the page took")
+    return value
 
 
 def save_master_cv(text, base) -> dict:
@@ -624,8 +648,10 @@ def set_applied(item_id: int, on: bool, cv: str | None = None) -> dict:
     The saved CV is the role's saved copy from its Prepare application page,
     by the name Save CV gave it, read in the same statement that stamps the
     role so that a save a moment before is the one recorded. A role with no
-    saved copy records none, which is how the pages call it; a reference a
-    request names itself is kept only where no copy was saved, as before.
+    saved copy records none (Brief 4: the saved name, or empty when there is
+    none). A reference the request names itself is still checked by the
+    route, so junk is a 400 as before, and is not recorded: what is recorded
+    is what Save CV stored, never what a request says it was.
     """
     try:
         conn = radar_common.get_db(db_path())
@@ -642,14 +668,13 @@ def set_applied(item_id: int, on: bool, cv: str | None = None) -> dict:
                 return {"ok": False,
                         "note": "that role is already marked applied"}
             cur = conn.execute(
-                "UPDATE opportunities SET applied_at = ?, applied_cv = COALESCE("
-                "(SELECT saved_name FROM tailored_cvs WHERE role_ref = ?"
-                " AND saved_text IS NOT NULL), ?)"
+                "UPDATE opportunities SET applied_at = ?, applied_cv = ("
+                "SELECT saved_name FROM tailored_cvs WHERE role_ref = ?"
+                " AND saved_text IS NOT NULL)"
                 " WHERE id = ? AND acknowledged_at IS NULL"
                 " AND closed_at IS NULL AND dismissed_at IS NULL"
                 " AND expired_at IS NULL AND " + radar_common.NOT_APPLIED_SQL,
-                (radar_common.now_iso(), tailored_cv.role_ref(target), cv,
-                 item_id))
+                (radar_common.now_iso(), tailored_cv.role_ref(target), item_id))
         else:
             cur = conn.execute(
                 "UPDATE opportunities SET applied_at = NULL, applied_cv = NULL"
@@ -787,7 +812,7 @@ def render_cv_page() -> bytes:
         master_text, problem = None, str(err)
     if master_text is not None:
         doc = cv_doc.load_doc(master_text)
-        laid_out = cv_doc.render(doc) == "\n".join(cv_store.cv_lines(master_text)) + "\n"
+        laid_out = cv_doc.is_canonical(master_text)
         editor = cv_page.editor_html(cv_doc.render(doc), {
             "mode": "master", "editable": True, "version": marker})
         when = version_when(active)
@@ -796,7 +821,9 @@ def render_cv_page() -> bytes:
                   "editor, so it is shown in the editor's layout: a name, a "
                   "headline, then the sections. Check it, then save it to make "
                   "a version in this layout. Until then the scorer reads the "
-                  "version as it is.</p>")
+                  "version as it is, and no role's Prepare application page "
+                  "makes a tailored copy from it, because the copy's line "
+                  "numbers would not be the scorer's.</p>")
         master_html = f"""<p class="section-note">The scorer reads
 <strong>{build_dashboard.esc(active)}</strong>{', saved ' + build_dashboard.esc(when) if when else ''}.
 Edit the master here and save it as a new version. The versions before stay,
@@ -1549,10 +1576,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, b'{"ok": false, "note": "text must be the CV as text"}',
                            "application/json")
                 return
+            try:
+                base = clean_copy_base(body.get("base"))
+            except ValueError as err:
+                self._send(400, json.dumps(
+                    {"ok": False, "note": str(err)}).encode(),
+                    "application/json")
+                return
             result = {"open": lambda: run_copy_open(item_id),
-                      "save": lambda: run_copy_save(item_id, text),
+                      "save": lambda: run_copy_save(item_id, text, base),
                       "reset": lambda: run_copy_reset(item_id),
-                      "rescore": lambda: run_copy_rescore(item_id, text)}[action]()
+                      "rescore": lambda: run_copy_rescore(item_id, text, base)}[action]()
             status = (200 if result.get("ok") else
                       400 if result.get("invalid") else 409)
             self._send(status, json.dumps(result).encode(), "application/json")

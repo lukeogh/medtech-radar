@@ -118,38 +118,48 @@ textarea.cvl-t:disabled{color:var(--ink-2)}
 CV_MODEL_JS = r"""
 var RadarCv = (function () {
   var STANDARD = ['Summary', 'Experience', 'Skills', 'Education and certifications'];
-  var KEY_CHARS = 200;
-  var MARK = /^(#{1,6}\s+|[-*•+·–—▪◦‣●○■□➢➤✓✔♦◆»]\s+)/;
+  // cv_doc._ANY_BULLET: a bullet mark, the editor's or one a paste brings.
+  var BULLET = /^[-*•+·–—▪◦‣●○■□➢➤✓✔♦◆»]\s+/;
+  var HEADING_MARK = /^#{1,6}\s+/;
   var PLAIN_HEADING = /^#{1,3} /;
-  // Code points, not escapes, so that this file stays plain ASCII here.
+  // Code points, not escapes, so that the tool chain cannot turn one into the
+  // character it names inside a regular expression.
   function dropped(c) {
     return (c >= 0xd800 && c <= 0xdfff) || c === 0xfeff || c === 0xfffe || c === 0xffff;
   }
   function spaced(c) {
     return c < 0x20 || (c >= 0x7f && c <= 0x9f) || c === 0x2028 || c === 0x2029;
   }
+  // cv_doc.clean, in its order: drop, make spaces, compose, run together.
   function clean(value) {
     var s = String(value === null || value === undefined ? '' : value);
-    if (s.normalize) s = s.normalize('NFC');
     s = Array.from(s).map(function (ch) {
       var c = ch.codePointAt(0);
       return dropped(c) ? '' : spaced(c) ? ' ' : ch;
     }).join('');
+    if (s.normalize) s = s.normalize('NFC');
     return s.split(/\s+/).filter(Boolean).join(' ');
+  }
+  function stripMarks(t) {
+    for (;;) {
+      var m = BULLET.exec(t);
+      if (!m) return t;
+      t = clean(t.slice(m[0].length));
+    }
   }
   function cleanPlain(value, allowBullet) {
     var t = clean(value);
     for (;;) {
       var m = PLAIN_HEADING.exec(t);
       if (m) { t = clean(t.slice(m[0].length)); continue; }
-      if (!allowBullet && t.slice(0, 2) === '- ') { t = clean(t.slice(2)); continue; }
+      if (!allowBullet && BULLET.test(t)) { t = stripMarks(t); continue; }
       return t;
     }
   }
   function line(item) {
-    if (item && item.b) return { b: true, t: clean(item.t) };
+    if (item && item.b) return { b: true, t: stripMarks(clean(item.t)) };
     var t = cleanPlain(item ? item.t : '', true);
-    if (t.slice(0, 2) === '- ') return { b: true, t: clean(t.slice(2)) };
+    if (BULLET.test(t)) return { b: true, t: stripMarks(t) };
     return { b: false, t: t };
   }
   // The lines of the text the doc stands for, made tidy the way the server
@@ -199,9 +209,10 @@ var RadarCv = (function () {
     return { lines: out, at: at };
   }
   function text(doc) { return layout(doc).lines.join('\n') + '\n'; }
+  // cv_doc.line_key: the whole line, without one heading mark and without
+  // the bullet marks in front of it.
   function key(value) {
-    var t = clean(clean(value).replace(MARK, ''));
-    return Array.from(t).slice(0, KEY_CHARS).join('').replace(/\s+$/, '');
+    return stripMarks(clean(clean(value).replace(HEADING_MARK, '')));
   }
   function findLine(cited, keys) {
     var k = key(cited.text);
@@ -216,8 +227,9 @@ var RadarCv = (function () {
     });
     return best;
   }
-  return { STANDARD: STANDARD, clean: clean, cleanPlain: cleanPlain, line: line,
-           layout: layout, text: text, key: key, findLine: findLine };
+  return { STANDARD: STANDARD, clean: clean, stripMarks: stripMarks,
+           cleanPlain: cleanPlain, line: line, layout: layout, text: text,
+           key: key, findLine: findLine };
 })();
 """
 
@@ -243,7 +255,8 @@ CV_EDITOR_JS = r"""
                 save: 'Saving the copy.', reset: 'Putting the master CV back.',
                 apply: 'Marking the role applied.', master: 'Saving the master CV as a new version.' };
   var BAD = { score_failed: 1, cooling: 1, applied: 1, not_open: 1, db_busy: 1,
-              busy: 1, no_description: 1, no_master: 1, score_held: 1 };
+              busy: 1, no_description: 1, no_master: 1, score_held: 1,
+              copy_moved: 1, master_not_laid_out: 1 };
 
   function say(words, bad) {
     if (!note) return;
@@ -256,8 +269,13 @@ CV_EDITOR_JS = r"""
 
   // The script's numbers and the server's must be the same for the CV it was
   // given, or a number on the page could name another line than the scorer's.
+  // If they are not, the rows the server drew stay as they are, numbered by
+  // the server, and the asks are found in the server's lines.
+  var frozen = false;
   if (JSON.stringify(current.lines) !== JSON.stringify(data.lines || [])) {
     editable = false;
+    frozen = true;
+    current = { lines: (data.lines || []).slice(), at: {} };
     say('The editor could not line up its line numbers with the stored CV, so '
         + 'the CV is shown as stored and cannot be edited on this page.', true);
   }
@@ -435,7 +453,7 @@ CV_EDITOR_JS = r"""
   function mark() {
     var keys = current.lines.map(C.key);
     asks().forEach(function (ask) {
-      var status = ask.getAttribute('data-status');
+      var status = ask.getAttribute('data-ask-status');
       var gone = false;
       all('[data-cv-text]', ask).forEach(function (li) {
         var n = Number(li.getAttribute('data-cv-n'));
@@ -501,7 +519,7 @@ CV_EDITOR_JS = r"""
     t.focus();
     if (typeof at === 'number' && t.setSelectionRange) t.setSelectionRange(at, at);
   }
-  function changed() { dirty = true; }
+  function changed() { dirty = true; shown(false); }
   host.addEventListener('input', function (e) {
     var t = e.target;
     var place = t.getAttribute ? t.getAttribute('data-edit') : null;
@@ -552,7 +570,11 @@ CV_EDITOR_JS = r"""
     var t = e.target;
     var place = t.getAttribute ? t.getAttribute('data-edit') : null;
     if (!place) return;
+    // A field that a redraw has just taken away, after Enter or Backspace,
+    // names a place that may now be another line or none: leave it.
+    if (typeof host.contains === 'function' && !host.contains(t)) return;
     var o = owner(place);
+    if (o && o.i >= o.list.length) return;
     if (o && o.item) {
       var tidy = C.line(o.list[o.i]);
       var redraw = tidy.b !== !!o.list[o.i].b;
@@ -644,11 +666,14 @@ CV_EDITOR_JS = r"""
     all('[data-cv-act]').forEach(function (b) { b.disabled = on || !editable; });
     all('textarea', host).forEach(function (t) { t.disabled = on; });
   }
-  function shown() {
+  // The saved line, the Download link and the hint under it. The line keeps
+  // the words the server drew, its date with them, until the copy is taken
+  // again from the server (full).
+  function shown(full) {
     var saved = document.getElementById('cv-saved');
     var link = document.getElementById('cv-download');
     var hint = document.getElementById('cv-download-hint');
-    if (saved) {
+    if (saved && full) {
       saved.textContent = data.saved ? 'Saved as ' + data.saved.name + '.'
         : 'Not saved yet. Save CV stores this copy for this role only.';
     }
@@ -662,6 +687,7 @@ CV_EDITOR_JS = r"""
     doc = copy.doc;
     data.lines = copy.lines;
     data.saved = copy.saved;
+    data.hash = copy.hash || null;
     data.needsCopy = false;
     dirty = false;
     var status = document.getElementById('cv-status');
@@ -670,7 +696,7 @@ CV_EDITOR_JS = r"""
         + '. Nothing done to the copy changes the master.';
     }
     draw();
-    shown();
+    shown(true);
   }
   function told(j) {
     return (j.notices || []).map(function (n) { return n.text; }).join(' ');
@@ -692,8 +718,12 @@ CV_EDITOR_JS = r"""
     if (btn) btn.textContent = 'Working';
     say(DOING[act], false);
     var text = C.text(doc);
+    // base is the version the page took: of the master on the CV page, of
+    // the copy on a Prepare page, so that a change made in another tab since
+    // is not written over without a word.
     var body = act === 'master' ? { text: text, base: data.version || null }
-      : (act === 'rescore' || act === 'save') ? { id: data.id, text: text } : { id: data.id };
+      : (act === 'rescore' || act === 'save') ? { id: data.id, text: text, base: data.hash || null }
+      : { id: data.id };
     fetch(URL[act], {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -747,8 +777,9 @@ CV_EDITOR_JS = r"""
     e.returnValue = '';
   });
 
-  draw();
-  shown();
+  if (frozen) mark();
+  else draw();
+  shown(false);
   lock(false);
   if (data.mode === 'tailored' && editable && data.needsCopy) send('open', null);
 })();

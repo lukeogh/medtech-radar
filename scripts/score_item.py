@@ -715,6 +715,13 @@ def _finish_score(parsed: dict, usage: dict, opp: dict, system_blocks,
                 # scored without the text itself being kept twice.
                 "cv_hash": getattr(system_blocks, "cv_hash", None),
                 "cv_line_count": len(cv_lines),
+                # The whole of any cited line longer than an ask keeps,
+                # by number, so that a page can tell an edit to the end of
+                # a long line from no edit at all.
+                "long_lines": {str(c["n"]): cv_lines[c["n"] - 1].strip()
+                               for a in asks for c in a["lines"]
+                               if len(cv_lines[c["n"] - 1].strip())
+                               > CV_LINE_TEXT_MAX},
                 "description_hash": description_hash,
                 "asks": asks, "counts": counts,
                 "rate_quote": None, "rate_quote_from": None,
