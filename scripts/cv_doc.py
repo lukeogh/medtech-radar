@@ -52,6 +52,8 @@ CV_TEXT_MAX = 20_000     # characters of CV text, about five pages
 CV_LINES_MAX = 400       # lines of it, blank ones included
 CV_LINE_MAX = 1_000      # characters on one line
 RAW_TEXT_MAX = 200_000   # what a request may carry before it is read at all
+RAW_LINES_MAX = 2_000    # lines it may have before it is read at all
+RAW_LINE_MAX = 5_000     # characters one of them may have before it is read
 
 OWNER = "Luke Keogh"     # the name in "CV - Luke Keogh - <Company> - <Job title>"
 NAME_MAX = 150           # characters in a saved copy's name, before .docx
@@ -396,14 +398,14 @@ def _bare_heading(line: str) -> str | None:
     return None
 
 
-def _new_section(doc: dict, title: str) -> dict:
+def _new_section(doc: dict, title: str, named: dict) -> dict:
+    """A section added at the end, and found again by its title in named,
+    the first of that title, so that finding one costs the same however many
+    sections a CV has."""
     sec = {"title": title, "lines": [], "entries": []}
     doc["sections"].append(sec)
+    named.setdefault(title, sec)
     return sec
-
-
-def _section_named(doc: dict, title: str) -> dict | None:
-    return next((sec for sec in doc["sections"] if sec["title"] == title), None)
 
 
 def _heading_of(line: str):
@@ -467,6 +469,7 @@ def import_text(text) -> dict:
     depths = [h[0] for h in rest if h and h[0]]
     section_depth = min(naming) if naming else min(depths, default=2)
     doc = {"name": "", "headline": [], "sections": []}
+    named: dict = {}
     sec = entry = None
     made: list[tuple[dict, dict | None, str]] = []   # (section, what came before, words)
 
@@ -489,7 +492,7 @@ def import_text(text) -> dict:
             # The words as the CV wrote them: a plain line as it was.
             given = words if depth else line
             if depth <= section_depth or (standard and entry is None):
-                if standard and _section_named(doc, standard) is sec is not None:
+                if standard and named.get(standard) is sec is not None:
                     # The section being read, named again.
                     if sec["entries"]:
                         entry = {"heading": words, "lines": []}
@@ -500,15 +503,15 @@ def import_text(text) -> dict:
                             sec["lines"].append({"b": False, "t": given})
                     continue
                 before = entry if entry is not None else sec
-                if standard and _section_named(doc, standard) is None:
-                    sec = _new_section(doc, standard)
+                if standard and named.get(standard) is None:
+                    sec = _new_section(doc, standard, named)
                 else:
-                    sec = _new_section(doc, words)
+                    sec = _new_section(doc, words, named)
                     made.append((sec, before, given))
                 entry = None
                 continue
             if sec is None:
-                sec = _section_named(doc, "Experience") or _new_section(doc, "Experience")
+                sec = named.get("Experience") or _new_section(doc, "Experience", named)
             entry = {"heading": words, "lines": []}
             sec["entries"].append(entry)
             continue
@@ -540,9 +543,30 @@ def is_layout(text) -> bool:
     return render(parse(text)) == "\n".join(_lines_of(text)) + "\n"
 
 
+def check_raw(text) -> None:
+    """Refuse a text no CV could be, before any of it is read, so that reading
+    it costs no more than reading a CV would: over RAW_TEXT_MAX characters,
+    RAW_LINES_MAX lines, or a line of RAW_LINE_MAX characters. The caps a CV
+    is held to, validate's, are far below these and come after."""
+    if len(text) > RAW_TEXT_MAX:
+        raise CvError(f"The CV is over {RAW_TEXT_MAX:,} characters, which no "
+                      "CV needs to be.")
+    lines = _lines_of(text)
+    if len(lines) > RAW_LINES_MAX:
+        raise CvError(f"The CV runs to {len(lines):,} lines, and no CV needs "
+                      f"more than {RAW_LINES_MAX:,}.")
+    longest = max((len(line) for line in lines), default=0)
+    if longest > RAW_LINE_MAX:
+        raise CvError(f"One line of the CV is {longest:,} characters long, and "
+                      f"no CV needs a line of more than {RAW_LINE_MAX:,}.")
+
+
 def load_doc(text) -> dict:
     """The doc for a stored CV. Strict for the editor's own layout, so a CV
-    saved here reads back exactly, and import_text for anything else."""
+    saved here reads back exactly, and import_text for anything else. A text
+    no CV could be is a CvError before it is read (check_raw), whether a
+    request sent it or it is the master on file."""
+    check_raw(str(text or ""))
     if is_layout(text):
         return normalize(parse(text))
     return import_text(text)
@@ -556,9 +580,6 @@ def accept(text) -> tuple[dict, str]:
     """
     if not isinstance(text, str):
         raise CvError("The CV must be sent as text.")
-    if len(text) > RAW_TEXT_MAX:
-        raise CvError(f"The CV is over {RAW_TEXT_MAX:,} characters, which no "
-                      "CV needs to be.")
     doc = load_doc(text)
     return doc, validate(doc)
 
@@ -619,11 +640,11 @@ def cited_text(cited: dict, long_lines: dict | None = None) -> str:
 
 
 def cited_is_cut(cited: dict, long_lines: dict | None = None) -> bool:
-    """Is the text kept with a citation only the start of the line: as long
-    as a citation keeps, with no whole line beside it. A working stored
-    before long_lines was kept holds a long line that way."""
-    whole = (long_lines or {}).get(str(cited.get("n")))
-    if isinstance(whole, str) and whole:
+    """Is the text kept with a citation only the start of the line. Only a
+    working stored before long_lines was kept, which has none at all (None),
+    holds a long line that way: as long as a citation keeps. A working that
+    has long_lines, even empty, holds every line it cites whole."""
+    if long_lines is not None:
         return False
     return len(str(cited.get("text") or "")) >= CITED_TEXT_MAX
 

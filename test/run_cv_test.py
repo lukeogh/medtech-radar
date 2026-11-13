@@ -599,6 +599,15 @@ def layout_checks() -> None:
           "after it, a usual section named again further on is a section of its own, and "
           "an empty heading gives its words back as the last line before it")
 
+    folded = cv_doc.load_doc("Luke Keogh\n# Experience\n## Director, Axithra\n- Led.\n"
+                             "# Board roles\n# Skills\n- IEC 62304\n")
+    fexp = [s for s in folded["sections"] if s["title"] == "Experience"][0]
+    check(fexp["entries"][0]["lines"] == [{"b": True, "t": "Led."},
+                                          {"b": False, "t": "Board roles"}]
+          and not fexp["lines"],
+          "an empty heading after a job gives its words back after the job's own lines, "
+          "not above the job")
+
     # And over many: every line of words comes out in the order it went in.
     rng = random.Random(23)
     heads = ["Summary", "Experience", "Skills", "Education", "Certifications", "Profile",
@@ -662,12 +671,24 @@ def layout_checks() -> None:
     check(cv_doc.CITED_TEXT_MAX == score_item.CV_LINE_TEXT_MAX,
           "the layout knows how much of a cited line a working keeps")
     start = time.time()
-    flood = cv_doc.accept("# A\n\n## Summary\n" + "- " * 99_990 + "x\n")[1]
-    heads_flood = cv_doc.load_doc("Name\n- " + "## " * 60_000 + "x\n")
+    lines_of_marks = "# A\n\n## Summary\n" + "".join("- " * 2_400 + f"x{i}\n" for i in range(40))
+    flood = cv_doc.accept(lines_of_marks)[1]
+    heads_flood = cv_doc.load_doc("Name\n- " + "## " * 1_600 + "x\n")
     took = time.time() - start
-    check(flood.endswith("## Summary\n- x\n") and heads_flood["headline"] == ["x"] and took < 5,
-          f"a line of a hundred thousand bullet marks, or of sixty thousand heading marks, "
-          f"is read in one pass, not one per mark ({took:.2f} s)")
+    check(flood.endswith("## Summary\n" + "".join(f"- x{i}\n" for i in range(40)))
+          and heads_flood["headline"] == ["x"] and took < 5,
+          f"lines of thousands of bullet marks, or of heading marks, are read in one pass "
+          f"each, not one per mark ({took:.2f} s)")
+    start = time.time()
+    try:
+        cv_doc.accept("# A\n\n## Summary\n" + "- " * 99_990 + "x\n")
+        refused_flood = ""
+    except cv_doc.CvError as err:
+        refused_flood = str(err)
+    took = time.time() - start
+    check("no CV needs a line of more than" in refused_flood and took < 1,
+          f"and a request of a hundred thousand marks on one line is refused before any of "
+          f"it is read ({took:.2f} s)")
     fixture = (REPO_ROOT / "test" / "fixtures" / "profile_snapshot.md").read_text(encoding="utf-8")
     fdoc = cv_doc.load_doc(fixture)
     check(not cv_doc.is_layout(fixture) and fdoc["name"].startswith("Profile snapshot")
@@ -865,6 +886,16 @@ def agreement_checks() -> None:
           and cv_doc.line_key("## Skills") == "Skills"
           and cv_doc.line_key(whole + " more") != cv_doc.line_key(whole),
           "a line is known by all its words, its marks set aside")
+    exact = "w" * cv_doc.CITED_TEXT_MAX
+    cited = [{"ask": "Exact", "status": "met", "lines": [{"n": 1, "text": exact}]}]
+    grown = [exact + " and more words"]
+    check(cv_doc.place_asks(cited, grown, {})[0]["stale"]
+          and not cv_doc.place_asks(cited, grown, None)[0]["stale"]
+          and not cv_doc.cited_is_cut(cited[0]["lines"][0], {})
+          and cv_doc.cited_is_cut(cited[0]["lines"][0], None),
+          "a cited line of exactly the length a citation keeps is whole in a working that "
+          "keeps whole lines, so words added to its end are seen, and is the start of a "
+          "line only in a working from before, which has no long_lines at all")
 
     # The cited lines found again in a copy that has been edited.
     lines = cv_store.cv_lines(MASTER_TEXT)
@@ -1768,9 +1799,25 @@ def edge_checks() -> None:
     check(len(exact) == cv_doc.CV_TEXT_MAX and refused(exact) == ""
           and "characters long" in refused(exact.replace("w\n", "ww\n", 1)),
           f"a CV of exactly {cv_doc.CV_TEXT_MAX:,} characters is taken, and one more is not")
-    check("no CV needs" not in refused("x" * cv_doc.RAW_TEXT_MAX)
-          and "no CV needs" in refused("x" * (cv_doc.RAW_TEXT_MAX + 1)),
+    check("no CV needs to be" not in refused("x" * cv_doc.RAW_TEXT_MAX)
+          and "no CV needs to be" in refused("x" * (cv_doc.RAW_TEXT_MAX + 1)),
           "a request of exactly the raw cap is read, one character more is not")
+    many_lines = "# L\n" + "\n" * (cv_doc.RAW_LINES_MAX - 1)
+    check(f"more than {cv_doc.RAW_LINES_MAX:,}" not in refused(many_lines)
+          and f"more than {cv_doc.RAW_LINES_MAX:,}" in refused(many_lines + "\n"),
+          f"a text of {cv_doc.RAW_LINES_MAX:,} lines is read, one more is refused before it is")
+    wide = "# L\n## Summary\n" + "w" * cv_doc.RAW_LINE_MAX + "\n"
+    check(f"a line of more than {cv_doc.RAW_LINE_MAX:,}" not in refused(wide)
+          and f"a line of more than {cv_doc.RAW_LINE_MAX:,}" in refused(wide.replace("ww", "www", 1)),
+          f"a line of {cv_doc.RAW_LINE_MAX:,} characters is read, one more is refused before it is")
+    start = time.time()
+    try:
+        cv_doc.load_doc("Name\n" + "".join(f"# Heading {i}\nline {i}\n" for i in range(999)))
+    except cv_doc.CvError:
+        pass
+    took = time.time() - start
+    check(took < 2, f"a text of a thousand headings is read in no more time than its length asks "
+                    f"({took:.2f} s)")
     endings = ["", "a", "a\n", "a\nb", "a\r\nb\r\n", "a\rb", "\n", "\n\n", "a\n\nb"]
     check(all(cv_doc._lines_of(t) == cv_store.cv_lines(t) for t in endings)
           and cv_doc._lines_of("a\nb") == ["a", "b"]
@@ -2590,11 +2637,34 @@ def page_checks() -> None:
               "Download and no button that would change anything")
         check(env.dump() == before, "and drawing it writes nothing")
         right = page_text(render_inner(env, oid))
-        check("The copy saved for this role was not scored on its own against this "
+        check("The copy saved and sent was not scored on its own against this "
               "description." in right and "edited since" not in right
               and "stale" not in right and "Rescore role" not in right,
               "beside it, a score made later on an unsaved text is not shown as the sent "
               "copy's, and nothing offers a Rescore role the page does not have")
+        # Roles that can no longer change, by what was saved for them.
+        closed = env.role(title="Closed later", company="Zeta Diagnostics")
+        env.open(closed)
+        env.rescore(closed, COPY_TEXT)
+        env.save(closed, COPY_TEXT)
+        env.sql("UPDATE opportunities SET acknowledged_at = '2026-11-12T12:00:00Z' WHERE id = ?",
+                (closed,))
+        unsent = env.role(title="Never saved", company="Eta Diagnostics")
+        env.open(unsent)
+        env.rescore(unsent, COPY_TEXT)
+        env.apply(unsent)
+        reset_only = env.role(title="Reset only", company="Theta Diagnostics")
+        env.open(reset_only)
+        env.apply(reset_only)
+        words = [page_text(render_inner(env, r)) for r in (closed, unsent, reset_only)]
+        check("Scored against the full description and the copy saved for this role" in words[0]
+              and "saved and sent" not in words[0]
+              and "Scored against the full description and the copy as it was left, never saved"
+              in words[1] and "saved and sent" not in words[1]
+              and "The copy as it was left, never saved was not scored on its own" in words[2],
+              "a role closed with a copy saved, one applied with nothing saved, and one "
+              "applied with an unscored copy each say which copy the score beside it is, "
+              "and none says a copy was sent that was not")
         acked = env.role(title="Acked", company="Epsilon", acknowledged_at="2026-11-11T09:00:00Z")
         page = render_page(env, acked)
         left = page[page.index('id="cv-pane"'):page.index('id="prepare-body"')]
@@ -2725,6 +2795,18 @@ def master_page_checks() -> None:
             page = serve_dashboard_page(env)
             check("This version was not written by this editor" not in page_text(page),
                   "once saved in the editor's layout the page no longer says it was not")
+            # An import as big as the upload allows, which no CV could be.
+            (tmp / "cv-20261113-080000.md").write_text(
+                "Luke Keogh\n" + "A line.\n" * (cv_doc.RAW_LINES_MAX + 10), encoding="utf-8")
+            (tmp / "cv.active").write_text("cv-20261113-080000.md\n", encoding="utf-8")
+            start = time.time()
+            page = serve_dashboard_page(env)
+            took = time.time() - start
+            check("The master CV could not be read." in page_text(page)
+                  and f"no CV needs more than {cv_doc.RAW_LINES_MAX:,}" in page_text(page)
+                  and 'id="cv-editor"' not in page and took < 5,
+                  "a master too big for any CV is refused before it is read, and the page "
+                  f"says why instead of laying it out ({took:.2f} s)")
     finally:
         cv_store.PROFILE_DIR = saved_dir
         score_item.PROFILE_DIR = saved_dir
@@ -2930,6 +3012,7 @@ function world(html) {
            setConfirm(v) { confirmAnswer = v; },
            click(el) { return fire(el, 'click'); },
            answer(value) { pending.shift().resolve({ json: () => Promise.resolve(value) }); },
+           answerAt(i, value) { pending.splice(i, 1)[0].resolve({ json: () => Promise.resolve(value) }); },
            fail() { pending.shift().reject(new Error('network')); },
            sayText() { const n = document.getElementById('cv-say'); return n ? n.textContent : null; },
            sayBad() { const n = document.getElementById('cv-say'); return n ? n.classList.contains('bad') : null; },
@@ -3046,7 +3129,8 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   halves.value = '';
   w.fire(halves, 'input');
   const num = (p) => { const r = w.q('[data-place="' + p + '"]'); return r ? r.querySelector('.cvl-n').textContent : null; };
-  say(num(data.places.splitNext) === '' && num('s1.e0.l3') === String(data.lines.riskN),
+  say(num(data.places.splitNext) === '' && num('s1.e0.l3') === String(data.lines.riskN)
+      && w.q('[data-place="' + data.places.splitNext + '"]').getAttribute('data-n') === null,
       'a line emptied by typing loses its number at once, and the lines below take theirs back');
   const back = w.fire(halves, 'keydown', { key: 'Backspace' });
   await settle();
@@ -3165,8 +3249,9 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   riskField.value = 'Own the risk file.';
   w.fire(riskField, 'input');
   w.q('#prepare-body').innerHTML = data.answers.rescore.html;
-  say(riskAsk().classList.contains('ask-stale') && riskAsk().querySelector('.ask-status').textContent === '! Stale, was met',
-      'a right side swapped in by the Prepare application script is marked against the copy on screen as well');
+  say(riskAsk().classList.contains('ask-stale') && riskAsk().querySelector('.ask-status').textContent === '! Stale, was met'
+      && !editedNote().hidden,
+      'a right side swapped in by the Prepare application script is marked against the copy on screen as well, and its score card says the copy was edited since');
   riskField.value = 'Own the software risk file under ISO 14971.';
   w.fire(riskField, 'input');
 
@@ -3214,19 +3299,32 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   await settle();
   say(w.calls.length === 0, 'the CV page sends nothing when it opens');
   const masterSave = w.q('[data-cv-act="master"]');
+  const masterLine = w.q('textarea[data-edit="s0.l0"]');
+  const masterWas = masterLine.value;
+  masterLine.value = 'Edited on the CV page.';
+  w.fire(masterLine, 'input');
+  const leaveMaster = w.fire(w.sandbox, 'beforeunload');
   w.click(masterSave);
   await settle();
-  say(w.calls.length === 1 && w.calls[0].url === '/cv/master/save'
-      && body(w, 0).base === data.version && body(w, 0).text === data.texts.masterPage,
-      'its Save as a new version sends the master as text and the version the page was opened on');
+  say(leaveMaster.defaultPrevented && w.calls.length === 1 && w.calls[0].url === '/cv/master/save'
+      && body(w, 0).base === data.version
+      && body(w, 0).text === data.texts.masterPage.replace(masterWas, 'Edited on the CV page.'),
+      'its Save as a new version sends the master as it is on screen, the edit in it, and the version the page was opened on');
   w.answer({ ok: true, saved: true, version: 'cv-new.md' });
   await settle(); await settle();
-  say(w.events.includes('reload'), 'and reloads to show the new version');
+  const leaveSaved = w.fire(w.sandbox, 'beforeunload');
+  say(w.events.includes('reload') && !leaveSaved.defaultPrevented,
+      'and reloads to show the new version, without asking about the edit it has just stored');
 
   w = world(data.pages.differs);
   await settle();
   say(w.calls.length === 0 && /Save CV again/.test(w.q('#cv-download-hint').textContent) && !w.q('#cv-download').hidden,
       'a page whose copy was edited after its save says at once that Download gives the save');
+  w.setConfirm(false);
+  w.click(w.q('[data-cv-act="apply"]'));
+  await settle();
+  say(w.confirms.length === 1 && /not the copy saved as/.test(w.confirms[0]) && w.calls.length === 0,
+      'and Applied there asks first, though nothing was typed, since the copy is not the one saved');
 
   // ----------------------------------------------- the editing buttons
   w = world(data.pages.ops);
@@ -3322,6 +3420,12 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   w.click(rescoreOps);
   await settle();
   say(w.sayText() === data.doing.rescore && !w.sayBad(), 'while Rescore role is out the page says what it is doing, not in red');
+  const opsSent = body(w, w.calls.length - 1).text;
+  say(w.calls[w.calls.length - 1].url === '/prepare/cv/rescore' && opsSent.includes('\nOne\nTwo\n')
+      && !opsSent.includes('## Patents') && !opsSent.includes('Software leader in regulated')
+      && !opsSent.includes('miDiagnostics') && !opsSent.includes('Own the software risk file')
+      && opsSent.includes('- Lead software for a Class C IVD under IEC 62304.\n- Built the software team from nothing.\n'),
+      'Rescore role sends the copy as it is on screen after the editing buttons, every edit in it');
   w.answer({ ok: true, outcome: 'reused', notices: [{ kind: 'info', text: 'Scored before, nothing was spent.' }] });
   await settle(); await settle();
   say(w.sayText() === 'Scored before, nothing was spent.' && !w.sayBad(), 'a press that spent nothing says what the server said');
@@ -3374,11 +3478,31 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   say(goCited.length > 0 && goCited.every((li) => li.getAttribute('data-now') === li.getAttribute('data-cv-n'))
       && w.qa('#prepare-body .ask-stale').length === 0 && w.calls.length === 2,
       'and the asks the Prepare application answer swaps in are marked against the copy on screen, each cited line where it was cited');
+  // As a live click usually goes: the copy at once, the score seconds later.
+  w = world(data.pages.go);
+  await settle();
+  w.answerAt(1, { ok: true, outcome: 'made', copy: data.go.copy, notices: [] });
+  await settle(); await settle();
+  w.answer({ ok: true, outcome: 'scored', html: data.go.html });
+  await settle(); await settle();
+  const lateCited = w.qa('#prepare-body [data-cv-text]');
+  say(lateCited.length > 0 && lateCited.every((li) => li.getAttribute('data-now') === li.getAttribute('data-cv-n')),
+      'and so are they when the score lands after the copy, marked as they are swapped in');
 
   // ------------------------------------- Applied, saved copy on screen
   w = world(data.pages.same);
   await settle();
   w.setConfirm(false);
+  const sameLine = w.q('textarea[data-edit="s0.l0"]');
+  const sameWas = sameLine.value;
+  sameLine.value = sameWas + ' and more';
+  w.fire(sameLine, 'input');
+  const leaveTyped = w.fire(w.sandbox, 'beforeunload');
+  sameLine.value = sameWas;
+  w.fire(sameLine, 'input');
+  const leaveUndone = w.fire(w.sandbox, 'beforeunload');
+  say(leaveTyped.defaultPrevented && !leaveUndone.defaultPrevented && w.q('#cv-download-hint').textContent === '',
+      'an edit typed and undone again is no edit: leaving asks nothing and Download needs no word');
   w.click(w.q('[data-cv-act="apply"]'));
   await settle();
   say(w.confirms.length === 0 && w.calls.length === 1 && w.calls[0].url === '/apply',

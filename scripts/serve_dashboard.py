@@ -810,11 +810,13 @@ def render_cv_page() -> bytes:
     try:
         master_text, _source = score_item.load_cv_text(config)
         problem = None
-    except (SystemExit, OSError) as err:
+        # Read once, and refused before it is read when no CV could be that
+        # size (cv_doc.check_raw), as an import of up to 5 MB could be.
+        doc = cv_doc.load_doc(master_text)
+    except (SystemExit, OSError, cv_doc.CvError) as err:
         master_text, problem = None, str(err)
     if master_text is not None:
-        doc = cv_doc.load_doc(master_text)
-        laid_out = cv_doc.is_canonical(master_text)
+        laid_out = cv_doc.render(doc) == "\n".join(cv_store.cv_lines(master_text)) + "\n"
         editor = cv_page.editor_html(cv_doc.render(doc), {
             "mode": "master", "editable": True, "version": marker})
         when = version_when(active)
