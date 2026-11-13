@@ -519,13 +519,13 @@ def import_text(text) -> dict:
         add({"b": bool(bullet), "t": strip_marks(line) if bullet else line})
     # Last first, so that two empty headings in a row fold into each other and
     # their words are not written twice.
+    # What came before is the open entry, which is the last thing written, or
+    # else a section with no entries, so its lines are the last thing in it.
     for sec, before, words in reversed(made):
         if sec["lines"] or sec["entries"]:
             continue
         if before is None:
             doc["headline"].append(words)
-        elif "entries" in before and before["entries"]:
-            before["entries"][-1]["lines"].append({"b": False, "t": words})
         else:
             before["lines"].append({"b": False, "t": words})
     return normalize(doc)

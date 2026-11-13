@@ -608,6 +608,33 @@ def layout_checks() -> None:
           "an empty heading after a job gives its words back after the job's own lines, "
           "not above the job")
 
+    def sections_of(text):
+        return {s["title"]: s for s in cv_doc.load_doc(text)["sections"]}
+    early = cv_doc.load_doc("Luke Keogh\n# Board roles\n# Experience\n## Job\n- x\n")
+    patents = sections_of("Luke Keogh\n# Experience\n## Job\n- x\n# Patents\n## US 123\n- y\n")
+    check(early["headline"] == ["Board roles"]
+          and [e["heading"] for e in patents["Patents"]["entries"]] == ["US 123"],
+          "an empty heading before any section gives its words to the headline, and a "
+          "section with an entry and no lines of its own keeps its heading")
+    edu = sections_of("Luke Keogh\n# Education\n- BEng\n# Certifications\n- ISO 13485\n")
+    skills = sections_of("Luke Keogh\n# Skills\n- a\n# Skills\n- b\n")
+    check(edu["Education and certifications"]["lines"] == [
+              {"b": True, "t": "BEng"}, {"b": False, "t": "Certifications"},
+              {"b": True, "t": "ISO 13485"}]
+          and skills["Skills"]["lines"] == [{"b": True, "t": "a"}, {"b": True, "t": "b"}],
+          "a usual section named again with no entries keeps the words it was named by "
+          "as a line, unless they are the section's own name")
+    inner_skills = sections_of("Luke Keogh\n# Experience\n## Director\n- a\n### Skills\n- b\n")
+    check([e["heading"] for e in inner_skills["Experience"]["entries"]] == ["Director", "Skills"]
+          and not inner_skills["Skills"]["lines"],
+          "a deeper heading that names a usual section, under an open job, is an entry and "
+          "does not carry the job's lines off to that section")
+    just_after = sections_of("Luke Keogh\n# Experience\nDirector, Axithra\nKey skills:\n- IEC 62304\n")
+    check(just_after["Experience"]["lines"][1] == {"b": False, "t": "Key skills:"}
+          and not just_after["Skills"]["lines"],
+          "a CV whose one heading of its own comes straight after the name is still read "
+          "by its headings")
+
     # And over many: every line of words comes out in the order it went in.
     rng = random.Random(23)
     heads = ["Summary", "Experience", "Skills", "Education", "Certifications", "Profile",
@@ -1556,6 +1583,13 @@ def base_checks() -> None:
                         bad.append(f"{path} {base!r} {status}")
             check(not bad and len(CALLS) == 1,
                   f"a version that is not short text is a 400 and runs nothing ({bad[:3]})")
+            edges = []
+            for base in ("a", "x" * 64):
+                status, got, _h = post(port, "/prepare/cv/save", {"id": oid, "text": mine, "base": base})
+                if not (status == 200 and got.get("outcome") == "copy_moved"):
+                    edges.append(f"{len(base)} {status} {got.get('outcome')}")
+            check(not edges, "a version of one character, or of sixty-four, is taken and "
+                             f"compared ({edges})")
             before = env.dump()
             status, got, _h = post(port, "/prepare/cv/save", {"id": oid, "text": other_tab,
                                                               "base": taken})
@@ -1609,6 +1643,25 @@ def unchanged_checks() -> None:
         check(out["outcome"] == "scored" and len(CALLS) == 3,
               "but a master changed since the role's own score is a copy to score, because "
               "the click does not score a description twice")
+    with fresh() as env:
+        oid = env.role()
+        env.open(oid)
+        real = score_item.load_cv_text
+
+        def unreadable(config):
+            raise OSError("the master file is gone")
+        score_item.load_cv_text = unreadable
+        try:
+            out = env.rescore(oid, COPY_TEXT)
+            reset_out = env.reset_copy(oid)
+        finally:
+            score_item.load_cv_text = real
+        check(out["outcome"] == "scored" and len(CALLS) == 1
+              and reset_out["outcome"] == "no_master"
+              and "The master CV could not be read." in reset_out["notices"][0]["text"]
+              and env.copy(oid)["cv_text"] == COPY_TEXT,
+              "with the master unreadable a copy is still scored on its own text, while "
+              "Start again says the master cannot be read and leaves the copy as it was")
 
 
 def legacy_checks() -> None:
@@ -1837,6 +1890,7 @@ def edge_checks() -> None:
           "its text is now")
     part = cv_doc._name_part
     check(part("a" * 50, 50) == "a" * 50 and part("a" * 51, 50) == "a" * 50
+          and part("a" * 30 + " " + "b" * 19, 50) == "a" * 30 + " " + "b" * 19
           and part("a" * 30 + " " + "b" * 19 + " c", 50) == "a" * 30 + " " + "b" * 19
           and part("a" * 30 + " " + "b" * 20 + " c", 50) == "a" * 30
           and part("a" * 25 + " " + "b" * 40, 50) == "a" * 25 + " " + "b" * 24
@@ -2602,6 +2656,36 @@ def page_checks() -> None:
         check('<span class="ask-was">was missing</span>' in inner
               and "Now met, was missing." in page_text(inner) and "1 ask changed." in page_text(inner),
               "an ask that moved carries what it was, and the score lists what changed")
+        card = page_text(inner[inner.index('id="tailored-score"'):inner.index("The rate line")])
+        rate = page_text(inner[inner.index("The rate line"):inner.index("The asks")])
+        check("Sector Passes." in card and "CV match Passes." in card
+              and "Location Passes." in card and "Rate Passes." in card
+              and "Competitive salary" in rate and "Not read yet" not in rate
+              and "CV lines as numbered in the tailored copy as it was scored" in page_text(inner),
+              "the tailored score shows its own four gates, the pay line read from its "
+              "own working, and says its asks are numbered in the copy it scored")
+        same_asks = cv_doc.accept(edited(better, "Chichester, West Sussex, UK",
+                                         "Chichester, West Sussex, United Kingdom"))[1]
+        env.rescore(oid2, same_asks)
+        check("No ask changed." in page_text(render_inner(env, oid2)),
+              "and a rescore that moves no ask says so")
+        conn = radar_common.get_db(env.db)
+        try:
+            tailored_cv.store_text(conn, env.copy(oid2)["role_ref"],
+                                   same_asks.replace("## Summary\n", "## Summary\nA new first line.\n", 1))
+            conn.commit()
+        finally:
+            conn.close()
+        moved_text = page_text(render_inner(env, oid2))
+        risk_n = cv_store.cv_lines(same_asks).index("- Own the software risk file under ISO 14971.") + 1
+        check(f"CV line {risk_n + 1} ({risk_n} when scored)" in moved_text,
+              "a cited line pushed down by a line added above is shown where it is now, and "
+              "where it was when scored")
+    with fresh() as env:
+        oid = env.role()
+        env.prepare(oid)
+        check(f"CV lines as numbered in {MASTER_LABEL[0]}" in page_text(render_inner(env, oid)),
+              "the master's own asks say which version of the master numbered them")
 
     with fresh() as env:
         # LinkedIn from a repost, and none at all.
