@@ -1359,6 +1359,13 @@ def rescore_guard_checks() -> None:
                   and env.runs()[0]["items_new"] == 0 and "not stored" in env.runs()[0]["note"],
                   f"a role {label} while the model answers keeps what it had: the reply "
                   "is not stored, and its cost is recorded as not stored")
+            said = out["notices"][0]
+            check(("was marked applied while" if label == "applied" else "closed, dismissed")
+                  in said["text"] and not said.get("retry")
+                  and (("applied while scoring" if label == "applied"
+                        else "no longer open while scoring") in env.runs()[0]["note"]),
+                  f"and the page is told the role was {label}, with no Try again under it, "
+                  "and the cost row says so too")
 
 
 # ------------------------------------------------------- the review's fixes
@@ -1560,6 +1567,143 @@ def memo_checks() -> None:
         out = env.rescore(a, COPY_TEXT)
         check(out["outcome"] == "scored" and len(CALLS) == 2,
               "nor the copy by a failure of the master's click")
+
+
+def edge_checks() -> None:
+    """The edges the mutation run found unchecked: the exact caps, a text with
+    no final line feed, the parts of a saved name, which way an ask moved, a
+    stored record that cannot be read, and reuse across the adverts of a role."""
+    def refused(text) -> str:
+        try:
+            cv_doc.accept(text)
+        except cv_doc.CvError as err:
+            return str(err)
+        return ""
+
+    def with_lines(section, items):
+        return cv_doc.render({"name": "L", "headline": [], "sections": [
+            {"title": section, "lines": items, "entries": []}]})
+    most = cv_doc.CV_LINES_MAX - 3   # "# L", the blank line and "## Skills"
+    at = with_lines("Skills", [{"b": True, "t": f"s{i}"} for i in range(most)])
+    over = with_lines("Skills", [{"b": True, "t": f"s{i}"} for i in range(most + 1)])
+    check(len(cv_store.cv_lines(at)) == cv_doc.CV_LINES_MAX and refused(at) == ""
+          and "lines" in refused(over),
+          f"exactly {cv_doc.CV_LINES_MAX} lines is taken, and one more is not")
+    long_ok = with_lines("Summary", [{"b": False, "t": "w" * cv_doc.CV_LINE_MAX}])
+    long_bad = with_lines("Summary", [{"b": False, "t": "w" * (cv_doc.CV_LINE_MAX + 1)}])
+    check(refused(long_ok) == "" and "characters long" in refused(long_bad),
+          f"a line of exactly {cv_doc.CV_LINE_MAX} characters is taken, and one more is not")
+    room = cv_doc.CV_TEXT_MAX - len(with_lines("Summary", [{"b": False, "t": ""}]))
+    lines = [{"b": False, "t": "w" * 999}] * (room // 1000)
+    filler = with_lines("Summary", lines)
+    pad = cv_doc.CV_TEXT_MAX - len(filler) - 1
+    exact = with_lines("Summary", lines + [{"b": False, "t": "w" * pad}])
+    check(len(exact) == cv_doc.CV_TEXT_MAX and refused(exact) == ""
+          and "characters long" in refused(exact.replace("w\n", "ww\n", 1)),
+          f"a CV of exactly {cv_doc.CV_TEXT_MAX:,} characters is taken, and one more is not")
+    check("no CV needs" not in refused("x" * cv_doc.RAW_TEXT_MAX)
+          and "no CV needs" in refused("x" * (cv_doc.RAW_TEXT_MAX + 1)),
+          "a request of exactly the raw cap is read, one character more is not")
+    endings = ["", "a", "a\n", "a\nb", "a\r\nb\r\n", "a\rb", "\n", "\n\n", "a\n\nb"]
+    check(all(cv_doc._lines_of(t) == cv_store.cv_lines(t) for t in endings)
+          and cv_doc._lines_of("a\nb") == ["a", "b"]
+          and cv_doc.load_doc("# L\n\n## Skills\n- x")["sections"][2]["lines"]
+          == [{"b": True, "t": "x"}],
+          "a text with no final line feed keeps its last line, and cv_doc splits "
+          "lines as cv_store does")
+    check(cv_doc._line("plain") == {"b": False, "t": "plain"}
+          and cv_doc._line("- dash") == {"b": True, "t": "dash"}
+          and cv_doc._line({"b": True, "t": "• x"}) == {"b": True, "t": "x"},
+          "a line that is not a dict is a paragraph line unless it starts with a "
+          "bullet mark, and a bullet keeps no mark")
+    check(cv_doc.find_line({"n": 3, "text": "A"}, ["X", "A", "B"]) == 2
+          and cv_doc.find_line({"n": 1, "text": "X"}, ["X", "A", "X"]) == 1
+          and cv_doc.find_line({"n": 3, "text": "X"}, ["X", "A", "X"]) == 3,
+          "a cited line is checked at its own number first, and else found where "
+          "its text is now")
+    part = cv_doc._name_part
+    check(part("a" * 50, 50) == "a" * 50 and part("a" * 51, 50) == "a" * 50
+          and part("a" * 30 + " " + "b" * 19 + " c", 50) == "a" * 30 + " " + "b" * 19
+          and part("a" * 30 + " " + "b" * 20 + " c", 50) == "a" * 30
+          and part("a" * 25 + " " + "b" * 40, 50) == "a" * 25 + " " + "b" * 24
+          and part("a" * 26 + " " + "b" * 40, 50) == "a" * 26,
+          "a part of a name is cut on the last word that fits, unless that would "
+          "keep less than half of it")
+    company = "C" * cv_doc.COMPANY_PART_MAX
+    title = "T" * cv_doc.TITLE_PART_MAX
+    full = cv_doc.saved_name(company, title)
+    check(full == f"CV - Luke Keogh - {company} - {title}" and len(full) == cv_doc.NAME_MAX
+          and cv_doc.saved_name(company + "C", title + "T") == full,
+          f"a company of {cv_doc.COMPANY_PART_MAX} and a title of "
+          f"{cv_doc.TITLE_PART_MAX} characters fit whole, {cv_doc.NAME_MAX} in all, "
+          "and longer ones are cut to them")
+    word = cv_doc.change_word
+    check([word({"from": a, "to": b}) for a, b in (
+        ("missing", "partly"), ("partly", "met"), ("missing", "met"),
+        ("met", "partly"), ("partly", "missing"), ("met", "missing"))]
+          == ["better"] * 3 + ["worse"] * 3,
+          "every step up from missing to partly to met is better, and every step "
+          "down is worse")
+
+    # Records that cannot be read are no record.
+    good = {"v": 1, "working": {"asks": []}}
+    check(tailored_cv.read_score({"score": json.dumps(good)}) == good
+          and tailored_cv.read_score({"score": json.dumps({**good, "v": 2})}) is None
+          and tailored_cv.read_score({"score": json.dumps({"v": 1, "working": {}})}) is None
+          and tailored_cv.read_score({"score": "not json"}) is None
+          and tailored_cv.read_score({"score": "[1]"}) is None,
+          "a stored tailored score of another version, with no asks, or not JSON, is "
+          "read as none")
+    working = json.dumps({"asks": [], "scored_at": "2026-11-12T10:00:00Z"})
+    spec = {"score_basis": SPEC, "score_working": working, "scored_at": "2026-11-12T10:00:00Z"}
+    check(tailored_cv.master_working(spec) == json.loads(working)
+          and tailored_cv.master_working({**spec, "score_basis": "card"}) is None
+          and tailored_cv.master_working({**spec, "scored_at": "2026-11-12T11:00:00Z"}) is None
+          and tailored_cv.master_working({**spec, "score_working": json.dumps({"asks": 1,
+              "scored_at": "2026-11-12T10:00:00Z"})}) is None,
+          "the master's working is read only beside the spec score it was made with")
+
+    with fresh() as env:
+        a = env.role()
+        b = env.role()
+        env.open(a)
+        first = env.copy(a)
+        check(first["created_at"] and first["updated_at"] == first["created_at"],
+              "a copy is made with its dates")
+        env.rescore(a, COPY_TEXT)
+        scored = tailored_cv.read_score(env.copy(a))
+        check(env.copy(a)["updated_at"] is not None, "and storing a text dates it")
+        other = edited(COPY_TEXT, "Built the software team", "Built and led the team")
+        env.rescore(a, other)
+        out = env.rescore(b, COPY_TEXT)
+        again = tailored_cv.read_score(env.copy(b))
+        same = ("cv_match", "tier", "gates", "failed_gates", "working", "one_line_why",
+                "prompt_version", "score_model", "scored_at")
+        check(out["outcome"] == "reused" and len(CALLS) == 2
+              and all(again[k] == scored[k] for k in same),
+              "a copy put back, from another advert of the role, finds its score in the "
+              "history, with the same match, tier, gates and working, and nothing is spent")
+        env.reset_copy(a)
+        check(env.copy(a)["updated_at"] is not None, "and Start again dates it too")
+        lone = env.role(title="", company="")
+        env.open(lone)
+        env.rescore(lone, COPY_TEXT)
+        env.rescore(lone, other)
+        out = env.rescore(lone, COPY_TEXT)
+        check(out["outcome"] == "reused" and len(CALLS) == 4,
+              "and so does the copy of a row with no role key, from its own history")
+        unscored = env.role(title="Unscored", company="Kappa", tier=None, cv_match=None)
+        tiered = env.role(title="Tier only", company="Lambda", cv_match=None)
+        env.open(unscored)
+        env.open(tiered)
+        env.rescore(unscored, COPY_TEXT)
+        env.rescore(tiered, COPY_TEXT)
+        before = tailored_cv.read_score(env.copy(tiered))["before"]
+        check(tailored_cv.read_score(env.copy(unscored))["before"] is None
+              and before["source"] == "master" and before["tier"] == "top"
+              and before["cv_match"] is None,
+              "a role with no score at all has nothing before, and one with a tier "
+              "has it as before")
 
 
 def history_checks() -> None:
@@ -1911,6 +2055,42 @@ def route_checks() -> None:
             status, got, _h = post(port, "/prepare/cv/open", {"id": 99999})
             check(status == 409 and "no opportunity 99999" in got.get("note", ""),
                   "a role that does not exist is a 409 that says so")
+            edges = []
+            for value, want in ((2 ** 63 - 1, 409), (-2 ** 63, 409), (2 ** 63, 400),
+                                (-2 ** 63 - 1, 400)):
+                status, got, _h = post(port, "/prepare/cv/reset", {"id": value})
+                if status != want:
+                    edges.append(f"{value} {status}")
+            check(not edges, f"an id SQLite can hold is looked for, and one past either "
+                             f"end is a 400 ({edges})")
+            status, got, page = call(port, "GET", f"/prepare/{oid}", headers={"Host": own})
+            check(status == 200 and b'id="cv-editor"' in page
+                  and got.get("content-type", "").startswith("text/html"),
+                  "the Prepare page itself is still the page, not a download")
+            import cv_word as _cw
+            saved_build = _cw.build
+
+            def broken_build(text, title=""):
+                raise ValueError("a template part is missing")
+            _cw.build = broken_build
+            try:
+                status, _got, data = call(port, "GET", f"/prepare/{oid}/cv.docx", headers={"Host": own})
+            finally:
+                _cw.build = saved_build
+            check(status == 500 and b"could not be made" in data and b"ValueError" in data,
+                  "a Word file that cannot be built is a 500 that says why")
+            saved_action = serve_dashboard.COPY_ACTIONS["save"]
+
+            def locked(*_a, **_k):
+                raise sqlite3.OperationalError("database is locked")
+            serve_dashboard.COPY_ACTIONS["save"] = locked
+            try:
+                status, got, _h = post(port, "/prepare/cv/save", {"id": oid, "text": MASTER_TEXT})
+            finally:
+                serve_dashboard.COPY_ACTIONS["save"] = saved_action
+            check(status == 409 and got.get("ok") is False
+                  and "database busy" in got.get("note", ""),
+                  "a database that stays locked is a polite refusal, as on the other routes")
 
             # The download. The copy is edited past its save first, so that the
             # file can only be the saved copy if it reads as the saved copy.
@@ -2133,6 +2313,26 @@ def page_checks() -> None:
         data = pane_data(page)
         check(not data["needsCopy"] and data["lines"] == lines,
               "with a copy, the page shows the copy and asks for nothing")
+        left = page[page.index('id="cv-pane"'):page.index('id="prepare-body"')]
+        check(f"Made from the master CV {MASTER_LABEL[0]}" in page_text(left)
+              and data["hash"] == cv_store.cv_hash(COPY_TEXT) and data["saved"] is None,
+              "and says which master it was made from, and hands its script the "
+              "version of the copy it shows")
+        env.save(oid, MASTER_TEXT)
+        conn = radar_common.get_db(env.db)
+        try:
+            tailored_cv.store_text(conn, env.copy(oid)["role_ref"], COPY_TEXT)
+            conn.commit()
+        finally:
+            conn.close()
+        data = pane_data(render_page(env, oid))
+        check(data["lines"] == lines and data["saved"]["same"] is False
+              and data["saved"]["name"] == "CV - Luke Keogh - Veltrix Diagnostics - Head of Software",
+              "an open role shows the copy as it is now, not the copy saved before, and "
+              "tells its script the two differ")
+        env.save(oid, COPY_TEXT)
+        check(pane_data(render_page(env, oid))["saved"]["same"] is True,
+              "and that they are the same once it is saved again")
 
         # The copy edited since the score.
         risk = "- Own the software risk file under ISO 14971."
@@ -3102,7 +3302,8 @@ def main() -> int:
     for section in (migration_checks, layout_checks, agreement_checks,
                     scorer_checks, copy_checks, master_untouched_checks, copy_busy_checks,
                     rescore_checks, rescore_guard_checks, gate_checks, base_checks,
-                    unchanged_checks, click_lock_checks, memo_checks, history_checks,
+                    unchanged_checks, click_lock_checks, memo_checks, edge_checks,
+                    history_checks,
                     stale_checks, word_checks, route_checks, applied_checks,
                     page_checks, master_page_checks, editor_script_checks,
                     static_checks, box_query_checks, docs_checks):
