@@ -234,13 +234,95 @@ def _mock_rate_quote(description: str) -> str:
     return words.group(0) if words else ""
 
 
+# A line of the fixture CV. A quote of it is the scorer quoting the CV instead
+# of the advert, which no advert holds, so code must drop it.
+CV_QUOTE = "oversaw FDA clearance for a Class B IVD"
+
+
+def _many_reasons(quote: str) -> list[dict]:
+    """Six reasons, two more than the cap, for RADAR-REASONS-MANY."""
+    return [{"reason": f"Reason number {n} of six", "quote": quote}
+            for n in range(1, 7)]
+
+
+def _mock_card_reasons(opp: dict):
+    """The reasons a card's reply gives, from the card it was given.
+
+    Every kind of quote code has to judge is in the one default reply: the
+    title as written (kept), a malformed entry (left out and counted), the
+    location in other case and spacing (kept, as the card writes it), a line
+    of the CV (not on the card, dropped) and a quote of more than 25 words
+    (dropped). A marker in the title or the company gives the odd replies:
+    RADAR-REASONS-NONE forgets the field, RADAR-REASONS-BAD sends a string in
+    place of the list, RADAR-REASONS-MANY sends six.
+    """
+    title = str(opp.get("title") or "")
+    location = str(opp.get("location") or "")
+    marker = f"{title} {opp.get('company') or ''}"
+    if "RADAR-REASONS-NONE" in marker:
+        return None
+    if "RADAR-REASONS-BAD" in marker:
+        return "the sector passes and so does the rate"
+    if "RADAR-REASONS-MANY" in marker:
+        return _many_reasons(title)
+    reasons: list = []
+    if title:
+        reasons.append({"reason": "The title is the role as the card names it",
+                        "quote": title})
+    reasons.append(42)
+    if location:
+        reasons.append({"reason": "The location is what the location gate read",
+                        "quote": "  ".join(location.upper().split())})
+    reasons.append({"reason": "The CV evidences the regulated work",
+                    "quote": CV_QUOTE})
+    reasons.append({"reason": "A quote far longer than a quote may be",
+                    "quote": " ".join(["advert"] * 26)})
+    return reasons
+
+
+def _mock_spec_reasons(description: str):
+    """The reasons a full description's reply gives, from the description.
+
+    The same kinds as a card's, held to the description: the first ask as
+    written (kept), the next one in other case and spacing (kept, as the
+    description writes it), an entry with no reason (left out and counted), a
+    line of the CV (not in the description, dropped), and the description's
+    own first thirty words (in it, and dropped for being over 25 words). The
+    same three markers, in the description, give the odd replies.
+    """
+    text = description or ""
+    if "RADAR-REASONS-NONE" in text:
+        return None
+    if "RADAR-REASONS-BAD" in text:
+        return {"reason": "a reason that is not in a list"}
+    words = text.split()
+    bullets = [m.group(1) for m in (_ASK_BULLET.match(line)
+                                    for line in text.splitlines()) if m]
+    first = bullets[0] if bullets else " ".join(words[:8])
+    if "RADAR-REASONS-MANY" in text:
+        return _many_reasons(first)
+    second = bullets[1] if len(bullets) > 1 else first
+    long_quote = (" ".join(words[:30]) if len(words) > 25
+                  else " ".join(["advert"] * 26))
+    return [
+        {"reason": "The first ask is the heart of the role", "quote": first},
+        {"reason": "The second ask is close behind",
+         "quote": "  ".join(second.upper().split())},
+        {"quote": "an entry that gives no reason"},
+        {"reason": "The CV evidences the regulated work", "quote": CV_QUOTE},
+        {"reason": "The opening runs on too long to quote", "quote": long_quote},
+    ]
+
+
 def mock_scorer(user_content: str) -> str:
     """Deterministic four-gate scoring. No model, no network, no guessing.
 
     Fixtures cover all four tiers on purpose, because a tiering change that
     only ever sees one shape is untested. An opportunity that carries
     "basis": "spec" is a full description, and the reply then also holds the
-    asks and the pay quote, the way the prompt demands for one.
+    asks and the pay quote, the way the prompt demands for one. Every reply
+    carries reasons with quotes, of the card or of the description, among
+    them every kind of quote code has to keep or drop.
     """
     import json as _json
     opp = _payload(user_content)
@@ -319,8 +401,15 @@ def mock_scorer(user_content: str) -> str:
         "question_text": "", "suggested_action": "Read it and decide.",
         "act_by": "",
     }
+    card_reasons = _mock_card_reasons(opp)
+    if card_reasons is not None:
+        reply["reasons"] = card_reasons
     if opp.get("basis") == "spec":
         description = str(opp.get("description") or "")
+        spec_reasons = _mock_spec_reasons(description)
+        reply.pop("reasons", None)
+        if spec_reasons is not None:
+            reply["reasons"] = spec_reasons
         # The advert settles what the card guessed: a medtech word in the
         # description makes the sector pass, as the real model would read it.
         if MEDTECH.search(description):

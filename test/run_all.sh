@@ -87,6 +87,7 @@ run_one "applied roles    (test/run_applied_test.py)" "test/run_applied_test.py"
 run_one "prepare          (test/run_prepare_test.py)" "test/run_prepare_test.py"
 run_one "cv page          (test/run_cv_test.py)" "test/run_cv_test.py"
 run_one "ops faults       (test/run_ops_test.py)" "test/run_ops_test.py"
+run_one "scorer quotes    (test/run_quotes_test.py)" "test/run_quotes_test.py"
 
 echo
 echo "=========================================================================="

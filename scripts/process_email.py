@@ -273,6 +273,16 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
     # honest answer, and the page reads a missing tier as needs review.
     stored_company = scored["company"] or opp.get("company", "")
     stored_title = scored["role_title"] or opp.get("title", "")
+    stored_location = scored["location"] or opp.get("location", "")
+    # The quotes of the reasons were held to the card the scorer was given,
+    # and the row stores the title, company and location as its reply named
+    # them, which can differ. A quote stays only where the words this row
+    # stores hold it as well, so every quote kept is in the stored text.
+    reasons = score_item.hold_reasons(
+        scored.get("score_reasons"),
+        [str(value or "") for value in (stored_title, stored_company,
+                                        stored_location,
+                                        opp.get("salary_rate", ""))])
     cur = conn.execute(
         "INSERT OR IGNORE INTO opportunities"
         " (url_hash, first_seen, last_seen, source, company, title, location, salary_rate,"
@@ -282,12 +292,12 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
         "  cv_version, buying_window, company_id, region, role_key,"
         "  gate_sector, gate_sector_note, gate_cv, gate_cv_note, gate_location, gate_location_note, gate_rate, gate_rate_note, tier, failed_gates, question_text, filter_reason, rate_stated, rate_value, rate_basis, ir35, location_class,"
         "  engagement_type, engagement_note,"
-        "  score_basis, prompt_version, score_model, scored_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "  score_basis, prompt_version, score_model, scored_at, score_reasons)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (h, now, now, source,
          stored_company,
          stored_title,
-         scored["location"] or opp.get("location", ""),
+         stored_location,
          opp.get("salary_rate", ""),
          scored["source_url"] or opp.get("source_url", ""),
          scored["thread_type"],
@@ -302,7 +312,10 @@ def insert_opportunity(conn, h: str, now: str, source: str, opp: dict,
          scored.get("gate_sector"), scored.get("gate_sector_note"), scored.get("gate_cv"), scored.get("gate_cv_note"), scored.get("gate_location"), scored.get("gate_location_note"), scored.get("gate_rate"), scored.get("gate_rate_note"), scored.get("tier"), scored.get("failed_gates"), scored.get("question_text"), scored.get("filter_reason"), scored.get("rate_stated"), scored.get("rate_value"), scored.get("rate_basis"), scored.get("ir35"), scored.get("location_class"),
          scored.get("engagement_type"), scored.get("engagement_note"),
          scored.get("score_basis"), scored.get("prompt_version"),
-         scored.get("score_model"), scored.get("scored_at")))
+         scored.get("score_model"), scored.get("scored_at"),
+         # The reasons the score gave, with their quotes held to this card
+         # and to the words this row stores of it.
+         reasons))
     if not cur.rowcount:
         return None
     # The advert and its score matter more than the history row, and one

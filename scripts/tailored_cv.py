@@ -268,6 +268,10 @@ def _record_from_scored(scored: dict, working: dict) -> dict:
         "one_line_why": scored.get("one_line_why"),
         "question_text": scored.get("question_text"),
         "working": working,
+        # The reasons the copy's score gave, quotes held to the description,
+        # as the record radar_common.reasons_record reads.
+        "reasons": rc.reasons_record(scored.get("score_reasons"),
+                                     scored.get("scored_at")),
     }
 
 
@@ -295,6 +299,8 @@ def _record_from_history(found: dict) -> dict:
         "one_line_why": found.get("one_line_why"),
         "question_text": None,
         "working": working if isinstance(working, dict) else {"asks": []},
+        # None for a tailored score kept before the reasons were.
+        "reasons": rc.reasons_record(found.get("reasons"), found.get("scored_at")),
     }
 
 
@@ -344,8 +350,9 @@ def make_record(row, fields: dict, description_hash: str, cv_hash: str,
 
 
 def history_state(record: dict) -> dict:
-    """The twelve fields the history keeps, for a tailored score."""
+    """The thirteen fields the history keeps, for a tailored score."""
     gates = record.get("gates") or {}
+    reasons = record.get("reasons")
     return {
         "scored_at": record.get("scored_at"),
         "score_basis": rc.SCORE_BASIS_SPEC,
@@ -359,6 +366,8 @@ def history_state(record: dict) -> dict:
         "one_line_why": record.get("one_line_why"),
         "description_hash": record.get("description_hash"),
         "working": json.dumps(record.get("working"), ensure_ascii=False),
+        "reasons": (json.dumps(reasons, ensure_ascii=False)
+                    if reasons is not None else None),
     }
 
 

@@ -308,8 +308,12 @@ state when it is replaced. A re-tier by code changes the tier and the rate gate
 and leaves the date, prompt version and model of the model's answer where they
 were, because the answer is unchanged. A score the newest history row already
 holds is not kept twice, and a dry run writes nothing. The history keeps those
-ten fields, and for a score made on a full description the hash of that
-description and the per-ask working, and no more. The gate notes, red flags, suggested action and the
+ten fields, for a score made on a full description the hash of that
+description and the per-ask working, and for any score made since the quoted
+reasons (below) its reasons, thirteen fields in all, and no more. A re-tier
+by code keeps the reasons where they are, with the date of the answer they
+came with and the gates they were given beside, so a page that shows them
+under gates judged again since says so. The gate notes, red flags, suggested action and the
 rate and engagement columns are overwritten without a copy, and so is the
 employment type the page checker reads off a page.
 
@@ -539,11 +543,15 @@ find the line again and tell whether the CV has changed. A reply with no list of
 asks is not a score. The code does not recompute the CV match from the asks, it
 reports the asks that are unevidenced.
 
-The ceiling. `MAX_TOKENS` is still 1,024 for the extractor and for a card, whose
-replies run 160 to 360 tokens. A full description's call uses `SPEC_MAX_TOKENS`,
-4,096. The largest reply the prompt allows is 8,220 characters, about 2,050 tokens
-at four characters a token and 2,740 at a pessimistic three, so the ceiling is
-between one and a half and two times that. What is billed is what the model
+The ceiling. `MAX_TOKENS` is still 1,024 for the extractor, and for the pay
+backfill, which passes no ceiling of its own. A card had it too
+until the quoted reasons gave a card's score `CARD_MAX_TOKENS`, 2,048, see
+"Quoted reasons" below. A full description's call uses `SPEC_MAX_TOKENS`, 6,144.
+The largest reply the prompt allows is 9,961 characters, 8,220 of them before
+the reasons, about 2,490 tokens at four characters a token and 3,320 at a
+pessimistic three, so the ceiling is a little under twice the pessimistic count;
+4,096 held the reply before the reasons with that count under three quarters of
+it, and does not hold the one with them. What is billed is what the model
 writes, about 540 tokens more than a card for a typical twelve asks, and a reply
 that ran out of the ceiling is thrown away after being paid for, so the margin is
 the cheap part. `test/run_prepare_test.py` builds the largest reply and holds the
@@ -552,7 +560,9 @@ ceiling to it.
 The pay. The scorer is asked for the shortest stretch of the description that
 states pay. The code shows it only if it is found in the description, without
 regard to case and with white space folded, and what is shown is the advert's own
-characters. A quote that is not found is replaced by the page checker's own
+characters (`radar_common.find_verbatim`, the rule the quote of every reason is
+held to as well, which for a reason also asks that the quote begin and end on
+the edges of words; the pay quote is found as it was). A quote that is not found is replaced by the page checker's own
 reader, labelled as found by pattern, and where that finds nothing either the page
 says the scorer reported pay the advert cannot be made to show. A reply that names
 none is believed only if the pattern reader finds nothing either, and then the page
@@ -802,6 +812,107 @@ Open the database by hand between inbox runs, as Brief 3's deploy does, before
 column stay and old code ignores them, though old code's Re-score stale items
 would again reach spec rows. `test/run_cv_test.py` checks all of it, and
 `docs/box-checks-brief-4.md` holds the deploy.
+
+## Quoted reasons
+
+Every score now carries up to four reasons, each with the words of the advert it
+rests on. `prompts/scorer.md` asks for them in the card's part of the rubric, so
+a card and a full description are both asked: `reasons`, a list of up to four,
+each a reason of one plain line of 20 words or fewer and a quote of 25 words or
+fewer, copied character for character from the advert and never from the CV or
+the preferences file. The reasons come beside the gate results, and the voice
+rules apply to each reason and never to its quote. Below the marker, a full
+description's quotes come from the description and never from the card fields
+beside it. Nothing else the prompt asks for changed, and its version moved from
+`97f11cce` to `22353628`.
+
+The code holds every quote to the text that was scored, by the rule the pay line
+uses, `radar_common.find_verbatim`: a quote is kept only where it is found word
+for word, with case ignored and every run of white space on either side counted
+as one space, and what is kept is that text's own characters, so a page shows
+the advert's words and never the model's. A reason's quote must also begin and
+end on the edges of words (`whole_words`), so a word or a figure cut short is
+not kept: "£65" is not found in "£650 per day", nor "Senior Software Engineer"
+in "Senior Software Engineering Manager". On a card the text is the four fields
+the scorer was given (`score_item.quote_sources`), the title, company, location
+and pay text, each searched on its own, so a quote cannot run from one field
+into the next. The inbox stores the title, company and location as the scorer's
+reply named them, which can differ from the card, so it holds each quote kept
+from the card again to the four fields the row stores, and a quote stays only
+where both hold it (`score_item.hold_reasons`). On a re-score the four fields
+sent are the row's own. On a full description the text is the stored
+description, `description_text`, the one the score is made on. A quote that is
+empty or has no letter or digit in it, is not text, has more than 25 words or is
+not found is dropped, its reason is kept, and `quote_dropped` on the reason says
+which (`empty`, `not_text`, `too_long`, `not_found`). At most four reasons are
+kept, each run through the voice rules and cut at 240 characters. A reason given
+as a bare string is kept with no quote, anything else in the list is left out
+and counted, and a reasons field that is not a list keeps none and counts one.
+No shape of reply makes the check raise, and should it ever, the score keeps no
+reasons: reasons never cost a score (`score_item.normalise_reasons` and
+`reasons_json`). A lone surrogate, which a reply can carry as a JSON escape and
+SQLite cannot store, becomes the replacement character in every free-text field,
+the reasons among them (`radar_common.sanitise_free_text`), so it never costs
+the advert it came with.
+
+What is stored. The JSON `{"v": 1, "scored_at", "basis", "reasons": [{"reason",
+"quote", "quote_dropped"}], "dropped", "gates"}` goes in
+`opportunities.score_reasons`, written in the statement that writes the score it
+belongs to, by the inbox
+(`process_email.insert_opportunity`), the re-score (`rescore.py`, every pass)
+and the Prepare application click, and in `score_history.reasons` with every
+score the history keeps, so the history keeps thirteen fields of a score. A
+tailored copy's score keeps its reasons in its record on `tailored_cvs.score`
+and on its `tailored` history row, and a score found again in the history keeps
+them too. The reasons carry the date of their score, and a page shows them, and
+`archive_score` files them, only beside a score of that date
+(`radar_common.reasons_record`), so a writer that replaces a score and knows
+nothing of them, old code after a rollback among them, cannot leave old reasons
+looking current. Both columns are nullable with no default and arrive through
+`_MIGRATIONS`. Nothing fills them for a score already made: no migration writes
+them and nothing is re-scored to give a score reasons, so every row and history
+row from before stays NULL and shows none. A re-tier by code, the regate or the
+page checker's, keeps the reasons where they are, because the answer they came
+with is unchanged. Their record carries the four gates of the score they were
+given with, so where code has judged the gates again since, the Jobs row and the
+Prepare application page show the reasons with one line that says so
+(`radar_common.reasons_gates_moved`), and the history files them with those
+gates inside them.
+
+The ceilings. A card's reply had the extractor's 1,024 tokens. The worst card
+reply the prompt now allows is 3,583 characters, the gates and notes at the
+lengths the full description's count uses (1,842) and four reasons of 20 words
+with quotes of 25 (1,741), about 900 tokens at four characters a token and 1,194
+at three, which is over 1,024. So a card's score has its own `CARD_MAX_TOKENS`,
+2,048, where the pessimistic count is 58 per cent of the ceiling, and the
+extractor and the pay backfill keep 1,024. A full description's ceiling is
+6,144, see Prepare application. `docs/cost-note.md` prices the reasons: about
+180 output tokens for four typical reasons and 160 to 190 tokens of prompt,
+about 0.3 cents a score on either path.
+
+Where they show. The expanded Jobs row lists the reasons under its gates, and the
+Prepare application page under the master CV's score and under the tailored
+copy's: each reason as a sentence with its quote after it in quotation marks,
+everything escaped, as plain text for now. A reason whose quote was dropped is
+its words alone, and nothing more is said about it. A full description score's
+quotes are not drawn once the page checker has stored another description, which
+may not hold them, as the asks and the pay line are not; the reasons are, with
+one line that says why (`build_dashboard.quotes_hold`). No other page draws them.
+
+This is a fourth first-open event, after Briefs 2, 3 and 4: the first open of a
+database without the two columns adds them, which takes the write lock for a
+moment. Open the database by hand between inbox runs, before `docker restart
+medtech-radar`, as the earlier deploys do. n8n reads the new prompt and scripts
+on its next run. The prompt is read from disk each time a scorer is set up, and
+code already loaded keeps running, so between the pull and the restart the
+dashboard, and an inbox run already under way, would score with the new prompt
+and old code: such a score is stamped `22353628` and stores no reasons, and a
+full description scored that way is not scored again. So the pull waits for
+nothing to be running, the pull, the open and the restart run back to back, and
+no Prepare application or Rescore role is pressed until the restart is done.
+Rolling back is code only; the columns and every reason stay and old code
+ignores them. `test/run_quotes_test.py` checks all of it, and
+`docs/box-checks-scorer-quotes.md` holds the deploy.
 
 ## The renderer, and the one page to trust
 

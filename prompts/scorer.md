@@ -76,6 +76,17 @@ advert says none of these, return unknown and an empty note.
 Return gate results only. The tier is derived in code from your gates, not by you,
 so do not name one.
 
+## The reasons
+
+Return up to four reasons, the facts in the advert that most decided the
+gates, the most decisive first. Each reason is one plain line of 20 words or
+fewer. Each rests on words in the advert, and its quote is those words, copied
+character for character, 25 words or fewer. Quote the advert only, never the CV
+text or the preferences file, and do not add words to a quote, shorten inside it
+or correct it. The reasons come beside the gate results. The voice rules below
+apply to each reason and never to its quote, and a reason may give a fact that a
+gate note also gives.
+
 ## Voice
 
 Notes are one plain line each, British English, dry. No em dashes, no semicolons,
@@ -93,7 +104,8 @@ commentary.
  "gate_rate": true, "gate_rate_note": "", "rate_stated": true,
  "rate_value": null, "rate_basis": "", "ir35": "",
  "engagement_type": "", "engagement_note": "",
- "one_line_why": "", "question_text": "", "suggested_action": "", "act_by": ""}
+ "one_line_why": "", "question_text": "", "suggested_action": "", "act_by": "",
+ "reasons": [{"reason": "", "quote": ""}]}
 <!-- full description. Everything from this line down is sent to the model only when the advert is the full description, and is left out when a card is scored. The version of this file is the hash of both parts. -->
 
 ## When the advert is the full description
@@ -146,6 +158,11 @@ words such as competitive or negotiable. If the description says nothing about
 pay, rate_quote is an empty string. Do not add words to it, shorten inside it or
 convert it into another period. A bonus or an on target earnings figure is not
 the pay unless the advert gives no other.
+
+### The reasons
+
+The reasons are as above, and each quote is copied from the description, never
+from the card fields beside it.
 
 ### The shape for a full description
 

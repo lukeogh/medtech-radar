@@ -111,15 +111,18 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
         # The score being replaced goes to the history first, in the same
         # transaction, then the new one is written and recorded too.
         radar_common.archive_score(conn, row["id"], "rescore")
+        # The reasons go with the new score, their quotes held to the card it
+        # was made on, so the reasons of the score it replaces never stay.
         conn.execute(
             "UPDATE opportunities SET cv_match = ?, one_line_why = ?,"
             " red_flags = ?, suggested_action = ?, act_by = ?, thread_type = ?,"
-            " notes = NULL, cv_version = ?, "
+            " notes = NULL, cv_version = ?, score_reasons = ?, "
             + ", ".join(f"{c} = ?" for c in gate_cols + record_cols)
             + " WHERE id = ?",
             (scored["cv_match"], scored["one_line_why"],
              json.dumps(scored["red_flags"]), scored["suggested_action"],
-             scored["act_by"], scored["thread_type"], cv_version)
+             scored["act_by"], scored["thread_type"], cv_version,
+             scored.get("score_reasons"))
             + tuple(scored.get(c) for c in gate_cols + record_cols)
             + (row["id"],))
         radar_common.record_score(conn, row["id"], "rescore")

@@ -3881,8 +3881,10 @@ def static_checks() -> None:
     flows = [p.name for p in sorted((REPO_ROOT / "workflows").glob("*.json"))
              if re.search(r"/prepare/cv|/cv/master|tailored|cv_doc|cv_word", p.read_text(encoding="utf-8"))]
     check(not flows, f"no n8n workflow runs any of it or posts to it ({flows})")
-    check(radar_common.prompt_version() == "97f11cce",
-          "the scorer prompt is the one Brief 3 left, 97f11cce: nothing in it changed")
+    check(radar_common.prompt_version() == "22353628",
+          "the scorer prompt is the one the quoted reasons left, 22353628: the CV "
+          "page changed nothing in it, and only the reasons changed it since "
+          "Brief 3's 97f11cce")
     serve = (REPO_ROOT / "scripts" / "serve_dashboard.py").read_text(encoding="utf-8")
     stree = ast.parse(serve)
     do_get = next(n for n in ast.walk(stree) if isinstance(n, ast.FunctionDef) and n.name == "do_GET")

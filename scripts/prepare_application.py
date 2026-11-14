@@ -17,8 +17,10 @@ POST /prepare, and this is what that does for an open role:
    score is stamped spec, with the prompt version and the model, the old score
    goes to score_history first, and the new one is recorded there too. The
    scorer returns each ask the advert makes as met, partly or missing, with the
-   CV lines that evidence it, and the page shows them. If the tier moved, the
-   move is recorded in the history and reported, and nothing is dismissed.
+   CV lines that evidence it, and up to four reasons, each quote kept only where
+   it is found word for word in the stored description, and the page shows
+   them. If the tier moved, the move is recorded in the history and reported,
+   and nothing is dismissed.
 
 What stops one click being paid for twice. A role has one lock in this process,
 so a second click on it waits for the first, and then finds the score stored
@@ -314,7 +316,7 @@ _PLAUSIBLE = {"day": (100, 5_000), "hour": (8, 500), "year": (10_000, 1_000_000)
 
 
 def _flat(text: str) -> str:
-    return re.sub(r"\s+", " ", text or "").strip()
+    return rc.flat_text(text)
 
 
 def _plausible(pay: dict) -> bool:
@@ -360,9 +362,14 @@ def rate_line(description: str, model_quote: str | None) -> dict:
     shown unless that stretch is found in the description, which makes the
     quote the advert's own words: what is returned is the description's
     characters, found without regard to case and with runs of white space
-    folded, from model. A quote that is not in the description, or is not
-    short, is not shown, and the pattern reader takes a turn over the
-    description instead, from pattern, which is word for word by construction.
+    folded, from model. The finding is radar_common.find_verbatim, the one
+    rule the quote of every reason a score gives is held to as well
+    (score_item.normalise_reasons), which for a reason also asks that the
+    quote begin and end on the edges of words; the pay line does not ask it,
+    and is found as it was before the reasons. A quote that is not in the
+    description, or is not short, is not shown, and the pattern reader takes a
+    turn over the description instead, from pattern, which is word for word by
+    construction.
     Where that finds nothing either, the model said there was pay and the
     advert cannot be made to show it, from unverified.
 
@@ -382,9 +389,9 @@ def rate_line(description: str, model_quote: str | None) -> dict:
             return {"quote": candidate, "from": "disagrees"}
         return {"quote": None, "from": "none"}
     if len(quote) <= RATE_QUOTE_MAX:
-        found = re.search(re.escape(quote), flat, re.IGNORECASE)
+        found = rc.find_verbatim(quote, flat)
         if found:
-            return {"quote": found.group(0), "from": "model"}
+            return {"quote": found, "from": "model"}
     candidate = _pay_candidate(flat)
     if candidate:
         return {"quote": candidate, "from": "pattern"}
@@ -694,17 +701,20 @@ def _store_score(conn, row: dict, payload: dict, config: dict, key: tuple,
         return
     old_tier = current["tier"]
     rc.archive_score(conn, row["id"], "prepare")
+    # The reasons go with the score, their quotes held to the description it
+    # was made on, so the card score's reasons never stay beside it.
     params = ((scored["cv_match"], scored["one_line_why"],
                json.dumps(scored["red_flags"]), scored["suggested_action"],
                scored["act_by"], scored["thread_type"],
                payload.get("cv_version"),
-               json.dumps(working, ensure_ascii=False))
+               json.dumps(working, ensure_ascii=False),
+               scored.get("score_reasons"))
               + tuple(scored.get(c) for c in GATE_COLS + RECORD_COLS)
               + (row["id"],))
     cur = conn.execute(
         "UPDATE opportunities SET cv_match = ?, one_line_why = ?,"
         " red_flags = ?, suggested_action = ?, act_by = ?, thread_type = ?,"
-        " notes = NULL, cv_version = ?, score_working = ?, "
+        " notes = NULL, cv_version = ?, score_working = ?, score_reasons = ?, "
         + ", ".join(f"{c} = ?" for c in GATE_COLS + RECORD_COLS)
         + " WHERE id = ? AND " + rc.NOT_APPLIED_SQL, params)
     if not cur.rowcount:

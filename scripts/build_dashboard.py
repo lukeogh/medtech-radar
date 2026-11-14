@@ -618,6 +618,59 @@ def scored_line(o: dict) -> str:
     return f'<div class="row-sub">Scored on {esc(what)}, {when}.</div>'
 
 
+def quotes_hold(row: dict) -> bool:
+    """Whether the quotes of a row's own reasons may still be shown.
+
+    A quote was kept because it was found in the text the score was made on.
+    A card's words do not change, so a card score's quotes always hold. A
+    full description score's hold while the stored description is still the
+    one it was made on, and not once the page checker has stored another,
+    which may not hold them, the same rule the asks and the pay line keep.
+    """
+    if str(row.get("score_basis") or "").strip().lower() != radar_common.SCORE_BASIS_SPEC:
+        return True
+    version = radar_common.description_version(row.get("description_text"))
+    return version is not None and row.get("description_hash") == version
+
+
+def reasons_html(raw, scored_at, quotes: bool = True,
+                 row: dict | None = None) -> str:
+    """The reasons a score gave, as plain text: a label, then each reason with
+    the advert's own words it rests on in quotation marks.
+
+    raw is the stored reasons and scored_at the date of the score they are
+    shown beside; reasons made with another score are not shown with this one
+    (radar_common.reasons_record). A reason whose quote was not kept is its
+    words alone, and nothing more is said about it. With quotes False, for a
+    full description score whose description has been replaced since
+    (quotes_hold), every reason is its words alone and one line says why.
+    With row, the row whose score they sit beside, one line says when code
+    has judged its gates again since the reasons were given, as the regate
+    and the page checker do with the rate gate (radar_common
+    .reasons_gates_moved): the reasons are still the model's for its answer,
+    and the Gates line above them is the gates as they are now.
+    Nothing at all for a score with no reasons of its own, which is every
+    score made before the reasons were kept. Everything is escaped, because
+    the reason is the model's words and the quote the advert's.
+    """
+    reasons = radar_common.score_reasons(raw, scored_at)
+    if not reasons:
+        return ""
+    items = "".join(
+        f"<li>{esc(sentence(r['reason']))}"
+        + (f" &ldquo;{esc(r['quote'])}&rdquo;" if r["quote"] and quotes else "")
+        + "</li>" for r in reasons)
+    withheld = ('<span class="row-sub">The quotes are not shown, because the '
+                'stored description has changed since this score.</span>'
+                if not quotes and any(r["quote"] for r in reasons) else "")
+    moved = ('<span class="row-sub">The gates have been judged again in code '
+             'since these reasons were given.</span>'
+             if row is not None and radar_common.reasons_gates_moved(
+                 radar_common.reasons_record(raw, scored_at), row) else "")
+    return (f'<span class="detail-label">Reasons</span>'
+            f'<ul class="reasons">{items}</ul>{withheld}{moved}')
+
+
 def liveness_age_days(o: dict) -> int | None:
     """Whole days since the row's newest sign of life."""
     newest = radar_common.latest_liveness(o)
@@ -727,7 +780,8 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False,
     """One role, one row. Keyed on the tier and the derived state.
 
     With show_basis the detail ends its facts with one line on how the
-    score was made and when. Only the Jobs page asks for it. With can_apply
+    score was made and when, and lists the reasons the score gave under its
+    gates, each with its quote. Only the Jobs page asks for it. With can_apply
     the served row carries the Applied button beside the other verdicts,
     and only the Jobs page asks for that too.
 
@@ -795,6 +849,12 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False,
                  else "Failed " + ", ".join(failed) + "." if failed
                  else "No gate failed.")
         parts.append(labelled("Gates", gates))
+    if show_basis:
+        # The reasons the score gave and the words of the card or the
+        # description each rests on. The Jobs page alone shows them, as it
+        # alone says how the score was made.
+        parts.append(reasons_html(o.get("score_reasons"), o.get("scored_at"),
+                                  quotes_hold(o), row=o))
     if o.get("engagement_note"):
         # The phrase that decided the badge, "fixed term" and the like.
         word = str(o.get("engagement_type") or "unknown").capitalize()
@@ -1321,6 +1381,8 @@ details.fold[open] > summary .section-count::after{content:", hide"}
 .detail-body{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2)}
 .flags{display:flex;flex-wrap:wrap;gap:var(--space-4) var(--space-10);margin:0;padding:0;list-style:none;font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2)}
 .flags li+li::before{content:"\\00b7";color:var(--ink-3);margin-right:var(--space-6)}
+.reasons{margin:0;padding:0 0 0 var(--space-16);font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2);overflow-wrap:anywhere}
+.reasons li+li{margin-top:var(--space-4)}
 .empty{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-3);margin:0;padding:var(--space-16) var(--space-8);max-width:var(--measure-read);text-wrap:pretty}
 code{font:400 var(--text-xs)/1.55 var(--font-mono);background:var(--surface);border:1px solid var(--panel-rule);border-radius:var(--radius-sm);padding:2px 6px;color:var(--ink-2)}
 .tier{font:var(--weight-strong) var(--text-2xs)/1.55 var(--font-sans);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--ink-3);padding:var(--space-16) var(--space-8) var(--space-6);border-top:1px solid var(--panel-rule)}
@@ -3699,6 +3761,8 @@ def _tailored_card(copy, standing, can_edit: bool, has_description: bool,
             out.append('<p class="row-sub">No ask changed.</p>')
         if record.get("one_line_why"):
             out.append(f'<p class="row-why">{esc(sentence(record["one_line_why"]))}</p>')
+        # The reasons the copy's own score gave, quotes held to the description.
+        out.append(reasons_html(record.get("reasons"), record.get("scored_at")))
     elif kind == "elsewhere" and record:
         when = fmt_day(record["scored_at"]) if record.get("scored_at") else "date not recorded"
         out.append(f'<p class="row-sub">Last scored against another advert&rsquo;s '
@@ -3890,6 +3954,13 @@ def render_prepare_inner(conn, item_id: int, config: dict, notices=None,
                      + '</ul>')
     if row.get("one_line_why"):
         score.append(f'<p class="row-why">{esc(sentence(row["one_line_why"]))}</p>')
+    # The reasons the role's own score gave, card or full description, each
+    # with its quote, and only when they were made with the score shown here.
+    # A full description score's quotes are not drawn beside a description
+    # that has replaced the one they were found in, as the asks are not, and
+    # a line says so when code has judged the gates again since.
+    score.append(reasons_html(row.get("score_reasons"), row.get("scored_at"),
+                              quotes_hold(row), row=row))
     # The tailored copy's score beside it. It is the copy's and not the
     # role's: the Jobs page shows the master CV's score above.
     unlaid = False
