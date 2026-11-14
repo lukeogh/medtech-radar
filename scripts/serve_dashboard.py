@@ -79,6 +79,8 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import radar_common
 import build_dashboard
+import jobs_page
+import page_frame
 import cv_doc
 import cv_page
 import cv_store
@@ -124,6 +126,108 @@ def render(page_name: str = "archive") -> bytes:
     else:
         page = build_dashboard.render_home_page(data, config, db_label)
     return page.encode("utf-8")
+
+
+def job_verdicts_now() -> dict | None:
+    """The scheduled jobs' verdicts from radar_common.job_health, for the top
+    bar of a page that does not read them anyway. None when the database
+    cannot be read, and the bar then says nothing about the inbox."""
+    dbp = db_path()
+    try:
+        conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
+        try:
+            return radar_common.job_health(conn)
+        finally:
+            conn.close()
+    except Exception:                              # noqa: BLE001
+        return None
+
+
+def _query_int(query: dict, name: str) -> int | None:
+    raw = (query.get(name) or [""])[0]
+    if raw.isascii() and raw.isdigit() and len(raw) <= 18:
+        return int(raw)
+    return None
+
+
+def jobs_new_since(since: int) -> dict:
+    """The newest row id, and how many open roles have arrived after the row
+    a page was drawn with, for the Jobs page's notice. A role counts once,
+    and only when no advert on its chain was on file before. Filtered and
+    unscored roles are not counted, as the queue does not list them."""
+    dbp = db_path()
+    conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
+    try:
+        stamp = conn.execute(
+            "SELECT COALESCE(MAX(id), 0) FROM opportunities").fetchone()[0]
+        new = conn.execute(
+            "SELECT COUNT(DISTINCT COALESCE(role_key, 'row-' || id))"
+            " FROM opportunities WHERE id > ?"
+            " AND tier IN ('top', 'question', 'reading')"
+            " AND acknowledged_at IS NULL AND closed_at IS NULL"
+            " AND dismissed_at IS NULL AND expired_at IS NULL"
+            " AND (role_key IS NULL OR role_key NOT IN (SELECT role_key"
+            " FROM opportunities WHERE id <= ? AND role_key IS NOT NULL))"
+            " AND " + radar_common.NOT_APPLIED_SQL, (since, since)).fetchone()[0]
+    finally:
+        conn.close()
+    return {"stamp": int(stamp), "new": int(new)}
+
+
+def render_jobs(selected: int | None, query: dict) -> tuple[int, bytes, str]:
+    """The Jobs page or one of its fragments, as (status, body, type).
+
+    show picks the view. part asks for a fragment: role (the role pane for
+    selected), queue (the queue and the counts, reading=1 with the Reading
+    rows drawn), reading (the Reading rows) or stamp (see jobs_new_since).
+    current names the open role, so a fragment marks it. All read only.
+    """
+    view = (query.get("show") or ["open"])[0]
+    if view not in jobs_page.VIEWS:
+        view = "open"
+    part = (query.get("part") or [""])[0]
+    if part == "stamp":
+        payload = jobs_new_since(_query_int(query, "since") or 0)
+        return 200, json.dumps(payload).encode(), "application/json"
+    config = radar_common.load_config()
+    dbp = db_path()
+    if not dbp.exists():
+        radar_common.get_db(dbp).close()
+    conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        data = build_dashboard.collect(conn, config)
+    finally:
+        conn.close()
+    data["serve"] = True
+    try:
+        db_label = dbp.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        db_label = str(dbp)
+    model = jobs_page.build_model(data)
+    current = _query_int(query, "current")
+    current_key = None
+    if current is not None:
+        face, _where = jobs_page.find_role(data, model, current)
+        current_key = jobs_page.role_key(face) if face is not None else None
+    if part == "role":
+        payload = (jobs_page.role_payload(data, model, selected, view)
+                   if selected is not None else None)
+        if payload is None:
+            return (404, json.dumps({"ok": False, "note": "no such role"}).encode(),
+                    "application/json")
+        return 200, json.dumps(payload).encode(), "application/json"
+    if part == "queue":
+        reading = (query.get("reading") or ["0"])[0] == "1"
+        payload = jobs_page.queue_payload(model, view, current_key, reading)
+        return 200, json.dumps(payload).encode(), "application/json"
+    if part == "reading":
+        payload = jobs_page.reading_payload(model, current_key)
+        return 200, json.dumps(payload).encode(), "application/json"
+    reading = (query.get("reading") or ["0"])[0] == "1"
+    status, page = jobs_page.render(data, config, db_label, selected, view,
+                                    reading)
+    return status, page.encode("utf-8"), "text/html; charset=utf-8"
 
 
 def render_company(company_id: int):
@@ -504,6 +608,9 @@ def set_acknowledged(item_id: int, on: bool) -> dict:
                 " AND closed_at IS NULL AND dismissed_at IS NULL"
                 " AND expired_at IS NULL AND " + radar_common.NOT_APPLIED_SQL,
                 (radar_common.now_iso(), item_id, key))
+            # Acting on a role is reading it (the Jobs page's New).
+            if cur.rowcount:
+                radar_common.mark_read(conn, item_id, key)
         else:
             cur = conn.execute(
                 "UPDATE opportunities SET acknowledged_at = NULL,"
@@ -518,6 +625,33 @@ def set_acknowledged(item_id: int, on: bool) -> dict:
             return _refused(conn, item_id, applied_matters=on)
         return {"ok": True, "id": item_id,
                 "acknowledged": bool(on)}
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    finally:
+        conn.close()
+
+
+def set_read(item_id: int) -> dict:
+    """The Jobs page opened a role: stamp read_at on its chain.
+
+    The one write behind the page's New. Idempotent: a role read already is
+    still a success, with nothing stamped. It changes nothing else, so an
+    applied, closed or acknowledged role can be read like any other. Same
+    writable-connection manners as set_acknowledged.
+    """
+    try:
+        conn = radar_common.get_db(db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    try:
+        target = conn.execute(
+            "SELECT role_key FROM opportunities WHERE id = ?",
+            (item_id,)).fetchone()
+        if target is None:
+            return {"ok": False, "note": f"no opportunity {item_id}"}
+        stamped = radar_common.mark_read(conn, item_id, target["role_key"])
+        conn.commit()
+        return {"ok": True, "id": item_id, "stamped": stamped}
     except sqlite3.OperationalError as err:
         return {"ok": False, "note": f"database busy, try again. {err}"}
     finally:
@@ -592,6 +726,9 @@ def set_lifecycle(item_id: int, action: str) -> dict:
         params = ((radar_common.now_iso(), item_id, key) if stamps
                   else (item_id, key))
         cur = conn.execute(sql, params)
+        # Acting on a role is reading it (the Jobs page's New).
+        if stamps and cur.rowcount:
+            radar_common.mark_read(conn, item_id, key)
         conn.commit()
         if cur.rowcount == 0:
             return _refused(conn, item_id,
@@ -676,6 +813,9 @@ def set_applied(item_id: int, on: bool, cv: str | None = None) -> dict:
                 " AND closed_at IS NULL AND dismissed_at IS NULL"
                 " AND expired_at IS NULL AND " + radar_common.NOT_APPLIED_SQL,
                 (radar_common.now_iso(), tailored_cv.role_ref(target), item_id))
+            # Acting on a role is reading it (the Jobs page's New).
+            if cur.rowcount:
+                radar_common.mark_read(conn, item_id, target["role_key"])
         else:
             cur = conn.execute(
                 "UPDATE opportunities SET applied_at = NULL, applied_cv = NULL"
@@ -845,16 +985,17 @@ one.</p>
         master_html = (f'<p class="cv-banner">The master CV could not be read. '
                        f'{build_dashboard.esc(problem)}</p>')
     page = f"""<!doctype html>
-<html lang="en-GB" data-appearance="auto">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MedTech Radar. CV.</title>
 <link rel="icon" href="{build_dashboard.FAVICON}">
-<style>{build_dashboard.CSS}{CV_CSS}{cv_page.CV_CSS}</style>
+<style>{build_dashboard.CSS}{page_frame.FRAME_CSS}{CV_CSS}{cv_page.CV_CSS}</style>
 </head>
 <body>
-<main class="page cv-wrap">
+{page_frame.appbar_html("cv", job_verdicts_now())}
+<main class="page cv-wrap" id="main">
 <header class="masthead"><div>
 <div class="brand">{build_dashboard.MARK_SVG}<h1>CV</h1></div>
 <p class="masthead-sub">The master CV, as structured text: a name, a
@@ -862,7 +1003,7 @@ headline, a summary, experience with bullets, skills, and education and
 certifications. Every save is a new version, and nothing is ever
 overwritten.</p>
 </div>
-<div class="controls"><nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav></div>
+
 </header>
 <section class="section">
 <div class="section-head"><h2>Master CV</h2></div>
@@ -906,7 +1047,7 @@ swaps that score for one made on the advert card.</p>
 </div>
 </section>
 </main>
-<script>{build_dashboard.SCRIPT}{CV_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}</script>
+<script>{build_dashboard.SCRIPT}{page_frame.FRAME_SCRIPT}{CV_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}</script>
 </body>
 </html>"""
     return page.encode("utf-8")
@@ -1399,7 +1540,23 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, page, "text/html; charset=utf-8")
             return
-        if path in ("/insights", "/jobs", "/archive"):
+        if path == "/jobs" or path.startswith("/jobs/"):
+            raw = path[len("/jobs"):].strip("/")
+            if raw and not (raw.isascii() and raw.isdigit() and len(raw) <= 18):
+                self._send(404, b"Role ids are numbers.",
+                           "text/plain; charset=utf-8")
+                return
+            try:
+                status, body, ctype = render_jobs(
+                    int(raw) if raw else None,
+                    parse_qs(urlsplit(self.path).query))
+            except Exception as err:  # noqa: BLE001
+                self._send(500, f"Render failed. {type(err).__name__}: {err}"
+                           .encode(), "text/plain; charset=utf-8")
+                return
+            self._send(status, body, ctype)
+            return
+        if path in ("/insights", "/archive"):
             try:
                 self._send(200, render(path.lstrip("/")),
                            "text/html; charset=utf-8")
@@ -1520,6 +1677,19 @@ class Handler(BaseHTTPRequestHandler):
                            "application/json")
                 return
             result = set_acknowledged(item_id, path == "/ack")
+            self._send(200 if result["ok"] else 409,
+                       json.dumps(result).encode(), "application/json")
+            return
+        if path == "/read":
+            body = self._read_json_body()
+            item_id = body.get("id") if isinstance(body, dict) else None
+            # Integers only, for the same bool-subclass reason as /ack.
+            if (not isinstance(item_id, int) or isinstance(item_id, bool)
+                    or not -2 ** 63 <= item_id < 2 ** 63):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            result = set_read(item_id)
             self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
             return

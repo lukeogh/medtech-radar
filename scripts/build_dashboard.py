@@ -43,6 +43,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import radar_common
+import page_frame
 
 OUT_DEFAULT = radar_common.REPO_ROOT / "dashboard.html"
 WATCHLIST_PATH = radar_common.REPO_ROOT / "config" / "watchlist.yaml"
@@ -531,6 +532,11 @@ def collect(conn, config) -> dict:
 
     return {
         "jobs": jobs,
+        # The Jobs page's New: the roles read so far, None before read_at
+        # exists, which reads as every role read. And the companies that
+        # have a page, which a role links to only when there is one.
+        "read_keys": radar_common.role_read_keys(conn),
+        "company_ids": {r[0] for r in conn.execute("SELECT id FROM companies")},
         "threshold": threshold, "fast": fast, "floor": floor, "fresh": fresh,
         "opportunities": opportunities, "acknowledged": acknowledged,
         "applied": applied,
@@ -1487,24 +1493,8 @@ SCRIPT = """
     var on = panel.classList.toggle('show-acked');
     ackToggle.setAttribute('aria-pressed', String(on));
   });
-  var appearance = document.querySelectorAll('[data-appearance-set]');
-  appearance.forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var next = btn.dataset.appearanceSet;
-      document.documentElement.setAttribute('data-appearance', next);
-      appearance.forEach(function (b) { b.setAttribute('aria-pressed', String(b === btn)); });
-      try { localStorage.setItem('radar-appearance', next); } catch (err) {}
-    });
-  });
-  try {
-    var saved = localStorage.getItem('radar-appearance');
-    if (saved) {
-      document.documentElement.setAttribute('data-appearance', saved);
-      appearance.forEach(function (b) {
-        b.setAttribute('aria-pressed', String(b.dataset.appearanceSet === saved));
-      });
-    }
-  } catch (err) {}
+  // The pages are dark only for now (page_frame.py), so a light or auto
+  // appearance saved by an older page is not applied.
 })();
 """.replace("__WRITE_HEADER__", WRITE_HEADER)
 
@@ -1803,32 +1793,27 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
             outlinks.append(f'<li><a href="{esc(href)}">{esc(label)}</a></li>')
 
     return f"""<!doctype html>
-<html lang="en-GB" data-appearance="auto">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MedTech Radar</title>
 <link rel="icon" href="{FAVICON}">
-<style>{CSS}</style>
+<style>{CSS}{page_frame.FRAME_CSS}</style>
 </head>
 <body>
-<main class="page">
+{page_frame.appbar_html("", job_verdicts(data), "Archive") if serve else ""}
+<main class="page" id="main">
 <header class="masthead">
 <div>
 <div class="brand">{MARK_SVG}<h1>MedTech Radar</h1></div>
 <p class="masthead-sub">Everything on file, apart from the roles you have applied for, which are listed on Jobs. Read only, generated {esc(fmt_long(now))} from {esc(db_label)}.{" The page re-renders on every load and reloads itself every fifteen minutes." if serve else ""}</p>
 </div>
 <div class="controls">
-{'''<nav class="tabs" aria-label="Pages"><a href="/" aria-current="page">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav>''' if serve else ""}
 {'''<span class="segmented" role="group" aria-label="Data">
 <button type="button" id="btn-refresh">Refresh</button>
 <button type="button" id="btn-watch">Check now</button>
 </span>''' if serve else ""}
-<span class="segmented" role="group" aria-label="Appearance">
-<button type="button" data-appearance-set="light" aria-pressed="false">Light</button>
-<button type="button" data-appearance-set="auto" aria-pressed="true">Auto</button>
-<button type="button" data-appearance-set="dark" aria-pressed="false">Dark</button>
-</span>
 </div>
 </header>
 <section class="standing">{standing_line(data)}</section>
@@ -1862,7 +1847,7 @@ def render_page(data: dict, config: dict, db_label: str, out: Path,
 <p class="end">Read only. Nothing on this page changes the database. Regenerate with <code>python scripts/build_dashboard.py</code>.</p>
 </footer>
 </main>
-<script>{SCRIPT}{SERVE_SCRIPT if serve else ""}</script>
+<script>{SCRIPT}{page_frame.FRAME_SCRIPT}{SERVE_SCRIPT if serve else ""}</script>
 </body>
 </html>"""
 
@@ -2195,36 +2180,29 @@ def render_insights_page(data: dict, config: dict, db_label: str) -> str:
         "here.</p></details>")
 
     return f"""<!doctype html>
-<html lang="en-GB" data-appearance="auto">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MedTech Radar. Insights.</title>
 <link rel="icon" href="{FAVICON}">
-<style>{CSS}</style>
+<style>{CSS}{page_frame.FRAME_CSS}</style>
 </head>
 <body>
-<main class="page">
+{page_frame.appbar_html("insights", job_verdicts(data))}
+<main class="page" id="main">
 <header class="masthead">
 <div>
 <div class="brand">{MARK_SVG}<h1>Insights</h1></div>
 <p class="masthead-sub">What the watcher found, checked and relevant, read
 like a front page. Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
 </div>
-<div class="controls">
-<nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights" aria-current="page">Insights</a></nav>
-<span class="segmented" role="group" aria-label="Appearance">
-<button type="button" data-appearance-set="light" aria-pressed="false">Light</button>
-<button type="button" data-appearance-set="auto" aria-pressed="true">Auto</button>
-<button type="button" data-appearance-set="dark" aria-pressed="false">Dark</button>
-</span>
-</div>
 </header>
 {body}
 {market_fold}
 {sources_fold}
 </main>
-<script>{SCRIPT}{INSIGHTS_SCRIPT}{COPY_SCRIPT}</script>
+<script>{SCRIPT}{page_frame.FRAME_SCRIPT}{INSIGHTS_SCRIPT}{COPY_SCRIPT}</script>
 </body>
 </html>"""
 
@@ -2804,28 +2782,21 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
         telemetry = ""   # a broken light must never cost the page
 
     return f"""<!doctype html>
-<html lang="en-GB" data-appearance="auto">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MedTech Radar</title>
 <link rel="icon" href="{FAVICON}">
-<style>{CSS}</style>
+<style>{CSS}{page_frame.FRAME_CSS}</style>
 </head>
 <body>
-<main class="page">
+{page_frame.appbar_html("home", job_verdicts(data))}
+<main class="page" id="main">
 <header class="masthead">
 <div>
 <div class="brand">{MARK_SVG}<h1>MedTech Radar</h1></div>
 <p class="masthead-sub">Generated {esc(fmt_long(now))} from {esc(db_label)}. The page re-renders on every load.</p>
-</div>
-<div class="controls">
-<nav class="tabs" aria-label="Pages"><a href="/" aria-current="page">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav>
-<span class="segmented" role="group" aria-label="Appearance">
-<button type="button" data-appearance-set="light" aria-pressed="false">Light</button>
-<button type="button" data-appearance-set="auto" aria-pressed="true">Auto</button>
-<button type="button" data-appearance-set="dark" aria-pressed="false">Dark</button>
-</span>
 </div>
 </header>
 <section class="standing">{standing_line(data)}</section>
@@ -2841,7 +2812,7 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
 <p class="end">Buttons write, everything else reads. Regenerate the static fallback with <code>python scripts/build_dashboard.py</code>.</p>
 </footer>
 </main>
-<script>{SCRIPT}{HOME_SCRIPT}{SOURCE_SCRIPT}</script>
+<script>{SCRIPT}{page_frame.FRAME_SCRIPT}{HOME_SCRIPT}{SOURCE_SCRIPT}</script>
 </body>
 </html>"""
 
@@ -2912,157 +2883,15 @@ SOURCE_SCRIPT = """
 """
 
 
-JOBS_SCRIPT = """
-(function () {
-  var group = document.getElementById('loc-filter');
-  if (!group) return;
-  var buttons = group.querySelectorAll('[data-loc]');
-  function apply(loc) {
-    document.querySelectorAll('.row[data-region]').forEach(function (row) {
-      var show = loc === 'all'
-        || (loc === 'remote' ? row.dataset.remote === '1' : row.dataset.region === loc);
-      row.hidden = !show;
-    });
-    document.querySelectorAll('.section').forEach(function (sec) {
-      var rows = sec.querySelectorAll('.row[data-region]');
-      var count = sec.querySelector('.section-count');
-      if (!rows.length || !count) return;
-      if (!count.dataset.total) count.dataset.total = count.textContent;
-      var shown = Array.prototype.filter.call(rows, function (r) { return !r.hidden; }).length;
-      count.textContent = loc === 'all' ? count.dataset.total : shown + ' of ' + count.dataset.total;
-    });
-    buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.loc === loc)); });
-    try { localStorage.setItem('radar-location', loc); } catch (err) {}
-  }
-  buttons.forEach(function (b) {
-    b.addEventListener('click', function () { apply(b.dataset.loc); });
-  });
-  var saved = 'all';
-  try { saved = localStorage.getItem('radar-location') || 'all'; } catch (err) {}
-  if (!Array.prototype.some.call(buttons, function (b) { return b.dataset.loc === saved; })) saved = 'all';
-  apply(saved);
-})();
-"""
-
-LOCATION_FILTERS = (("all", "All"), ("local", "Local"), ("uk", "UK"),
-                    ("europe", "Europe"), ("elsewhere", "Elsewhere"),
-                    ("remote", "Remote"))
-
-
-def render_jobs_page(data: dict, config: dict, db_label: str) -> str:
-    """The Jobs page. Tiers in the agreed order, one row per role.
-
-    Top prospects open, One question away and Reading folded with their
-    counts in the header, Filtered a count line (J1, J2). One collapse
-    across every tier, so a role whose adverts span tiers appears once,
-    in the highest tier it reached (J18). Freshest first within a
-    tier (J3). Age is the State and Last seen cells on the row, there is
-    no Ageing section (J16). Unscored roles are counted on Home, not
-    here. Roles only, the add-source strip lives on Home (J11). The
-    location filter is client side, remembered like the appearance
-    switcher (J6).
-    """
+def render_jobs_page(data: dict, config: dict, db_label: str,
+                     selected: int | None = None, view: str = "open",
+                     reading: bool = False) -> str:
+    """The Jobs page, from the round-2 design: the queue, the role and the
+    advert. Drawn by jobs_page.py, which this keeps the old name for. selected
+    is a row id to open, view one of open, acknowledged, filtered, applied."""
+    import jobs_page
     data["serve"] = True
-    now = radar_common.now_iso()
-    counter = 0
-
-    def by_fresh(rows):
-        # Newest sighting first within a tier (J3).
-        return sorted(rows, key=radar_common.latest_liveness, reverse=True)
-
-    def tier_rows(rows):
-        nonlocal counter
-        out = [opp_head_html()]
-        for o in rows:
-            counter += 1
-            # The Jobs page alone says how each score was made. The
-            # archive renders the same rows and stays as it was.
-            out.append(render_opportunity(o, data, counter, show_basis=True,
-                                          can_apply=True))
-        return "".join(out)
-
-    # One collapse over every open row, filtered and unscored included, so
-    # a role appears once on the page. Its face is its highest-tier advert
-    # and the face's tier is the tier it sits in.
-    faces = collapse_roles(data.get("opportunities") or [])
-    by_tier: dict = {}
-    for face in faces:
-        by_tier.setdefault(face.get("tier") or "", []).append(face)
-    top = by_fresh(by_tier.get("top") or [])
-    question = by_fresh(by_tier.get("question") or [])
-    reading = by_fresh(by_tier.get("reading") or [])
-    filtered = by_tier.get("filtered") or []
-
-    # Top prospects never backfills (J10).
-    if top:
-        top_body = tier_rows(top)
-    else:
-        top_body = ('<p class="empty">Nothing to get excited about this week.</p>')
-    body = section("Top prospects", len(top), "All four gates passed.",
-                   "panel-blue", top_body)
-    if question:
-        body += section(
-            "One question away", len(question),
-            "One movable gate failed. The question leads each row.",
-            "panel-stone", tier_rows(question), fold=True)
-    if reading:
-        body += section(
-            "Reading", len(reading), "Real roles that did not gate.",
-            "panel-stone", tier_rows(reading), fold=True)
-    if filtered:
-        reasons: dict = {}
-        for o in filtered:
-            reason = o.get("filter_reason") or "filtered"
-            reasons[reason] = reasons.get(reason, 0) + 1
-        roll = ", ".join(f"{n} {esc(r)}" for r, n in
-                         sorted(reasons.items(), key=lambda kv: -kv[1]))
-        body += (f'<p class="legend" style="margin-top:24px">Filtered, '
-                 f'{len(filtered)} {"role" if len(filtered) == 1 else "roles"}.'
-                 f' {roll}.</p>')
-    # Below the open tiers, folded. An applied role is in none of them.
-    body += applied_section(data.get("applied") or [], now)
-
-    filterbar = (
-        '<div class="filterbar"><span class="filter-label">Location</span>'
-        '<span class="segmented" role="group" aria-label="Location" id="loc-filter">'
-        + "".join(
-            f'<button type="button" data-loc="{key}" '
-            f'aria-pressed="{"true" if key == "all" else "false"}">{label}</button>'
-            for key, label in LOCATION_FILTERS)
-        + '</span></div>')
-
-    return f"""<!doctype html>
-<html lang="en-GB" data-appearance="auto">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MedTech Radar. Jobs.</title>
-<link rel="icon" href="{FAVICON}">
-<style>{CSS}</style>
-</head>
-<body>
-<main class="page">
-<header class="masthead">
-<div>
-<div class="brand">{MARK_SVG}<h1>Jobs</h1></div>
-<p class="masthead-sub">One row per role, the freshest sighting first.
-Generated {esc(fmt_long(now))} from {esc(db_label)}.</p>
-</div>
-<div class="controls">
-<nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs" aria-current="page">Jobs</a><a href="/insights">Insights</a></nav>
-<span class="segmented" role="group" aria-label="Appearance">
-<button type="button" data-appearance-set="light" aria-pressed="false">Light</button>
-<button type="button" data-appearance-set="auto" aria-pressed="true">Auto</button>
-<button type="button" data-appearance-set="dark" aria-pressed="false">Dark</button>
-</span>
-</div>
-</header>
-{filterbar}
-{body}
-</main>
-<script>{SCRIPT}{SERVE_SCRIPT}{JOBS_SCRIPT}</script>
-</body>
-</html>"""
+    return jobs_page.render(data, config, db_label, selected, view, reading)[1]
 
 
 def opp_head_html() -> str:
@@ -3401,31 +3230,29 @@ def render_company_page(conn, company_id: int, config: dict,
              + '</section>')
 
     return f"""<!doctype html>
-<html lang="en" data-appearance="auto">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MedTech Radar. {esc(co["display_name"])}.</title>
 <link rel="icon" href="{FAVICON}">
-<style>{CSS}</style>
+<style>{CSS}{page_frame.FRAME_CSS}</style>
 </head>
 <body>
-<main class="page">
+{page_frame.appbar_html("", radar_common.job_health(conn), "Company")}
+<main class="page" id="main">
 <header class="masthead">
 <div>
 <div class="brand">{MARK_SVG}<h1>{esc(co["display_name"])}</h1></div>
 <p class="masthead-sub">Everything on file, before the call. Generated
 {esc(fmt_long(now))} from {esc(db_label)}.</p>
 </div>
-<div class="controls">
-<nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a></nav>
-</div>
 </header>
 {body}
 <footer class="foot"><p>Read only except the three states above. Back to
 <a href="/insights">Insights</a>.</p></footer>
 </main>
-<script>{SCRIPT}{COMPANY_SCRIPT}</script>
+<script>{SCRIPT}{page_frame.FRAME_SCRIPT}{COMPANY_SCRIPT}</script>
 </body>
 </html>"""
 
@@ -4152,24 +3979,22 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str,
     company = row.get("company") or "Unknown company"
     now = radar_common.now_iso()
     return f"""<!doctype html>
-<html lang="en-GB" data-appearance="auto">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MedTech Radar. Prepare application.</title>
 <link rel="icon" href="{FAVICON}">
-<style>{CSS}{PREPARE_CSS}{cv_page.CV_CSS}</style>
+<style>{CSS}{page_frame.FRAME_CSS}{PREPARE_CSS}{cv_page.CV_CSS}</style>
 </head>
 <body>
-<main class="page prep-wrap prep-split-page">
+{page_frame.appbar_html("jobs", radar_common.job_health(conn), "Prepare application")}
+<main class="page prep-wrap prep-split-page" id="main">
 <header class="masthead">
 <div>
 <div class="brand">{MARK_SVG}<h1>Prepare application</h1></div>
 <p class="masthead-sub">{esc(title)} at {esc(company)}. Generated
 {esc(fmt_long(now))} from {esc(db_label)}.</p>
-</div>
-<div class="controls">
-<nav class="tabs" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a><a href="/cv">CV</a></nav>
 </div>
 </header>
 <div class="prep-split">
@@ -4180,7 +4005,7 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str,
 </div>
 <noscript><p class="prep-notice bad">This page needs JavaScript to fetch, score and edit. What is stored is shown above.</p></noscript>
 </main>
-<script>{SCRIPT}{PREPARE_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}</script>
+<script>{SCRIPT}{page_frame.FRAME_SCRIPT}{PREPARE_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}</script>
 </body>
 </html>"""
 

@@ -745,8 +745,13 @@ def home_checks(tmp: Path) -> None:
     check("Needs a look. Signal watcher stalled" in page
           and 'dot-red" title="Needs a look.' in page,
           "with the watcher stalled Home says so in red, as /health does")
-    check("Inbox on schedule" not in page,
+    body = page.split("<main", 1)[1]
+    check("Inbox on schedule" not in body,
           "the inbox no longer claims a schedule it does not keep")
+    bar = page.split('<header class="appbar">', 1)[1].split("</header>", 1)[0]
+    check("Inbox on schedule" in bar and "Signal watcher" not in bar,
+          "the top bar's inbox line is the inbox's own verdict from job_health, "
+          "on schedule here, and says nothing of the other jobs")
 
     page = home(lambda c: fresh(c, inbox_hours=5))
     check("Every job on schedule" in page and "Inbox flowing" in page,

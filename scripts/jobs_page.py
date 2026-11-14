@@ -1,0 +1,1813 @@
+"""The Jobs page: the triage queue, the role and its advert, side by side.
+
+Built from the round-2 Jobs design (design/round-1 branch, design/jobs/round-2
+and shared/shared_jobs-notes_1280_v3, 14 Nov 2026), on the shared frame in
+page_frame.py. From 1800px the queue, the role and the advert are three
+columns; from 1024px the advert is the last section of the role; under 1024px
+the list and the role are separate screens, /jobs and /jobs/<id>.
+
+Everything here reads the dict build_dashboard.collect fills, so the page and
+its pieces render from one read of the database and nothing on this page ever
+writes. The page's own script takes the writes through the guarded POST
+routes serve_dashboard.py already has (/ack, /dismiss, /close, /apply and
+their undos) and the one it adds (/read), and replaces the parts that change
+from the fragments below, so an action never reloads the page.
+
+Nothing is fetched or scored from here. An advert that has not been read says
+so and offers Prepare application, which is the page that reads it.
+
+The fragments, all GET and read only:
+  /jobs/<id>?part=role   the role pane for one role, as JSON
+  /jobs?part=queue       the queue and the counts, as JSON
+  /jobs?part=reading     the Reading rows, which load when the group opens
+  /jobs?part=stamp       the newest row id and how many open roles came after
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timedelta, timezone
+
+import radar_common
+import build_dashboard as bd
+import page_frame
+
+esc = bd.esc
+
+VIEWS = ("open", "acknowledged", "filtered", "applied")
+VIEW_WORDS = {"open": "Open roles", "acknowledged": "Acknowledged",
+              "filtered": "Filtered", "applied": "Applied"}
+OPEN_TIERS = ("top", "question", "reading")
+GROUP_WORDS = {"top": "Top prospects", "question": "One question away",
+               "reading": "Reading", "filtered": "Filtered",
+               "acknowledged": "Acknowledged", "applied": "Applied"}
+TIER_WORDS = {"top": "Top prospect", "question": "One question away",
+              "reading": "Reading", "filtered": "Filtered"}
+GATES = (("sector", "Sector", "S"), ("cv", "CV match", "C"),
+         ("location", "Location", "L"), ("rate", "Rate", "R"))
+BOARDS = {"linkedin-alert": "LinkedIn", "reed-alert": "Reed",
+          "indeed-alert": "Indeed", "cvlibrary-alert": "CV-Library",
+          "email-other": "Email alert"}
+# An Unknown role says when it will expire once that is this close.
+EXPIRY_WARN_DAYS = 7
+# How long a role is on screen before it counts as opened. An action, Prepare
+# application and Open the advert count at once.
+READ_AFTER_MS = 2000
+# The four keys the role's verdicts take, and their undo.
+ACTIONS = (("ack", "Acknowledge", "a"), ("dismiss", "Dismiss", "d"),
+           ("close", "Close role", "c"), ("apply", "Mark applied", "m"))
+
+
+# ------------------------------------------------------------------ helpers
+
+def role_key(o: dict) -> str:
+    return o.get("role_key") or f"row-{o.get('id')}"
+
+
+def board(source) -> str:
+    return BOARDS.get(source or "", source or "Unknown source")
+
+
+def expiry_days() -> int:
+    try:
+        import check_jobs
+        return int(check_jobs.EXPIRY_DAYS)
+    except Exception:  # noqa: BLE001  a constant, not worth a failed page
+        return 45
+
+
+def _parse(iso):
+    try:
+        return datetime.strptime(str(iso)[:19], "%Y-%m-%dT%H:%M:%S")
+    except (TypeError, ValueError):
+        try:
+            return datetime.strptime(str(iso)[:10], "%Y-%m-%d")
+        except (TypeError, ValueError):
+            return None
+
+
+def _day(iso) -> str:
+    moment = _parse(iso)
+    return f"{moment.day} {moment:%b}" if moment else ""
+
+
+def _clean(text) -> str:
+    return str(text or "").strip().rstrip(".").strip()
+
+
+def view_query(view: str) -> str:
+    return "" if view == "open" else f"?show={view}"
+
+
+def role_url(item_id, view: str) -> str:
+    return f"/jobs/{int(item_id)}{view_query(view)}"
+
+
+def _sorted(faces: list) -> list:
+    """CV match high to low, then the freshest sign of life first."""
+    out = sorted(faces, key=radar_common.latest_liveness, reverse=True)
+    return sorted(out, key=lambda o: -(o["cv_match"] if o.get("cv_match")
+                                       is not None else -1))
+
+
+# -------------------------------------------------------------------- model
+
+def build_model(data: dict, now: str | None = None) -> dict:
+    """Every list the page draws, from one collect().
+
+    The open roles are one collapse across every tier (one row per role, its
+    face the highest-tier advert, build_dashboard.collapse_roles), sorted CV
+    match first and then freshness. Acknowledged roles collapse the same way.
+    Applied roles are the first stamp on each applied chain, newest first.
+    A role is new until any advert on its chain has been read; with read
+    tracking not yet migrated every role reads as read.
+    """
+    now = now or radar_common.now_iso()
+    read_keys = data.get("read_keys")
+    # The first sighting of each chain, over every advert on it in any
+    # state, so a role that came back after expiring keeps its first date.
+    firsts: dict = {}
+    for r in (data.get("arrivals") or []) + (data.get("retired_roles") or []):
+        seen = r.get("first_seen") or ""
+        key = role_key(r)
+        if seen and (key not in firsts or seen < firsts[key]):
+            firsts[key] = seen
+
+    def faces_of(rows):
+        out = []
+        for face in bd.collapse_roles(rows or []):
+            face = dict(face)
+            face["_unread"] = (read_keys is not None
+                               and role_key(face) not in read_keys)
+            face["_first"] = firsts.get(role_key(face))
+            out.append(face)
+        return out
+
+    tiers: dict = {t: [] for t in ("top", "question", "reading", "filtered")}
+    unscored = []
+    for face in faces_of(data.get("opportunities")):
+        tiers.get(face.get("tier") or "", unscored).append(face)
+    for tier in tiers:
+        tiers[tier] = _sorted(tiers[tier])
+    acknowledged = _sorted(faces_of(data.get("acknowledged")))
+    applied = []
+    for row in data.get("applied") or []:
+        face = dict(row)
+        face["_unread"] = False
+        applied.append(face)
+    filtered_reasons: dict = {}
+    for o in tiers["filtered"]:
+        reason = o.get("filter_reason") or "filtered"
+        filtered_reasons[reason] = filtered_reasons.get(reason, 0) + 1
+    model = {
+        "now": now, "tiers": tiers, "unscored": unscored,
+        "acknowledged": acknowledged, "applied": applied,
+        "filtered_reasons": filtered_reasons,
+        "lists": {
+            "open": tiers["top"] + tiers["question"] + tiers["reading"],
+            "acknowledged": acknowledged,
+            "filtered": tiers["filtered"],
+            "applied": applied,
+        },
+        "open_total": sum(len(v) for v in tiers.values()) + len(unscored),
+        "new": sum(1 for t in OPEN_TIERS for o in tiers[t] if o["_unread"]),
+        "stamp": max([int(o.get("id") or 0) for o in
+                      (data.get("arrivals") or []) + (data.get("retired_roles") or [])]
+                     or [0]),
+    }
+    return model
+
+
+def find_role(data: dict, model: dict, item_id: int):
+    """(the face of the role a row belongs to, the view it sits in), or
+    (None, None) when there is no such row.
+
+    Any row id finds its role, an old advert on the chain included, so a link
+    or a bookmark never dead-ends. The face is the one the view's queue shows.
+    A role that has left every view, closed, dismissed or expired, is drawn
+    from its own chain and read only.
+    """
+    rows = list(data.get("arrivals") or []) + list(data.get("retired_roles") or [])
+    row = next((r for r in rows if r.get("id") == item_id), None)
+    if row is None:
+        return None, None
+    key = role_key(row)
+    for view in ("open", "acknowledged", "applied", "filtered"):
+        for face in model["lists"][view]:
+            if role_key(face) == key:
+                return face, view
+    for face in model["unscored"]:
+        if role_key(face) == key:
+            return face, "open"
+    retired = [r for r in data.get("retired_roles") or [] if role_key(r) == key]
+    if retired:
+        face = dict(bd.collapse_roles(retired)[0])
+        face["_unread"] = False
+        return face, "retired"
+    face = dict(row)
+    face["_unread"] = False
+    return face, "open"
+
+
+def chain_rows(data: dict, face: dict) -> list:
+    """Every advert on the role's chain, in any state."""
+    rows = list(data.get("arrivals") or []) + list(data.get("retired_roles") or [])
+    key = role_key(face)
+    return [r for r in rows if role_key(r) == key]
+
+
+# ---------------------------------------------------------------- the queue
+
+SYMBOLS = """<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+<symbol id="st-pos" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-cau" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 2.4a5.6 5.6 0 0 0 0 11.2z" fill="currentColor"/></symbol>
+<symbol id="st-neg" viewBox="0 0 16 16"><path d="M4.2 4.2l7.6 7.6m0-7.6l-7.6 7.6" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-neu" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+<symbol id="ic-doc" viewBox="0 0 16 16"><path d="M4 1.8h5.2L12.2 4.8v9.4H4z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M9 1.8v3.2h3.2M6 8h4.2M6 10.6h4.2" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+<symbol id="ic-launch" viewBox="0 0 16 16"><path d="M7 3H3.6A1.6 1.6 0 0 0 2 4.6v7.8A1.6 1.6 0 0 0 3.6 14h7.8a1.6 1.6 0 0 0 1.6-1.6V9" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 2H14v4.5M14 2 7.5 8.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+<symbol id="ic-down" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+<symbol id="ic-right" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+</svg>"""
+
+
+def _use(symbol: str, size: int = 12) -> str:
+    return (f'<svg width="{size}" height="{size}" aria-hidden="true" '
+            f'focusable="false"><use href="#{symbol}"></use></svg>')
+
+
+def gate_words(o: dict, gate: str, name: str) -> tuple[str, str, str]:
+    """(mark class, symbol, the mark's name in words) for one gate."""
+    value = o.get(f"gate_{gate}")
+    note = _clean(o.get(f"gate_{gate}_note"))
+    if value is None:
+        cls, symbol, verdict = "mk-nj", "st-neu", "not judged"
+    elif int(value):
+        cls, symbol, verdict = "mk-pass", "st-pos", "passes"
+    else:
+        cls, symbol, verdict = "mk-fail", "st-neg", "fails"
+    words = f"{name} {verdict}" + (f", {note}" if note else "")
+    return cls, symbol, words
+
+
+def marks_html(o: dict, current: bool) -> str:
+    """The four gate marks. Each is named in words and has a tooltip of the
+    same words, shown while that mark is hovered or has focus. The marks of
+    the selected row are in the tab order; the rest are reached by selecting
+    their row, so the queue is not four extra stops a row."""
+    out = []
+    for gate, name, _letter in GATES:
+        cls, symbol, words = gate_words(o, gate, name)
+        out.append(f'<span class="mk {cls}" role="img" aria-label="{esc(words)}" '
+                   f'tabindex="{0 if current else -1}">{_use(symbol)}'
+                   f'<span class="mk-tip" aria-hidden="true">{esc(words)}</span></span>')
+    return f'<span class="r-marks">{"".join(out)}</span>'
+
+
+def lifecycle_tag(o: dict, now: str) -> str:
+    """The lifecycle chip for an Unknown role: its age, or when it will
+    expire once that is close. A live role carries none."""
+    state = radar_common.life_state(o, now)
+    if state != "unknown":
+        return ""
+    newest = _parse(radar_common.latest_liveness(o))
+    moment = _parse(now)
+    if newest is None or moment is None:
+        words = "Unknown"
+    else:
+        expires = newest + timedelta(days=expiry_days())
+        days_left = (expires - moment).days
+        if days_left <= EXPIRY_WARN_DAYS:
+            words = f"Unknown, expires {expires.day} {expires:%b}"
+        else:
+            age = max(0, (moment - newest).days)
+            words = f"Unknown, {age} {'day' if age == 1 else 'days'}"
+    return f'<span class="tag tag-caution">{_use("st-cau")}{esc(words)}</span>'
+
+
+def spec_tag(o: dict) -> str:
+    if str(o.get("score_basis") or "").strip().lower() == radar_common.SCORE_BASIS_SPEC:
+        return f'<span class="tag tag-neutral">{_use("ic-doc")}Full job spec</span>'
+    return ""
+
+
+def engagement_word(o: dict) -> str:
+    word = str(o.get("engagement_type") or "").strip().lower()
+    return word.capitalize() if word in ("contract", "permanent") else ""
+
+
+def location_text(o: dict) -> str:
+    chain = o.get("_chain") or {}
+    locations = [str(x) for x in (chain.get("locations") or []) if x]
+    if not locations and o.get("location"):
+        locations = [str(o["location"])]
+    if len(locations) > 3:
+        return f"{locations[0]} and {len(locations) - 1} more locations"
+    return " / ".join(locations)
+
+
+def lead_line(o: dict) -> str:
+    """The row's one line: the open question on a One question away role, the
+    rate question on a Top role that states no pay, else the scorer's line."""
+    unstated = (o.get("rate_band") or "unstated") == "unstated"
+    if o.get("tier") == "question" and o.get("question_text"):
+        return bd.sentence(o["question_text"])
+    if o.get("tier") == "top" and unstated:
+        return "Rate not stated. Ask before anything else."
+    return bd.sentence(o.get("one_line_why") or "")
+
+
+def first_seen(o: dict) -> str:
+    """The first sighting of the role's repost chain."""
+    chain = o.get("_chain") or {}
+    return o.get("_first") or chain.get("first") or o.get("first_seen") or ""
+
+
+def row_html(o: dict, view: str, current_key: str | None, now: str) -> str:
+    """One role in the queue. The title is the link that opens it; the rest
+    of the row describes it. The New word, the CV match, the first-seen date,
+    the company, place, pay as stated, contract or permanent and the source,
+    the full job spec tag and the lifecycle chip, then the lead line and the
+    four gate marks."""
+    oid = int(o["id"])
+    key = role_key(o)
+    current = key == current_key
+    unread = bool(o.get("_unread"))
+    classes = ["row", "row-queue"]
+    if o.get("tier") == "question" and view == "open":
+        classes.append("row-question")
+    if unread:
+        classes.append("is-unread")
+    if current:
+        classes.append("is-current")
+    title = o.get("title") or "Untitled role"
+    cv = (f'<span class="r-cv"><span class="visually-hidden">CV match </span>'
+          f'{int(o["cv_match"])}%</span>' if o.get("cv_match") is not None
+          else '<span class="r-cv"><span class="visually-hidden">CV match </span>'
+               '&ndash;</span>')
+    if view == "applied":
+        when = f"Applied {_day(o.get('applied_at'))}"
+        meta_bits = [when, o.get("company") or "Unknown company",
+                     o.get("salary_rate"), board(o.get("source"))]
+        meta = " · ".join(esc(b) for b in meta_bits if b)
+        return (f'<div class="{" ".join(classes)} row-applied" data-id="{oid}" '
+                f'data-key="{esc(key)}">'
+                f'<span class="r1"><a class="r-link" id="rt-{oid}" '
+                f'href="{role_url(oid, view)}"{" aria-current=" + chr(34) + "true" + chr(34) if current else ""} '
+                f'aria-describedby="rm-{oid}"><span class="r-title">{esc(title)}</span></a>{cv}</span>'
+                f'<span class="r2"><span class="r-meta" id="rm-{oid}">{meta}</span></span>'
+                '</div>')
+    pay = o.get("salary_rate") or "Rate not stated"
+    meta_bits = [esc(o.get("company") or "Unknown company")]
+    loc = location_text(o)
+    if loc:
+        meta_bits.append(esc(loc))
+    meta_bits.append(f'<span class="r-rate">{esc(pay)}</span>')
+    word = engagement_word(o)
+    if word:
+        meta_bits.append(word)
+    meta_bits.append(esc(board(o.get("source"))))
+    tags = spec_tag(o) + lifecycle_tag(o, now)
+    if view == "acknowledged" and o.get("acknowledged_at"):
+        tags += f'<span class="tag tag-neutral">Acknowledged {esc(_day(o["acknowledged_at"]))}</span>'
+    lead = lead_line(o)
+    seen = _day(first_seen(o))
+    new = '<span class="r-new">New</span>' if unread else ""
+    # The region and the remote flag stay on the row, as they were for the
+    # location filter, so the design's location chips can be wired to them.
+    region = str(o.get("region") or "").strip().lower()
+    remote = "1" if str(o.get("location_class") or "").strip().lower() == "remote" else "0"
+    return (
+        f'<div class="{" ".join(classes)}" data-id="{oid}" data-key="{esc(key)}" '
+        f'data-tier="{esc(o.get("tier") or "")}" data-region="{esc(region)}" '
+        f'data-remote="{remote}">'
+        f'<span class="r1"><a class="r-link" id="rt-{oid}" href="{role_url(oid, view)}"'
+        f'{" aria-current=" + chr(34) + "true" + chr(34) if current else ""} '
+        f'aria-describedby="rm-{oid} rl-{oid}">{new}'
+        f'<span class="r-title">{esc(title)}</span></a>{cv}'
+        f'<span class="r-first">{"First seen " + esc(seen) if seen else ""}</span></span>'
+        f'<span class="r2"><span class="r-meta" id="rm-{oid}">{" · ".join(meta_bits)}</span>{tags}</span>'
+        f'<span class="r3"><span class="r-lead" id="rl-{oid}">{esc(lead)}</span>'
+        f'{marks_html(o, current)}</span>'
+        '</div>')
+
+
+def band_of(o: dict) -> str:
+    cv = o.get("cv_match")
+    if cv is None:
+        return "No CV match"
+    low = min(90, (int(cv) // 10) * 10)
+    return f"CV match {low}–{low + 9}" if low < 90 else "CV match 90–100"
+
+
+def rows_html(faces: list, view: str, current_key, now: str) -> str:
+    """Rows with a divider opening each ten-point CV band."""
+    out, band = [], None
+    for o in faces:
+        b = band_of(o)
+        if view != "applied" and b != band:
+            out.append(f'<div class="band">{esc(b)}</div>')
+            band = b
+        out.append(row_html(o, view, current_key, now))
+    return "".join(out)
+
+
+GATES_HEAD = ('<span class="gates-head"><span class="visually-hidden">Gate marks: '
+              'Sector, CV match, Location, Rate</span><span class="gh-keys" '
+              'aria-hidden="true">'
+              + "".join(f'<abbr class="gh-key" title="{name}">{letter}</abbr>'
+                        for _g, name, letter in GATES)
+              + '</span></span>')
+
+
+def group_html(gid: str, title: str, count: int, new: int, body: str,
+               fold: str | None = None, gates: bool = True,
+               lazy: bool = False) -> str:
+    """One group: a sticky header with its title, count, new count and gate
+    letters, then its rows. fold is None for a group that is always open,
+    "open" or "closed" for one that folds."""
+    new_html = (f' <span class="group-new" data-new="{new}">· {new} new</span>'
+                if new else f' <span class="group-new" data-new="0"></span>')
+    fold_html = ""
+    hidden = ""
+    if fold is not None:
+        expanded = "true" if fold == "open" else "false"
+        fold_html = (f'<button type="button" class="fold" aria-expanded="{expanded}" '
+                     f'aria-controls="group-{gid}-rows" data-fold="{gid}" '
+                     f'aria-label="{esc(title)}, show or hide">{_use("ic-right", 16)}</button>')
+        hidden = "" if fold == "open" else " hidden"
+    lazy_attr = ' data-lazy="1"' if lazy else ""
+    return (f'<section class="group" aria-labelledby="group-{gid}" data-tier="{gid}">'
+            f'<div class="group-head"><h2 class="group-title" id="group-{gid}">'
+            f'{esc(title)}<span class="group-count">{count}{new_html}</span></h2>'
+            f'{fold_html}{GATES_HEAD if gates else ""}</div>'
+            f'<div class="group-rows" id="group-{gid}-rows"{hidden}{lazy_attr}>{body}</div>'
+            '</section>')
+
+
+def queue_inner_html(model: dict, view: str, current_key: str | None,
+                     reading_open: bool = False) -> str:
+    """Everything inside the queue for one view."""
+    now = model["now"]
+    tiers = model["tiers"]
+    out = ['<p class="queue-note">Scores are from the advert card unless tagged '
+           'Full job spec.</p>']
+    if view == "open":
+        if model["open_total"] == 0 and not model["acknowledged"] and not model["applied"]:
+            out.append('<p class="empty-note">Nothing scored yet. The inbox '
+                       'workflow fills this page once radar-inbox is armed.</p>')
+        top = tiers["top"]
+        body = (rows_html(top, view, current_key, now) if top else
+                '<p class="empty-note">Nothing to get excited about this week.</p>')
+        out.append(group_html("top", "Top prospects", len(top),
+                              sum(o["_unread"] for o in top), body))
+        question = tiers["question"]
+        body = (rows_html(question, view, current_key, now) if question else
+                '<p class="empty-note">No role is one question away.</p>')
+        out.append(group_html("question", "One question away", len(question),
+                              sum(o["_unread"] for o in question), body))
+        reading = tiers["reading"]
+        if reading:
+            # Reading folds. Its rows are drawn now when it is open, which it
+            # is when the selected role is in it, and otherwise load when it
+            # is opened, so the page does not carry hundreds of rows unasked.
+            show = reading_open or any(role_key(o) == current_key for o in reading)
+            body = rows_html(reading, view, current_key, now) if show else ""
+            out.append(group_html("reading", "Reading", len(reading),
+                                  sum(o["_unread"] for o in reading), body,
+                                  fold="open" if show else "closed",
+                                  lazy=not show))
+        # Applied is always linked, at zero too, as the way to the view;
+        # Acknowledged once there is something behind it.
+        links = [("applied", "Applied", len(model["applied"]))]
+        if model["acknowledged"]:
+            links.append(("acknowledged", "Acknowledged", len(model["acknowledged"])))
+        for key, label, count in links:
+            out.append(f'<p class="view-link"><a class="link" href="/jobs?show={key}">'
+                       f'{label} <span class="group-count">{count}</span></a></p>')
+        filtered = tiers["filtered"]
+        if filtered:
+            roll = ", ".join(f"{n} {r}" for r, n in sorted(
+                model["filtered_reasons"].items(), key=lambda kv: -kv[1]))
+            out.append(f'<p class="filtered">Filtered, {len(filtered)} '
+                       f'{"role" if len(filtered) == 1 else "roles"}. {esc(roll)}. '
+                       '<a class="link" href="/jobs?show=filtered">Show them</a></p>')
+        if model["unscored"]:
+            n = len(model["unscored"])
+            out.append(f'<p class="filtered">{n} {"role is" if n == 1 else "roles are"} '
+                       'not scored yet. Home counts them.</p>')
+    else:
+        faces = model["lists"][view]
+        if view == "filtered":
+            roll = ", ".join(f"{n} {r}" for r, n in sorted(
+                model["filtered_reasons"].items(), key=lambda kv: -kv[1]))
+            out.append('<p class="queue-note">Filtered roles are hidden from the '
+                       'open roles: CV match under the floor, or not a real '
+                       f'leadership role.{" " + esc(roll) + "." if roll else ""}</p>')
+        if view == "acknowledged":
+            out.append('<p class="queue-note">Acknowledged roles are out of the '
+                       'open roles and the digest, and stay on file.</p>')
+        if view == "applied":
+            out.append('<p class="queue-note">Applied roles stay here and never '
+                       'expire, newest application first.</p>')
+        new = sum(1 for o in faces if o.get("_unread"))
+        empty = {"applied": "No applications recorded yet.",
+                 "acknowledged": "No acknowledged roles.",
+                 "filtered": "No filtered roles."}[view]
+        body = (rows_html(faces, view, current_key, now) if faces else
+                f'<p class="empty-note">{empty}</p>')
+        out.append(group_html(view, GROUP_WORDS[view], len(faces), new, body,
+                              gates=view != "applied"))
+        out.append('<p class="view-link"><a class="link" href="/jobs">Back to the '
+                   'open roles</a></p>')
+    return "".join(out)
+
+
+def counts_html(model: dict) -> str:
+    """The header's counts, each a part the page script can update."""
+    tiers = model["tiers"]
+    bits = [f'<span data-count="open">{model["open_total"]} open</span>',
+            f'<span data-count="top">{len(tiers["top"])} Top prospects</span>',
+            f'<span data-count="question">{len(tiers["question"])} one question away</span>',
+            f'<span data-count="reading">{len(tiers["reading"])} reading</span>',
+            f'<span data-count="filtered">{len(tiers["filtered"])} filtered</span>']
+    if model["unscored"]:
+        bits.append(f'<span data-count="unscored">{len(model["unscored"])} not scored</span>')
+    bits.append(f'<span data-count="new" data-n="{model["new"]}">{model["new"]} new</span>')
+    return " · ".join(bits)
+
+
+# ----------------------------------------------------------------- the role
+
+def _quote_span(quote, text: str):
+    """(start, end) of a quote in text, word for word, as radar_common
+    .find_verbatim finds it (case and runs of white space aside, whole words
+    at its ends), or None."""
+    wanted = radar_common.flat_text(quote)
+    if not wanted or not re.search(r"\w", wanted):
+        return None
+    pattern = r"\s+".join(re.escape(w) for w in wanted.split(" "))
+    if re.match(r"\w", wanted):
+        pattern = r"(?<!\w)" + pattern
+    if re.search(r"\w\Z", wanted):
+        pattern += r"(?!\w)"
+    found = re.search(pattern, text, re.IGNORECASE)
+    return (found.start(), found.end()) if found else None
+
+
+def _marked(text: str, start: int, end: int, spans: list, used: set) -> str:
+    """text[start:end] escaped, with each quote span that falls in it marked.
+    A quote's first piece carries its id, so its evidence link lands on it."""
+    out, pos = [], start
+    for s, e, qid in spans:
+        s2, e2 = max(s, start), min(e, end)
+        if s2 >= e2:
+            continue
+        if s2 > pos:
+            out.append(esc(text[pos:s2]))
+        ident = "" if qid in used else f' id="{qid}"'
+        used.add(qid)
+        out.append(f"<mark{ident}>{esc(text[s2:e2])}</mark>")
+        pos = e2
+    if pos < end:
+        out.append(esc(text[pos:end]))
+    return "".join(out)
+
+
+_BULLET = re.compile(r"^[ \t]*(?:[-*•·▪◦‣–]|\d{1,2}[.)])[ \t]+")
+
+
+def advert_text_html(text: str, spans: list) -> str:
+    """The stored description as paragraphs and lists, quotes marked.
+
+    The description is stored as plain lines. A blank line ends a paragraph,
+    a line that starts with a bullet or a number is a list item, and every
+    other line keeps its own line inside its paragraph. Nothing is invented:
+    no headings are guessed.
+    """
+    used: set = set()
+    blocks: list = []
+    offset = 0
+    for line in text.split("\n"):
+        start, end = offset, offset + len(line)
+        offset = end + 1
+        if line.endswith("\r"):
+            end -= 1
+            line = line[:-1]
+        if not line.strip():
+            blocks.append(("gap", None))
+            continue
+        bullet = _BULLET.match(line)
+        if bullet:
+            item = (start + bullet.end(), end)
+            if blocks and blocks[-1][0] == "ul":
+                blocks[-1][1].append(item)
+            else:
+                blocks.append(("ul", [item]))
+        else:
+            lead = len(line) - len(line.lstrip())
+            item = (start + lead, end)
+            if blocks and blocks[-1][0] == "p":
+                blocks[-1][1].append(item)
+            else:
+                blocks.append(("p", [item]))
+    out = []
+    for kind, items in blocks:
+        if kind == "p":
+            out.append("<p>" + "<br>".join(_marked(text, s, e, spans, used)
+                                           for s, e in items) + "</p>")
+        elif kind == "ul":
+            out.append("<ul>" + "".join(f"<li>{_marked(text, s, e, spans, used)}</li>"
+                                        for s, e in items) + "</ul>")
+    return "".join(out)
+
+
+def _spans_for(reasons: list, text: str, offset: int = 0) -> tuple[list, dict]:
+    """The marked spans for the reasons' quotes in one text, and which reason
+    each landed for. A quote that overlaps one already marked is not marked
+    again, and its reason shows its quote without a link."""
+    spans, hit = [], {}
+    for i, r in enumerate(reasons, 1):
+        if not r.get("quote"):
+            continue
+        found = _quote_span(r["quote"], text)
+        if not found:
+            continue
+        s, e = found
+        if any(s < e2 and s2 < e for s2, e2, _q in spans):
+            continue
+        spans.append((s + offset, e + offset, f"q-{i}"))
+        hit[i] = f"q-{i}"
+    spans.sort()
+    return spans, hit
+
+
+def _basis_html(o: dict) -> str:
+    basis = str(o.get("score_basis") or "").strip().lower()
+    if not basis:
+        return '<p class="basis">Not scored yet.</p>'
+    what = {radar_common.SCORE_BASIS_CARD: "Scored on the advert card",
+            radar_common.SCORE_BASIS_SPEC: "Scored on the full job spec"}.get(
+                basis, f"Scored on {basis}")
+    model = o.get("score_model")
+    bits = [esc(what),
+            esc(_day(o.get("scored_at")) or "date not recorded"),
+            esc(model if model and model != radar_common.UNKNOWN_MODEL
+                else "model unknown")]
+    prompt = o.get("prompt_version")
+    bits.append("prompt " + (f'<span class="mono">{esc(prompt)}</span>' if prompt
+                             else "unknown"))
+    if o.get("cv_version"):
+        bits.append(f'CV <span class="mono">{esc(o["cv_version"])}</span>')
+    return ('<p class="basis">' + " · ".join(f'<span class="seg-nowrap">{b}</span>'
+                                             for b in bits) + '</p>')
+
+
+def score_html(o: dict) -> str:
+    tier = o.get("tier")
+    if tier:
+        tier_line = TIER_WORDS.get(tier, tier)
+        if tier == "filtered" and o.get("filter_reason"):
+            tier_line += f", {o['filter_reason']}"
+    else:
+        tier_line = "Not scored yet"
+    gates = []
+    for gate, name, _letter in GATES:
+        value = o.get(f"gate_{gate}")
+        if value is None:
+            cls, symbol, word = "is-neu", "st-neu", "Not judged"
+        elif int(value):
+            cls, symbol, word = "is-pos", "st-pos", "Passes"
+        else:
+            cls, symbol, word = "is-neg", "st-neg", "Fails"
+        note = o.get(f"gate_{gate}_note") or ""
+        gates.append(f'<div class="gate"><span class="gate-name">{name}</span>'
+                     f'<span class="gate-status {cls}">{_use(symbol)}{word}</span>'
+                     f'<span class="gate-note">{esc(note)}</span></div>')
+    cv = (f'<p class="cv-line"><span class="cv-label">CV match</span>'
+          f'<span class="cv-figure">{int(o["cv_match"])}%</span></p>'
+          if o.get("cv_match") is not None else "")
+    return ('<section class="sec score" aria-labelledby="score-heading">'
+            '<h3 class="sec-h" id="score-heading">Score</h3>'
+            f'<p class="tier-line">{esc(tier_line)}</p>'
+            f'<div class="gate-strip">{"".join(gates)}</div>{cv}{_basis_html(o)}'
+            '</section>')
+
+
+def reasons_section(o: dict, reasons: list, hits: dict, quotes: bool) -> str:
+    if not reasons:
+        return ""
+    items = []
+    for i, r in enumerate(reasons, 1):
+        quote = ""
+        if r.get("quote") and quotes:
+            words = f"&ldquo;{esc(r['quote'])}&rdquo;"
+            if i in hits:
+                quote = (f'<a class="evidence" id="reason-{i}-evidence" '
+                         f'href="#{hits[i]}">{words}</a>')
+            else:
+                quote = f'<span class="evidence-text">{words}</span>'
+        items.append(f'<li><span class="reason">{esc(bd.sentence(r["reason"]))}</span>'
+                     f'{quote}</li>')
+    notes = []
+    if not quotes and any(r.get("quote") for r in reasons):
+        notes.append('<p class="basis">The quotes are not shown, because the '
+                     'stored description has changed since this score.</p>')
+    if radar_common.reasons_gates_moved(
+            radar_common.reasons_record(o.get("score_reasons"), o.get("scored_at")), o):
+        notes.append('<p class="basis">The gates have been judged again in code '
+                     'since these reasons were given.</p>')
+    return ('<section class="sec" aria-labelledby="reasons-heading">'
+            '<h3 class="sec-h" id="reasons-heading">Reasons</h3>'
+            f'<ul class="reasons">{"".join(items)}</ul>{"".join(notes)}</section>')
+
+
+def asks_section(o: dict, view: str) -> str:
+    """The asks summary from the per-ask working of the score the role holds,
+    and the way to see them. Read from the full job spec only."""
+    import prepare_application as prep
+    working = prep.load_working(o)
+    on_description = prep.scored_on_description(o)
+    oid = int(o["id"])
+    link = (f'<a class="link" id="asks-in-prepare" href="/prepare/{oid}">'
+            'See them in Prepare application</a>')
+    if working is not None and on_description:
+        counts = working.get("counts") or {}
+        text = (f'{int(counts.get("met") or 0)} met · '
+                f'{int(counts.get("partly") or 0)} partly · '
+                f'{int(counts.get("missing") or 0)} missing. ')
+        body = f"<p>{text}{link}</p>"
+    elif working is not None and (o.get("description_text") or "").strip():
+        body = ('<p>The stored job spec has changed since this score, so its '
+                f'asks are not counted here. {link}</p>')
+    else:
+        body = '<p>No asks yet. Asks are read from the full job spec.</p>'
+    return ('<section class="sec" aria-labelledby="asks-heading">'
+            f'<h3 class="sec-h" id="asks-heading">Asks</h3>{body}</section>')
+
+
+def _state_words(o: dict, view: str, now: str) -> str:
+    if view == "applied" or o.get("applied_at"):
+        return f"Applied {_day(o.get('applied_at'))}"
+    if o.get("closed_at"):
+        how = "the page check" if o.get("closed_source") == "page_check" else "hand"
+        return f"Closed {_day(o['closed_at'])} by {how}"
+    if o.get("dismissed_at"):
+        return f"Dismissed {_day(o['dismissed_at'])}"
+    if o.get("expired_at"):
+        return f"Expired {_day(o['expired_at'])}"
+    state = radar_common.life_state(o, now)
+    newest = _day(radar_common.latest_liveness(o))
+    if state == "live":
+        words = f"Live · seen {newest}"
+    else:
+        words = f"Unknown · last seen {newest}" if newest else "Unknown"
+        moment, latest = _parse(now), _parse(radar_common.latest_liveness(o))
+        if moment and latest:
+            expires = latest + timedelta(days=expiry_days())
+            words += f" · expires {expires.day} {expires:%b}"
+    if o.get("acknowledged_at"):
+        words += f" · acknowledged {_day(o['acknowledged_at'])}"
+    return words
+
+
+def details_section(data: dict, o: dict, view: str, now: str) -> str:
+    import prepare_application as prep
+    facts = []
+    rate = o.get("salary_rate") or "Not stated"
+    ir35 = str(o.get("ir35") or "").strip().lower()
+    if ir35 in ("inside", "outside") and o.get("salary_rate"):
+        rate += f", {ir35} IR35"
+    facts.append(("Rate as advertised", esc(rate)))
+    working = prep.load_working(o)
+    if working is not None and prep.scored_on_description(o):
+        quote = working.get("rate_quote")
+        source = working.get("rate_quote_from")
+        if quote and source != "disagrees":
+            how = ("Found by pattern matching in the job spec"
+                   if source == "pattern" else "Quoted from the job spec")
+            facts.append(("Rate line", f"{how}: &ldquo;{esc(quote)}&rdquo;"))
+    facts.append(("State", esc(_state_words(o, view, now))))
+    chain = chain_rows(data, o)
+    if len(chain) > 1:
+        sightings = sum(int(r.get("seen_count") or 1) for r in chain)
+        first = min((r.get("first_seen") or "") for r in chain)
+        text = (f"Seen {sightings} times across {len(chain)} adverts since "
+                f"{_day(first)}. A verdict here covers the whole chain.")
+        latest = (o.get("_chain") or {}).get("latest_tier")
+        if latest:
+            text += f" Latest advert read lower, {latest}."
+        facts.append(("Repost chain", esc(text)))
+    flags = []
+    try:
+        flags = [str(f) for f in json.loads(o.get("red_flags") or "[]") if str(f).strip()]
+    except (TypeError, ValueError):
+        flags = []
+    facts.append(("Red flags", esc("; ".join(flags)) if flags else "None"))
+    word = engagement_word(o) or "Not stated"
+    if o.get("engagement_note"):
+        word += f", {o['engagement_note']}"
+    facts.append(("Type", esc(word)))
+    facts.append(("Source", esc(board(o.get("source")))))
+    rows = "".join(f"<dt>{label}</dt><dd>{value}</dd>" for label, value in facts)
+    return ('<section class="sec" aria-labelledby="details-heading">'
+            '<h3 class="sec-h" id="details-heading">Details</h3>'
+            f'<dl class="facts">{rows}</dl></section>')
+
+
+def company_section(data: dict, o: dict) -> str:
+    """The way to everything on file for the company, only when the company
+    page exists."""
+    cid = o.get("company_id")
+    if not cid or int(cid) not in (data.get("company_ids") or set()):
+        return ""
+    name = o.get("company") or "this company"
+    bits = []
+    insights = sum(1 for s in (data.get("signals") or []) + (data.get("dismissed_signals") or [])
+                   if s.get("company_id") == cid)
+    if insights:
+        bits.append(f"{insights} {'insight' if insights == 1 else 'insights'}")
+    touch = (data.get("touch_map") or {}).get(str(o.get("company") or "").lower())
+    if touch:
+        bits.append(f"last touch {_day(touch.get('touched_at'))}")
+    text = " · ".join(bits)
+    meta = (f'<p class="company-meta">{esc(text[:1].upper() + text[1:])}</p>'
+            if bits else "")
+    return ('<section class="sec company" aria-label="Company">'
+            f'<p><a class="link" id="company-on-file" href="/company/{int(cid)}">'
+            f'Everything on file for {esc(name)}</a></p>{meta}</section>')
+
+
+def advert_section(o: dict, reasons: list, quotes: bool, view: str,
+                   can_prepare: bool) -> tuple[str, dict]:
+    """The advert: the stored full description where there is one, marked
+    where the reasons quote it; otherwise the advert-not-read state, the card
+    the score was made on, with Prepare application as the way to read it.
+    Returns the section and which reasons' quotes were marked in it."""
+    text = (o.get("description_text") or "").strip("\n")
+    basis = str(o.get("score_basis") or "").strip().lower()
+    oid = int(o["id"])
+    if text.strip():
+        spans, hits = ([], {})
+        if quotes and basis == radar_common.SCORE_BASIS_SPEC:
+            spans, hits = _spans_for(reasons, text)
+        fetched = o.get("description_fetched_at")
+        read = (f"Read from {board(o.get('source'))} on {_day(fetched)}" if fetched
+                else "Stored by the page checker, date not recorded")
+        body = f'<div class="advert-text">{advert_text_html(text, spans)}</div>'
+        head = f'<span class="advert-read">{esc(read)}</span>'
+    else:
+        # The card is what the score read: title, company, place and pay, each
+        # its own field, as score_item.quote_sources holds the quotes to them.
+        fields = [str(o.get(f) or "").strip() for f in ("title", "company",
+                                                        "location", "salary_rate")]
+        hits: dict = {}
+        used: set = set()
+        pieces = []
+        remaining = list(enumerate(reasons, 1))
+        for field in fields:
+            if not field:
+                continue
+            spans = []
+            if basis != radar_common.SCORE_BASIS_SPEC:
+                for i, r in remaining:
+                    if i in hits or not r.get("quote"):
+                        continue
+                    found = _quote_span(r["quote"], field)
+                    if found and not any(found[0] < e and s < found[1]
+                                         for s, e, _q in spans):
+                        spans.append((found[0], found[1], f"q-{i}"))
+                        hits[i] = f"q-{i}"
+                spans.sort()
+            pieces.append(_marked(field, 0, len(field), spans, used))
+        card = ". ".join(p.rstrip(".") for p in pieces)
+        link = bd.safe_url(o.get("source_url"))
+        open_link = (f'<p><a class="link with-icon" href="{esc(link)}" target="_blank" '
+                     f'rel="noopener noreferrer">{_use("ic-launch", 16)}Open the advert on '
+                     f'{esc(board(o.get("source")))}<span class="visually-hidden"> '
+                     '(opens in a new tab)</span></a></p>' if link else "")
+        prepare = (f'<p class="prepare-hint">Prepare application reads the full '
+                   f'advert and scores it once. <a class="link" data-prepare="{oid}" '
+                   f'href="/prepare/{oid}?go=1">Prepare application</a></p>'
+                   if can_prepare else "")
+        body = (f'<p class="empty-fact">Advert not read yet. Only the advert card is '
+                f'on file.</p><p class="card-text">{card}{"." if card else ""}</p>'
+                f'{open_link}{prepare}')
+        head = ""
+    return ('<section class="advert" aria-labelledby="advert-heading" tabindex="-1" '
+            'id="advert">'
+            f'<div class="advert-head"><h3 class="sec-h" id="advert-heading">Advert</h3>'
+            f'{head}</div><div class="advert-body">{body}</div></section>'), hits
+
+
+def _btn(kind: str, label: str, key: str, oid: int, primary: bool = False) -> str:
+    cls = "btn-primary" if primary else "btn-secondary"
+    return (f'<button type="button" class="btn {cls}" data-act="{kind}" '
+            f'data-id="{oid}" data-shortcut="{key}" aria-keyshortcuts="{key.upper()}">'
+            f'{label}<kbd class="kbd" aria-hidden="true">{key.upper()}</kbd></button>')
+
+
+def actions_html(o: dict, view: str) -> str:
+    oid = int(o["id"])
+    prepare = (f'<a class="btn btn-primary" href="/prepare/{oid}?go=1" '
+               f'data-prepare="{oid}" data-shortcut="p" aria-keyshortcuts="P">'
+               'Prepare application<kbd class="kbd" aria-hidden="true">P</kbd></a>')
+    if view == "applied":
+        return ('<div class="actions actions-applied">'
+                f'<button type="button" class="btn btn-secondary" data-act="unapply" '
+                f'data-id="{oid}">Undo applied</button>'
+                f'<p class="applied-note">Applied {esc(_day(o.get("applied_at")))}. '
+                'Applied roles stay here and never expire. Undo asks first, then '
+                'puts the role back in the open roles.</p></div>')
+    if view == "retired":
+        return ('<div class="actions"><p class="applied-note">This role is out of '
+                'every view: ' + esc(_state_words(o, view, radar_common.now_iso()))
+                + '. Its undo is on the <a class="link" href="/archive">archive '
+                'page</a>.</p></div>')
+    if view == "acknowledged":
+        # Prepare application will not touch an acknowledged role, so the
+        # way back to the open roles comes first.
+        return ('<div class="actions actions-open">'
+                + f'<button type="button" class="btn btn-secondary" data-act="unack" '
+                  f'data-id="{oid}" data-shortcut="a" aria-keyshortcuts="A">Back to '
+                  'open roles<kbd class="kbd" aria-hidden="true">A</kbd></button>'
+                + _btn("dismiss", "Dismiss", "d", oid)
+                + _btn("close", "Close role", "c", oid) + '</div>')
+    return ('<div class="actions actions-open">' + prepare
+            + "".join(_btn(kind, label, key, oid) for kind, label, key in ACTIONS)
+            + '</div>')
+
+
+def nav_ids(model: dict, view: str, face: dict) -> tuple:
+    """The previous and next role in the view's order, by row id."""
+    lst = model["lists"].get(view) or []
+    keys = [role_key(o) for o in lst]
+    try:
+        i = keys.index(role_key(face))
+    except ValueError:
+        return None, None
+    prev_id = int(lst[i - 1]["id"]) if i > 0 else None
+    next_id = int(lst[i + 1]["id"]) if i + 1 < len(lst) else None
+    return prev_id, next_id
+
+
+def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
+    """The role pane for one role: its header with the actions, then the lead
+    line, Score, Reasons, Asks, Details, the company and the advert."""
+    now = model["now"]
+    oid = int(face["id"])
+    title = face.get("title") or "Untitled role"
+    reasons = radar_common.score_reasons(face.get("score_reasons"), face.get("scored_at"))
+    quotes = bd.quotes_hold(face)
+    # Prepare application works on open roles only, Filtered ones included.
+    open_view = view in ("open", "filtered")
+    advert, hits = advert_section(face, reasons, quotes, view,
+                                  can_prepare=open_view)
+    cid = face.get("company_id")
+    company = esc(face.get("company") or "Unknown company")
+    if cid and int(cid) in (data.get("company_ids") or set()):
+        company = (f'<a class="link" id="detail-company" href="/company/{int(cid)}">'
+                   f'{company}</a>')
+    meta = [company]
+    loc = location_text(face)
+    if loc:
+        meta.append(esc(loc))
+    word = engagement_word(face)
+    if word:
+        meta.append(word)
+    meta.append(esc(board(face.get("source"))))
+    tags = spec_tag(face)
+    if view == "applied":
+        tags += (f'<span class="tag tag-positive">{_use("st-pos")}Applied '
+                 f'{esc(_day(face.get("applied_at")))}</span>')
+    link = bd.safe_url(face.get("source_url"))
+    open_advert = (f'<a class="btn btn-ghost open-advert" href="{esc(link)}" '
+                   'target="_blank" rel="noopener noreferrer" data-shortcut="o" '
+                   f'data-open="{oid}" aria-keyshortcuts="O">{_use("ic-launch", 16)}'
+                   'Open the advert<span class="visually-hidden"> (opens in a new tab)'
+                   '</span><kbd class="kbd" aria-hidden="true">O</kbd></a>'
+                   if link else "")
+    prev_id, next_id = nav_ids(model, view, face)
+
+    def step(target, label, key, rel):
+        if target is None:
+            return (f'<span class="btn btn-secondary prevnext is-disabled" '
+                    f'aria-disabled="true">{label}<kbd class="kbd" aria-hidden="true">'
+                    f'{key}</kbd></span>')
+        return (f'<a class="btn btn-secondary prevnext" href="{role_url(target, view)}" '
+                f'rel="{rel}" data-step="{rel}" data-id="{target}" '
+                f'aria-keyshortcuts="{key}">{label}<kbd class="kbd" aria-hidden="true">'
+                f'{key}</kbd></a>')
+
+    back = (f'<a class="link back" href="/jobs{view_query(view if view != "retired" else "open")}" '
+            'data-back>Back to Jobs</a>')
+    head = (f'<header class="detail-head">{back}<div class="dh-grid">'
+            f'<h2 class="dh-title" id="role-title" tabindex="-1">{esc(title)}</h2>'
+            f'<div class="dh-meta"><span class="dh-meta-text">{" · ".join(meta)}</span>'
+            f'{tags}</div>'
+            f'<div class="dh-nav">{open_advert}'
+            f'{step(prev_id, "Previous", "K", "prev")}{step(next_id, "Next", "J", "next")}'
+            f'</div></div>{actions_html(face, view)}</header>')
+    lead = lead_line(face)
+    body = [f'<p class="lead-line">{esc(lead)}</p>' if lead else "",
+            score_html(face),
+            reasons_section(face, reasons, hits, quotes),
+            asks_section(face, view),
+            details_section(data, face, view, now),
+            company_section(data, face)]
+    return (f'{head}<div class="role-scroll"><div class="detail-body">'
+            f'{"".join(body)}</div>{advert}</div>')
+
+
+KEYMAP = (("J", "Next role"), ("K", "Previous role"),
+          ("P", "Prepare application"), ("A", "Acknowledge"),
+          ("D", "Dismiss"), ("C", "Close role"), ("M", "Mark applied"),
+          ("O", "Open the advert"), ("?", "Show this list"))
+
+
+def keymap_html() -> str:
+    return ('<dl class="keymap">' + "".join(
+        f'<div><dt><kbd class="kbd">{esc(k)}</kbd></dt><dd>{esc(v)}</dd></div>'
+        for k, v in KEYMAP) + '</dl>')
+
+
+def no_selection_html(view: str, note: str = "") -> str:
+    lead = note or ("Choose a role in the list to read it here. The keys below "
+                    "work anywhere on this page except while you type in a field.")
+    return (f'<div class="no-selection"><h2 class="visually-hidden">No role chosen</h2>'
+            f'<p>{esc(lead)}</p>{keymap_html()}</div>')
+
+
+# ------------------------------------------------------------------ the page
+
+def role_payload(data: dict, model: dict, item_id: int, view: str) -> dict | None:
+    """The role pane as JSON for the page script, or None for no such row."""
+    face, where = find_role(data, model, item_id)
+    if face is None:
+        return None
+    # The pane is drawn for the view the role is in, whatever the page shows,
+    # so its actions are the ones that role can take.
+    shown = where
+    return {"id": int(face["id"]), "key": role_key(face),
+            "tier": face.get("tier") or "", "view": shown,
+            "title": face.get("title") or "Untitled role",
+            "unread": bool(face.get("_unread")),
+            "url": role_url(face["id"], view),
+            "html": role_inner_html(data, model, face, shown)}
+
+
+def queue_payload(model: dict, view: str, current_key: str | None,
+                  reading_open: bool) -> dict:
+    return {"html": queue_inner_html(model, view, current_key, reading_open),
+            "counts": counts_html(model), "stamp": model["stamp"],
+            "new": model["new"]}
+
+
+def reading_payload(model: dict, current_key: str | None) -> dict:
+    return {"html": rows_html(model["tiers"]["reading"], "open", current_key,
+                              model["now"])}
+
+
+def show_menu_html(model: dict, view: str) -> str:
+    counts = {"open": model["open_total"] - len(model["tiers"]["filtered"])
+              - len(model["unscored"]),
+              "acknowledged": len(model["acknowledged"]),
+              "filtered": len(model["tiers"]["filtered"]),
+              "applied": len(model["applied"])}
+    items = "".join(
+        f'<li><a href="/jobs{view_query(v)}"'
+        f'{" aria-current=" + chr(34) + "page" + chr(34) if v == view else ""}>'
+        f'{VIEW_WORDS[v]} <span class="chip-count">{counts[v]}</span></a></li>'
+        for v in VIEWS)
+    return ('<div class="show-menu">'
+            '<button type="button" class="chip chip-facet'
+            f'{" is-selected" if view != "open" else ""}" id="show-btn" '
+            'aria-expanded="false" aria-controls="show-list">'
+            f'Show: {VIEW_WORDS[view]}{_use("ic-down", 16)}</button>'
+            f'<ul class="show-list" id="show-list" hidden>{items}</ul></div>')
+
+
+def render(data: dict, config: dict, db_label: str, selected: int | None = None,
+           view: str = "open", reading: bool = False) -> tuple[int, str]:
+    """(status, the whole page). 404 when the address names no row. reading
+    draws the Reading rows now rather than when the group is opened."""
+    if view not in VIEWS:
+        view = "open"
+    model = build_model(data)
+    status = 200
+    face, where = (find_role(data, model, selected) if selected is not None
+                   else (None, None))
+    if selected is not None and face is None:
+        status = 404
+    shown = where
+    current_key = role_key(face) if face is not None else None
+    queue = queue_inner_html(model, view, current_key, reading)
+    if face is not None:
+        role_cls = "role role-detail"
+        role = role_inner_html(data, model, face, shown)
+        label = 'aria-labelledby="role-title"'
+        title = f"{face.get('title') or 'Untitled role'} · Jobs · MedTech Radar"
+    else:
+        role_cls = "role role-empty"
+        note = (f"There is no role {int(selected)}. It may have been removed from "
+                "the database." if status == 404 else "")
+        role = no_selection_html(view, note)
+        label = 'aria-label="Role"'
+        title = "Jobs · MedTech Radar"
+    state = {"view": view, "id": int(face["id"]) if face is not None else None,
+             "key": current_key, "tier": (face or {}).get("tier") or "",
+             "unread": bool((face or {}).get("_unread")),
+             "title": (face or {}).get("title") or "",
+             "readAfter": READ_AFTER_MS, "stamp": model["stamp"]}
+    state_json = json.dumps(state).replace("<", "\\u003c")
+    page = f"""<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{esc(title)}</title>
+<link rel="icon" href="{bd.FAVICON}">
+<style>{page_frame.FRAME_CSS}{JOBS_CSS}</style>
+</head>
+<body>
+<div class="app" data-page="jobs" data-show="{view}" data-view="{"role" if face is not None else "list"}">
+{SYMBOLS}
+{page_frame.appbar_html("jobs", bd.job_verdicts(data), "Jobs", help_button=True)}
+<div class="pagehead">
+<div class="ph-title"><h1>Jobs</h1><p class="counts" id="counts">{counts_html(model)}</p></div>
+<div class="ph-tools">
+<div class="arrivals" role="status"><button type="button" class="btn btn-secondary" id="arrivals" hidden></button></div>
+{show_menu_html(model, view)}
+<button type="button" class="btn btn-ghost undo-last" id="undo-last" disabled>Undo last</button>
+</div>
+</div>
+<main class="content" id="main">
+<section class="queue" id="queue" aria-label="Roles">{queue}</section>
+<section class="{role_cls}" id="role" {label}>{role}</section>
+</main>
+<p class="toast" id="toast" role="status" aria-live="polite"></p>
+<dialog class="keys" id="keys" aria-labelledby="keys-title">
+<h2 id="keys-title">Keyboard shortcuts</h2>
+<p class="keys-note">The keys work anywhere on this page except while you type in a field.</p>
+{keymap_html()}
+<form method="dialog"><button type="submit" class="btn btn-secondary">Close</button></form>
+</dialog>
+<template id="no-selection">{no_selection_html(view)}</template>
+</div>
+<script type="application/json" id="jobs-state">{state_json}</script>
+<script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{JOBS_SCRIPT}</script>
+</body>
+</html>"""
+    return status, page
+
+
+# --------------------------------------------------------------- the styles
+
+JOBS_CSS = """
+*,*::before,*::after{box-sizing:border-box}
+html{background:var(--surface)}
+html body{margin:0;background:var(--surface);color:var(--text-1);font-family:var(--font-sans);font-size:14px;line-height:20px;font-weight:400;letter-spacing:0;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4,p,ul,ol,dl,dd{margin:0}
+ul,ol{list-style:none;padding:0}
+button,input{font:inherit;color:inherit;letter-spacing:0}
+a{color:inherit}
+.mono{font-family:var(--font-mono);white-space:nowrap}
+.seg-nowrap{white-space:nowrap}
+.app{display:grid;grid-template-rows:48px auto minmax(0,1fr);height:100vh;height:100dvh;overflow:hidden;background:var(--surface)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-2);font-size:14px;line-height:20px;font-weight:500;white-space:nowrap;text-decoration:none;cursor:pointer;transition:background-color var(--dur) ease-out,color var(--dur) ease-out,border-color var(--dur) ease-out}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.btn-primary .kbd{background:var(--on-accent);color:var(--accent-hover);border-color:var(--on-accent)}
+.btn-secondary{background:var(--surface);border-color:var(--border-strong);color:var(--text-1)}
+.btn-secondary:hover{background:var(--row-hover)}
+.btn-ghost{background:transparent;color:var(--text-2)}
+.btn-ghost:hover{color:var(--text-1);text-decoration:underline;text-underline-offset:2px}
+.btn.is-disabled,.btn:disabled{color:var(--text-3);border-color:var(--border-subtle);cursor:default;text-decoration:none}
+.btn.is-disabled .kbd{color:var(--text-3);border-color:var(--border-subtle)}
+.btn[aria-busy="true"]{cursor:progress}
+.kbd{display:inline-flex;align-items:center;justify-content:center;flex:none;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface-sunken);color:var(--text-2);font-family:var(--font-mono);font-size:11px;line-height:16px;font-weight:500;white-space:nowrap}
+.link{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px;transition:color var(--dur) ease-out}
+.link:hover{color:var(--accent-hover);text-decoration-thickness:2px}
+.with-icon{display:inline-flex;align-items:center;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 12px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:transparent;color:var(--text-2);font-size:12px;line-height:16px;font-weight:600;white-space:nowrap;cursor:pointer}
+.chip:hover{color:var(--text-1)}
+.chip-count{color:var(--text-3);font-weight:400;font-variant-numeric:tabular-nums}
+.chip.is-selected{background:var(--accent-tint);border-color:var(--accent);color:var(--accent)}
+.chip-facet{padding-right:8px}
+.tag{display:inline-flex;align-items:center;gap:4px;flex:none;height:20px;padding:0 8px;border-radius:var(--radius-2);font-size:12px;line-height:16px;font-weight:600;white-space:nowrap}
+.tag-neutral{background:var(--neutral-tint);color:var(--neutral)}
+.tag-caution{background:var(--caution-tint);color:var(--caution)}
+.tag-positive{background:var(--positive-tint);color:var(--positive)}
+.is-pos{color:var(--positive)}
+.is-neg{color:var(--negative)}
+.is-neu{color:var(--neutral)}
+.pagehead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;min-height:56px;padding:12px 16px;background:var(--canvas);border-bottom:1px solid var(--border-subtle)}
+.ph-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px;min-width:0}
+.ph-title h1{font-size:20px;line-height:28px;font-weight:600}
+.counts{font-size:12px;line-height:16px;color:var(--text-3);font-variant-numeric:tabular-nums}
+.ph-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:auto}
+.arrivals:has(#arrivals[hidden]){display:none}
+.show-menu{position:relative}
+.show-list{position:absolute;right:0;top:36px;z-index:12;min-width:220px;padding:4px 0;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay)}
+.show-list a{display:flex;justify-content:space-between;gap:16px;padding:8px 12px;color:var(--text-1);text-decoration:none}
+.show-list a:hover{background:var(--row-hover)}
+.show-list a[aria-current="page"]{font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
+.undo-last{margin-left:4px}
+.content{display:grid;grid-template-columns:minmax(0,1fr);min-width:0;min-height:0;background:var(--surface)}
+.queue,.role{min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;background:var(--surface)}
+.queue{container:queue / inline-size;scroll-padding-top:40px}
+.queue .link,.queue .fold,.role .link,.role .evidence,.role .btn{scroll-margin-block:8px}
+.queue-note{display:flex;align-items:center;min-height:32px;padding:8px 16px 7px;font-size:12px;line-height:16px;color:var(--text-2);border-bottom:1px solid var(--border-subtle)}
+.empty-note{padding:12px 16px;color:var(--text-2);border-bottom:1px solid var(--border-subtle)}
+.group-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;height:40px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle)}
+.group-title{display:flex;align-items:baseline;gap:8px;min-width:0;font-size:16px;line-height:24px;font-weight:600;white-space:nowrap}
+.group-count{font-size:12px;line-height:16px;font-weight:400;color:var(--text-3);font-variant-numeric:tabular-nums}
+.group-new{color:var(--text-2)}
+.fold{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;margin:0 -8px 0 auto;border:0;border-radius:var(--radius-2);background:transparent;color:var(--text-2);cursor:pointer}
+.fold:hover{background:var(--row-hover);color:var(--text-1)}
+.fold svg{transition:transform var(--dur) ease-out}
+.fold[aria-expanded="true"] svg{transform:rotate(90deg)}
+.band{display:flex;align-items:center;height:24px;padding:0 16px;font-size:12px;line-height:16px;color:var(--text-3);border-bottom:1px solid var(--border-subtle);font-variant-numeric:tabular-nums}
+.row{position:relative;display:grid;grid-template-rows:20px 16px 20px;row-gap:2px;min-height:76px;padding:8px 16px 7px;border-bottom:1px solid var(--border-subtle);background:var(--surface);color:var(--text-1);transition:background-color var(--dur) ease-out}
+.row:hover{background:var(--row-hover)}
+.row.is-current{background:var(--row-selected);border-left:3px solid var(--accent);padding-left:13px}
+.r1,.r2,.r3{display:flex;min-width:0}
+.r1{align-items:baseline;gap:8px}
+.r-link{display:flex;align-items:baseline;gap:8px;flex:1 1 auto;min-width:0;color:var(--text-1);text-decoration:none}
+.r-link::after{content:"";position:absolute;inset:0;z-index:0}
+.r-link:focus-visible{outline:none;box-shadow:none}
+.r-link:focus-visible::after{outline:2px solid var(--focus);outline-offset:-5px}
+.r-link:hover .r-title{text-decoration:underline;text-underline-offset:2px}
+.r-new{flex:none;font-size:12px;line-height:16px;font-weight:600;color:var(--text-1)}
+.r-title{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-weight:500}
+.is-unread .r-title{font-weight:600}
+.r-cv{flex:none;width:40px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
+.r-first{flex:none;width:100px;text-align:right;font-size:12px;line-height:16px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.r2{align-items:center;gap:8px}
+.r-meta{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;line-height:16px;color:var(--text-3)}
+.r2 .tag{margin:-2px 0}
+.r3{align-items:center;gap:12px}
+.r-lead{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text-2)}
+.r-marks{position:relative;z-index:1;display:inline-flex;align-items:center;gap:4px;flex:none}
+.mk{position:relative;display:inline-flex;flex:none;border-radius:var(--radius-2)}
+.mk-pass{color:var(--text-3)}
+.mk-fail{color:var(--negative)}
+.mk-nj{color:var(--neutral)}
+.mk-tip{display:none;position:absolute;right:-4px;bottom:calc(100% + 4px);z-index:6;width:max-content;max-width:min(400px,calc(100cqi - 32px));padding:1px 8px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface);box-shadow:var(--shadow-overlay);color:var(--text-1);font-size:12px;line-height:16px;font-weight:400;text-align:left;white-space:normal}
+.mk:hover .mk-tip,.mk:focus-visible .mk-tip{display:block}
+.mk:focus-visible{outline-offset:1px}
+.row-applied{grid-template-rows:20px 16px;row-gap:4px;min-height:56px}
+.gates-head{display:flex;flex:none;margin-left:auto}
+.fold + .gates-head{margin-left:8px}
+.gh-keys{display:flex;gap:4px}
+.gh-key{width:12px;font-size:12px;line-height:16px;font-weight:600;color:var(--text-3);text-align:center;text-decoration:none;cursor:help}
+.view-link{display:flex;align-items:center;min-height:40px;padding:0 16px;border-bottom:1px solid var(--border-subtle);font-weight:600}
+.view-link .group-count{margin-left:4px}
+.filtered{padding:12px 16px 12px;font-size:12px;line-height:16px;color:var(--text-3)}
+.detail-head{position:sticky;top:0;z-index:3;container:dhead / inline-size;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle)}
+.back{display:none}
+.dh-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title nav" "meta meta";column-gap:16px}
+.dh-title{grid-area:title;align-self:center;font-size:18px;line-height:24px;font-weight:600;text-wrap:balance}
+.dh-title:focus{outline:none}
+.dh-nav{grid-area:nav;display:flex;align-items:center;gap:8px}
+.dh-meta{grid-area:meta;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:20px;margin-top:4px}
+.dh-meta-text{font-size:12px;line-height:16px;color:var(--text-3)}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
+.applied-note{flex:1 1 32ch;min-width:0;max-width:80ch;margin-left:4px;color:var(--text-2);text-wrap:pretty}
+@container dhead (max-width:759.98px){
+  .dh-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"title" "meta" "nav"}
+  .dh-nav{margin-top:8px;flex-wrap:wrap}
+  .dh-nav .open-advert{margin:0 auto 0 -12px}
+}
+@container dhead (max-width:679.98px){
+  .actions-open{display:grid;grid-template-columns:repeat(4,max-content)}
+  .actions-open .btn-primary{grid-column:1 / -1;justify-self:start}
+}
+.detail-body{display:flex;flex-direction:column;gap:24px;padding:16px 16px 24px}
+.sec-h{margin-bottom:8px;font-size:16px;line-height:24px;font-weight:600}
+.lead-line,.tier-line{max-width:80ch}
+.score{container-type:inline-size}
+.gate-strip{display:grid;grid-template-columns:88px 96px minmax(0,1fr);gap:8px 12px;align-items:start;max-width:960px;margin-top:8px}
+.gate{display:contents}
+.gate-name,.gate-status{font-size:12px;line-height:16px;font-weight:600}
+.gate-name{color:var(--text-2)}
+.gate-status{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.gate-note{font-size:12px;line-height:16px;color:var(--text-3);text-wrap:pretty}
+@container (max-width:479.98px){.gate-strip{grid-template-columns:72px minmax(0,1fr);row-gap:2px}.gate-note{grid-column:2;margin-bottom:8px}}
+@container (min-width:720px){.gate-strip{grid-template-columns:repeat(4,minmax(0,1fr));gap:0 24px}.gate{display:flex;flex-direction:column;gap:2px}}
+.cv-line{display:flex;align-items:baseline;gap:8px;margin-top:16px}
+.cv-label{font-size:12px;line-height:16px;font-weight:600;color:var(--text-2)}
+.cv-figure{font-size:20px;line-height:28px;font-weight:600;font-variant-numeric:tabular-nums}
+.basis{margin-top:2px;font-size:12px;line-height:16px;color:var(--text-3)}
+.reasons{display:flex;flex-direction:column;gap:12px}
+.reasons li{display:flex;flex-direction:column;align-items:flex-start;gap:2px;max-width:80ch}
+.evidence,.evidence-text{font-size:12px;line-height:16px;color:var(--text-2)}
+.evidence{text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+.evidence:hover{text-decoration-thickness:2px}
+.facts{display:grid;grid-template-columns:160px minmax(0,1fr);gap:8px 16px;align-items:baseline}
+.facts dt{font-size:12px;line-height:16px;font-weight:600;color:var(--text-2)}
+.facts dd{max-width:80ch}
+.company-meta{margin-top:2px;font-size:12px;line-height:16px;color:var(--text-3)}
+.advert{border-top:1px solid var(--border-subtle);background:var(--surface)}
+.advert:focus{outline:none}
+.advert-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px;padding:24px 16px 0;background:var(--surface)}
+.advert-head .sec-h{margin-bottom:0}
+.advert-read{font-size:12px;line-height:16px;color:var(--text-3)}
+.advert-body{padding:12px 16px 32px}
+.advert-text{max-width:72ch;font-size:15px;line-height:24px}
+.advert-text p,.advert-text ul{margin-bottom:12px}
+.advert-text ul{padding-left:20px;list-style:disc}
+.advert-text li{margin-bottom:4px}
+.advert-text li::marker{color:var(--text-3)}
+mark{background:transparent;color:inherit;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:1px;text-underline-offset:3px}
+mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
+.empty-fact,.prepare-hint{max-width:72ch}
+.prepare-hint{margin-top:12px;color:var(--text-2)}
+.card-text{max-width:72ch;margin:8px 0 12px;font-size:15px;line-height:24px;color:var(--text-2)}
+.no-selection{padding:12px 16px 24px}
+.no-selection > p{max-width:72ch;color:var(--text-2)}
+.keymap{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 16px;align-items:center;margin-top:16px}
+.keymap div{display:contents}
+.keymap dt{display:flex;align-items:center;justify-content:flex-end;gap:4px}
+.keymap dd{color:var(--text-2)}
+.toast{position:fixed;left:50%;bottom:16px;z-index:30;transform:translateX(-50%);display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 32px));padding:8px 8px 8px 16px;background:var(--surface-sunken);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay)}
+.toast:empty{display:none}
+.toast.is-bad{border-color:var(--negative)}
+.toast.is-bad::before{content:"!";display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--negative);color:var(--on-accent);font-weight:700;font-size:12px}
+.keys{max-width:min(480px,calc(100vw - 32px));padding:24px;background:var(--surface);color:var(--text-1);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay)}
+.keys::backdrop{background:rgba(0,0,0,.6)}
+.keys h2{font-size:18px;line-height:24px;font-weight:600}
+.keys-note{margin-top:4px;color:var(--text-2)}
+.keys form{margin-top:16px}
+@media (max-width:1799.98px){.ph-tools{flex-basis:100%;margin-left:0}}
+@container queue (max-width:611.98px){
+  .row-question{grid-template-rows:20px 16px 40px;min-height:96px}
+  .row-question .r3{align-items:flex-start}
+  .row-question .r-lead{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal}
+  .row-question .r-marks{height:20px}
+}
+@container queue (max-width:375.98px){
+  .row-question{grid-template-rows:20px 16px 60px;min-height:116px}
+  .row-question .r-lead{-webkit-line-clamp:3;line-clamp:3}
+}
+@media (min-width:1024px){
+  .content{grid-template-columns:400px minmax(0,1fr)}
+  .queue{border-right:1px solid var(--border-subtle)}
+}
+@media (min-width:768px) and (max-width:1799.98px){
+  .role-detail{display:grid;grid-template-rows:auto minmax(0,1fr);overflow:clip}
+  .role-scroll{min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-padding-block:8px}
+}
+@media (max-height:499px) and (min-width:768px) and (max-width:1799.98px){
+  .role-detail{display:block;overflow:auto}
+  .role-scroll{overflow:visible}
+}
+@media (min-width:1280px){.content{grid-template-columns:440px minmax(0,1fr)}}
+@media (min-width:1800px){
+  .content{grid-template-columns:clamp(440px,24vw,640px) minmax(min(640px,100vw - 760px - clamp(440px,24vw,640px)),1fr) 760px;grid-template-rows:auto minmax(0,1fr)}
+  .queue{grid-column:1;grid-row:1 / span 2}
+  .role,.role-scroll{display:contents}
+  .detail-head{grid-column:2;grid-row:1;position:relative}
+  .detail-body{grid-column:2;grid-row:2;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-padding-block:8px}
+  .advert{grid-column:3;grid-row:1 / span 2;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-padding-top:40px;scroll-padding-bottom:8px;border-top:0;border-left:1px solid var(--border-subtle)}
+  .advert-head{position:sticky;top:0;z-index:2;align-items:center;height:40px;padding:0 16px;border-bottom:1px solid var(--border-subtle)}
+  .advert-body{padding-top:16px}
+  .no-selection{grid-column:2 / span 2;grid-row:1 / span 2;overflow:auto}
+  /* Titles are not cut at this width: a long one takes a second line. */
+  .row{grid-template-rows:auto 16px 20px}
+  .r-title{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
+  .r1{align-items:flex-start}
+  .r-first{padding-top:2px}
+  .row-question{grid-template-rows:auto 16px 20px}
+}
+@media (max-width:1023.98px){
+  .kbd{display:none}
+  .app[data-view="role"] .queue{display:none}
+  .app[data-view="role"] .pagehead{position:absolute;width:1px;height:1px;min-height:0;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+  .app[data-view="list"] .role{display:none}
+  .back{display:inline-flex;align-items:center;margin-bottom:8px}
+  .prevnext{display:none}
+}
+@media (max-width:767.98px){
+  html{scroll-padding-top:44px}
+  .app{grid-template-rows:48px auto auto;height:auto;min-height:100vh;overflow:visible}
+  .queue,.role{overflow:visible;min-height:auto}
+  .detail-head{position:static}
+  .undo-last{margin-left:0;padding-inline:0}
+  .ph-title h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+  .btn,.chip{height:44px}
+  .group-head{height:44px}
+  .fold{width:44px;height:44px;margin-right:-12px}
+  .view-link,.back{min-height:44px}
+  .actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .actions .btn-primary,.applied-note{grid-column:1 / -1;justify-self:stretch}
+  .applied-note{margin-left:0}
+  .facts{grid-template-columns:112px minmax(0,1fr)}
+  .company .link,.with-icon{display:inline-flex;align-items:center;min-height:44px}
+  .evidence{position:relative;display:inline-block;padding:6px 0}
+  .show-list{left:0;right:auto}
+}
+@media (pointer:coarse){
+  .btn,.chip{height:44px}
+  .fold{width:44px;height:44px}
+  .group-head{height:44px}
+  .queue{scroll-padding-top:44px}
+}
+@media (max-width:767.98px),(pointer:coarse){.fold:focus-visible{outline-offset:-4px;box-shadow:none}}
+@media (max-height:499px){.group-head,.detail-head,.advert-head{position:static}}
+@media (forced-colors:active){.row.is-current{border-left-color:Highlight}.tag,.kbd{border:1px solid CanvasText}}
+"""
+
+
+# --------------------------------------------------------------- the script
+
+JOBS_SCRIPT = """
+(function () {
+  var app = document.querySelector('.app[data-page="jobs"]');
+  if (!app) return;
+  var state = JSON.parse(document.getElementById('jobs-state').textContent);
+  var view = state.view;
+  var qs = view === 'open' ? '' : '?show=' + view;
+  var amp = view === 'open' ? '' : '&show=' + view;
+  var queue = document.getElementById('queue');
+  var role = document.getElementById('role');
+  var counts = document.getElementById('counts');
+  var toast = document.getElementById('toast');
+  var undoBtn = document.getElementById('undo-last');
+  var arrivals = document.getElementById('arrivals');
+  var keys = document.getElementById('keys');
+  var current = state.id ? { id: state.id, key: state.key, tier: state.tier,
+                             unread: state.unread, title: state.title } : null;
+  var stamp = state.stamp;
+  var seq = 0, readTimer = null, listScroll = 0;
+  var INVERSE = { ack: 'unack', dismiss: 'undismiss', close: 'unclose', apply: 'unapply', unack: 'ack' };
+  var DONE = { ack: 'Acknowledged', dismiss: 'Dismissed', close: 'Closed', apply: 'Marked applied',
+               unack: 'Back in the open roles', undismiss: 'Dismiss undone', unclose: 'Close undone',
+               unapply: 'Application undone' };
+  var narrow = window.matchMedia('(max-width: 1023.98px)');
+
+  function json(url) {
+    return fetch(url, { headers: { 'Accept': 'application/json' } }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+  }
+  function post(kind, id) {
+    return fetch('/' + kind, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                               body: JSON.stringify({ id: id }), keepalive: kind === 'read' })
+      .then(function (r) { return r.json().catch(function () {
+        return { ok: false, note: 'No usable answer came back, so that may not have saved. Reload to check.' };
+      }); });
+  }
+  function say(text, bad, undo) {
+    toast.textContent = '';
+    toast.classList.toggle('is-bad', !!bad);
+    var span = document.createElement('span');
+    span.textContent = text;
+    toast.appendChild(span);
+    if (undo) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn btn-secondary';
+      b.textContent = 'Undo';
+      b.addEventListener('click', undoLast);
+      toast.appendChild(b);
+    }
+  }
+
+  // ---- the undo stack, kept for the tab so a reload keeps it
+  function stack() {
+    try { return JSON.parse(sessionStorage.getItem('radar-jobs-undo') || '[]'); } catch (e) { return []; }
+  }
+  function setStack(s) {
+    try { sessionStorage.setItem('radar-jobs-undo', JSON.stringify(s.slice(-20))); } catch (e) {}
+    undoBtn.disabled = !s.length;
+    undoBtn.textContent = s.length ? 'Undo last' : 'Undo last';
+    undoBtn.setAttribute('aria-label', s.length ? 'Undo last: ' + DONE[s[s.length - 1].kind]
+                         + ', ' + s[s.length - 1].title : 'Undo last, nothing to undo');
+  }
+  setStack(stack());
+
+  // ---- the queue
+  function rowFor(key) {
+    var rows = queue.querySelectorAll('.row');
+    for (var i = 0; i < rows.length; i++) if (rows[i].dataset.key === key) return rows[i];
+    return null;
+  }
+  function markCurrent(key, focus) {
+    queue.querySelectorAll('.row').forEach(function (row) {
+      var on = !!key && row.dataset.key === key;
+      row.classList.toggle('is-current', on);
+      var link = row.querySelector('.r-link');
+      if (link) { if (on) link.setAttribute('aria-current', 'true'); else link.removeAttribute('aria-current'); }
+      row.querySelectorAll('.mk').forEach(function (m) { m.tabIndex = on ? 0 : -1; });
+      if (on) {
+        if (focus && link) link.focus({ preventScroll: true });
+        if (!narrow.matches) row.scrollIntoView({ block: 'nearest' });
+      }
+    });
+  }
+  function readingRows() { return document.getElementById('group-reading-rows'); }
+  function setReading(open) {
+    var rows = readingRows();
+    if (!rows) return Promise.resolve();
+    var btn = queue.querySelector('[data-fold="reading"]');
+    try { localStorage.setItem('radar-reading-open', open ? '1' : '0'); } catch (e) {}
+    if (btn) btn.setAttribute('aria-expanded', String(open));
+    if (!open) { rows.hidden = true; return Promise.resolve(); }
+    var load = Promise.resolve();
+    if (rows.dataset.lazy === '1') {
+      load = json('/jobs?part=reading' + (current ? '&current=' + current.id : '')).then(function (j) {
+        rows.innerHTML = j.html;
+        rows.dataset.lazy = '0';
+      });
+    }
+    return load.then(function () {
+      rows.hidden = false;
+      if (current) markCurrent(current.key, false);
+    });
+  }
+  function refreshQueue() {
+    var top = queue.scrollTop;
+    var open = !!readingRows() && !readingRows().hidden;
+    return json('/jobs?part=queue' + amp + '&reading=' + (open ? 1 : 0)
+                + (current ? '&current=' + current.id : '')).then(function (j) {
+      queue.innerHTML = j.html;
+      queue.scrollTop = top;
+      counts.innerHTML = j.counts;
+      stamp = j.stamp;
+      arrivals.hidden = true;
+      if (current) markCurrent(current.key, false);
+    });
+  }
+
+  // ---- a role opened counts as read after a moment on screen
+  function clearNew(info) {
+    var row = rowFor(info.key);
+    if (row) {
+      row.classList.remove('is-unread');
+      var n = row.querySelector('.r-new');
+      if (n) n.remove();
+    }
+    var group = queue.querySelector('.group[data-tier="' + (view === 'open' ? info.tier : view) + '"] .group-new');
+    if (group) {
+      var left = Math.max(0, Number(group.dataset.new || 0) - 1);
+      group.dataset.new = left;
+      group.textContent = left ? '\\u00b7 ' + left + ' new' : '';
+    }
+    var total = counts.querySelector('[data-count="new"]');
+    if (total && view === 'open' && ['top', 'question', 'reading'].indexOf(info.tier) >= 0) {
+      var t = Math.max(0, Number(total.dataset.n || 0) - 1);
+      total.dataset.n = t;
+      total.textContent = t + ' new';
+    }
+  }
+  function markRead(info) {
+    if (!info || !info.unread) return;
+    info.unread = false;
+    post('read', info.id).then(function (j) { if (j && j.ok) clearNew(info); });
+  }
+  function startRead(info) {
+    clearTimeout(readTimer);
+    if (!info || !info.unread) return;
+    readTimer = setTimeout(function () {
+      if (current && current.id === info.id) markRead(info);
+    }, state.readAfter);
+  }
+
+  // ---- the role pane
+  function showRole(j, opts) {
+    role.className = 'role role-detail';
+    role.removeAttribute('aria-label');
+    role.setAttribute('aria-labelledby', 'role-title');
+    role.innerHTML = j.html;
+    role.scrollTop = 0;
+    var body = role.querySelector('.role-scroll');
+    if (body) body.scrollTop = 0;
+    var detail = role.querySelector('.detail-body');
+    if (detail) detail.scrollTop = 0;
+    var adv = role.querySelector('.advert');
+    if (adv) adv.scrollTop = 0;
+    current = { id: j.id, key: j.key, tier: j.tier, unread: j.unread, title: j.title };
+    if (narrow.matches && app.dataset.view !== 'role') listScroll = window.scrollY;
+    app.dataset.view = 'role';
+    document.title = j.title + ' \\u00b7 Jobs \\u00b7 MedTech Radar';
+    var row = rowFor(j.key);
+    var ready = (!row && view === 'open' && j.tier === 'reading') ? setReading(true) : Promise.resolve();
+    ready.then(function () { markCurrent(j.key, !!opts.focusRow && !narrow.matches); });
+    if (narrow.matches) {
+      window.scrollTo(0, 0);
+      var h = document.getElementById('role-title');
+      if (h && opts.focusTitle !== false) h.focus({ preventScroll: true });
+    }
+    startRead(current);
+  }
+  function select(id, opts) {
+    opts = opts || {};
+    var mine = ++seq;
+    return json('/jobs/' + id + '?part=role' + amp).then(function (j) {
+      if (mine !== seq) return;
+      showRole(j, opts);
+      if (opts.push !== false) history.pushState({ id: j.id }, '', j.url);
+    }).catch(function () {
+      if (mine === seq) location.href = '/jobs/' + id + qs;
+    });
+  }
+  function showList(push) {
+    seq++;
+    clearTimeout(readTimer);
+    var tpl = document.getElementById('no-selection');
+    role.className = 'role role-empty';
+    role.removeAttribute('aria-labelledby');
+    role.setAttribute('aria-label', 'Role');
+    role.innerHTML = tpl.innerHTML;
+    var was = current;
+    current = null;
+    app.dataset.view = 'list';
+    document.title = 'Jobs \\u00b7 MedTech Radar';
+    if (push) history.pushState({}, '', '/jobs' + qs);
+    markCurrent(null);
+    if (narrow.matches) {
+      window.scrollTo(0, listScroll);
+      var row = was ? rowFor(was.key) : null;
+      var link = row ? row.querySelector('.r-link') : null;
+      if (link) link.focus({ preventScroll: true });
+    }
+  }
+  window.addEventListener('popstate', function (e) {
+    var m = location.pathname.match(/^\\/jobs\\/(\\d+)/);
+    if (m) select(Number(m[1]), { push: false });
+    else showList(false);
+  });
+
+  // ---- actions
+  function nextAfter() {
+    var n = role.querySelector('[data-step="next"]') || role.querySelector('[data-step="prev"]');
+    return n ? Number(n.dataset.id) : null;
+  }
+  function act(kind, id, undoing) {
+    // Undo on an application forgets the day it was applied, and marking it
+    // applied again records a new day, so it asks first.
+    if (kind === 'unapply' && !window.confirm('Undo this application? The day you applied is '
+        + 'forgotten, and applying again records a new day.')) return Promise.resolve(false);
+    var title = current && current.id === id ? current.title : (undoing && undoing.title) || '';
+    var after = nextAfter();
+    var buttons = role.querySelectorAll('[data-act]');
+    buttons.forEach(function (b) { b.disabled = true; b.setAttribute('aria-busy', 'true'); });
+    return post(kind, id).then(function (j) {
+      buttons.forEach(function (b) { b.disabled = false; b.removeAttribute('aria-busy'); });
+      if (!j || j.ok === false) {
+        say((j && j.note) || 'That did not stick. Try again.', true);
+        return false;
+      }
+      if (!undoing && INVERSE[kind]) {
+        var s = stack();
+        s.push({ kind: kind, id: id, title: title });
+        setStack(s);
+      }
+      say(DONE[kind] + (title ? ': ' + title : '') + '.', false, !undoing && !!INVERSE[kind]);
+      return refreshQueue().then(function () {
+        if (current && rowFor(current.key) && current.id === id) return select(id, { push: false });
+        if (undoing) {
+          var back = rowFor(keyOf(id));
+          if (back) return select(Number(back.dataset.id), { focusRow: true });
+          return select(id);
+        }
+        var target = after !== null && queue.querySelector('.row[data-id="' + after + '"]') ? after : null;
+        if (target === null) {
+          var first = queue.querySelector('.row');
+          target = first ? Number(first.dataset.id) : null;
+        }
+        if (target === null) { showList(true); return; }
+        return select(target, { focusRow: true, focusTitle: false });
+      }).then(function () { return true; }, function () { return true; });
+    }, function () {
+      buttons.forEach(function (b) { b.disabled = false; b.removeAttribute('aria-busy'); });
+      say('No usable answer came back, so that may not have saved. Reload to check.', true);
+      return false;
+    });
+  }
+  function keyOf(id) {
+    var row = queue.querySelector('.row[data-id="' + id + '"]');
+    return row ? row.dataset.key : '';
+  }
+  function undoLast() {
+    var s = stack();
+    if (!s.length) return;
+    var last = s.pop();
+    act(INVERSE[last.kind], last.id, last).then(function (ok) {
+      // The entry leaves the stack only once its undo has stuck.
+      if (ok) setStack(s);
+    });
+  }
+  undoBtn.addEventListener('click', undoLast);
+
+  // ---- clicks
+  document.addEventListener('click', function (e) {
+    if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    var a = e.target.closest('a');
+    var actBtn = e.target.closest('[data-act]');
+    if (actBtn && role.contains(actBtn)) {
+      e.preventDefault();
+      act(actBtn.dataset.act, Number(actBtn.dataset.id), false);
+      return;
+    }
+    if (a && a.matches('.r-link')) {
+      e.preventDefault();
+      var row = a.closest('.row');
+      select(Number(row.dataset.id), { focusRow: true });
+      return;
+    }
+    if (a && a.matches('[data-step]')) {
+      e.preventDefault();
+      select(Number(a.dataset.id), { focusRow: true, focusTitle: false });
+      return;
+    }
+    if (a && a.matches('[data-back]')) {
+      e.preventDefault();
+      showList(true);
+      return;
+    }
+    if (a && (a.matches('[data-prepare]') || a.matches('[data-open]')) && current) {
+      markRead(current);
+    }
+    var fold = e.target.closest('[data-fold]');
+    if (fold) {
+      setReading(fold.getAttribute('aria-expanded') !== 'true');
+    }
+  });
+
+  // ---- the Show menu
+  var showBtn = document.getElementById('show-btn');
+  var showList_ = document.getElementById('show-list');
+  function setShow(open) {
+    showList_.hidden = !open;
+    showBtn.setAttribute('aria-expanded', String(open));
+  }
+  showBtn.addEventListener('click', function () { setShow(showList_.hidden); });
+  document.addEventListener('click', function (e) {
+    if (!showList_.hidden && !e.target.closest('.show-menu')) setShow(false);
+  });
+
+  // ---- keys
+  function typing(t) {
+    return t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+  }
+  function step(dir) {
+    if (!current) {
+      var first = queue.querySelector('.row');
+      if (first) select(Number(first.dataset.id), { focusRow: true, focusTitle: false });
+      return;
+    }
+    var link = role.querySelector('[data-step="' + (dir > 0 ? 'next' : 'prev') + '"]');
+    if (link) select(Number(link.dataset.id), { focusRow: true, focusTitle: false });
+  }
+  function openKeys() {
+    if (keys.open) return;
+    if (keys.showModal) keys.showModal(); else keys.setAttribute('open', '');
+  }
+  var keysBtn = document.getElementById('keys-open');
+  if (keysBtn) keysBtn.addEventListener('click', openKeys);
+  document.addEventListener('keydown', function (e) {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+    if (typing(e.target) || keys.open) return;
+    if (e.key === 'Escape' && !showList_.hidden) { setShow(false); showBtn.focus(); return; }
+    if (e.key === '?') { e.preventDefault(); openKeys(); return; }
+    if (e.shiftKey) return;
+    var k = (e.key || '').toLowerCase();
+    if (k === 'j' || k === 'k') { e.preventDefault(); step(k === 'j' ? 1 : -1); return; }
+    if ('padcmo'.indexOf(k) < 0 || k.length !== 1) return;
+    var el = role.querySelector('[data-shortcut="' + k + '"]');
+    if (!el || el.disabled) return;
+    e.preventDefault();
+    el.click();
+  });
+
+  // ---- new roles: a notice in place of the old fifteen-minute reload
+  function checkArrivals() {
+    if (document.hidden) return;
+    json('/jobs?part=stamp&since=' + stamp).then(function (j) {
+      if (j.new > 0) {
+        arrivals.textContent = j.new + (j.new === 1 ? ' new role has' : ' new roles have')
+          + ' arrived. Load ' + (j.new === 1 ? 'it' : 'them');
+        arrivals.hidden = false;
+      }
+    }).catch(function () {});
+  }
+  arrivals.addEventListener('click', function () {
+    refreshQueue().then(function () { say('The list is up to date.'); });
+  });
+  setInterval(checkArrivals, 120000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) checkArrivals(); });
+
+  // ---- on load
+  try {
+    if (localStorage.getItem('radar-reading-open') === '1' && readingRows() && readingRows().hidden) setReading(true);
+  } catch (e) {}
+  if (current) {
+    history.replaceState({ id: current.id }, '', location.pathname + location.search + location.hash);
+    markCurrent(current.key, false);
+    startRead(current);
+  }
+})();
+"""

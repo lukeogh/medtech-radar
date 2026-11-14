@@ -733,6 +733,7 @@ OTHER_WRITERS = {
     ("scripts/prepare_application.py", "_store_description"),  # description_text only
     ("scripts/process_email.py", "main"),            # sightings and revival
     ("scripts/radar_common.py", "_migrate"),         # backfills and the labels
+    ("scripts/radar_common.py", "mark_read"),        # read_at, the Jobs page's New
     ("scripts/radar_common.py", "recompute_regions"),
     ("scripts/serve_dashboard.py", "set_acknowledged"),
     ("scripts/serve_dashboard.py", "set_applied"),    # applied_at, applied_cv
@@ -1774,12 +1775,16 @@ def page_checks() -> None:
         data = build_dashboard.collect(read, config)
         # One data dict through the Jobs page and then the archive, the way a
         # caller that reuses it would, so a switch left behind would show.
-        jobs_page = build_dashboard.render_jobs_page(data, config, "t")
+        role_id = data["opportunities"][0]["id"]
+        jobs_page = build_dashboard.render_jobs_page(data, config, "t", selected=role_id)
         archive = build_dashboard.render_page(data, config, "t",
                                               Path(tmp) / "archive.html", serve=True)
         read.close()
-        check("Scored on the advert card, 8 Nov." in jobs_page,
-              "the Jobs page carries the line, read from the stored columns")
+        basis = re.search(r'<p class="basis">(.*?)</p>', jobs_page)
+        basis = re.sub(r"<[^>]+>", "", basis.group(1)) if basis else ""
+        check(basis.startswith("Scored on the advert card · 8 Nov · "),
+              "the Jobs page's role pane carries the line, read from the stored "
+              f"columns ({basis!r})")
         check("Scored on" not in archive,
               "the archive renders the same role after the Jobs page and carries no "
               "such line")
