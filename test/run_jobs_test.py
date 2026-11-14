@@ -629,6 +629,17 @@ def page_checks(tmp: Path) -> None:
           and "if (e.key === '?')" in html
           and all(f'<kbd class="kbd">{k}</kbd>' in html for k in "JKPADCMO?"),
           "? opens the list of shortcuts, which names every key")
+    check('<input type="checkbox" id="keys-on" checked> Single-key shortcuts on' in html
+          and "if (!keysOn()) return;" in html,
+          "the list of keys can turn the single-key shortcuts off (WCAG 2.1.4)")
+    state = re.search(r'<div class="app" data-page="jobs"[^>]* data-state="([^"]+)"', html)
+    import html as htmllib
+    check(state is not None and json.loads(htmllib.unescape(state.group(1)))["view"] == "open"
+          and '<script type="application/json"' not in html,
+          "the page's state is a data attribute, so every script block on the page is script")
+    check("if (current && current.id === Number(m[1])) return;" in html
+          and ".mk.tip-off .mk-tip{display:none}" in html,
+          "a quote's link moves only the hash and redraws nothing, and Escape hides a tooltip")
     check('<html lang="en-GB">' in html and '<a class="skip-link" href="#main">' in html
           and '<main class="content" id="main">' in html
           and 'role="status" aria-live="polite"' in html,
