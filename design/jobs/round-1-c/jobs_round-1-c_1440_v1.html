@@ -1,0 +1,668 @@
+<!DOCTYPE html><html lang="en" data-appearance="light"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MedTech Radar - Direction C</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+    <style>
+        :root {
+          color-scheme: light;
+          --canvas: #f2f4f5;
+          --surface: #ffffff;
+          --surface-sunken: #e9edef;
+          --row-hover: #f4f6f7;
+          --row-selected: #e0eef0;
+          --text-1: #14191d;
+          --text-2: #3e4952;
+          --text-3: #56636d;
+          --border-subtle: #dce1e4;
+          --border-strong: #77838d;
+          --accent: #00636e;  --accent-hover: #004d56;  --accent-tint: #e0eef0;  --on-accent: #ffffff;
+          --positive: #13693a;  --positive-tint: #e2f1e7;
+          --caution:  #7a4a00;  --caution-tint:  #fcefd2;
+          --negative: #a3221b;  --negative-tint: #fbe5e3;
+          --neutral:  #3e4952;  --neutral-tint:  #e9edef;
+          --scrim: rgba(20, 25, 29, .4);
+          --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18);
+          --font-sans: "IBM Plex Sans", "Plex Sans fallback", Arial, sans-serif;
+          --font-mono: "IBM Plex Mono", "Plex Mono fallback", Consolas, monospace;
+          --radius-0: 0;  --radius-2: 2px;  --radius-4: 4px;
+          --dur: 120ms;
+        }
+        @media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; } }
+        
+        body {
+            font-family: var(--font-sans);
+            color: var(--text-1);
+            background-color: var(--canvas);
+            margin: 0;
+            padding: 0;
+            font-size: 14px;
+            line-height: 20px;
+        }
+
+        .numeric-tabular {
+            font-variant-numeric: tabular-nums;
+        }
+
+        .font-mono-custom {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            line-height: 16px;
+            font-weight: 500;
+        }
+
+        .focus-visible-simulated {
+            outline: 2px solid #14191d;
+            outline-offset: 2px;
+            box-shadow: 0 0 0 2px var(--surface), 0 0 0 7px #ffc72c;
+        }
+
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .app-bar {
+            height: 48px;
+            background-color: var(--surface);
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            flex-shrink: 0;
+        }
+
+        .main-layout {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 240px;
+            background-color: var(--surface);
+            border-right: 1px solid var(--border-subtle);
+            flex-shrink: 0;
+            overflow-y: auto;
+            padding: 12px 0;
+        }
+
+        .workspace {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            background-color: var(--canvas);
+        }
+
+        .workspace-header {
+            background-color: var(--surface-sunken);
+            padding: 16px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .pane-row {
+            display: flex;
+            border-bottom: 1px solid var(--border-subtle);
+            background-color: var(--surface);
+        }
+
+        .pane-section {
+            padding: 12px 16px;
+        }
+
+        .pane-left {
+            width: 560px;
+            border-right: 1px solid var(--border-subtle);
+            flex-shrink: 0;
+        }
+
+        .pane-right {
+            flex: 1;
+        }
+
+        /* Components */
+        .page-title { font-size: 20px; line-height: 28px; font-weight: 600; }
+        .section-head { font-size: 16px; line-height: 24px; font-weight: 600; }
+        .panel-head { font-size: 14px; line-height: 20px; font-weight: 600; }
+        .body-text { font-size: 14px; line-height: 20px; font-weight: 400; }
+        .body-strong { font-size: 14px; line-height: 20px; font-weight: 500; }
+        .reading-text { font-size: 15px; line-height: 24px; font-weight: 400; max-width: 72ch; }
+        .label-text { font-size: 12px; line-height: 16px; font-weight: 600; }
+        .meta-text { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); }
+        .figure-text { font-size: 14px; line-height: 20px; font-weight: 500; }
+        .figure-large { font-size: 20px; line-height: 28px; font-weight: 600; }
+
+        .btn-primary {
+            background-color: var(--accent);
+            color: var(--on-accent);
+            height: 32px;
+            padding: 0 12px;
+            border-radius: var(--radius-2);
+            font-weight: 500;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-secondary {
+            background-color: var(--surface);
+            color: var(--text-1);
+            border: 1px solid var(--border-strong);
+            height: 32px;
+            padding: 0 12px;
+            border-radius: var(--radius-2);
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .btn-ghost {
+            color: var(--text-2);
+            background: none;
+            border: none;
+            height: 32px;
+            padding: 0 12px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .btn-ghost:hover { text-decoration: underline; }
+        .btn-icon { width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+
+        .kbd-key {
+            border: 1px solid var(--border-strong);
+            background-color: var(--surface-sunken);
+            border-radius: var(--radius-2);
+            color: var(--text-2);
+            padding: 0 4px;
+        }
+
+        .link { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; cursor: pointer; }
+        .link:hover { color: var(--accent-hover); text-decoration-thickness: 2px; }
+
+        .status-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            height: 20px;
+            padding: 0 6px;
+            border-radius: var(--radius-2);
+            font-size: 12px;
+            line-height: 16px;
+            font-weight: 600;
+        }
+        .tag-caution { background-color: var(--caution-tint); color: var(--caution); }
+        .tag-positive { background-color: var(--positive-tint); color: var(--positive); }
+        .tag-negative { background-color: var(--negative-tint); color: var(--negative); }
+        .tag-neutral { background-color: var(--neutral-tint); color: var(--neutral); }
+
+        .status-text-pos { color: var(--positive); }
+        .status-text-cau { color: var(--caution); }
+        .status-text-neg { color: var(--negative); }
+        .status-text-neu { color: var(--neutral); }
+
+        .sidebar-item {
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            color: var(--text-2);
+            cursor: pointer;
+        }
+        .sidebar-item-pursuit {
+            height: 56px;
+            padding: 8px 16px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .sidebar-item-current {
+            color: var(--text-1);
+            font-weight: 500;
+            border-left: 3px solid var(--accent);
+            padding-left: 13px;
+        }
+
+        .filter-chip {
+            height: 32px;
+            padding: 0 12px;
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-2);
+            color: var(--text-2);
+            display: inline-flex;
+            align-items: center;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .filter-chip.selected {
+            background-color: var(--accent-tint);
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .evidence-quote { color: var(--text-2); text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 1px; }
+
+        .grid-table {
+            display: grid;
+            grid-template-columns: 400px 104px 344px 1fr;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .grid-cell {
+            padding: 8px 12px;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .stage-board {
+            display: flex;
+            gap: 0;
+        }
+        .stage-col {
+            flex: 1;
+            border-right: 1px solid var(--border-subtle);
+            min-width: 200px;
+        }
+        .stage-col:last-child { border-right: none; }
+        .board-item {
+            height: 56px;
+            padding: 8px 16px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .list-row {
+            height: 40px;
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        
+        .direction-notes { max-width: 800px; padding: 32px 16px; margin: 0 auto; }
+        .direction-notes h3 { margin-top: 24px; margin-bottom: 8px; }
+    </style>
+</head>
+<body>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" data-sd-id="1">
+        <symbol id="st-pos" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.8"></path></symbol>
+        <symbol id="st-cau" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"></circle><path d="M8 2.4a5.6 5.6 0 0 0 0 11.2z" fill="currentColor"></path></symbol>
+        <symbol id="st-neg" viewBox="0 0 16 16"><path d="M4.2 4.2l7.6 7.6m0-7.6l-7.6 7.6" stroke="currentColor" stroke-width="1.8"></path></symbol>
+        <symbol id="st-neu" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"></circle></symbol>
+        <symbol id="st-pro" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"></circle></symbol>
+    </svg>
+
+    <div class="app-container" data-sd-id="2">
+        <header class="app-bar" data-sd-id="3">
+            <div class="flex items-center gap-2" data-sd-id="4">
+                <img src="https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/0db15a19-3516-4453-a7e9-67ecc19e8823/brand-assets/brand-radar-mark.svg/radar-mark.svg" width="51" height="24" alt="" data-sd-id="5">
+                <span class="panel-head" data-sd-id="6">MedTech Radar</span>
+            </div>
+            <div class="flex items-center gap-4" data-sd-id="7">
+                <div class="meta-text flex items-center gap-2 border border-[#77838d] rounded-[2px] px-2 h-8 bg-white" data-sd-id="8">
+                    <span data-sd-id="9">Search or run a command</span>
+                    <span class="font-mono-custom kbd-key" data-sd-id="10">Ctrl K</span>
+                </div>
+                <span class="meta-text" data-sd-id="11">Inbox on schedule · ran 09:02</span>
+                <button class="btn-ghost btn-icon" data-sd-id="12"><iconify-icon icon="carbon:light" width="16" height="16"></iconify-icon></button>
+                <button class="btn-ghost btn-icon" data-sd-id="13"><iconify-icon icon="carbon:help" width="16" height="16"></iconify-icon></button>
+            </div>
+        </header>
+
+        <div class="main-layout" data-sd-id="14">
+            <aside class="sidebar" data-sd-id="15">
+                <div class="px-4 mb-2 label-text" data-sd-id="16">Views</div>
+                <div class="sidebar-item" data-sd-id="17"><span data-sd-id="18">Top prospects</span> <span class="meta-text" data-sd-id="19">12</span></div>
+                <div class="sidebar-item" data-sd-id="20"><span data-sd-id="21">One question away</span> <span class="meta-text" data-sd-id="22">41</span></div>
+                <div class="sidebar-item" data-sd-id="23"><span data-sd-id="24">Local contracts</span> <span class="meta-text" data-sd-id="25">9</span></div>
+                <div class="sidebar-item" data-sd-id="26"><span data-sd-id="27">Rate not stated</span> <span class="meta-text" data-sd-id="28">6</span></div>
+                <div class="sidebar-item" data-sd-id="29"><span data-sd-id="30">Unknown for 20+ days</span> <span class="meta-text" data-sd-id="31">27</span></div>
+                <div class="sidebar-item" data-sd-id="32"><span data-sd-id="33">Parked</span> <span class="meta-text" data-sd-id="34">5</span></div>
+                <div class="sidebar-item" data-sd-id="35"><span data-sd-id="36">Applied</span> <span class="meta-text" data-sd-id="37">7</span></div>
+                <button class="btn-ghost mt-1 ml-2" data-sd-id="38">Save this view</button>
+
+                <div class="px-4 mt-6 mb-2 label-text" data-sd-id="39">Pinned pursuits</div>
+                <div class="sidebar-item-pursuit sidebar-item-current" data-sd-id="40">
+                    <div class="body-strong truncate" data-sd-id="41">Head of Software Quality</div>
+                    <div class="meta-text truncate" data-sd-id="42">Hartwell Infusion Ltd</div>
+                </div>
+                <div class="sidebar-item-pursuit" data-sd-id="43">
+                    <div class="body-strong truncate" data-sd-id="44">Fractional Software Director</div>
+                    <div class="meta-text truncate" data-sd-id="45">PDX Diagnostics</div>
+                </div>
+                <div class="sidebar-item-pursuit" data-sd-id="46">
+                    <div class="body-strong truncate flex justify-between" data-sd-id="47">
+                        <span class="truncate" data-sd-id="48">Principal Software Engineer</span>
+                        <span class="status-tag tag-caution ml-2 shrink-0" data-sd-id="49"><svg width="12" height="12" aria-hidden="true" data-sd-id="50"><use href="#st-cau"></use></svg>Rate not stated</span>
+                    </div>
+                    <div class="meta-text truncate" data-sd-id="51">Brandt Cardio</div>
+                </div>
+
+                <div class="px-4 mt-6 mb-2 label-text" data-sd-id="52">Pages</div>
+                <div class="sidebar-item" data-sd-id="53"><span data-sd-id="54">Home</span></div>
+                <div class="sidebar-item" data-sd-id="55"><span data-sd-id="56">Jobs</span></div>
+                <div class="sidebar-item" data-sd-id="57"><span data-sd-id="58">Insights</span></div>
+                <div class="sidebar-item" data-sd-id="59"><span data-sd-id="60">Watchlist</span></div>
+                <div class="sidebar-item" data-sd-id="61"><span data-sd-id="62">CV</span></div>
+            </aside>
+
+            <main class="workspace" data-sd-id="63">
+                <div class="workspace-header" data-sd-id="64">
+                    <div class="flex justify-between items-start" data-sd-id="65">
+                        <div data-sd-id="66">
+                            <h1 style="font-size: 18px; line-height: 24px; font-weight: 600;" data-sd-id="67">Head of Software Quality, Class II infusion pumps</h1>
+                            <div class="meta-text mt-1" data-sd-id="68">
+                                <span class="link" data-sd-id="69">Hartwell Infusion Ltd</span> · Guildford (hybrid, 2 days) · Contract · £700–£750/day, outside IR35
+                            </div>
+                            <div class="mt-2 text-[14px]" data-sd-id="70">To prepare</div>
+                        </div>
+                        <div class="flex gap-2" data-sd-id="71">
+                            <button class="btn-primary focus-visible-simulated" data-sd-id="72">Prepare application</button>
+                            <button class="btn-secondary" data-sd-id="73">Park until…</button>
+                            <button class="btn-secondary" data-sd-id="74">Dismiss</button>
+                            <button class="btn-secondary" data-sd-id="75">Mark applied</button>
+                            <button class="btn-ghost btn-icon" title="Open the advert" data-sd-id="76"><iconify-icon icon="carbon:launch" width="16" height="16"></iconify-icon></button>
+                            <button class="btn-ghost btn-icon" title="More actions" data-sd-id="77"><iconify-icon icon="carbon:overflow-menu-horizontal" width="16" height="16"></iconify-icon></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pane-row" data-sd-id="78">
+                    <div class="pane-left pane-section" data-sd-id="79">
+                        <h2 class="section-head mb-2" data-sd-id="80">Role</h2>
+                        <div class="body-text text-[#3e4952] mb-4" data-sd-id="81">Owns the IEC 62304 software file through a notified body audit. Your CV leads with the same work.</div>
+                        
+                        <div class="mb-4" data-sd-id="82">
+                            <div class="mb-2" data-sd-id="83">Top prospect</div>
+                            
+                            <div class="mb-4" data-sd-id="84">
+                                <div class="flex items-center gap-2 mb-1" data-sd-id="85">
+                                    <span class="label-text w-16" data-sd-id="86">Sector</span>
+                                    <span class="status-text-pos label-text flex items-center gap-1" data-sd-id="87"><svg width="12" height="12" aria-hidden="true" data-sd-id="88"><use href="#st-pos"></use></svg>Passes</span>
+                                    <span class="meta-text" data-sd-id="89">Infusion pumps, Class IIb. In scope.</span>
+                                </div>
+                                <div class="flex items-center gap-2 mb-1" data-sd-id="90">
+                                    <span class="label-text w-16" data-sd-id="91">CV match</span>
+                                    <span class="status-text-pos label-text flex items-center gap-1" data-sd-id="92"><svg width="12" height="12" aria-hidden="true" data-sd-id="93"><use href="#st-pos"></use></svg>Passes</span>
+                                    <span class="meta-text" data-sd-id="94">86. IEC 62304 class C and notified body audit work are both on the CV.</span>
+                                </div>
+                                <div class="flex items-center gap-2 mb-1" data-sd-id="95">
+                                    <span class="label-text w-16" data-sd-id="96">Location</span>
+                                    <span class="status-text-pos label-text flex items-center gap-1" data-sd-id="97"><svg width="12" height="12" aria-hidden="true" data-sd-id="98"><use href="#st-pos"></use></svg>Passes</span>
+                                    <span class="meta-text" data-sd-id="99">Guildford, two days a week on site.</span>
+                                </div>
+                                <div class="flex items-center gap-2 mb-1" data-sd-id="100">
+                                    <span class="label-text w-16" data-sd-id="101">Rate</span>
+                                    <span class="status-text-pos label-text flex items-center gap-1" data-sd-id="102"><svg width="12" height="12" aria-hidden="true" data-sd-id="103"><use href="#st-pos"></use></svg>Passes</span>
+                                    <span class="meta-text" data-sd-id="104">£700–£750/day, above the £650 floor.</span>
+                                </div>
+                            </div>
+
+                            <div class="flex items-baseline gap-2 mb-1" data-sd-id="105">
+                                <span class="label-text" data-sd-id="106">CV match</span>
+                                <span class="figure-large numeric-tabular" data-sd-id="107">86%</span>
+                            </div>
+                            <div class="meta-text mb-4" data-sd-id="108">Scored against the full description · 13 Nov · claude-sonnet-4-6 · <span class="font-mono-custom" data-sd-id="109">prompt 97f11cce</span> · CV <span class="font-mono-custom" data-sd-id="110">cv-20261029-091500.md</span></div>
+
+                            <div class="label-text mb-2" data-sd-id="111">Reasons</div>
+                            <ul class="body-text space-y-3 mb-4 pl-0" style="list-style: none;" data-sd-id="112">
+                                <li data-sd-id="113">
+                                    <div data-sd-id="114">Leads the IEC 62304 class C software lifecycle.</div>
+                                    <div class="meta-text evidence-quote" data-sd-id="115">“You will own the IEC 62304 software development lifecycle for our class C pump firmware.”</div>
+                                </li>
+                                <li data-sd-id="116">
+                                    <div data-sd-id="117">Internal audit lead under ISO 13485.</div>
+                                    <div class="meta-text evidence-quote" data-sd-id="118">“Act as internal auditor for software processes under ISO 13485.”</div>
+                                </li>
+                                <li data-sd-id="119">
+                                    <div data-sd-id="120">Technical file for a notified body audit.</div>
+                                    <div class="meta-text evidence-quote" data-sd-id="121">“In your first three months you will prepare the software technical file ahead of our notified body audit in Q1.”</div>
+                                </li>
+                                <li data-sd-id="122">
+                                    <div data-sd-id="123">Two days a week in Guildford.</div>
+                                    <div class="meta-text evidence-quote" data-sd-id="124">“Hybrid, two days a week at our Guildford site.”</div>
+                                </li>
+                            </ul>
+                            
+                            <div class="body-text mb-1" data-sd-id="125">Live, a sign of life 2 days ago.</div>
+                            <div class="body-text" data-sd-id="126">Seen 4 times across 3 adverts since 21 Oct. A verdict here covers the whole chain.</div>
+                        </div>
+                    </div>
+                    
+                    <div class="pane-right pane-section" data-sd-id="127">
+                        <h2 class="section-head mb-4" data-sd-id="128">Company record</h2>
+                        <div class="grid grid-cols-[120px_1fr] gap-y-2 mb-4 body-text" data-sd-id="129">
+                            <div class="label-text" data-sd-id="130">What they build</div><div data-sd-id="131">volumetric and syringe infusion pumps, Class IIb.</div>
+                            <div class="label-text" data-sd-id="132">Software content</div><div data-sd-id="133">embedded firmware, IEC 62304 class C.</div>
+                            <div class="label-text" data-sd-id="134">Stage</div><div data-sd-id="135">Series C.</div>
+                            <div class="label-text" data-sd-id="136">Where</div><div data-sd-id="137">Guildford, UK.</div>
+                            <div class="label-text" data-sd-id="138">Region</div><div data-sd-id="139">Local.</div>
+                            <div class="label-text" data-sd-id="140">Published people</div><div data-sd-id="141">R. Okoye, VP Quality.</div>
+                        </div>
+                        <div class="body-text mb-6" data-sd-id="142">window open</div>
+
+                        <h3 class="panel-head mb-2" data-sd-id="143">Alerts</h3>
+                        <div class="flex gap-2 mb-4" data-sd-id="144">
+                            <span class="filter-chip selected" data-sd-id="145">All</span>
+                            <span class="filter-chip" data-sd-id="146">Funding</span>
+                            <span class="filter-chip" data-sd-id="147">Spin-off</span>
+                            <span class="filter-chip" data-sd-id="148">Accelerator</span>
+                            <span class="filter-chip" data-sd-id="149">Buying window</span>
+                            <span class="filter-chip" data-sd-id="150">News</span>
+                        </div>
+                        <div class="space-y-2 mb-6 body-text" data-sd-id="151">
+                            <div data-sd-id="152">11 Nov · Buying window · Buying window. Hartwell Infusion Ltd is hiring · relevance 90</div>
+                            <div data-sd-id="153">14 Oct · Funding · Hartwell Infusion raises £32m Series C · relevance 81</div>
+                        </div>
+
+                        <h3 class="panel-head mb-2" data-sd-id="154">Touch log</h3>
+                        <div class="body-text mb-2" data-sd-id="155">
+                            30 Oct · Comment · Commented on the Q3 hiring post · Next: connection note to the VP Quality, due 15 Nov
+                        </div>
+                        <div class="flex gap-2 text-[12px] font-medium" data-sd-id="156">
+                            <span class="border border-[#77838d] px-2 py-1 rounded-[2px] bg-[#e9edef]" data-sd-id="157">None</span>
+                            <span class="border border-[#77838d] px-2 py-1 rounded-[2px]" data-sd-id="158">Reply</span>
+                            <span class="border border-[#77838d] px-2 py-1 rounded-[2px]" data-sd-id="159">Conversation</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pane-row pane-section block" data-sd-id="160">
+                    <h2 class="section-head mb-2" data-sd-id="161">Preparation</h2>
+                    <div class="body-text mb-4" data-sd-id="162">12 met · 5 partly · 1 missing</div>
+                    
+                    <div class="grid-table label-text text-[#56636d]" data-sd-id="163">
+                        <div class="grid-cell border-none" data-sd-id="164">Ask</div>
+                        <div class="grid-cell border-none" data-sd-id="165">Status</div>
+                        <div class="grid-cell border-none" data-sd-id="166">CV evidence</div>
+                        <div class="grid-cell border-none" data-sd-id="167">Suggested edit</div>
+                        
+                        <div class="grid-cell body-text" data-sd-id="168">Own the IEC 62304 software development lifecycle for class C pump firmware.</div>
+                        <div class="grid-cell status-text-pos label-text flex items-start gap-1 pt-[10px]" data-sd-id="169"><svg width="12" height="12" aria-hidden="true" class="mt-[2px]" data-sd-id="170"><use href="#st-pos"></use></svg>Met</div>
+                        <div class="grid-cell body-text" data-sd-id="171">
+                            <span class="link font-mono-custom" data-sd-id="172">CV line 14</span> · Led IEC 62304 class C software for a Class IIb pump, from planning to release; <br>
+                            <span class="link font-mono-custom" data-sd-id="173">CV line 15</span> · Owned the software lifecycle procedures and trained 30 engineers on them.
+                        </div>
+                        <div class="grid-cell body-text" data-sd-id="174">-</div>
+
+                        <div class="grid-cell body-text" data-sd-id="175">Act as internal auditor for software processes under ISO 13485.</div>
+                        <div class="grid-cell status-text-pos label-text flex items-start gap-1 pt-[10px]" data-sd-id="176"><svg width="12" height="12" aria-hidden="true" class="mt-[2px]" data-sd-id="177"><use href="#st-pos"></use></svg>Met</div>
+                        <div class="grid-cell body-text" data-sd-id="178">
+                            <span class="link font-mono-custom" data-sd-id="179">CV line 22</span> · Internal auditor for software processes under ISO 13485, 14 audits a year.
+                        </div>
+                        <div class="grid-cell body-text" data-sd-id="180">-</div>
+
+                        <div class="grid-cell body-text" data-sd-id="181">Software quality leadership on Class IIb or Class III devices.</div>
+                        <div class="grid-cell status-text-pos label-text flex items-start gap-1 pt-[10px]" data-sd-id="182"><svg width="12" height="12" aria-hidden="true" class="mt-[2px]" data-sd-id="183"><use href="#st-pos"></use></svg>Met</div>
+                        <div class="grid-cell body-text" data-sd-id="184">
+                            <span class="link font-mono-custom" data-sd-id="185">CV line 7</span> · Interim Head of Software Quality, Corbel Medical (Class IIb ventilators), Reading, 2024 to 2026; <br>
+                            <span class="link font-mono-custom" data-sd-id="186">CV line 14</span>.
+                        </div>
+                        <div class="grid-cell body-text" data-sd-id="187">-</div>
+
+                        <div class="grid-cell body-text" data-sd-id="188">Maintain SOUP and cybersecurity records under IEC 81001-5-1.</div>
+                        <div class="grid-cell status-text-cau label-text flex items-start gap-1 pt-[10px]" data-sd-id="189"><svg width="12" height="12" aria-hidden="true" class="mt-[2px]" data-sd-id="190"><use href="#st-cau"></use></svg>Partly</div>
+                        <div class="grid-cell body-text" data-sd-id="191">
+                            <span class="link font-mono-custom" data-sd-id="192">CV line 25</span> · Kept SOUP records and vulnerability monitoring for 120 third-party components; <br>
+                            <span class="link font-mono-custom" data-sd-id="193">CV line 24</span> · Wrote the SOUP evaluation procedure and the off-the-shelf software register.
+                        </div>
+                        <div class="grid-cell body-text" data-sd-id="194">If true, name IEC 81001-5-1 against line 25.</div>
+
+                        <div class="grid-cell body-text" data-sd-id="195">Desirable: infusion pumps under IEC 60601-2-24.</div>
+                        <div class="grid-cell status-text-cau label-text flex items-start gap-1 pt-[10px]" data-sd-id="196"><svg width="12" height="12" aria-hidden="true" class="mt-[2px]" data-sd-id="197"><use href="#st-cau"></use></svg>Partly</div>
+                        <div class="grid-cell body-text" data-sd-id="198">
+                            <span class="link font-mono-custom" data-sd-id="199">CV line 14</span>; <br>
+                            <span class="link font-mono-custom" data-sd-id="200">CV line 13</span> · Fractional Software Quality Lead, Linwood Infusion (syringe drivers), Basingstoke, 2022 to 2024.
+                        </div>
+                        <div class="grid-cell body-text" data-sd-id="201">If true, name IEC 60601-2-24 against line 14.</div>
+
+                        <div class="grid-cell body-text" data-sd-id="202">Desirable: an ISO 13485 lead auditor certificate.</div>
+                        <div class="grid-cell status-text-neg label-text flex items-start gap-1 pt-[10px]" data-sd-id="203"><svg width="12" height="12" aria-hidden="true" class="mt-[2px]" data-sd-id="204"><use href="#st-neg"></use></svg>Missing</div>
+                        <div class="grid-cell body-text" data-sd-id="205">
+                            no CV line; line 51 is internal auditor training only
+                        </div>
+                        <div class="grid-cell body-text" data-sd-id="206">No edit; a certificate cannot be written into a CV.</div>
+                    </div>
+
+                    <div class="mt-4 body-text" data-sd-id="207">
+                        Tailored CV: <span class="font-mono-custom" data-sd-id="208">cv-20261029-091500.md</span>, 3 suggested edits
+                    </div>
+                    <div class="mt-2 flex gap-4 body-text" data-sd-id="209">
+                        <label class="flex items-center gap-2" data-sd-id="210"><input type="checkbox" data-sd-id="211"> Rate confirmed</label>
+                        <label class="flex items-center gap-2" data-sd-id="212"><input type="checkbox" data-sd-id="213"> Tailored CV exported</label>
+                        <label class="flex items-center gap-2" data-sd-id="214"><input type="checkbox" data-sd-id="215"> Cover note drafted</label>
+                        <label class="flex items-center gap-2" data-sd-id="216"><input type="checkbox" data-sd-id="217"> Opened the advert</label>
+                        <label class="flex items-center gap-2" data-sd-id="218"><input type="checkbox" data-sd-id="219"> Marked applied</label>
+                    </div>
+                </div>
+
+                <div class="pane-row pane-section block" data-sd-id="220">
+                    <h2 class="section-head mb-4" data-sd-id="221">Applied <span class="meta-text ml-1 font-normal" data-sd-id="222">7</span></h2>
+                    
+                    <div class="stage-board" data-sd-id="223">
+                        <div class="stage-col" data-sd-id="224">
+                            <div class="label-text px-4 py-2 border-bottom border-[#dce1e4]" data-sd-id="225">Applied</div>
+                            <div class="board-item" data-sd-id="226">
+                                <div class="flex justify-between items-start" data-sd-id="227">
+                                    <div class="body-strong truncate" data-sd-id="228">IEC 62304 Consultant</div>
+                                    <button class="btn-ghost btn-icon -mt-1 -mr-2" data-sd-id="229"><iconify-icon icon="carbon:overflow-menu-horizontal" width="16" height="16"></iconify-icon></button>
+                                </div>
+                                <div class="meta-text truncate" data-sd-id="230">31 Oct · Clearwater Ophthalmic</div>
+                            </div>
+                            <div class="board-item" data-sd-id="231">
+                                <div class="flex justify-between items-start" data-sd-id="232">
+                                    <div class="body-strong truncate" data-sd-id="233">Fractional QA/RA Lead, SaMD</div>
+                                    <button class="btn-ghost btn-icon -mt-1 -mr-2" data-sd-id="234"><iconify-icon icon="carbon:overflow-menu-horizontal" width="16" height="16"></iconify-icon></button>
+                                </div>
+                                <div class="meta-text truncate" data-sd-id="235">6 Nov · Wrenfield Digital Health</div>
+                            </div>
+                            <div class="board-item" data-sd-id="236">
+                                <div class="flex justify-between items-start" data-sd-id="237">
+                                    <div class="body-strong truncate" data-sd-id="238">Software Lead, surgical staplers</div>
+                                    <button class="btn-ghost btn-icon -mt-1 -mr-2" data-sd-id="239"><iconify-icon icon="carbon:overflow-menu-horizontal" width="16" height="16"></iconify-icon></button>
+                                </div>
+                                <div class="meta-text truncate" data-sd-id="240">9 Nov · Tamesis Surgical</div>
+                            </div>
+                        </div>
+                        <div class="stage-col" data-sd-id="241">
+                            <div class="label-text px-4 py-2 border-bottom border-[#dce1e4]" data-sd-id="242">Heard back</div>
+                            <div class="board-item" data-sd-id="243">
+                                <div class="flex justify-between items-start" data-sd-id="244">
+                                    <div class="body-strong truncate" data-sd-id="245">Software Quality Lead, respiratory devices</div>
+                                    <button class="btn-ghost btn-icon -mt-1 -mr-2" data-sd-id="246"><iconify-icon icon="carbon:overflow-menu-horizontal" width="16" height="16"></iconify-icon></button>
+                                </div>
+                                <div class="meta-text truncate" data-sd-id="247">4 Nov · Fenwick Respiratory</div>
+                            </div>
+                        </div>
+                        <div class="stage-col" data-sd-id="248">
+                            <div class="label-text px-4 py-2 border-bottom border-[#dce1e4]" data-sd-id="249">Interview</div>
+                            <div class="board-item" data-sd-id="250">
+                                <div class="flex justify-between items-start" data-sd-id="251">
+                                    <div class="body-strong truncate" data-sd-id="252">Interim Head of Software, enteral feeding pumps</div>
+                                    <button class="btn-ghost btn-icon -mt-1 -mr-2" data-sd-id="253"><iconify-icon icon="carbon:overflow-menu-horizontal" width="16" height="16"></iconify-icon></button>
+                                </div>
+                                <div class="meta-text truncate" data-sd-id="254">28 Oct · Marlow Medical</div>
+                            </div>
+                        </div>
+                        <div class="stage-col" data-sd-id="255">
+                            <div class="label-text px-4 py-2 border-bottom border-[#dce1e4]" data-sd-id="256">Offer</div>
+                            <div class="board-item" data-sd-id="257">
+                                <div class="flex justify-between items-start" data-sd-id="258">
+                                    <div class="body-strong truncate" data-sd-id="259">Head of Software, neuromodulation</div>
+                                    <button class="btn-ghost btn-icon -mt-1 -mr-2" data-sd-id="260"><iconify-icon icon="carbon:overflow-menu-horizontal" width="16" height="16"></iconify-icon></button>
+                                </div>
+                                <div class="meta-text truncate" data-sd-id="261">15 Oct · Calder Neurotech</div>
+                            </div>
+                        </div>
+                        <div class="stage-col" data-sd-id="262">
+                            <div class="label-text px-4 py-2 border-bottom border-[#dce1e4]" data-sd-id="263">Ended</div>
+                            <div class="board-item" data-sd-id="264">
+                                <div class="flex justify-between items-start" data-sd-id="265">
+                                    <div class="body-strong truncate" data-sd-id="266">Software Verification Manager, IVD</div>
+                                    <button class="btn-ghost btn-icon -mt-1 -mr-2" data-sd-id="267"><iconify-icon icon="carbon:overflow-menu-horizontal" width="16" height="16"></iconify-icon></button>
+                                </div>
+                                <div class="meta-text truncate" data-sd-id="268">22 Oct · Ashdown Diagnostics · No reply</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pane-row pane-section block" data-sd-id="269">
+                    <h2 class="section-head mb-4" data-sd-id="270">Next in Top prospects</h2>
+                    <div class="list-row" data-sd-id="271">
+                        <div class="body-strong truncate flex-1" data-sd-id="272">Interim Head of Software | Class IIb | 6 months | £700-£750pd</div>
+                        <div class="figure-text numeric-tabular w-16 text-right" data-sd-id="273">83%</div>
+                        <div class="meta-text w-16 text-right" data-sd-id="274">13 Nov</div>
+                    </div>
+                    <div class="list-row" data-sd-id="275">
+                        <div class="body-strong truncate flex-1" data-sd-id="276">Fractional Software Director, IVD analyser</div>
+                        <div class="figure-text numeric-tabular w-16 text-right" data-sd-id="277">81%</div>
+                        <div class="meta-text w-16 text-right" data-sd-id="278">13 Nov</div>
+                    </div>
+                    <div class="list-row" data-sd-id="279">
+                        <div class="body-strong truncate flex-1" data-sd-id="280">Software Verification Manager, ophthalmic lasers</div>
+                        <div class="figure-text numeric-tabular w-16 text-right" data-sd-id="281">77%</div>
+                        <div class="meta-text w-16 text-right" data-sd-id="282">13 Nov</div>
+                    </div>
+                    <div class="list-row border-none" data-sd-id="283">
+                        <div class="body-strong truncate flex-1" data-sd-id="284">Principal Software Engineer, cardiac monitoring</div>
+                        <div class="figure-text numeric-tabular w-16 text-right" data-sd-id="285">79%</div>
+                        <div class="meta-text w-16 text-right" data-sd-id="286">12 Nov</div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <div class="mt-16 border-t border-[#dce1e4]" data-sd-id="287"></div>
+    <div class="direction-notes body-text bg-white" data-sd-id="288">
+        <h2 class="section-head" data-sd-id="289">Direction notes</h2>
+        
+        <h3 data-sd-id="290">Rationale</h3>
+        <p data-sd-id="291">fewer, higher-value applications; each pursuit gathers its evidence, company signals and contacts in one place.</p>
+        
+        <h3 data-sd-id="292">Borrowed from</h3>
+        <p data-sd-id="293">Attio record pages, Sales Navigator account pages, Hebbia, Huntr (Applied only).</p>
+        
+        <h3 data-sd-id="294">Trade-offs</h3>
+        <p data-sd-id="295">the strongest link between jobs and market intelligence; heavier navigation and more JavaScript; weak for bulk triage of 239 listed roles.</p>
+        
+        <h3 data-sd-id="296">Pages this changes most</h3>
+        <p data-sd-id="297">Prepare application, Watchlist, the Applied section.</p>
+        
+        <h3 data-sd-id="298">Primary action and why</h3>
+        <p data-sd-id="299">Prepare application, because a pinned pursuit exists to be prepared; Acknowledge and Close role move to More actions.</p>
+        
+        <h3 data-sd-id="300">Proposals this screen shows</h3>
+        <p data-sd-id="301">pursuits and pinning, saved views and their counts, the To prepare stage, the Applied stages and stage board, the asks x evidence grid, suggested edits, the tailored CV count, the apply checklist, reasons with quoted advert sentences, the renamed buttons, Park until… and the Parked count, the Watchlist page.</p>
+        
+        <h3 data-sd-id="302">Open questions for Luke</h3>
+        <p data-sd-id="303">is a pursuit created by Prepare application or by pinning; does the company record live here or only on Watchlist; which Applied stages fit real use.</p>
+        
+        <h3 data-sd-id="304">URL of this screen</h3>
+        <p data-sd-id="305">/jobs/T1?view=workspace</p>
+    </div>
+
+
+</body></html>

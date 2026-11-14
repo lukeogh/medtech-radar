@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en" data-appearance="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CV states · variation A · MedTech Radar</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+/* Metric-matched fallbacks while Plex loads (design-system §16). */
+@font-face { font-family: "Plex Sans fallback"; src: local("Arial"); size-adjust: 101.17%; ascent-override: 101.32%; descent-override: 27.18%; line-gap-override: 0%; }
+@font-face { font-family: "Plex Mono fallback"; src: local("Consolas"); size-adjust: 109.13%; ascent-override: 93.92%; descent-override: 25.20%; line-gap-override: 0%; }
+
+/* Tokens. Mockups draw dark: the dark set of design-system §15 sits on :root as the default, the light set
+   of §4 under data-appearance="light", and Auto under prefers-color-scheme: light. The uploaded mark is drawn
+   in the light text colours; inverting it and turning the hue half a turn lands on the dark text tokens. */
+:root {
+  color-scheme: dark; --canvas: #0e1215; --surface: #151a1e; --surface-sunken: #1c2226; --row-hover: #192024; --row-selected: #0f3237; --text-1: #e6ebee; --text-2: #b3bec6; --text-3: #93a0a9; --border-subtle: #262e34; --border-strong: #6f7c86; --accent: #5cc3cf; --accent-hover: #82d3dc; --accent-tint: #0f3237; --on-accent: #071114; --positive: #74d39b; --positive-tint: #12291c; --caution: #f0c46a; --caution-tint: #2c2311; --negative: #ff9b8f; --negative-tint: #33191a; --neutral: #b3bec6; --neutral-tint: #1f262b; --scrim: rgba(0, 0, 0, .6); --shadow-overlay: 0 8px 24px rgba(0, 0, 0, .5); --font-sans: "IBM Plex Sans", "Plex Sans fallback", Arial, sans-serif; --font-mono: "IBM Plex Mono", "Plex Mono fallback", Consolas, monospace; --radius-0: 0; --radius-2: 2px; --radius-4: 4px; --dur: 120ms; --mark-filter: invert(1) hue-rotate(180deg);
+}
+html[data-appearance="light"] {
+  color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none;
+}
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] {
+    color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; } }
+
+/* Focus. Dark: a #ffd447 outline on a 2px surface gap; rows take the outline only, inset clear of the
+   selection bar. A static frame shows it with .is-focus on exactly one element. */
+:focus-visible, .is-focus { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+.row:focus-visible, .row.is-focus { outline-offset: -7px; box-shadow: none; }
+html[data-appearance="light"] :focus-visible, html[data-appearance="light"] .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  html[data-appearance="light"] .row:focus-visible, html[data-appearance="light"] .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] :focus-visible, html[data-appearance="auto"] .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  html[data-appearance="auto"] .row:focus-visible, html[data-appearance="auto"] .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+}
+@media (forced-colors: active) { :focus-visible, .is-focus { outline-color: Highlight; } }
+
+/* Base. The Tailwind CDN's preflight comes later in the cascade, so body is set as "html body" to keep its
+   line height, and a button's fill is always set with two classes ([type=button] in preflight counts as one). */
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--surface); }
+html body { margin: 0; background: var(--surface); color: var(--text-1); font-family: var(--font-sans); font-size: 14px;
+  line-height: 20px; font-weight: 400; letter-spacing: 0; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+h1, h2, h3, h4, p, ul, ol, dl, dd { margin: 0; }
+ul, ol { list-style: none; padding: 0; }
+button, input { font: inherit; color: inherit; letter-spacing: 0; }
+img { display: block; }
+a { color: inherit; }
+.mono { font-family: var(--font-mono); white-space: nowrap; }
+.seg-nowrap { white-space: nowrap; }
+.num { font-variant-numeric: tabular-nums; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* Where a marker is pinned (annot_on). It comes before every component rule, so a part that is already
+   positioned keeps its own position. */
+.annot-host { position: relative; }
+
+/* Type (design-system §5) */
+.text-label { font-size: 12px; line-height: 16px; font-weight: 600; }
+.text-meta { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); }
+
+/* Shell: app bar 48px, page header auto, content minmax(0, 1fr); the panes scroll, the page does not. */
+.app { display: grid; grid-template-rows: 48px auto minmax(0, 1fr); height: 100dvh; overflow: hidden; background: var(--surface); }
+.appbar { grid-row: 1; }
+.pagehead { grid-row: 2; }
+.content { grid-row: 3; }
+
+/* App bar */
+.appbar { display: flex; align-items: center; gap: 24px; min-width: 0; height: 48px; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.brand { display: flex; align-items: center; gap: 12px; flex: none; }
+.brand-mark { width: 51px; height: 24px; filter: var(--mark-filter); }
+.brand-name { font-size: 14px; line-height: 20px; font-weight: 600; white-space: nowrap; }
+.appbar-page { display: none; font-size: 16px; line-height: 24px; font-weight: 600; }
+.nav { display: flex; align-self: stretch; gap: 20px; }
+.nav a { display: flex; align-items: center; padding: 2px 2px 0; border-bottom: 2px solid transparent; color: var(--text-2);
+  text-decoration: none; white-space: nowrap; transition: color var(--dur) ease-out; }
+.nav a:hover { color: var(--text-1); }
+.nav a[aria-current="page"] { color: var(--text-1); border-bottom-color: var(--accent); }
+.appbar-tools { display: flex; align-items: center; gap: 16px; min-width: 0; margin-left: auto; }
+.cmd { display: flex; flex: none; align-items: center; gap: 8px; width: 240px; height: 32px; padding: 0 8px; text-align: left;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); color: var(--text-3); cursor: pointer; }
+.cmd-text { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cmd-icon { display: none; }
+.inbox-status { font-size: 12px; line-height: 16px; color: var(--text-3); white-space: nowrap; }
+.appearance { display: inline-flex; flex: none; }
+.seg { height: 32px; margin-left: -1px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 0;
+  background: var(--surface); color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600; cursor: pointer;
+  transition: background-color var(--dur) ease-out, color var(--dur) ease-out; }
+.seg:first-child { margin-left: 0; border-radius: var(--radius-2) 0 0 var(--radius-2); }
+.seg:last-child { border-radius: 0 var(--radius-2) var(--radius-2) 0; }
+.appearance .seg[aria-pressed="true"] { background: var(--surface-sunken); color: var(--text-1); }
+.appbar .menu-btn { display: none; }
+
+/* Controls */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: var(--radius-2); font-size: 14px; line-height: 20px; font-weight: 500;
+  white-space: nowrap; text-decoration: none; cursor: pointer;
+  transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out; }
+.btn.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.btn-secondary { background: var(--surface); border-color: var(--border-strong); color: var(--text-1); }
+.btn.btn-secondary:hover { background: var(--row-hover); }
+.btn.btn-ghost { background: transparent; color: var(--text-2); }
+.btn.btn-ghost:hover { color: var(--text-1); text-decoration: underline; text-underline-offset: 2px; }
+.btn.btn-icon { width: 32px; padding: 0; }
+.btn.is-disabled { color: var(--text-3); border-color: var(--border-subtle); cursor: default; }
+.btn.is-disabled .kbd { color: var(--text-3); border-color: var(--border-subtle); }
+.kbd { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 18px; height: 18px; padding: 0 4px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface-sunken); color: var(--text-2);
+  font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; white-space: nowrap; }
+.link { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
+  transition: color var(--dur) ease-out; }
+.link:hover { color: var(--accent-hover); text-decoration-thickness: 2px; }
+.with-icon { display: inline-flex; align-items: center; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px; border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2); background: transparent; color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600;
+  white-space: nowrap; cursor: pointer; transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out; }
+.chip:hover { color: var(--text-1); }
+.chip-count { color: var(--text-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.chip.is-selected { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+.chip-facet { padding-right: 8px; }
+.tag { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 20px; padding: 0 8px; border-radius: var(--radius-2);
+  font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+.tag-neutral { background: var(--neutral-tint); color: var(--neutral); }
+.tag-caution { background: var(--caution-tint); color: var(--caution); }
+.tag-positive { background: var(--positive-tint); color: var(--positive); }
+.is-pos { color: var(--positive); }
+.is-neg { color: var(--negative); }
+.is-neu { color: var(--neutral); }
+
+/* Page header */
+.pagehead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 56px; padding: 12px 16px;
+  background: var(--canvas); border-bottom: 1px solid var(--border-subtle); }
+.ph-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; min-width: 0; }
+.ph-title h1 { font-size: 20px; line-height: 28px; font-weight: 600; }
+.counts { font-size: 12px; line-height: 16px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ph-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.search { width: 200px; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text-1); font-size: 14px; line-height: 20px; }
+.search::placeholder { color: var(--text-3); opacity: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.undo-last { margin-left: 4px; }
+
+/* Content: panes abutting on 1px rules. The page's own CSS gives .content its columns. */
+.content { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; background: var(--surface); }
+
+/* Group and pane header (sticky, 40px), the fold button, the band divider */
+.group-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.group-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 600; white-space: nowrap; }
+.group-count { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.group-new { color: var(--text-2); }
+.fold { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; margin: 0 -8px 0 auto;
+  border: 0; border-radius: var(--radius-2); background: transparent; color: var(--text-2); cursor: pointer; }
+.fold:hover { background: var(--row-hover); color: var(--text-1); }
+.band { display: flex; align-items: center; height: 24px; padding: 0 16px; font-size: 12px; line-height: 16px; color: var(--text-3);
+  border-bottom: 1px solid var(--border-subtle); font-variant-numeric: tabular-nums; }
+
+/* Rows: a whole-row link. Three lines, 76px; two lines, 56px. */
+.row { position: relative; display: grid; grid-template-rows: 20px 16px 20px; row-gap: 2px; height: 76px; padding: 8px 16px 7px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); color: var(--text-1); text-decoration: none;
+  transition: background-color var(--dur) ease-out; }
+.row:hover { background: var(--row-hover); }
+.row[aria-current="true"] { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 13px; }
+.r1, .r2, .r3 { display: flex; min-width: 0; }
+.r1 { align-items: baseline; gap: 8px; }
+.r-new { flex: none; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-1); }
+.r-title { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+.is-unread .r-title { font-weight: 600; }
+.r-cv { flex: none; width: 40px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; }
+.r-seen { flex: none; width: 44px; text-align: right; font-size: 12px; line-height: 16px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.r2 { align-items: center; gap: 8px; }
+.r-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px;
+  line-height: 16px; color: var(--text-3); }
+.r2 .tag { margin: -2px 0; }
+.r-rate { display: inline-block; }
+.r3 { align-items: center; gap: 12px; }
+.r-lead { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2); }
+.r-marks { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.mk-pass { color: var(--text-3); }
+.mk-fail { color: var(--negative); }
+.mk-nj { color: var(--neutral); }
+.row-applied { grid-template-rows: 20px 16px; row-gap: 4px; height: 56px; }
+.more { display: flex; align-items: center; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--border-subtle); }
+
+/* Detail content: section heading, score block, reasons, definition list, reading text, evidence */
+.sec-h { margin-bottom: 8px; font-size: 16px; line-height: 24px; font-weight: 600; }
+.score { container-type: inline-size; }
+.gate-strip { display: grid; grid-template-columns: 88px 96px minmax(0, 1fr); gap: 8px 12px; align-items: start; max-width: 960px; margin-top: 8px; }
+.gate { display: contents; }
+.gate-name, .gate-status { font-size: 12px; line-height: 16px; font-weight: 600; }
+.gate-name { color: var(--text-2); }
+.gate-status { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.gate-note { font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+@container (width < 480px) {
+  .gate-strip { grid-template-columns: 72px minmax(0, 1fr); row-gap: 2px; }
+  .gate-note { grid-column: 2; margin-bottom: 8px; }
+}
+@container (width >= 720px) {
+  .gate-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 24px; }
+  .gate { display: flex; flex-direction: column; gap: 2px; }
+}
+.cv-line { display: flex; align-items: baseline; gap: 8px; margin-top: 16px; }
+.cv-label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.cv-figure { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.basis { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.reasons { display: flex; flex-direction: column; gap: 12px; }
+.reasons li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; max-width: 80ch; }
+.evidence { font-size: 12px; line-height: 16px; color: var(--text-2); text-decoration: underline; text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.evidence:hover { text-decoration-thickness: 2px; }
+.facts { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 16px; align-items: baseline; }
+.facts dt { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.facts dd { max-width: 80ch; }
+.advert-text { max-width: 72ch; font-size: 15px; line-height: 24px; }
+.advert-text h4 { margin: 24px 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
+.advert-text h4:first-child { margin-top: 0; }
+.advert-text p, .advert-text ul { margin-bottom: 12px; }
+.advert-text ul { padding-left: 20px; list-style: disc; }
+.advert-text li { margin-bottom: 4px; }
+.advert-text li::marker { color: var(--text-3); }
+mark { background: transparent; color: inherit; text-decoration: underline; text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 3px; }
+mark:target { background: var(--accent-tint); text-decoration-thickness: 2px; }
+.keymap { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; align-items: center; margin-top: 16px; }
+.keymap div { display: contents; }
+.keymap dt { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.keymap .then { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.keymap dd { color: var(--text-2); }
+
+/* Widths */
+@media (width < 1280px) { .cmd { width: auto; } .cmd-text { display: none; } .cmd-icon { display: inline-flex; } }
+@media (width < 960px) { .inbox-status { display: none; } }
+@media (pointer: coarse) and (width < 1100px) { .inbox-status { display: none; } }
+@media (width < 1800px) {
+  .ph-tools { flex-basis: 100%; margin-left: 0; }
+}
+/* Under 1024: one column, no key hints. A sub-screen (data-view="role") keeps the page header for
+   assistive technology only. */
+@media (width < 1024px) {
+  .appbar { gap: 16px; }
+  .nav { gap: 16px; }
+  .kbd { display: none; }
+  .cmd { justify-content: center; width: 32px; padding: 0; border-color: transparent; background: transparent; color: var(--text-2); }
+  .cmd-text { display: none; }
+  .cmd-icon { display: inline-flex; }
+  .app[data-view="role"] .pagehead { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .app[data-view="role"] .ph-tools, .app[data-view="role"] .counts { display: none; }
+}
+/* Under 768: the document scrolls and the panes do not; 44px targets; the app bar is the mark, the page
+   name and Menu. */
+@media (width < 768px) {
+  html { scroll-padding-top: 44px; }
+  .app { grid-template-rows: 48px auto auto; height: auto; min-height: 100dvh; overflow: visible; }
+  .nav, .appbar-tools, .brand-name { display: none; }
+  .appbar-page { display: block; }
+  .appbar .menu-btn { display: inline-flex; width: 44px; height: 44px; margin: 0 -8px 0 auto; padding: 0; }
+  .undo-last { margin-left: 0; padding-inline: 0; }
+  .ph-title h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .chips { display: contents; }
+  .search { width: 100%; }
+  .btn, .chip, .search { height: 44px; }
+  .group-head { height: 44px; }
+  .fold { width: 44px; height: 44px; margin-right: -12px; }
+  .more { min-height: 44px; }
+  .facts { grid-template-columns: 112px minmax(0, 1fr); }
+  .with-icon { display: inline-flex; align-items: center; min-height: 44px; }
+  .more .link, .evidence { position: relative; }
+  .more .link::after { content: ""; position: absolute; inset: -12px 0; }
+  .evidence::after { content: ""; position: absolute; inset: -14px 0; }
+}
+@media (pointer: coarse) {
+  .btn, .chip, .search, .seg { height: 44px; }
+  .fold, .btn.btn-icon { width: 44px; height: 44px; }
+  .cmd { height: 44px; }
+  .with-icon { display: inline-flex; align-items: center; min-height: 44px; }
+  .more { min-height: 44px; }
+  .more .link, .evidence { position: relative; }
+  .more .link::after { content: ""; position: absolute; inset: -12px 0; }
+  .evidence::after { content: ""; position: absolute; inset: -14px 0; }
+  .group-head { height: 44px; }
+}
+@media (max-height: 499px) {
+  .group-head { position: static; }
+}
+
+/* A plain document page (notes): left-aligned at a 16px inset. */
+.doc { max-width: calc(72ch + 32px); padding: 24px 16px 48px; color: var(--text-2); }
+.doc h1 { margin-bottom: 8px; font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.doc h2 { margin: 24px 0 8px; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.doc li + li { margin-top: 8px; }
+.doc ul { padding-left: 20px; list-style: disc; }
+.doc ol { padding-left: 24px; list-style: decimal; }
+.doc li::marker { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.doc .pick { margin-top: 8px; }
+.doc table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.doc th, .doc td { height: 32px; padding: 0 12px 0 0; text-align: left; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+@media (width < 480px) { .doc td { white-space: normal; overflow-wrap: anywhere; } }
+.doc th { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); border-bottom-color: var(--border-strong); }
+.doc td { color: var(--text-1); }
+.doc .after-table { margin-top: 12px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+
+/* =====================================================================================================
+   Added for later pages (design-system §6, §7, §14). Above this line is the Jobs round-2 stylesheet, rule
+   for rule, less the rules of the Jobs page alone (and with .annot-host added). Nothing below this line
+   changes a pixel of what Jobs draws: test_shell.py compares them.
+   ===================================================================================================== */
+
+/* The root is a size container named app. Write a page's width rules as @container app (width >= 1800px)
+   and a screen lays out by its own width: in a frame, and at 1280 inside a states-board panel. The two
+   rules below repeat the shell's own desktop width rules for that case. Overlays are placed against it. */
+.app { container: app / inline-size; }
+@container app (width < 1280px) { .cmd { width: auto; } .cmd-text { display: none; } .cmd-icon { display: inline-flex; } }
+@container app (width < 1800px) { .ph-tools { flex-basis: 100%; margin-left: 0; } }
+
+/* A light or a dark island inside a page of the other appearance (a white sheet of paper, a light specimen). */
+.theme-light { color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none; color: var(--text-1); }
+.theme-dark { color-scheme: dark; --canvas: #0e1215; --surface: #151a1e; --surface-sunken: #1c2226; --row-hover: #192024; --row-selected: #0f3237; --text-1: #e6ebee; --text-2: #b3bec6; --text-3: #93a0a9; --border-subtle: #262e34; --border-strong: #6f7c86; --accent: #5cc3cf; --accent-hover: #82d3dc; --accent-tint: #0f3237; --on-accent: #071114; --positive: #74d39b; --positive-tint: #12291c; --caution: #f0c46a; --caution-tint: #2c2311; --negative: #ff9b8f; --negative-tint: #33191a; --neutral: #b3bec6; --neutral-tint: #1f262b; --scrim: rgba(0, 0, 0, .6); --shadow-overlay: 0 8px 24px rgba(0, 0, 0, .5); --mark-filter: invert(1) hue-rotate(180deg); color: var(--text-1); }
+.theme-light :focus-visible, .theme-light .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  .theme-light .row:focus-visible, .theme-light .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+html[data-appearance] .theme-dark :focus-visible, html[data-appearance] .theme-dark .is-focus { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+  html[data-appearance] .theme-dark .row:focus-visible, html[data-appearance] .theme-dark .row.is-focus { outline-offset: -7px; box-shadow: none; }
+
+/* Type: the rest of the scale (design-system §5) */
+.text-page-title { font-size: 20px; line-height: 28px; font-weight: 600; }
+.text-title { font-size: 18px; line-height: 24px; font-weight: 600; }
+.text-section { font-size: 16px; line-height: 24px; font-weight: 600; }
+.text-panel { font-size: 14px; line-height: 20px; font-weight: 600; }
+.text-body { font-size: 14px; line-height: 20px; font-weight: 400; }
+.text-reading { max-width: 72ch; font-size: 15px; line-height: 24px; font-weight: 400; }
+.text-figure { font-size: 14px; line-height: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.text-figure-large { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ink-1 { color: var(--text-1); }
+.ink-2 { color: var(--text-2); }
+.ink-3 { color: var(--text-3); }
+
+/* The nav's shortest item, CV, is 21px wide. Its target is widened to 25px, not its box, so the bar keeps
+   its pixels. */
+.nav a { position: relative; }
+.nav a::after { content: ""; position: absolute; inset: 0 -2px; }
+
+/* Controls: what Jobs did not need */
+select, textarea { font: inherit; color: inherit; letter-spacing: 0; }
+.btn.btn-danger { background: var(--surface); border-color: var(--border-strong); color: var(--negative); }
+.btn.btn-danger:hover { background: var(--row-hover); }
+.btn.btn-danger.is-disabled { color: var(--text-3); border-color: var(--border-subtle); }
+.btn.btn-primary.is-disabled { background: var(--surface-sunken); border-color: var(--border-subtle); color: var(--text-3); }
+.btn.btn-ghost.is-disabled:hover { color: var(--text-3); text-decoration: none; }
+.btn[aria-pressed="true"] { background: var(--surface-sunken); border-color: var(--border-strong); color: var(--text-1); }
+.link-block { display: inline-flex; align-items: center; min-height: 24px; }
+.tag-negative { background: var(--negative-tint); color: var(--negative); }
+.is-cau { color: var(--caution); }
+.status { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+/* A link that stands alone in a 40px row, and an evidence link, are 20px and 16px tall: their targets are
+   made 24px without moving a pixel. (Jobs widens them further on touch; :where() keeps those rules on top.) */
+:where(.more) .link, :where(.evidence) { position: relative; }
+:where(.more) .link::after { content: ""; position: absolute; inset: -2px 0; }
+:where(.evidence)::after { content: ""; position: absolute; inset: -4px 0; }
+.chev { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; border: 0;
+  border-radius: var(--radius-2); background: transparent; color: var(--text-2); cursor: pointer; }
+.chev:hover { background: var(--row-hover); color: var(--text-1); }
+.action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* Page header: a back link above the title, tags after it, tools kept on the title's line */
+.ph-back { flex: 0 0 100%; }
+@media (width >= 768px) { .pagehead.ph-inline .ph-tools { flex-basis: auto; margin-left: auto; } }
+
+/* Panes */
+.pane { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scroll-padding-top: 40px; background: var(--surface); }
+.pane-body { display: flex; flex-direction: column; gap: 24px; padding: 16px 16px 24px; }
+.pane-note { display: flex; align-items: center; min-height: 32px; padding: 8px 16px 7px; font-size: 12px; line-height: 16px;
+  color: var(--text-2); border-bottom: 1px solid var(--border-subtle); }
+.head-meta { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.head-tools { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+.head-tools + .fold { margin-left: 0; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; margin-bottom: 8px; }
+.sec-head .sec-h { margin-bottom: 0; }
+.sec-meta { font-size: 12px; line-height: 16px; color: var(--text-3); }
+
+/* List rows of 56px and 40px, on the same .row */
+.row-2 { grid-template-rows: 20px 16px; row-gap: 4px; height: 56px; }
+.row-1 { grid-template-rows: 20px; height: 40px; padding-top: 10px; padding-bottom: 9px; }
+.row.is-static:hover { background: var(--surface); }
+
+/* Table: sticky head on the sunken ground, 40px rows, one line a cell */
+.table-wrap { min-width: 0; background: var(--surface); }
+.table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); }
+.table th, .table td { height: 40px; padding: 0 12px; text-align: left; vertical-align: middle; white-space: nowrap;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.table th:first-child, .table td:first-child { padding-left: 16px; }
+.table th:last-child, .table td:last-child { padding-right: 16px; }
+.table thead th { position: sticky; top: var(--table-top, 0px); z-index: 1; background: var(--surface-sunken);
+  border-bottom-color: var(--border-strong); font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); }
+.table tbody th { font-weight: 500; color: var(--text-1); }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table td.num { font-weight: 500; }
+.table .cell-trunc { max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.table .cell-meta { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.table .th-sub { margin-left: 8px; font-weight: 400; }
+.table tbody tr:hover > th, .table tbody tr:hover > td { background: var(--row-hover); }
+.table tbody tr[aria-current="true"] > th, .table tbody tr[aria-current="true"] > td { background: var(--row-selected); }
+.table tbody tr[aria-current="true"] > :first-child { border-left: 3px solid var(--accent); padding-left: 13px; }
+.th-sort { display: inline-flex; align-items: center; gap: 4px; min-width: 24px; min-height: 32px; color: inherit; text-decoration: none; }
+.th-sort:hover, .table th[aria-sort="ascending"] .th-sort, .table th[aria-sort="descending"] .th-sort { color: var(--text-1); }
+.table .t-chev { width: 48px; padding: 0 0 0 8px; }
+.table tr.is-open > th, .table tr.is-open > td { border-bottom-color: transparent; }
+.table .t-detail > td { height: auto; padding: 4px 16px 16px 56px; white-space: normal; }
+.table tbody tr.t-detail:hover > td { background: var(--surface); }
+.table .t-group > th { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.table tbody tr.t-group:hover > th, .table tbody tr.t-more:hover > td { background: var(--surface); }
+.table .t-group .group-count { margin-left: 8px; }
+@media (width < 1024px) {
+  .table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
+  .t-detail-body { position: sticky; left: 56px; width: calc(100vw - 72px); max-width: 100%; }
+}
+@media (max-height: 499px) { .table thead th { position: static; } }
+
+/* Text tabs: each tab a link, the current one marked */
+.tabs { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0 20px; min-height: 40px; padding: 0 16px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.tab { display: flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-width: 24px; min-height: 40px; padding: 2px 2px 0;
+  border-bottom: 2px solid transparent; color: var(--text-2); text-decoration: none; white-space: nowrap; transition: color var(--dur) ease-out; }
+.tab:hover { color: var(--text-1); }
+.tab[aria-current] { color: var(--text-1); border-bottom-color: var(--accent); }
+.tab-count { font-size: 12px; line-height: 16px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* Segmented control: joined segments. Buttons for a choice, links for a view switch. */
+.segmented { display: inline-flex; flex: none; }
+.segmented .seg { min-width: 32px; }
+.segmented a.seg { position: relative; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.segmented .seg:hover { color: var(--text-1); }
+.segmented .seg[aria-pressed="true"], .segmented .seg[aria-current] { background: var(--surface-sunken); color: var(--text-1); }
+.segmented a.seg[aria-current]::after { content: ""; position: absolute; left: -1px; right: -1px; bottom: -1px; height: 2px; background: var(--accent); }
+.segmented .seg:focus-visible, .segmented .seg.is-focus { position: relative; z-index: 1; }
+
+/* Notice line: mark, sentence, at most one action. No tint: the 1px rule and the mark carry it. */
+.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; min-height: 40px; padding: 4px 16px 3px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.notice-body { display: flex; align-items: flex-start; gap: 12px; flex: 1 1 24ch; min-width: 0; padding: 6px 0; }
+.notice-mark { flex: none; margin-top: 2px; }
+.notice-text { min-width: 0; max-width: 96ch; }
+.notice > .btn, .notice > .link-block { flex: none; }
+.notice > .link-block { min-height: 32px; }
+.notice-info .notice-mark { color: var(--neutral); }
+.notice-caution .notice-mark { color: var(--caution); }
+.notice-negative .notice-mark { color: var(--negative); }
+.notice-positive .notice-mark { color: var(--positive); }
+
+/* Form fields: a visible label above, 32px controls */
+.field { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
+.field-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 16px; }
+.field-row > .field { flex: 1 1 160px; }
+.field-label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.field-input { width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text-1); font-size: 14px; line-height: 20px; }
+.field-input::placeholder { color: var(--text-3); opacity: 1; }
+textarea.field-input { height: auto; min-height: 72px; padding: 5px 8px; resize: vertical; }
+select.field-input { appearance: none; -webkit-appearance: none; padding-right: 32px; cursor: pointer; }
+.field-select { position: relative; display: block; }
+.field-select iconify-icon { position: absolute; top: 50%; right: 8px; margin-top: -8px; color: var(--text-2); pointer-events: none; }
+.field-input[aria-invalid="true"] { border-color: var(--negative); }
+.field-input[readonly] { background: var(--surface-sunken); }
+.field-hint { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.field-error { display: flex; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--negative); }
+.field-error svg { flex: none; margin-top: 2px; }
+.check { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; cursor: pointer; }
+.check-input { -webkit-appearance: none; appearance: none; display: inline-grid; place-content: center; flex: none; width: 16px; height: 16px; margin: 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); cursor: pointer; }
+.check-input::before { content: ""; width: 10px; height: 10px; background: var(--on-accent); transform: scale(0);
+  clip-path: polygon(14% 44%, 0 65%, 44% 100%, 100% 20%, 82% 6%, 40% 66%); }
+.check-input:checked { background: var(--accent); border-color: var(--accent); }
+.check-input:checked::before { transform: scale(1); }
+/* A date field hands the focus on to its own calendar button, and the field then matches neither :focus nor
+   :focus-visible. So fields show the ring on :focus-within, as text fields do on any focus anyway. */
+.field-input:focus-within { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+html[data-appearance="light"] .field-input:focus-within, .theme-light .field-input:focus-within { outline-color: #14191d;
+  box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] .field-input:focus-within { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+}
+html[data-appearance] .theme-dark .field-input:focus-within { outline-color: #ffd447; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+@media (forced-colors: active) { .field-input:focus-within { outline-color: Highlight; } }
+
+/* Popover menu, drawn open. Overlays alone take radius 4px and the overlay shadow. */
+.popover-anchor { position: relative; display: inline-flex; }
+.menu, .popover { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 200px; padding: 4px 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--surface); box-shadow: var(--shadow-overlay); }
+.popover { padding: 12px; }
+.popover-anchor.is-end > .menu, .popover-anchor.is-end > .popover { right: 0; left: auto; }
+.menu .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 12px; border: 0; background: transparent;
+  color: var(--text-1); font-size: 14px; line-height: 20px; font-weight: 400; text-align: left; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.menu .menu-item:hover { background: var(--row-hover); }
+.menu .menu-item.is-current { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 9px; }
+.menu .menu-item.is-danger { color: var(--negative); }
+.menu .menu-item .kbd { margin-left: auto; }
+.menu-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+
+/* Toast: the inverse of the surface, at the bottom right of the screen it speaks for */
+.toast { position: absolute; z-index: 25; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 12px;
+  max-width: min(480px, calc(100% - 32px)); padding: 8px 8px 8px 16px; border-radius: var(--radius-4); background: var(--text-1);
+  color: var(--surface); box-shadow: var(--shadow-overlay); }
+.toast-text { min-width: 0; }
+.toast .toast-btn { flex: none; height: 32px; padding: 0 12px; border: 1px solid var(--surface); border-radius: var(--radius-2);
+  background: transparent; color: var(--surface); font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer; }
+.toast .toast-btn:hover { text-decoration: underline; text-underline-offset: 2px; }
+.toast :focus-visible, .toast .is-focus { outline-color: var(--surface); box-shadow: none; }
+
+/* Dialog and drawer, drawn open over a scrim. Placed against the nearest positioned box: the app, a
+   states-board panel or a .stage. */
+.scrim { position: absolute; inset: 0; z-index: 30; background: var(--scrim); }
+.dialog, .drawer { position: absolute; z-index: 31; display: flex; flex-direction: column; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text-1); box-shadow: var(--shadow-overlay); }
+.dialog { top: var(--overlay-top, 96px); right: 0; left: 0; width: min(var(--overlay-width, 480px), calc(100% - 32px));
+  max-height: calc(100% - var(--overlay-top, 96px) - 32px); margin-inline: auto; border-radius: var(--radius-4); }
+.drawer { top: 0; right: 0; bottom: 0; width: min(var(--overlay-width, 480px), 100%); border-width: 0 0 0 1px;
+  border-radius: var(--radius-4) 0 0 var(--radius-4); }
+.overlay-head { display: flex; align-items: center; gap: 8px; flex: none; min-height: 48px; padding: 8px 8px 7px 16px;
+  border-bottom: 1px solid var(--border-subtle); }
+.overlay-title { flex: 1 1 auto; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 600; }
+.overlay-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 16px; }
+.overlay-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle); }
+.stage { position: relative; overflow: hidden; background: var(--surface); }
+.spec-menu { height: 176px; }
+
+/* Empty and loading: left-aligned at the top of the area they replace */
+.empty { padding: 12px 16px 24px; }
+.empty > p { max-width: 72ch; }
+.empty > .btn, .empty > .link-block { margin-top: 12px; }
+.loading { padding: 12px 16px 24px; }
+.loading-text { max-width: 72ch; margin-bottom: 8px; color: var(--text-2); }
+.load-bar { display: block; max-width: 72ch; height: 12px; margin: 4px 0 8px; border-radius: var(--radius-2); background: var(--surface-sunken); }
+
+/* Vertical toolbar slot: icon buttons on the sunken ground, or the same with visible labels */
+.vtoolbar { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: none; width: 48px; padding: 8px;
+  background: var(--surface-sunken); border-right: 1px solid var(--border-subtle); --focus-gap: var(--surface-sunken); }
+.vtoolbar.has-labels { width: 216px; }
+.vtoolbar.has-labels .btn { justify-content: flex-start; padding: 0 8px; }
+.vtoolbar .btn .kbd { margin-left: auto; }
+.tool-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+.tool-note { padding: 0 8px 4px 32px; font-size: 12px; line-height: 16px; color: var(--text-3); white-space: normal; }
+
+/* 44px on touch, and under 768px where a desktop browser draws the phone frame. The app is then at least a
+   screen high: its rows keep their own heights (a short page would otherwise stretch its page header). */
+@media (width < 768px) {
+  .app { align-content: start; }
+  .pane { overflow: visible; min-height: auto; }
+  .pagehead.ph-own .ph-title h1 { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; }
+  .btn.btn-icon, .chev { width: 44px; }
+  .chev, .field-input, .segmented .seg, .toast .toast-btn, .menu .menu-item { height: 44px; }
+  textarea.field-input { height: auto; }
+  .tab, .check, .link-block, .th-sort, .notice > .link-block { min-height: 44px; }
+  .row-1 { height: 44px; padding-top: 12px; padding-bottom: 11px; }
+  .toast { left: 16px; max-width: none; }
+  .dialog { --overlay-top: 64px; }
+  .drawer { width: 100%; border-width: 0; border-radius: 0; }
+  .vtoolbar { width: 60px; }
+  .vtoolbar.has-labels { width: 216px; }
+  .spec-menu { height: 236px; }
+}
+@media (pointer: coarse) {
+  .btn.btn-icon, .chev { width: 44px; }
+  .chev, .field-input, .segmented .seg, .toast .toast-btn, .menu .menu-item { height: 44px; }
+  textarea.field-input { height: auto; }
+  .tab, .check, .link-block, .th-sort, .notice > .link-block { min-height: 44px; }
+  .row-1 { height: 44px; padding-top: 12px; padding-bottom: 11px; }
+  .vtoolbar { width: 60px; }
+  .vtoolbar.has-labels { width: 216px; }
+  .spec-menu { height: 236px; }
+}
+
+/* Hide by frame: wide is 1800px and over, desk 1024 to 1799, phone under 1024. For markers, legend lines
+   and anything else a frame does not draw. */
+@media (width >= 1800px) { .hide-wide { display: none !important; } }
+@media (width >= 1024px) and (width < 1800px) { .hide-desk { display: none !important; } }
+@media (width < 1024px) { .hide-phone { display: none !important; } }
+
+/* Annotation layer: not product UI. A marker is a 20px square, the inverse of the surface under it, with a
+   mono numeral; it takes no room. The legend sits under the app frame on the canvas ground. */
+.annot, .legend-n { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: var(--text-1);
+  color: var(--surface); font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; font-style: normal;
+  font-variant-numeric: tabular-nums; letter-spacing: 0; text-indent: 0; white-space: nowrap; }
+.annot { position: absolute; z-index: 40; margin: 0; padding: 0; border: 0; box-shadow: 0 0 0 1px var(--surface); pointer-events: none;
+  translate: var(--dx, 0px) var(--dy, 0px); }
+.annot-tl { top: 0; left: 0; }
+.annot-t { top: 0; left: calc(50% - 10px); }
+.annot-tr { top: 0; right: 0; }
+.annot-l { top: calc(50% - 10px); left: 0; }
+.annot-c { top: calc(50% - 10px); left: calc(50% - 10px); }
+.annot-r { top: calc(50% - 10px); right: 0; }
+.annot-bl { bottom: 0; left: 0; }
+.annot-b { bottom: 0; left: calc(50% - 10px); }
+.annot-br { right: 0; bottom: 0; }
+.legend { padding: 24px 16px 48px; background: var(--canvas); border-top: 1px solid var(--border-strong); color: var(--text-2); }
+.legend-title { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.legend-note { max-width: 96ch; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.legend-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); gap: 16px 32px; margin-top: 16px; }
+.legend-item { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 12px; align-items: start; max-width: 72ch; }
+.legend-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.legend-text { text-wrap: pretty; }
+
+/* Annotated frame: the app at a fixed height for the mockup, the legend under it. */
+.frame { background: var(--canvas); }
+.frame > .app { height: 900px; }
+@media (width >= 1800px) { .frame > .app { height: 1440px; } }
+@media (width < 1024px) {
+  .frame > .app { grid-template-rows: 48px auto auto; height: auto; min-height: 0; overflow: visible; }
+  .frame .pane { overflow: visible; min-height: auto; }
+}
+
+/* States board: plain panels on the canvas ground, each a label over a 1px rule and a fragment at real size. */
+.board { min-height: 100dvh; padding-bottom: 48px; background: var(--canvas); color: var(--text-2); }
+.board-head { padding: 24px 16px 0; }
+.board-head h1 { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.board-head p { max-width: 96ch; margin-top: 4px; }
+.board-panels { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 32px 24px; padding: 24px 16px 0; }
+.board-panel { position: relative; flex: none; min-width: 0; max-width: 100%; }
+.board-panel.is-auto { flex: 1 1 560px; }
+.board-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; padding-bottom: 7px; border-bottom: 1px solid var(--border-strong); }
+.board-n { min-width: 16px; font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.board-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.board-note { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.board-body { position: relative; overflow: auto; background: var(--surface); color: var(--text-1); }
+.board-body > .app { height: 100%; min-height: 0; }
+.board.is-flush .board-panels { gap: 32px 0; padding-right: 0; padding-left: 0; }
+.board.is-flush .board-label { padding-right: 16px; padding-left: 16px; }
+.board.is-flush .board-panel + .board-panel::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; z-index: 50; width: 1px;
+  background: var(--border-strong); pointer-events: none; }
+
+/* System sheet: four columns of reference from 1800px, two from 1024px, then the component list */
+.sys { min-height: 100dvh; padding: 24px 16px 64px; background: var(--canvas); color: var(--text-2); }
+.sys-head { margin-bottom: 32px; }
+.sys-head h1 { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.sys-head p { max-width: 96ch; margin-top: 4px; }
+.sys-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px 32px; align-items: start; }
+.sys-cell { display: flex; flex-direction: column; gap: 40px; min-width: 0; }
+.sys-extra { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 40px 32px; align-items: start; }
+.sys-wide, .sys-extra { margin-top: 40px; }
+@media (width >= 1024px) { .sys-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (width >= 1800px) { .sys-grid { grid-template-columns: minmax(0, 1.44fr) minmax(0, 1.44fr) minmax(0, 1fr) minmax(0, 1fr); } }
+.sys-sec { min-width: 0; }
+.sys-sec > h2 { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.sys-note { max-width: 96ch; margin: 4px 0 12px; font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+.sys-table { overflow-x: auto; }
+.sys-table .table th, .sys-table .table td { height: 32px; padding-top: 6px; padding-bottom: 5px; white-space: normal; }
+.sys-table .table .keep { white-space: nowrap; }
+.sys-table .table th:last-child, .sys-table .table td:last-child { width: 100%; }
+.sys-table .table tbody tr:hover > td { background: var(--surface); }
+.swatch { display: inline-block; flex: none; width: 32px; height: 20px; border: 1px solid var(--border-strong); vertical-align: middle; }
+.swatch-cell { display: inline-flex; align-items: center; gap: 8px; }
+.swatch-stack { display: inline-flex; flex-direction: column; gap: 4px; }
+.sys-steps { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px; margin-bottom: 16px; padding: 16px; background: var(--surface); }
+.sys-step { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 16px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.sys-step-bar { height: 16px; background: var(--text-3); }
+.sys-comps { column-gap: 48px; }
+@media (width >= 1800px) { .sys-comps { column-count: 2; } }
+.sys-comp { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 8px 24px; align-items: start; padding: 16px 0;
+  border-top: 1px solid var(--border-subtle); break-inside: avoid; }
+.sys-comp.is-wide { column-span: all; grid-template-columns: minmax(0, 1fr); }
+.sys-comp.is-wide .sys-comp-line { max-width: 96ch; }
+.sys-comp-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.sys-comp-line { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+.sys-draw { min-width: 0; overflow-x: auto; background: var(--surface); color: var(--text-1); }
+.sys-draw.is-pad { padding: 12px 16px; }
+.sys-draw > .appbar, .sys-draw > .pagehead { grid-row: auto; }
+.spec-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.spec-col { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+@media (width < 768px) { .sys-comp { grid-template-columns: minmax(0, 1fr); } .sys-table .table { min-width: 600px; } }
+
+/* ---- This page ---- */
+/* ================================ cv_canvas: the CV as A4 sheets ================================= */
+/* Every rule starts with .cvc, the class on the root of everything cv_canvas returns. */
+
+.cvc {
+  /* The Word template at 96 px to the inch (ground truth section 4). Change nothing here by hand:
+     cv_canvas.paginate works from the same figures. */
+  --cvc-page-w: 794px; --cvc-page-h: 1123px;
+  --cvc-margin-x: 75.6px; --cvc-margin-y: 68px;
+  --cvc-block-w: 642.515625px; --cvc-block-h: 986.453125px;
+  --cvc-font: Arial, "Liberation Sans", Helvetica, sans-serif;
+  --cvc-fs-name: 24px; --cvc-lh-name: 31.734375px;
+  --cvc-fs-section: 17.333333px; --cvc-lh-section: 22.921875px;
+  --cvc-fs-entry: 14.666667px; --cvc-lh-entry: 19.390625px;
+  --cvc-fs-body: 14px; --cvc-lh-body: 18.515625px;
+  --cvc-after: 5.328125px; --cvc-before: 16px; --cvc-indent: 24px;
+  --cvc-rise: 0.9375px;            /* a bullet's first row is this much taller (its Symbol bullet) */
+  /* Word's baseline stands higher in a row than CSS's. The text of each kind of row is drawn this much
+     higher than CSS would put it, so the letters sit where Word sets them. */
+  --cvc-lift-name: 1.488281px; --cvc-lift-section: 0.741536px;
+  --cvc-lift-entry: 0.242839px; --cvc-lift-body: 0.868164px;
+  /* The app's own tokens for what stands off the paper: the shell's when the page has them, and the
+     dark set of design-system section 15 when it has not. */
+  --cvc-app-canvas: var(--canvas, #0e1215); --cvc-app-surface: var(--surface, #151a1e);
+  --cvc-app-sunken: var(--surface-sunken, #1c2226); --cvc-app-hover: var(--row-hover, #192024);
+  --cvc-app-text-1: var(--text-1, #e6ebee); --cvc-app-text-2: var(--text-2, #b3bec6);
+  --cvc-app-text-3: var(--text-3, #93a0a9);
+  --cvc-app-border: var(--border-subtle, #262e34); --cvc-app-border-strong: var(--border-strong, #6f7c86);
+  --cvc-app-accent: var(--accent, #5cc3cf); --cvc-app-accent-hover: var(--accent-hover, #82d3dc);
+  --cvc-app-on-accent: var(--on-accent, #071114);
+  --cvc-app-neutral: var(--neutral, #b3bec6); --cvc-app-neutral-tint: var(--neutral-tint, #1f262b);
+  --cvc-app-ring: #ffd447;
+  --cvc-ui: var(--font-sans, Arial, sans-serif);
+  --cvc-mono: var(--font-mono, Consolas, monospace);
+  --cvc-dur: var(--dur, 120ms);
+  box-sizing: border-box;
+}
+html[data-appearance="light"] .cvc { --cvc-app-ring: #14191d; }
+@media (prefers-color-scheme: light) { html[data-appearance="auto"] .cvc { --cvc-app-ring: #14191d; } }
+.cvc *, .cvc *::before, .cvc *::after { box-sizing: border-box; }
+
+/* Papers: each its own small token block (the contrast of every pair is in cv_canvas's docstring). */
+.cvc.cvc-paper-white { --cvc-paper: #ffffff; --cvc-ink: #000000; --cvc-text-1: #14191d; --cvc-text-2: #3e4952; --cvc-text-3: #56636d; --cvc-border: #dce1e4; --cvc-border-strong: #77838d; --cvc-surface: #ffffff; --cvc-hover: #f4f6f7; --cvc-accent: #00636e; --cvc-positive: #13693a; --cvc-positive-tint: #e2f1e7; --cvc-caution: #7a4a00; --cvc-caution-tint: #fcefd2; --cvc-negative: #a3221b; --cvc-negative-tint: #fbe5e3; --cvc-neutral: #3e4952; --cvc-ring: #14191d; --cvc-ring-band: #ffc72c; --cvc-ring-gap: 0px; }
+.cvc.cvc-paper-dimmed { --cvc-paper: #dce1e4; --cvc-ink: #000000; --cvc-text-1: #14191d; --cvc-text-2: #3e4952; --cvc-text-3: #56636d; --cvc-border: #c2c9ce; --cvc-border-strong: #67737d; --cvc-surface: #dce1e4; --cvc-hover: #e9edef; --cvc-accent: #00636e; --cvc-positive: #13693a; --cvc-positive-tint: #e2f1e7; --cvc-caution: #7a4a00; --cvc-caution-tint: #fcefd2; --cvc-negative: #a3221b; --cvc-negative-tint: #fbe5e3; --cvc-neutral: #3e4952; --cvc-ring: #14191d; --cvc-ring-band: #ffc72c; --cvc-ring-gap: 0px; }
+.cvc.cvc-paper-dark { --cvc-paper: #151a1e; --cvc-ink: #e6ebee; --cvc-text-1: #e6ebee; --cvc-text-2: #b3bec6; --cvc-text-3: #93a0a9; --cvc-border: #262e34; --cvc-border-strong: #6f7c86; --cvc-surface: #151a1e; --cvc-hover: #192024; --cvc-accent: #5cc3cf; --cvc-positive: #74d39b; --cvc-positive-tint: #12291c; --cvc-caution: #f0c46a; --cvc-caution-tint: #2c2311; --cvc-negative: #ff9b8f; --cvc-negative-tint: #33191a; --cvc-neutral: #b3bec6; --cvc-ring: #ffd447; --cvc-ring-band: transparent; --cvc-ring-gap: 1px; }
+
+/* ---------------------------------------------------------------------------------------- sheets */
+.cvc.cvc-sheets { display: flex; flex-direction: column; align-items: flex-start; gap: 24px; margin: 0; padding: 0; }
+.cvc.cvc-sheets.cvc-spread { flex-direction: row; flex-wrap: wrap; }
+.cvc .cvc-page { flex: none; width: calc(var(--cvc-page-w) * var(--cvc-scale, 1)); margin: 0; padding: 0; }
+/* The frame holds the room the scaled sheet takes; the sheet inside is laid out at full size and then
+   scaled, so its lines break where they break at 100%. */
+.cvc .cvc-frame { position: relative; width: 100%; height: calc(var(--cvc-page-h) * var(--cvc-scale, 1)); }
+.cvc .cvc-sheet {
+  position: absolute; left: 0; top: 0; width: var(--cvc-page-w); height: var(--cvc-page-h);
+  margin: 0; padding: var(--cvc-margin-y) var(--cvc-margin-x);
+  transform: scale(var(--cvc-scale, 1)); transform-origin: 0 0;
+  background: var(--cvc-paper); color: var(--cvc-ink);
+  outline: 1px solid var(--cvc-app-border-strong); outline-offset: -1px;
+  border: 0; border-radius: 0; box-shadow: none;
+  font: 400 var(--cvc-fs-body)/var(--cvc-lh-body) var(--cvc-font);
+  font-kerning: none; font-variant-ligatures: none; font-synthesis: none; letter-spacing: 0; word-spacing: 0;
+  text-align: left; text-transform: none; white-space: normal; overflow-wrap: normal; word-break: normal;
+  -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+}
+.cvc .cvc-block { position: relative; display: block; width: var(--cvc-block-w); height: var(--cvc-block-h); margin: 0; padding: 0; }
+.cvc .cvc-pagelabel { margin: 8px 0 0; padding: 0; font: 400 12px/16px var(--cvc-ui); color: var(--cvc-app-text-3); }
+/* A window onto the sheets (cv_canvas.clip): what lies outside it is cut off, not scrolled. */
+.cvc.cvc-clip { display: block; width: fit-content; max-width: 100%; margin: 0; padding: 0; overflow: clip; }
+.cvc .cvc-clip-in { display: block; margin: 0; padding: 0; }
+
+/* ------------------------------------------------------------------------------------------ rows */
+/* A row is one line of the CV text. All the spacing is above a row, worked out by cv_canvas.paginate:
+   g12 above a heading, g4 after anything else, g0 between bullets and at the top of a page. */
+.cvc .cvc-sec, .cvc .cvc-ent, .cvc .cvc-list { display: block; margin: 0; padding: 0; border: 0; list-style: none; }
+.cvc .cvc-row { position: relative; isolation: isolate; display: block; margin: 0; padding: 0; border: 0; list-style: none;
+  --cvc-row-h: var(--cvc-lh-body); --cvc-lift: var(--cvc-lift-body);
+  font: 400 var(--cvc-fs-body)/var(--cvc-lh-body) var(--cvc-font); }
+.cvc .cvc-row.cvc-g4 { margin-top: var(--cvc-after); --cvc-gap: var(--cvc-after); }
+.cvc .cvc-row.cvc-g12 { margin-top: var(--cvc-before); --cvc-gap: var(--cvc-before); }
+.cvc .cvc-row.cvc-name { --cvc-row-h: var(--cvc-lh-name); --cvc-lift: var(--cvc-lift-name); font: 700 var(--cvc-fs-name)/var(--cvc-lh-name) var(--cvc-font); }
+.cvc .cvc-row.cvc-section { --cvc-row-h: var(--cvc-lh-section); --cvc-lift: var(--cvc-lift-section); font: 700 var(--cvc-fs-section)/var(--cvc-lh-section) var(--cvc-font); }
+.cvc .cvc-row.cvc-entry { --cvc-row-h: var(--cvc-lh-entry); --cvc-lift: var(--cvc-lift-entry); font: 700 var(--cvc-fs-entry)/var(--cvc-lh-entry) var(--cvc-font); }
+.cvc .cvc-row.cvc-bullet { padding-left: var(--cvc-indent); padding-top: var(--cvc-rise); }
+.cvc .cvc-row.cvc-bullet.is-cont { padding-top: 0; }
+.cvc .cvc-text { position: relative; top: calc(var(--cvc-lift) * -1); display: block; margin: 0; padding: 0; border: 0;
+  font: inherit; color: inherit; letter-spacing: 0; text-decoration: none; overflow-wrap: normal; line-break: auto; }
+/* Word sets no kerning and no ligatures, and a line's width decides where it wraps. The font shorthand
+   above puts both back to their defaults, so they are turned off again here, last. */
+.cvc .cvc-sheet .cvc-row, .cvc .cvc-sheet .cvc-text { font-kerning: none; font-variant-ligatures: none; }
+.cvc:not(.cvc-readonly) .cvc-text { cursor: text; }
+.cvc .cvc-row.is-fixed > .cvc-text { cursor: default; }
+/* The round bullet: Symbol's own, 0.357 em across, at the margin. Drawn with a border so that forced
+   colours keep it. */
+.cvc .cvc-row.cvc-bullet > .cvc-text::before { content: ""; position: absolute; left: calc(var(--cvc-indent) * -1 + 0.724609px);
+  top: 7.566406px; width: 4.99707px; height: 4.99707px; border: calc(4.99707px / 2) solid currentColor; border-radius: 50%; }
+.cvc .cvc-row.cvc-bullet.is-cont > .cvc-text::before { content: none; }
+/* An empty section: its heading and one line, both quiet, the line in the app's own face so that it
+   cannot be taken for CV text. Neither is in the Word file. */
+.cvc .cvc-row.is-empty { color: var(--cvc-text-3); }
+.cvc .cvc-row.cvc-prompt > .cvc-text { font-family: var(--cvc-ui); font-size: 13px; }
+.cvc .cvc-vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+/* --------------------------------------------------------------------- the left margin: numbers */
+.cvc .cvc-gut { position: absolute; z-index: 1; right: calc(100% + 14px); top: 0; height: var(--cvc-row-h);
+  display: flex; align-items: center; gap: 5px; white-space: nowrap; pointer-events: none; color: var(--cvc-text-3); }
+.cvc .cvc-row.cvc-bullet > .cvc-gut { top: var(--cvc-rise); }
+.cvc .cvc-num { font: 500 11px/16px var(--cvc-mono); letter-spacing: 0; font-variant-numeric: tabular-nums; color: var(--cvc-text-3); }
+.cvc .cvc-mark { display: block; flex: none; width: 12px; height: 12px; }
+
+/* ------------------------------------------------------------------- evidence: tint, bar, mark */
+.cvc .cvc-row.is-met { --cvc-status: var(--cvc-positive); --cvc-tint: var(--cvc-positive-tint); }
+.cvc .cvc-row.is-partly { --cvc-status: var(--cvc-caution); --cvc-tint: var(--cvc-caution-tint); }
+.cvc .cvc-row.is-missing { --cvc-status: var(--cvc-negative); --cvc-tint: var(--cvc-negative-tint); }
+.cvc .cvc-row.is-stale { --cvc-status: var(--cvc-neutral); --cvc-tint: transparent; }
+.cvc .cvc-row.is-met::before, .cvc .cvc-row.is-partly::before, .cvc .cvc-row.is-missing::before, .cvc .cvc-row.is-stale::before {
+  content: ""; position: absolute; z-index: -1; left: -9px; right: -6px; top: 0; bottom: 0;
+  border-left: 3px solid var(--cvc-status); background: var(--cvc-tint); pointer-events: none; }
+.cvc .cvc-row.is-joined::before { top: calc(var(--cvc-gap, 0px) * -1); }
+.cvc .cvc-row.is-stale::before { border-left-style: dotted; }
+.cvc .cvc-row.is-met > .cvc-gut .cvc-mark, .cvc .cvc-row.is-partly > .cvc-gut .cvc-mark,
+.cvc .cvc-row.is-missing > .cvc-gut .cvc-mark { color: var(--cvc-status); }
+/* A stale line: its note stands in the right margin, a struck mark and the word. */
+.cvc .cvc-note { position: absolute; left: calc(100% + 8px); top: 0; height: var(--cvc-row-h); display: flex; align-items: center;
+  gap: 4px; font: 600 11px/16px var(--cvc-ui); letter-spacing: 0; white-space: nowrap; color: var(--cvc-neutral); pointer-events: none; }
+.cvc .cvc-row.cvc-bullet > .cvc-note { top: var(--cvc-rise); }
+
+/* ------------------------------------------------------------------ the item in focus: controls */
+/* Controls stand in the right margin, outside the text block, and keep their size when the sheet is
+   scaled. They show while the pointer or the focus is on their row, and on the one row drawn open. */
+.cvc .cvc-row.has-ctl::after { content: ""; position: absolute; left: 100%; top: 0; bottom: 0; width: var(--cvc-margin-x); }
+/* The column hangs down beside the rows that follow, so the row it belongs to stands above them: the
+   pointer can travel down the column without landing on another row. */
+.cvc .cvc-row:hover, .cvc .cvc-row:focus-within { z-index: 5; }
+.cvc .cvc-row.is-open { z-index: 6; }
+.cvc .cvc-ctl { position: absolute; z-index: 6;
+  left: calc(100% + (var(--cvc-margin-x) - 34px / var(--cvc-scale, 1)) / 2);
+  top: calc((var(--cvc-row-h) - 34px / var(--cvc-scale, 1)) / 2);
+  display: flex; flex-direction: column; width: 34px; margin: 0; padding: 0;
+  background: var(--cvc-surface); border: 1px solid var(--cvc-border-strong); border-radius: 2px;
+  transform: scale(calc(1 / var(--cvc-scale, 1))); transform-origin: 0 0;
+  opacity: 0; pointer-events: none; transition: opacity var(--cvc-dur) ease-out; }
+.cvc .cvc-ctl.cvc-ctl-up { top: auto; bottom: calc((var(--cvc-row-h) - 34px / var(--cvc-scale, 1)) / 2); transform-origin: 0 100%; }
+.cvc .cvc-row:hover > .cvc-ctl, .cvc .cvc-row:focus-within > .cvc-ctl, .cvc .cvc-row.is-open > .cvc-ctl { opacity: 1; pointer-events: auto; }
+.cvc .cvc-btn { position: relative; display: flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px;
+  margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--cvc-text-2); cursor: pointer;
+  transition: background-color var(--cvc-dur) ease-out, color var(--cvc-dur) ease-out; }
+.cvc .cvc-btn:hover { background: var(--cvc-hover); color: var(--cvc-text-1); }
+.cvc .cvc-btn.cvc-danger, .cvc .cvc-btn.cvc-danger:hover { color: var(--cvc-negative); }
+.cvc .cvc-btn[aria-disabled="true"], .cvc .cvc-btn[aria-disabled="true"]:hover { background: transparent; color: var(--cvc-text-3); opacity: .5; cursor: default; }
+.cvc .cvc-ctl-rule { display: block; height: 0; margin: 0 4px; border-top: 1px solid var(--cvc-border); }
+.cvc iconify-icon { display: block; flex: none; }
+/* Which item the controls belong to: one thin outline, on a line, on a section's heading, or round a
+   whole entry. */
+.cvc .cvc-row.is-active, .cvc .cvc-ent.is-active,
+.cvc .cvc-row.has-ctl:not(.cvc-entry):hover, .cvc .cvc-row.has-ctl:not(.cvc-entry):focus-within,
+.cvc .cvc-ent:has(> .cvc-row.cvc-entry.has-ctl:hover), .cvc .cvc-ent:has(> .cvc-row.cvc-entry.has-ctl:focus-within) {
+  outline: 1px solid var(--cvc-accent); outline-offset: 2px; }
+.cvc .cvc-ent.is-active, .cvc .cvc-ent:has(> .cvc-row.cvc-entry.has-ctl:hover), .cvc .cvc-ent:has(> .cvc-row.cvc-entry.has-ctl:focus-within) { outline-offset: 5px; }
+
+/* ------------------------------------------------------------------- focus, and the line edited */
+/* On a light sheet the ring is the light theme's, whatever the app is wearing: a dark ring on a 2px gap
+   with a yellow band. On the dark sheet it is the dark theme's yellow ring. */
+.cvc .cvc-sheet :focus-visible, .cvc .cvc-sheet .is-focus { outline: 2px solid var(--cvc-ring); outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--cvc-paper), 0 0 0 7px var(--cvc-ring-band); }
+.cvc .cvc-sheet .cvc-btn:focus-visible { z-index: 1; }
+/* The line being edited is a field in the text's own place and type: the field's box is drawn behind
+   the words, 6px wider than the text block each side, with an edge in the caret's colour. Rows of a CV
+   stand 18.5px apart, so the ring is drawn close: the dark ring against the field's edge and a 2px band
+   round it (on the dark sheet, the yellow ring on a 1px gap). It reaches 3px into the rows above and
+   below, which is clear of their letters. */
+.cvc .cvc-sheet .cvc-text[contenteditable] { caret-color: var(--cvc-accent); }
+.cvc .cvc-sheet .cvc-text.is-editing, .cvc .cvc-sheet .cvc-text[contenteditable]:focus { z-index: 4; outline: 0; box-shadow: none; }
+.cvc .cvc-sheet .cvc-text.is-editing::after, .cvc .cvc-sheet .cvc-text[contenteditable]:focus::after {
+  content: ""; position: absolute; z-index: -1; left: -6px; right: -6px; top: 2px; bottom: 0;
+  background: var(--cvc-surface); border: 1px solid var(--cvc-accent); border-radius: 0;
+  outline: 2px solid var(--cvc-ring); outline-offset: var(--cvc-ring-gap);
+  box-shadow: 0 0 0 var(--cvc-ring-gap) var(--cvc-paper), 0 0 0 calc(var(--cvc-ring-gap) + 4px) var(--cvc-ring-band);
+  pointer-events: none; }
+.cvc .cvc-row:has(> .cvc-text.is-editing), .cvc .cvc-row:has(> .cvc-text[contenteditable]:focus) { z-index: 4; }
+.cvc .cvc-caret { display: inline-block; width: 0; height: 1.1em; margin: 0 -1px 0 1px; border-left: 1px solid var(--cvc-accent); vertical-align: -0.18em; }
+.cvc .cvc-text:focus > .cvc-caret { display: none; }
+
+/* --------------------------------------------------------------------------------- the toolbar */
+.cvc.cvc-tools { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: none; width: 48px; margin: 0; padding: 8px 0;
+  background: var(--cvc-app-surface); border: 0; border-right: 1px solid var(--cvc-app-border);
+  color: var(--cvc-app-text-2); font: 400 12px/16px var(--cvc-ui); letter-spacing: 0; }
+.cvc.cvc-tools.cvc-labelled { width: 72px; }
+.cvc .cvc-tool { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; flex: none;
+  width: 32px; min-height: 32px; margin: 0; padding: 0; border: 1px solid transparent; border-radius: 2px;
+  background: transparent; color: var(--cvc-app-text-2); font: inherit; letter-spacing: 0; text-align: center; text-decoration: none;
+  cursor: pointer; transition: background-color var(--cvc-dur) ease-out, color var(--cvc-dur) ease-out; }
+.cvc.cvc-labelled .cvc-tool { width: 64px; min-height: 48px; padding: 5px 2px; }
+.cvc .cvc-tool:hover { background: var(--cvc-app-hover); color: var(--cvc-app-text-1); }
+.cvc .cvc-tool[aria-pressed="true"] { background: var(--cvc-app-sunken); color: var(--cvc-app-text-1); border-left: 2px solid var(--cvc-app-accent); }
+.cvc .cvc-tool.cvc-primary { background: var(--cvc-app-accent); border-color: var(--cvc-app-accent); color: var(--cvc-app-on-accent); }
+.cvc .cvc-tool.cvc-primary:hover { background: var(--cvc-app-accent-hover); border-color: var(--cvc-app-accent-hover); }
+.cvc .cvc-tool[aria-disabled="true"], .cvc .cvc-tool[aria-disabled="true"]:hover { background: transparent; color: var(--cvc-app-text-3); opacity: .5; cursor: default; }
+.cvc .cvc-tool-label { display: block; max-width: 100%; overflow-wrap: anywhere; }
+.cvc .cvc-tool-note { display: block; max-width: 100%; color: var(--cvc-app-text-3); }
+.cvc .cvc-tool.cvc-primary .cvc-tool-note { color: inherit; }
+.cvc .cvc-tools-rule { display: block; flex: none; align-self: stretch; height: 0; margin: 4px 8px; border-top: 1px solid var(--cvc-app-border); }
+/* Off the paper the ring is the app's own. (The sheets in a pane keep the paper's ring, above.) */
+.cvc.cvc-tools :focus-visible, .cvc.cvc-tools .is-focus, .cvc .cvc-pane-head :focus-visible, .cvc .cvc-pane-head .is-focus {
+  outline: 2px solid var(--cvc-app-ring); outline-offset: 2px; box-shadow: 0 0 0 2px var(--cvc-app-surface); }
+
+/* ------------------------------------------------------------------------------------ the pane */
+.cvc.cvc-pane { display: grid; grid-template-columns: auto minmax(0, 1fr); min-width: 0; min-height: 0; margin: 0; padding: 0;
+  background: var(--cvc-app-canvas); color: var(--cvc-app-text-1); font: 400 14px/20px var(--cvc-ui); }
+.cvc .cvc-pane-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.cvc .cvc-pane-head { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 40px; padding: 8px 16px;
+  background: var(--cvc-app-surface); border-bottom: 1px solid var(--cvc-app-border); }
+.cvc .cvc-pane-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 24px; scroll-padding-top: 24px; }
+.cvc.cvc-ro { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; padding: 0; font: 400 12px/16px var(--cvc-ui); color: var(--cvc-app-text-2); }
+.cvc .cvc-tag { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 20px; padding: 0 8px; border-radius: 2px;
+  background: var(--cvc-app-neutral-tint); color: var(--cvc-app-neutral); font: 600 12px/16px var(--cvc-ui); white-space: nowrap; }
+
+/* ------------------------------------------------------------------ motion and forced colours */
+@media (prefers-reduced-motion: reduce) {
+  .cvc, .cvc *, .cvc *::before, .cvc *::after { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+}
+@media (forced-colors: active) {
+  .cvc .cvc-sheet { outline-color: CanvasText; }
+  .cvc .cvc-row.is-met::before, .cvc .cvc-row.is-partly::before, .cvc .cvc-row.is-missing::before, .cvc .cvc-row.is-stale::before { border-left-color: CanvasText; }
+  .cvc .cvc-ctl, .cvc .cvc-tag { border: 1px solid ButtonText; }
+  .cvc .cvc-tool { border-color: ButtonText; }
+  .cvc .cvc-tool[aria-pressed="true"] { border-left-width: 4px; }
+  .cvc .cvc-btn[aria-disabled="true"], .cvc .cvc-tool[aria-disabled="true"] { color: GrayText; opacity: 1; }
+  .cvc .cvc-row.is-active, .cvc .cvc-ent.is-active { outline-color: Highlight; }
+  .cvc .cvc-sheet :focus-visible, .cvc .cvc-sheet .is-focus, .cvc.cvc-tools :focus-visible, .cvc.cvc-tools .is-focus,
+  .cvc.cvc-pane :focus-visible, .cvc .cvc-sheet .cvc-text.is-editing::after, .cvc .cvc-sheet .cvc-text[contenteditable]:focus::after { outline-color: Highlight; }
+}
+
+
+/* ============================== CV page, variation A: three panes ============================== */
+/* Toolbar, canvas and rail abut on 1px rules. From 2100px the canvas holds page 1 beside page 2 at
+   100%; from 1280px one page column at 100%; under 1280 the page column is scaled; under 1024 the
+   phone layout: the stale-scores line and the tabs, a reading view of the sheet and a bar of actions at
+   the foot, in that order in the markup as on screen. Width rules are container queries on the app, so
+   they hold in a frame. */
+.cvA { grid-template-columns: 48px minmax(0, 1fr) 320px; grid-template-rows: minmax(0, 1fr); }
+.cvA > .cvc-tools { grid-column: 1; grid-row: 1; }
+.cvA > .cvA-canvas { grid-column: 2; grid-row: 1; }
+.cvA > .cvA-rail { grid-column: 3; grid-row: 1; }
+.cvA-canvas { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0;
+  background: var(--canvas); border-right: 1px solid var(--border-subtle); }
+.cvA-scroll { background: var(--canvas); padding: 24px; scroll-padding-top: 24px; }
+.cvA-phone-top, .cvA-bar, .cvA-flow { display: none; }
+
+/* WCAG 1.4.12. cv_canvas draws each sheet at a fixed height, so text that a reader's own spacing makes
+   longer runs off the paper and over the next sheet. Here the paper grows with its text instead: the sheet
+   stays in flow at least an A4 page high, and its frame takes its height. At the template's own spacing
+   nothing moves, scaled or not (the negative margin gives back what the scale takes). A library gap,
+   worked around for this page. */
+.cvA-canvas .cvc .cvc-frame { display: flow-root; height: auto; }
+.cvA-canvas .cvc .cvc-sheet { position: relative; height: auto; min-height: var(--cvc-page-h);
+  margin-bottom: calc(var(--cvc-page-h) * (var(--cvc-scale, 1) - 1)); }
+.cvA-canvas .cvc .cvc-block { height: auto; min-height: var(--cvc-block-h); }
+/* The field inside an edited heading (name_field): the caret in the field's colour, as on a line. */
+.cvA-field { caret-color: var(--cvc-accent); }
+
+/* The canvas header: the CV's name, its save state in words, its size */
+.cvA-head { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; min-height: 40px;
+  padding: 7px 16px 8px; background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.cvA-head-title { flex: none; font-size: 16px; line-height: 24px; font-weight: 600; }
+.cvA-state { flex: 1 1 320px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--text-2); }
+.cvA-state > .tag { margin-right: 4px; }
+.cvA-word { font-weight: 600; color: var(--text-1); }
+.cvA-id { white-space: nowrap; }
+.cvA-side { margin-left: auto; font-size: 12px; line-height: 16px; color: var(--text-3); white-space: nowrap;
+  font-variant-numeric: tabular-nums; }
+.cvA-tail { margin-left: auto; }
+/* A mode's own line (Rearrange) under the save state, with its way back at the right */
+.cvA-modebar { display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.cvA-mode { flex: 1 1 320px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--text-2); }
+.cvA-modebar > .btn { margin-left: auto; }
+.cvA-flush { margin: -24px -24px 24px; }
+
+/* The rail: a size container, so its versions list can take columns where it is wide */
+.cvA-rail { container: rail / inline-size; }
+.cvA-rail .pane-body { padding: 16px 16px 24px; }
+.cvA-rail .pane-body > .sec { max-width: 680px; }
+.cvA-vers { margin: 0 -16px; border-top: 1px solid var(--border-subtle); }
+.cvA-ver { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 12px;
+  padding: 8px 16px 7px; border-bottom: 1px solid var(--border-subtle); }
+/* The file name is the version's only identity: it is never cut. A name that cannot fit wraps. */
+.cvA-ver-file { min-width: 0; overflow-wrap: anywhere; font-size: 14px; line-height: 20px; color: var(--text-1); }
+.cvA-ver > .link { grid-column: 2; grid-row: 1; font-size: 14px; line-height: 20px; }
+.cvA-ver-state, .cvA-ver-when { grid-column: 1 / -1; font-size: 12px; line-height: 16px; }
+.cvA-ver-state { margin-top: 2px; font-weight: 600; color: var(--text-1); }
+.cvA-ver-when { color: var(--text-3); }
+.cvA-ver[aria-current="true"] { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 13px; }
+.cvA-note { max-width: 72ch; margin-top: 8px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.cvA-note-inline { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.cvA-sub { margin: -4px 0 12px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.cvA-prefs { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 8px 16px; align-items: baseline; max-width: 640px; }
+.cvA-prefs dt { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.cvA-prefs dd { max-width: 60ch; color: var(--text-1); }
+.cvA-text { max-width: 72ch; color: var(--text-2); }
+.cvA-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
+
+/* The stale-scores line and its confirm step */
+.cvA-confirm { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 12px; border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface); }
+.cvA-confirm-body { display: flex; align-items: flex-start; gap: 12px; }
+.cvA-confirm-mark { flex: none; margin-top: 2px; }
+.cvA-q { max-width: 96ch; color: var(--text-1); }
+.cvA-q-note { max-width: 96ch; margin-top: 4px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.cvA-confirm-acts { display: flex; flex-wrap: wrap; gap: 8px; padding-left: 28px; }
+
+/* Widths */
+@container rail (width >= 720px) {
+  /* Columns of 200 and 220px that grow with their text when a reader widens the spacing (1.4.12) */
+  .cvA-ver { grid-template-columns: minmax(200px, max-content) minmax(220px, max-content) minmax(0, 1fr); }
+  .cvA-ver-file { grid-column: 1; grid-row: 1; }
+  .cvA-ver-when { grid-column: 2; grid-row: 1; font-size: 12px; line-height: 16px; }
+  .cvA-ver-state { grid-column: 3; grid-row: 1; margin-top: 0; line-height: 16px; }
+  .cvA-ver > .link { grid-column: 3; grid-row: 1; justify-self: start; }
+}
+@container app (width >= 1280px) { .cvA { grid-template-columns: 48px 843px minmax(0, 1fr); } }
+@container app (width >= 2100px) { .cvA { grid-template-columns: 48px 1661px minmax(0, 1fr); } }
+@container app (width < 1280px) { .cvA-sheets > .cvc-sheets { --cvc-scale: .9; } }
+@container app (width < 1152px) { .cvA-sheets > .cvc-sheets { --cvc-scale: .75; } }
+
+/* Under 1024: the phone layout, in the order of the markup. The stale-scores line and the tabs come first
+   (the rail, which holds them from 1024, is not drawn; its sections are the other tabs); the sheets give
+   way to the reading view; the toolbar becomes the bar at the foot. The bar covers the foot of the
+   screen, so whatever takes focus in the CV stops clear of it (WCAG 2.4.11). */
+@container app (width < 1024px) {
+  .cvA { display: flex; flex-direction: column; }
+  .cvA > .cvc-tools, .cvA-sheets, .cvA-rail { display: none; }
+  .cvA-phone-top { display: block; }
+  .cvA-canvas { border-right: 0; }
+  .cvA-bar { display: flex; }
+  .cvA-flow { display: block; }
+  .cvA-scroll { padding: 16px 16px 32px; }
+  .cvA-canvas :is(a, button, [contenteditable], [tabindex]) { scroll-margin-bottom: 72px; }
+}
+.cvA-bar { position: sticky; bottom: 0; z-index: 10; align-items: center; gap: 8px; padding: 8px 16px;
+  background: var(--surface); border-top: 1px solid var(--border-subtle); }
+.cvA-bar > .btn.btn-primary { flex: 0 1 auto; min-width: 0; }
+.cvA-bar > .btn.btn-primary + .btn { margin-left: auto; }
+/* A switch that is on: the sunken ground (the shell's) and the accent bar under it, as the toolbar's
+   switches carry theirs at the side, so the state does not rest on a change of ground alone. */
+.cvA-bar .btn[aria-pressed="true"] { border-bottom: 2px solid var(--accent); }
+
+/* The phone's reading view: the sheet's own type and spacing, reflowed, a white page at a time */
+.cvA-flow .rf-page { position: relative; padding: 16px; background: var(--cvc-paper); color: var(--cvc-ink);
+  outline: 1px solid var(--cvc-app-border-strong); outline-offset: -1px;
+  font: 400 var(--cvc-fs-body)/var(--cvc-lh-body) var(--cvc-font); font-kerning: none; font-variant-ligatures: none; }
+.cvA-flow .rf-pagelabel { margin: 8px 0 24px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.cvA-flow > .rf-pagelabel:last-child { margin-bottom: 0; }
+.cvA-flow .rf-row { position: relative; max-width: var(--cvc-block-w); margin-top: var(--cvc-after); color: var(--cvc-ink); }
+.cvA-flow .rf-name { font: 700 var(--cvc-fs-name)/var(--cvc-lh-name) var(--cvc-font); }
+.cvA-flow .rf-sec { margin-top: var(--cvc-before); font: 700 var(--cvc-fs-section)/var(--cvc-lh-section) var(--cvc-font); }
+.cvA-flow .rf-ent { margin-top: var(--cvc-before); font: 700 var(--cvc-fs-entry)/var(--cvc-lh-entry) var(--cvc-font); }
+.cvA-flow .rf-list { margin-top: var(--cvc-after); }
+.cvA-flow .rf-bullet { margin-top: 0; padding-left: var(--cvc-indent); }
+/* The round bullet. Forced colours replace a background with the system ground, which would leave the
+   list with no marks at all (the list has no list-style), so there the dot keeps the system's text
+   colour. (A dot drawn as a 2.5px border, as the sheet draws its own, comes out as a ring in Edge, which
+   rounds the border down to 2px.) */
+.cvA-flow .rf-bullet::before { content: ""; position: absolute; left: 1px; top: calc(var(--cvc-lh-body) / 2 - 2px);
+  width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+@media (forced-colors: active) { .cvA-flow .rf-bullet::before { forced-color-adjust: none; background: CanvasText; } }
+.cvA-flow .rf-prompt { font: 400 13px/18px var(--font-sans); color: var(--text-3); }
+.cvA-flow .rf-page > :first-child, .cvA-flow .rf-page > .annot + *, .cvA-flow .rf-page > :first-child > :first-child { margin-top: 0; }
+/* Line numbers on: a gutter at the page's left; each number in mono, small, right-aligned beside the first
+   row of its line, in the paper's own text-3 (as the sheet's numbers) */
+.cvA-flow.has-nums .rf-page { padding-left: 40px; }
+.cvA-flow .rf-num { position: absolute; top: 0; right: calc(100% + 8px); font-family: var(--cvc-mono); font-size: 11px;
+  font-weight: 500; font-style: normal; letter-spacing: 0; font-variant-numeric: tabular-nums; white-space: nowrap;
+  color: var(--cvc-text-3); }
+/* A page cut by a window (a states-board fragment): no edge and less padding where it is cut */
+.cvA-flow .rf-page.is-cut-top { padding-top: 8px; clip-path: inset(1px 0 0 0); }
+.cvA-flow .rf-page.is-cut-foot { padding-bottom: 8px; clip-path: inset(0 0 1px 0); }
+.cvA-flow .rf-page.is-cut-top.is-cut-foot { clip-path: inset(1px 0 1px 0); }
+.cvA-flow .rf-entry.is-active { outline: 1px solid var(--accent); outline-offset: 10px; }
+/* The heading being edited keeps its words where they stand and its measure: the field's box is drawn
+   behind them, 5px wider each side, with the compact ring the sheet gives an edited line, so the ring
+   stops 1px inside the entry's outline. */
+.cvA-flow .rf-ent.is-editing { z-index: 0; outline: 0; box-shadow: none; }
+.cvA-flow .rf-ent.is-editing::before { content: ""; position: absolute; z-index: -1; inset: -4px -5px;
+  background: var(--cvc-surface); border: 1px solid var(--cvc-accent); border-radius: 0;
+  outline: 2px solid var(--cvc-ring); outline-offset: var(--cvc-ring-gap);
+  box-shadow: 0 0 0 var(--cvc-ring-gap) var(--cvc-paper), 0 0 0 calc(var(--cvc-ring-gap) + 4px) var(--cvc-ring-band);
+  pointer-events: none; }
+.cvA-flow .rf-caret { display: inline-block; width: 0; height: 1.1em; margin: 0 -1px 0 1px; border-left: 1px solid var(--cvc-accent);
+  vertical-align: -0.18em; }
+.cvA-flow .rf-ctl { position: relative; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
+.cvA-flow .rf-ctl .rf-btn { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0;
+  border: 1px solid var(--border-strong); border-radius: 2px; background: var(--surface); color: var(--text-2); cursor: pointer; }
+.cvA-flow .rf-ctl .rf-btn.is-danger { color: var(--negative); }
+.cvA-flow .rf-ctl .rf-btn[aria-disabled="true"] { color: var(--text-3); border-color: var(--border-subtle); cursor: default; }
+
+/* Rearrange mode: the sheet with each section folded to its heading */
+.cvA-ra-sheet { position: relative; width: 794px; min-height: 1123px; padding: 68px 75.6px; background: var(--cvc-paper); color: var(--cvc-ink);
+  outline: 1px solid var(--cvc-app-border-strong); outline-offset: -1px;
+  font: 400 var(--cvc-fs-body)/var(--cvc-lh-body) var(--cvc-font); font-kerning: none; }
+.cvA-ra-name { font: 700 var(--cvc-fs-name)/var(--cvc-lh-name) var(--cvc-font); }
+.cvA-ra-line { margin-top: var(--cvc-after); }
+.cvA-ra-fixed { margin-top: 8px; font: 400 12px/16px var(--font-sans); color: var(--cvc-text-3); }
+.cvA-ra-sec { position: relative; margin-top: var(--cvc-before); }
+.cvA-ra-head { display: flex; align-items: baseline; gap: 12px; }
+.cvA-ra-title { font: 700 var(--cvc-fs-section)/var(--cvc-lh-section) var(--cvc-font); }
+.cvA-ra-size { font: 400 12px/16px var(--font-sans); color: var(--cvc-text-3); }
+.cvA-ra-first { margin-top: var(--cvc-after); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--cvc-text-2); }
+.cvA-ra-ctl { position: absolute; top: -5px; left: calc(100% + 4px); display: flex; border: 1px solid var(--cvc-border-strong);
+  border-radius: 2px; background: var(--cvc-surface); }
+.cvA-ra-ctl .cvA-ra-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0;
+  border-radius: 0; background: transparent; color: var(--cvc-text-2); cursor: pointer; }
+.cvA-ra-ctl .cvA-ra-btn + .cvA-ra-btn { border-left: 1px solid var(--cvc-border); }
+.cvA-ra-ctl .cvA-ra-btn[aria-disabled="true"] { color: var(--cvc-text-3); opacity: .5; cursor: default; }
+
+/* The states board: windows onto the screen at real size */
+.cvA-frags { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px 24px; }
+.cvA-frag { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.cvA-col { display: flex; flex-direction: column; gap: 16px; }
+.cvA-cap { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.cvA-slice { position: relative; display: grid; grid-template-rows: minmax(0, 1fr); overflow: hidden; background: var(--surface);
+  outline: 1px solid var(--border-subtle); outline-offset: -1px; }
+.cvA-slice.is-canvas { grid-template-columns: 48px 843px; width: 891px; }
+.cvA-slice.is-full { grid-template-columns: 48px 843px 389px; width: 1280px; }
+.cvA-slice.is-rail { grid-template-columns: 851px; width: 851px; }
+.cvA-slice .pane { overflow: hidden; }
+.cvA-slice .cvA-rail { display: block; }
+/* A phone fragment on the board, at 390px: the reading view and the bar as the phone draws them. The
+   board's viewport is 2560, so the phone's own rules are given here: 44px controls, the view shown. */
+.cvA-phone { display: flex; flex-direction: column; width: 390px; background: var(--canvas);
+  outline: 1px solid var(--border-subtle); outline-offset: -1px; }
+.cvA-phone .cvA-flow { display: block; }
+.cvA-phone-read { padding: 0 16px 16px; }
+.cvA-phone .cvA-bar { display: flex; position: static; }
+.cvA-phone .btn { height: 44px; }
+.cvA-phone .btn.btn-icon { width: 44px; }
+/* cv_canvas.clip pulls the sheets up with a negative margin; as a flex item the window keeps that margin
+   inside itself instead of passing it to the pane. */
+.cvA-clipwrap { display: flex; }
+</style>
+</head>
+<body>
+<div class="board">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="st-pos" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-cau" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 2.4a5.6 5.6 0 0 0 0 11.2z" fill="currentColor"/></symbol>
+<symbol id="st-neg" viewBox="0 0 16 16"><path d="M4.2 4.2l7.6 7.6m0-7.6l-7.6 7.6" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-neu" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+<symbol id="st-pro" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></symbol>
+</svg>
+
+<header class="board-head"><h1>CV page, variation A (three panes): states</h1><p>The seven CV page states of spec section 7, each drawn at real size from the same parts as the screen, in its 1280 layout (toolbar, canvas, rail) or, for the rail alone, at its 2560 width; panel 5 also draws the phone&#x27;s reading view at 390. Panel 8 draws Rearrange mode. Sample content is fictional.</p></header>
+<div class="board-panels">
+<section class="board-panel" style="width:2195px" aria-labelledby="board-state-1"><header class="board-label"><span class="board-n">1</span><h2 class="board-name" id="board-state-1">Unsaved changes, and saved</h2><p class="board-note">The header says Unsaved changes as soon as a line is typed, and names the new version once it is saved. Today nothing labels unsaved changes, and a save shows only as the page reloading with the new version&#x27;s name.</p></header><div class="board-body"><div class="cvA-frags"><div class="cvA-col"><figure class="cvA-frag"><figcaption class="cvA-cap">Unsaved: one line typed, the field still in focus</figcaption><div class="cvA-slice is-canvas" style="height:470px"><div class="cvc cvc-tools" id="s1a-tools" role="toolbar" aria-orientation="vertical" aria-label="CV tools"><button type="button" class="cvc-tool cvc-primary" id="s1a-tool-save" title="Save as a new version" aria-label="Save as a new version"><iconify-icon icon="carbon:save" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s1a-tool-undo" title="Undo" aria-label="Undo"><iconify-icon icon="carbon:undo" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s1a-tool-redo" title="Redo" aria-label="Redo" aria-disabled="true"><iconify-icon icon="carbon:redo" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s1a-tool-numbers" title="Line numbers" aria-label="Line numbers" aria-pressed="false"><iconify-icon icon="carbon:list-numbered" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s1a-tool-rearrange" title="Rearrange sections" aria-label="Rearrange sections" aria-pressed="false"><iconify-icon icon="carbon:arrows-vertical" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><section class="cvA-canvas" aria-labelledby="s1-unsaved-heading"><header class="cvA-head"><h2 class="cvA-head-title" id="s1-unsaved-heading">Master CV</h2><p class="cvA-state" role="status"><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>Unsaved changes</span> <span>1 line changed since <span class="cvA-id">cv-20261029-091500.md</span>. Save as a new version to keep it.</span></p><p class="cvA-side">2 pages · 94 lines</p></header><div class="pane cvA-scroll"><div class="cvc cvc-sheets cvc-paper-white cvc-spread" id="s1a-cv" data-paper="white" data-pages="2"><div class="cvc-page" id="s1a-cv-page-1" role="group" aria-label="CV, page 1 of 2"><div class="cvc-frame"><div class="cvc-sheet"><div class="cvc-block"><div class="cvc-row cvc-name cvc-g0" id="s1a-cv-line-1" data-line="1"><h3 class="cvc-text">Alex Rennie</h3></div><div class="cvc-row cvc-headline cvc-g4" id="s1a-cv-line-2" data-line="2"><p class="cvc-text">Software quality and regulatory leader, medical device software</p></div><div class="cvc-row cvc-headline cvc-g4" id="s1a-cv-line-3" data-line="3"><p class="cvc-text">Guildford, Surrey · alex.rennie@example.com · 07700 900123</p></div><div class="cvc-sec" data-section="Summary"><div class="cvc-row cvc-section cvc-g12 is-fixed" id="s1a-cv-line-5" data-line="5"><h4 class="cvc-text">Summary</h4></div><div class="cvc-row cvc-line cvc-g4 has-ctl is-open is-active" id="s1a-cv-line-6" data-line="6"><p class="cvc-text is-editing is-focus" contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-label="CV line 6">Software quality and regulatory leader for medical device software, 18 years in industry.<span class="cvc-caret" contenteditable="false" aria-hidden="true"></span></p><div class="cvc-ctl" role="group" aria-label="Line 6"><button type="button" class="cvc-btn" data-act="up" aria-label="Move this line up" title="Move up" aria-disabled="true"><iconify-icon icon="carbon:arrow-up" width="16" height="16" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-btn" data-act="down" aria-label="Move this line down" title="Move down"><iconify-icon icon="carbon:arrow-down" width="16" height="16" aria-hidden="true"></iconify-icon></button><span class="cvc-ctl-rule" aria-hidden="true"></span><button type="button" class="cvc-btn cvc-danger" data-act="delete" aria-label="Delete this line" title="Delete"><iconify-icon icon="carbon:trash-can" width="16" height="16" aria-hidden="true"></iconify-icon></button></div></div><div class="cvc-row cvc-line cvc-g4" id="s1a-cv-line-7" data-line="7"><p class="cvc-text">Fractional and interim roles since 2021: software quality, IEC 62304 and audit readiness.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1a-cv-line-8" data-line="8"><p class="cvc-text">Has taken three devices through notified body audits and one through FDA 510(k) clearance.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1a-cv-line-9" data-line="9"><p class="cvc-text">Works across embedded firmware, IVD analysers and software as a medical device.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1a-cv-line-10" data-line="10"><p class="cvc-text">Builds small, steady quality teams and leaves processes engineers will actually use.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1a-cv-line-11" data-line="11"><p class="cvc-text">Based in Surrey; open to hybrid roles in the south east and remote roles across the UK.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1a-cv-line-12" data-line="12"><p class="cvc-text">Selected outcomes across roles:</p></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1a-cv-line-13" data-line="13"><p class="cvc-text">One FDA 510(k) clearance with software as a key part of the submission.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-14" data-line="14"><p class="cvc-text">Two quality teams built from scratch, both still in place.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-15" data-line="15"><p class="cvc-text">Release cycles cut by half at two companies without loosening controls.</p></li></ul></div><div class="cvc-sec" data-section="Experience"><div class="cvc-row cvc-section cvc-g12 is-fixed" id="s1a-cv-line-17" data-line="17"><h4 class="cvc-text">Experience</h4></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s1a-cv-line-19" data-line="19"><h5 class="cvc-text">Interim Head of Software Quality, Corbel Medical (Class IIb ventilators), 2024 to 2026</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1a-cv-line-20" data-line="20"><p class="cvc-text">Brought the ventilator software file to audit readiness in seven months.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-21" data-line="21"><p class="cvc-text">Led a team of seven software test and quality engineers across two sites.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-22" data-line="22"><p class="cvc-text">Rewrote the software development plan and the software maintenance plan.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-23" data-line="23"><p class="cvc-text">Closed 41 software CAPAs, 12 of them from the previous notified body audit.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-24" data-line="24"><p class="cvc-text">Introduced weekly quality reviews with the embedded engineering leads.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-25" data-line="25"><p class="cvc-text">Held two releases until every open anomaly had a documented risk assessment.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-26" data-line="26"><p class="cvc-text">Recruited three permanent engineers and handed the team to a permanent head of quality.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s1a-cv-line-28" data-line="28"><h5 class="cvc-text">Fractional Software Quality Lead, Linwood Infusion (syringe drivers), 2022 to 2024</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1a-cv-line-29" data-line="29"><p class="cvc-text">Led IEC 62304 class C software for a Class IIb pump, from planning to release.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-30" data-line="30"><p class="cvc-text">Owned the software lifecycle procedures and trained 30 engineers on them.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-31" data-line="31"><p class="cvc-text">Prepared the software technical file for the notified body audit; no major findings.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-32" data-line="32"><p class="cvc-text">Ran ISO 14971 risk management for software hazards and wrote the risk management report.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-33" data-line="33"><p class="cvc-text">Set the verification and validation strategy for embedded firmware, including HIL rigs.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-34" data-line="34"><p class="cvc-text">Brought MISRA C compliance and static analysis into the build, with a deviation register.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-35" data-line="35"><p class="cvc-text">Set up traceability from user needs to verification in Jama.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s1a-cv-line-37" data-line="37"><h5 class="cvc-text">Fractional Head of Software Quality, Tarrow Surgical (powered instruments), 2023 to 2024</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1a-cv-line-38" data-line="38"><p class="cvc-text">Set up the software quality function for a 20-person firmware team before MDR certification.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-39" data-line="39"><p class="cvc-text">Wrote the software verification plan and reviewed every protocol before it ran.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-40" data-line="40"><p class="cvc-text">Audited two contract software suppliers and agreed their corrective actions.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-41" data-line="41"><p class="cvc-text">Coached two engineers into software quality lead roles before handing over.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s1a-cv-line-43" data-line="43"><h5 class="cvc-text">Fractional Regulatory Software Lead, Wexcombe Health (SaMD triage app), 2021 to 2023</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1a-cv-line-44" data-line="44"><p class="cvc-text">Took a Class IIa triage app through UKCA marking and its first surveillance audit.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-45" data-line="45"><p class="cvc-text">Fitted IEC 62304 class B records into the team&#x27;s existing Jira and Git workflow.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-46" data-line="46"><p class="cvc-text">Ran the clinical safety case under DCB0129 with the clinical safety officer.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1a-cv-line-47" data-line="47"><p class="cvc-text">Cut the regulatory review of a release from two weeks to two days.</p></li></ul></div></div></div></div></div><p class="cvc-pagelabel">Page 1 of 2</p></div></div></div></section></div></figure><figure class="cvA-frag"><figcaption class="cvA-cap">Saving: every tool waits until the new version is written</figcaption><div class="cvA-slice is-canvas" style="height:220px"><div class="cvc cvc-tools" id="s1b-tools" role="toolbar" aria-orientation="vertical" aria-label="CV tools"><button type="button" class="cvc-tool" id="s1b-tool-save" title="Save as a new version. Working" aria-label="Save as a new version. Working" aria-disabled="true"><iconify-icon icon="carbon:save" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s1b-tool-undo" title="Undo" aria-label="Undo" aria-disabled="true"><iconify-icon icon="carbon:undo" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s1b-tool-redo" title="Redo" aria-label="Redo" aria-disabled="true"><iconify-icon icon="carbon:redo" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s1b-tool-numbers" title="Line numbers" aria-label="Line numbers" aria-pressed="false" aria-disabled="true"><iconify-icon icon="carbon:list-numbered" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s1b-tool-rearrange" title="Rearrange sections" aria-label="Rearrange sections" aria-pressed="false" aria-disabled="true"><iconify-icon icon="carbon:arrows-vertical" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><section class="cvA-canvas" aria-labelledby="s1-saving-heading"><header class="cvA-head"><h2 class="cvA-head-title" id="s1-saving-heading">Master CV</h2><p class="cvA-state" role="status"><span>Saving the master CV as a new version.</span></p><p class="cvA-side">2 pages · 94 lines</p></header><div class="pane cvA-scroll"><div class="cvc cvc-sheets cvc-paper-white cvc-spread" id="s1b-cv" data-paper="white" data-pages="2"><div class="cvc-page" id="s1b-cv-page-1" role="group" aria-label="CV, page 1 of 2"><div class="cvc-frame"><div class="cvc-sheet"><div class="cvc-block"><div class="cvc-row cvc-name cvc-g0" id="s1b-cv-line-1" data-line="1"><h3 class="cvc-text">Alex Rennie</h3></div><div class="cvc-row cvc-headline cvc-g4" id="s1b-cv-line-2" data-line="2"><p class="cvc-text">Software quality and regulatory leader, medical device software</p></div><div class="cvc-row cvc-headline cvc-g4" id="s1b-cv-line-3" data-line="3"><p class="cvc-text">Guildford, Surrey · alex.rennie@example.com · 07700 900123</p></div><div class="cvc-sec" data-section="Summary"><div class="cvc-row cvc-section cvc-g12 is-fixed" id="s1b-cv-line-5" data-line="5"><h4 class="cvc-text">Summary</h4></div><div class="cvc-row cvc-line cvc-g4" id="s1b-cv-line-6" data-line="6"><p class="cvc-text">Software quality and regulatory leader for medical device software, 18 years in industry.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1b-cv-line-7" data-line="7"><p class="cvc-text">Fractional and interim roles since 2021: software quality, IEC 62304 and audit readiness.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1b-cv-line-8" data-line="8"><p class="cvc-text">Has taken three devices through notified body audits and one through FDA 510(k) clearance.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1b-cv-line-9" data-line="9"><p class="cvc-text">Works across embedded firmware, IVD analysers and software as a medical device.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1b-cv-line-10" data-line="10"><p class="cvc-text">Builds small, steady quality teams and leaves processes engineers will actually use.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1b-cv-line-11" data-line="11"><p class="cvc-text">Based in Surrey; open to hybrid roles in the south east and remote roles across the UK.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1b-cv-line-12" data-line="12"><p class="cvc-text">Selected outcomes across roles:</p></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1b-cv-line-13" data-line="13"><p class="cvc-text">One FDA 510(k) clearance with software as a key part of the submission.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-14" data-line="14"><p class="cvc-text">Two quality teams built from scratch, both still in place.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-15" data-line="15"><p class="cvc-text">Release cycles cut by half at two companies without loosening controls.</p></li></ul></div><div class="cvc-sec" data-section="Experience"><div class="cvc-row cvc-section cvc-g12 is-fixed" id="s1b-cv-line-17" data-line="17"><h4 class="cvc-text">Experience</h4></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s1b-cv-line-19" data-line="19"><h5 class="cvc-text">Interim Head of Software Quality, Corbel Medical (Class IIb ventilators), 2024 to 2026</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1b-cv-line-20" data-line="20"><p class="cvc-text">Brought the ventilator software file to audit readiness in seven months.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-21" data-line="21"><p class="cvc-text">Led a team of seven software test and quality engineers across two sites.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-22" data-line="22"><p class="cvc-text">Rewrote the software development plan and the software maintenance plan.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-23" data-line="23"><p class="cvc-text">Closed 41 software CAPAs, 12 of them from the previous notified body audit.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-24" data-line="24"><p class="cvc-text">Introduced weekly quality reviews with the embedded engineering leads.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-25" data-line="25"><p class="cvc-text">Held two releases until every open anomaly had a documented risk assessment.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-26" data-line="26"><p class="cvc-text">Recruited three permanent engineers and handed the team to a permanent head of quality.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s1b-cv-line-28" data-line="28"><h5 class="cvc-text">Fractional Software Quality Lead, Linwood Infusion (syringe drivers), 2022 to 2024</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1b-cv-line-29" data-line="29"><p class="cvc-text">Led IEC 62304 class C software for a Class IIb pump, from planning to release.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-30" data-line="30"><p class="cvc-text">Owned the software lifecycle procedures and trained 30 engineers on them.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-31" data-line="31"><p class="cvc-text">Prepared the software technical file for the notified body audit; no major findings.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-32" data-line="32"><p class="cvc-text">Ran ISO 14971 risk management for software hazards and wrote the risk management report.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-33" data-line="33"><p class="cvc-text">Set the verification and validation strategy for embedded firmware, including HIL rigs.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-34" data-line="34"><p class="cvc-text">Brought MISRA C compliance and static analysis into the build, with a deviation register.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-35" data-line="35"><p class="cvc-text">Set up traceability from user needs to verification in Jama.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s1b-cv-line-37" data-line="37"><h5 class="cvc-text">Fractional Head of Software Quality, Tarrow Surgical (powered instruments), 2023 to 2024</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1b-cv-line-38" data-line="38"><p class="cvc-text">Set up the software quality function for a 20-person firmware team before MDR certification.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-39" data-line="39"><p class="cvc-text">Wrote the software verification plan and reviewed every protocol before it ran.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-40" data-line="40"><p class="cvc-text">Audited two contract software suppliers and agreed their corrective actions.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-41" data-line="41"><p class="cvc-text">Coached two engineers into software quality lead roles before handing over.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s1b-cv-line-43" data-line="43"><h5 class="cvc-text">Fractional Regulatory Software Lead, Wexcombe Health (SaMD triage app), 2021 to 2023</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1b-cv-line-44" data-line="44"><p class="cvc-text">Took a Class IIa triage app through UKCA marking and its first surveillance audit.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-45" data-line="45"><p class="cvc-text">Fitted IEC 62304 class B records into the team&#x27;s existing Jira and Git workflow.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-46" data-line="46"><p class="cvc-text">Ran the clinical safety case under DCB0129 with the clinical safety officer.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1b-cv-line-47" data-line="47"><p class="cvc-text">Cut the regulatory review of a release from two weeks to two days.</p></li></ul></div></div></div></div></div><p class="cvc-pagelabel">Page 1 of 2</p></div></div></div></section></div></figure></div><figure class="cvA-frag"><figcaption class="cvA-cap">Saved: the new version is the one the scorer reads, and the stale-scores line appears</figcaption><div class="cvA-slice is-full" style="height:470px"><div class="cvc cvc-tools" id="s1c-tools" role="toolbar" aria-orientation="vertical" aria-label="CV tools"><button type="button" class="cvc-tool cvc-primary" id="s1c-tool-save" title="Save as a new version" aria-label="Save as a new version"><iconify-icon icon="carbon:save" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s1c-tool-undo" title="Undo" aria-label="Undo" aria-disabled="true"><iconify-icon icon="carbon:undo" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s1c-tool-redo" title="Redo" aria-label="Redo" aria-disabled="true"><iconify-icon icon="carbon:redo" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s1c-tool-numbers" title="Line numbers" aria-label="Line numbers" aria-pressed="false"><iconify-icon icon="carbon:list-numbered" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s1c-tool-rearrange" title="Rearrange sections" aria-label="Rearrange sections" aria-pressed="false"><iconify-icon icon="carbon:arrows-vertical" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><section class="cvA-canvas" aria-labelledby="s1-saved-heading"><header class="cvA-head"><h2 class="cvA-head-title" id="s1-saved-heading">Master CV</h2><p class="cvA-state" role="status"><span class="cvA-word">Saved</span> <span>as <span class="cvA-id">cv-20261113-111200.md</span>, 13 Nov 2026 at 11:12 UTC. The scorer reads it from now on.</span></p><p class="cvA-side">2 pages · 94 lines</p></header><div class="pane cvA-scroll"><div class="cvc cvc-sheets cvc-paper-white cvc-spread" id="s1c-cv" data-paper="white" data-pages="2"><div class="cvc-page" id="s1c-cv-page-1" role="group" aria-label="CV, page 1 of 2"><div class="cvc-frame"><div class="cvc-sheet"><div class="cvc-block"><div class="cvc-row cvc-name cvc-g0" id="s1c-cv-line-1" data-line="1"><h3 class="cvc-text">Alex Rennie</h3></div><div class="cvc-row cvc-headline cvc-g4" id="s1c-cv-line-2" data-line="2"><p class="cvc-text">Software quality and regulatory leader, medical device software</p></div><div class="cvc-row cvc-headline cvc-g4" id="s1c-cv-line-3" data-line="3"><p class="cvc-text">Guildford, Surrey · alex.rennie@example.com · 07700 900123</p></div><div class="cvc-sec" data-section="Summary"><div class="cvc-row cvc-section cvc-g12 is-fixed" id="s1c-cv-line-5" data-line="5"><h4 class="cvc-text">Summary</h4></div><div class="cvc-row cvc-line cvc-g4" id="s1c-cv-line-6" data-line="6"><p class="cvc-text">Software quality and regulatory leader for medical device software, 18 years in industry.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1c-cv-line-7" data-line="7"><p class="cvc-text">Fractional and interim roles since 2021: software quality, IEC 62304 and audit readiness.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1c-cv-line-8" data-line="8"><p class="cvc-text">Has taken three devices through notified body audits and one through FDA 510(k) clearance.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1c-cv-line-9" data-line="9"><p class="cvc-text">Works across embedded firmware, IVD analysers and software as a medical device.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1c-cv-line-10" data-line="10"><p class="cvc-text">Builds small, steady quality teams and leaves processes engineers will actually use.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1c-cv-line-11" data-line="11"><p class="cvc-text">Based in Surrey; open to hybrid roles in the south east and remote roles across the UK.</p></div><div class="cvc-row cvc-line cvc-g4" id="s1c-cv-line-12" data-line="12"><p class="cvc-text">Selected outcomes across roles:</p></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1c-cv-line-13" data-line="13"><p class="cvc-text">One FDA 510(k) clearance with software as a key part of the submission.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-14" data-line="14"><p class="cvc-text">Two quality teams built from scratch, both still in place.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-15" data-line="15"><p class="cvc-text">Release cycles cut by half at two companies without loosening controls.</p></li></ul></div><div class="cvc-sec" data-section="Experience"><div class="cvc-row cvc-section cvc-g12 is-fixed" id="s1c-cv-line-17" data-line="17"><h4 class="cvc-text">Experience</h4></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s1c-cv-line-19" data-line="19"><h5 class="cvc-text">Interim Head of Software Quality, Corbel Medical (Class IIb ventilators), 2024 to 2026</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1c-cv-line-20" data-line="20"><p class="cvc-text">Brought the ventilator software file to audit readiness in seven months.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-21" data-line="21"><p class="cvc-text">Led a team of seven software test and quality engineers across two sites.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-22" data-line="22"><p class="cvc-text">Rewrote the software development plan and the software maintenance plan.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-23" data-line="23"><p class="cvc-text">Closed 41 software CAPAs, 12 of them from the previous notified body audit.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-24" data-line="24"><p class="cvc-text">Introduced weekly quality reviews with the embedded engineering leads.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-25" data-line="25"><p class="cvc-text">Held two releases until every open anomaly had a documented risk assessment.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-26" data-line="26"><p class="cvc-text">Recruited three permanent engineers and handed the team to a permanent head of quality.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s1c-cv-line-28" data-line="28"><h5 class="cvc-text">Fractional Software Quality Lead, Linwood Infusion (syringe drivers), 2022 to 2024</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1c-cv-line-29" data-line="29"><p class="cvc-text">Led IEC 62304 class C software for a Class IIb pump, from planning to release.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-30" data-line="30"><p class="cvc-text">Owned the software lifecycle procedures and trained 30 engineers on them.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-31" data-line="31"><p class="cvc-text">Prepared the software technical file for the notified body audit; no major findings.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-32" data-line="32"><p class="cvc-text">Ran ISO 14971 risk management for software hazards and wrote the risk management report.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-33" data-line="33"><p class="cvc-text">Set the verification and validation strategy for embedded firmware, including HIL rigs.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-34" data-line="34"><p class="cvc-text">Brought MISRA C compliance and static analysis into the build, with a deviation register.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-35" data-line="35"><p class="cvc-text">Set up traceability from user needs to verification in Jama.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s1c-cv-line-37" data-line="37"><h5 class="cvc-text">Fractional Head of Software Quality, Tarrow Surgical (powered instruments), 2023 to 2024</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1c-cv-line-38" data-line="38"><p class="cvc-text">Set up the software quality function for a 20-person firmware team before MDR certification.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-39" data-line="39"><p class="cvc-text">Wrote the software verification plan and reviewed every protocol before it ran.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-40" data-line="40"><p class="cvc-text">Audited two contract software suppliers and agreed their corrective actions.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-41" data-line="41"><p class="cvc-text">Coached two engineers into software quality lead roles before handing over.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s1c-cv-line-43" data-line="43"><h5 class="cvc-text">Fractional Regulatory Software Lead, Wexcombe Health (SaMD triage app), 2021 to 2023</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s1c-cv-line-44" data-line="44"><p class="cvc-text">Took a Class IIa triage app through UKCA marking and its first surveillance audit.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-45" data-line="45"><p class="cvc-text">Fitted IEC 62304 class B records into the team&#x27;s existing Jira and Git workflow.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-46" data-line="46"><p class="cvc-text">Ran the clinical safety case under DCB0129 with the clinical safety officer.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s1c-cv-line-47" data-line="47"><p class="cvc-text">Cut the regulatory review of a release from two weeks to two days.</p></li></ul></div></div></div></div></div><p class="cvc-pagelabel">Page 1 of 2</p></div></div></div></section><aside class="pane cvA-rail" aria-label="Versions and scoring"><div class="cvA-stale"><div class="notice notice-caution" role="status"><div class="notice-body"><svg class="notice-mark" width="16" height="16" aria-hidden="true"><use href="#st-cau"></use></svg><p class="notice-text"><span class="visually-hidden">Caution: </span>37 roles are still scored on <span class="cvA-id">cv-20261029-091500.md</span>. Re-scoring them is 37 paid calls, about 60p. 1 role scored on its job description keeps that score.</p></div><button type="button" class="btn btn-secondary">Re-score 37 roles</button></div></div><div class="pane-body"><section class="sec" aria-labelledby="s1-versions-heading"><h2 class="sec-h" id="s1-versions-heading">Versions</h2><ul class="cvA-vers"><li class="cvA-ver is-active"><span class="cvA-ver-file mono">cv-20261113-111200.md</span><span class="cvA-ver-state">Active. The scorer reads this version.</span><span class="cvA-ver-when">Saved 13 Nov 2026 at 11:12 UTC</span></li><li class="cvA-ver"><span class="cvA-ver-file mono">cv-20261029-091500.md</span><a id="s1-view-cv-20261029-091500-md" class="link link-block" href="#version-20261029-091500">View<span class="visually-hidden"> cv-20261029-091500.md</span></a><span class="cvA-ver-when">Saved 29 Oct 2026 at 09:15 UTC</span></li><li class="cvA-ver"><span class="cvA-ver-file mono">cv-20260814-180200.md</span><a id="s1-view-cv-20260814-180200-md" class="link link-block" href="#version-20260814-180200">View<span class="visually-hidden"> cv-20260814-180200.md</span></a><span class="cvA-ver-when">Saved 14 Aug 2026 at 18:02 UTC</span></li><li class="cvA-ver"><span class="cvA-ver-file mono">cv-20260512-073000.md</span><a id="s1-view-cv-20260512-073000-md" class="link link-block" href="#version-20260512-073000">View<span class="visually-hidden"> cv-20260512-073000.md</span></a><span class="cvA-ver-when">Saved 12 May 2026 at 07:30 UTC</span></li></ul><p class="cvA-note">Old versions stay for the day a score needs explaining.</p></section></div></aside></div></figure></div></div></section>
+<section class="board-panel" style="width:891px" aria-labelledby="board-state-2"><header class="board-label"><span class="board-n">2</span><h2 class="board-name" id="board-state-2">An imported master not yet saved in the editor&#x27;s layout</h2><p class="board-note">Until it is saved once here, the scorer reads the imported text as it is and no role gets a tailored copy.</p></header><div class="board-body"><div class="cvA-slice is-canvas" style="height:520px"><div class="cvc cvc-tools" id="s2-tools" role="toolbar" aria-orientation="vertical" aria-label="CV tools"><button type="button" class="cvc-tool cvc-primary" id="s2-tool-save" title="Save as a new version" aria-label="Save as a new version"><iconify-icon icon="carbon:save" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s2-tool-undo" title="Undo" aria-label="Undo" aria-disabled="true"><iconify-icon icon="carbon:undo" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s2-tool-redo" title="Redo" aria-label="Redo" aria-disabled="true"><iconify-icon icon="carbon:redo" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s2-tool-numbers" title="Line numbers" aria-label="Line numbers" aria-pressed="false"><iconify-icon icon="carbon:list-numbered" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s2-tool-rearrange" title="Rearrange sections" aria-label="Rearrange sections" aria-pressed="false"><iconify-icon icon="carbon:arrows-vertical" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><section class="cvA-canvas" aria-labelledby="s2-imported-heading"><header class="cvA-head"><h2 class="cvA-head-title" id="s2-imported-heading">Master CV</h2><p class="cvA-state" role="status"><span class="cvA-word">Imported</span> <span>from Rennie CV 2026.docx as <span class="cvA-id">cv-20261113-110500.md</span>, 13 Nov 2026 at 11:05 UTC.</span></p><p class="cvA-side">2 pages · 94 lines</p></header><div class="pane cvA-scroll"><div class="cvA-flush"><div class="notice notice-caution" role="status"><div class="notice-body"><svg class="notice-mark" width="16" height="16" aria-hidden="true"><use href="#st-cau"></use></svg><p class="notice-text"><span class="visually-hidden">Caution: </span>This version was imported, so it is shown in the editor&#x27;s layout. Check it, then save it once: until then the scorer reads it as imported and no role gets a tailored copy from it.</p></div></div></div><div class="cvc cvc-sheets cvc-paper-white cvc-spread" id="s2-cv" data-paper="white" data-pages="2"><div class="cvc-page" id="s2-cv-page-1" role="group" aria-label="CV, page 1 of 2"><div class="cvc-frame"><div class="cvc-sheet"><div class="cvc-block"><div class="cvc-row cvc-name cvc-g0" id="s2-cv-line-1" data-line="1"><h3 class="cvc-text">Alex Rennie</h3></div><div class="cvc-row cvc-headline cvc-g4" id="s2-cv-line-2" data-line="2"><p class="cvc-text">Software quality and regulatory leader, medical device software</p></div><div class="cvc-row cvc-headline cvc-g4" id="s2-cv-line-3" data-line="3"><p class="cvc-text">Guildford, Surrey · alex.rennie@example.com · 07700 900123</p></div><div class="cvc-sec" data-section="Summary"><div class="cvc-row cvc-section cvc-g12 is-fixed" id="s2-cv-line-5" data-line="5"><h4 class="cvc-text">Summary</h4></div><div class="cvc-row cvc-line cvc-g4" id="s2-cv-line-6" data-line="6"><p class="cvc-text">Software quality and regulatory leader for medical device software, 17 years in industry.</p></div><div class="cvc-row cvc-line cvc-g4" id="s2-cv-line-7" data-line="7"><p class="cvc-text">Fractional and interim roles since 2021: software quality, IEC 62304 and audit readiness.</p></div><div class="cvc-row cvc-line cvc-g4" id="s2-cv-line-8" data-line="8"><p class="cvc-text">Has taken three devices through notified body audits and one through FDA 510(k) clearance.</p></div><div class="cvc-row cvc-line cvc-g4" id="s2-cv-line-9" data-line="9"><p class="cvc-text">Works across embedded firmware, IVD analysers and software as a medical device.</p></div><div class="cvc-row cvc-line cvc-g4" id="s2-cv-line-10" data-line="10"><p class="cvc-text">Builds small, steady quality teams and leaves processes engineers will actually use.</p></div><div class="cvc-row cvc-line cvc-g4" id="s2-cv-line-11" data-line="11"><p class="cvc-text">Based in Surrey; open to hybrid roles in the south east and remote roles across the UK.</p></div><div class="cvc-row cvc-line cvc-g4" id="s2-cv-line-12" data-line="12"><p class="cvc-text">Selected outcomes across roles:</p></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s2-cv-line-13" data-line="13"><p class="cvc-text">One FDA 510(k) clearance with software as a key part of the submission.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-14" data-line="14"><p class="cvc-text">Two quality teams built from scratch, both still in place.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-15" data-line="15"><p class="cvc-text">Release cycles cut by half at two companies without loosening controls.</p></li></ul></div><div class="cvc-sec" data-section="Experience"><div class="cvc-row cvc-section cvc-g12 is-fixed" id="s2-cv-line-17" data-line="17"><h4 class="cvc-text">Experience</h4></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s2-cv-line-19" data-line="19"><h5 class="cvc-text">Interim Head of Software Quality, Corbel Medical (Class IIb ventilators), 2024 to 2026</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s2-cv-line-20" data-line="20"><p class="cvc-text">Brought the ventilator software file to audit readiness in seven months.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-21" data-line="21"><p class="cvc-text">Led a team of seven software test and quality engineers across two sites.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-22" data-line="22"><p class="cvc-text">Rewrote the software development plan and the software maintenance plan.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-23" data-line="23"><p class="cvc-text">Closed 41 software CAPAs, 12 of them from the previous notified body audit.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-24" data-line="24"><p class="cvc-text">Introduced weekly quality reviews with the embedded engineering leads.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-25" data-line="25"><p class="cvc-text">Held two releases until every open anomaly had a documented risk assessment.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-26" data-line="26"><p class="cvc-text">Recruited three permanent engineers and handed the team to a permanent head of quality.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s2-cv-line-28" data-line="28"><h5 class="cvc-text">Fractional Software Quality Lead, Linwood Infusion (syringe drivers), 2022 to 2024</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s2-cv-line-29" data-line="29"><p class="cvc-text">Led IEC 62304 class C software for a Class IIb pump, from planning to release.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-30" data-line="30"><p class="cvc-text">Owned the software lifecycle procedures and trained 30 engineers on them.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-31" data-line="31"><p class="cvc-text">Prepared the software technical file for the notified body audit; no major findings.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-32" data-line="32"><p class="cvc-text">Ran ISO 14971 risk management for software hazards and wrote the risk management report.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-33" data-line="33"><p class="cvc-text">Set the verification and validation strategy for embedded firmware, including HIL rigs.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-34" data-line="34"><p class="cvc-text">Brought MISRA C compliance and static analysis into the build, with a deviation register.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-35" data-line="35"><p class="cvc-text">Set up traceability from user needs to verification in Jama.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s2-cv-line-37" data-line="37"><h5 class="cvc-text">Fractional Head of Software Quality, Tarrow Surgical (powered instruments), 2023 to 2024</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s2-cv-line-38" data-line="38"><p class="cvc-text">Set up the software quality function for a 20-person firmware team before MDR certification.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-39" data-line="39"><p class="cvc-text">Wrote the software verification plan and reviewed every protocol before it ran.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-40" data-line="40"><p class="cvc-text">Audited two contract software suppliers and agreed their corrective actions.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-41" data-line="41"><p class="cvc-text">Coached two engineers into software quality lead roles before handing over.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s2-cv-line-43" data-line="43"><h5 class="cvc-text">Fractional Regulatory Software Lead, Wexcombe Health (SaMD triage app), 2021 to 2023</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s2-cv-line-44" data-line="44"><p class="cvc-text">Took a Class IIa triage app through UKCA marking and its first surveillance audit.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-45" data-line="45"><p class="cvc-text">Fitted IEC 62304 class B records into the team&#x27;s existing Jira and Git workflow.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-46" data-line="46"><p class="cvc-text">Ran the clinical safety case under DCB0129 with the clinical safety officer.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s2-cv-line-47" data-line="47"><p class="cvc-text">Cut the regulatory review of a release from two weeks to two days.</p></li></ul></div></div></div></div></div><p class="cvc-pagelabel">Page 1 of 2</p></div></div></div></section></div></div></section>
+<section class="board-panel" style="width:1280px" aria-labelledby="board-state-3"><header class="board-label"><span class="board-n">3</span><h2 class="board-name" id="board-state-3">A master that cannot be read</h2><p class="board-note">No sheet and nothing to edit or save. Versions and the import stay in the rail, so a replacement can be brought in.</p></header><div class="board-body"><div class="cvA-slice is-full" style="height:600px"><div class="cvc cvc-tools" id="s3-tools" role="toolbar" aria-orientation="vertical" aria-label="CV tools"><button type="button" class="cvc-tool" id="s3-tool-save" title="Save as a new version" aria-label="Save as a new version" aria-disabled="true"><iconify-icon icon="carbon:save" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s3-tool-undo" title="Undo" aria-label="Undo" aria-disabled="true"><iconify-icon icon="carbon:undo" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s3-tool-redo" title="Redo" aria-label="Redo" aria-disabled="true"><iconify-icon icon="carbon:redo" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s3-tool-numbers" title="Line numbers" aria-label="Line numbers" aria-pressed="false" aria-disabled="true"><iconify-icon icon="carbon:list-numbered" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s3-tool-rearrange" title="Rearrange sections" aria-label="Rearrange sections" aria-pressed="false" aria-disabled="true"><iconify-icon icon="carbon:arrows-vertical" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><section class="cvA-canvas" aria-labelledby="s3-unreadable-heading"><header class="cvA-head"><h2 class="cvA-head-title" id="s3-unreadable-heading">Master CV</h2><p class="cvA-state" role="status"><span class="tag tag-negative"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg>Could not be read</span> <span class="mono">cv-20261113-110500.md</span></p></header><div class="pane cvA-scroll"><div class="cvA-flush"><div class="notice notice-negative" role="alert"><div class="notice-body"><svg class="notice-mark" width="16" height="16" aria-hidden="true"><use href="#st-neg"></use></svg><p class="notice-text"><span class="visually-hidden">Error: </span>The master CV could not be read. The CV runs to 2,412 lines, and no CV needs more than 2,000.</p></div><a id="s3-import-a-replacement" class="link link-block" href="#import">Import a replacement</a></div></div></div></section><aside class="pane cvA-rail" aria-label="Versions and scoring"><div class="cvA-stale"><div class="notice notice-caution" role="status"><div class="notice-body"><svg class="notice-mark" width="16" height="16" aria-hidden="true"><use href="#st-cau"></use></svg><p class="notice-text"><span class="visually-hidden">Caution: </span>37 roles are still scored on <span class="cvA-id">cv-20261029-091500.md</span>. Re-scoring them waits until the master can be read.</p></div></div></div><div class="pane-body"><section class="sec" aria-labelledby="s3-versions-heading"><h2 class="sec-h" id="s3-versions-heading">Versions</h2><ul class="cvA-vers"><li class="cvA-ver is-active"><span class="cvA-ver-file mono">cv-20261113-110500.md</span><span class="cvA-ver-state">Active. It could not be read here.</span><span class="cvA-ver-when">Imported 13 Nov 2026 at 11:05 UTC from Rennie CV 2026.docx</span></li><li class="cvA-ver"><span class="cvA-ver-file mono">cv-20261029-091500.md</span><a id="s3-view-cv-20261029-091500-md" class="link link-block" href="#version-20261029-091500">View<span class="visually-hidden"> cv-20261029-091500.md</span></a><span class="cvA-ver-when">Saved 29 Oct 2026 at 09:15 UTC</span></li><li class="cvA-ver"><span class="cvA-ver-file mono">cv-20260814-180200.md</span><a id="s3-view-cv-20260814-180200-md" class="link link-block" href="#version-20260814-180200">View<span class="visually-hidden"> cv-20260814-180200.md</span></a><span class="cvA-ver-when">Saved 14 Aug 2026 at 18:02 UTC</span></li><li class="cvA-ver"><span class="cvA-ver-file mono">cv-20260512-073000.md</span><a id="s3-view-cv-20260512-073000-md" class="link link-block" href="#version-20260512-073000">View<span class="visually-hidden"> cv-20260512-073000.md</span></a><span class="cvA-ver-when">Saved 12 May 2026 at 07:30 UTC</span></li></ul><p class="cvA-note">Old versions stay for the day a score needs explaining.</p></section><section class="sec" aria-labelledby="s3-one-off-import-from-a-word-file-heading"><h2 class="sec-h" id="s3-one-off-import-from-a-word-file-heading">One-off import from a Word file</h2><p class="cvA-text">A replacement can be brought in here. After that, edit it on the sheet.</p><div class="cvA-pick"><button type="button" class="btn btn-secondary"><iconify-icon icon="carbon:upload" width="16" height="16" aria-hidden="true"></iconify-icon>Pick a file</button><span class="cvA-note-inline">Its extracted text is shown first. Nothing becomes the master until you confirm it.</span></div></section></div></aside></div></div></section>
+<section class="board-panel" style="width:891px" aria-labelledby="board-state-4"><header class="board-label"><span class="board-n">4</span><h2 class="board-name" id="board-state-4">Empty sections</h2><p class="board-note">Each shows its heading and one quiet line, with its own controls on hover and focus. It is not in the CV text or the Word file, so it has no number.</p></header><div class="board-body"><div class="cvA-slice is-canvas" style="height:560px"><div class="cvc cvc-tools" id="s4-tools" role="toolbar" aria-orientation="vertical" aria-label="CV tools"><button type="button" class="cvc-tool cvc-primary" id="s4-tool-save" title="Save as a new version" aria-label="Save as a new version"><iconify-icon icon="carbon:save" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s4-tool-undo" title="Undo" aria-label="Undo"><iconify-icon icon="carbon:undo" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s4-tool-redo" title="Redo" aria-label="Redo" aria-disabled="true"><iconify-icon icon="carbon:redo" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s4-tool-numbers" title="Line numbers" aria-label="Line numbers" aria-pressed="true"><iconify-icon icon="carbon:list-numbered" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s4-tool-rearrange" title="Rearrange sections" aria-label="Rearrange sections" aria-pressed="false"><iconify-icon icon="carbon:arrows-vertical" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><section class="cvA-canvas" aria-labelledby="s4-empty-heading"><header class="cvA-head"><h2 class="cvA-head-title" id="s4-empty-heading">Master CV</h2><p class="cvA-state" role="status"><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>Unsaved changes</span> <span>78 lines changed since <span class="cvA-id">cv-20261029-091500.md</span>. Save as a new version to keep it.</span></p><p class="cvA-side">1 page · 3 lines</p></header><div class="pane cvA-scroll"><div class="cvc cvc-sheets cvc-paper-white cvc-spread" id="s4-cv" data-paper="white" data-pages="1"><div class="cvc-page" id="s4-cv-page-1" role="group" aria-label="CV, page 1 of 1"><div class="cvc-frame"><div class="cvc-sheet"><div class="cvc-block"><div class="cvc-row cvc-name cvc-g0" id="s4-cv-line-1" data-line="1"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">1</span></span><h3 class="cvc-text">Alex Rennie</h3></div><div class="cvc-row cvc-headline cvc-g4" id="s4-cv-line-2" data-line="2"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">2</span></span><p class="cvc-text">Software quality and regulatory leader, medical device software</p></div><div class="cvc-row cvc-headline cvc-g4" id="s4-cv-line-3" data-line="3"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">3</span></span><p class="cvc-text">Guildford, Surrey · alex.rennie@example.com · 07700 900123</p></div><div class="cvc-sec is-empty" data-section="Summary"><div class="cvc-row cvc-section cvc-g12 is-empty is-fixed"><h4 class="cvc-text">Summary</h4></div><div class="cvc-row cvc-prompt cvc-g4 is-empty is-fixed"><p class="cvc-text">Nothing here yet. Add a line or an entry.</p></div></div><div class="cvc-sec is-empty" data-section="Experience"><div class="cvc-row cvc-section cvc-g12 is-empty is-fixed has-ctl is-open is-active"><h4 class="cvc-text">Experience</h4><div class="cvc-ctl" role="group" aria-label="Section: Experience"><button type="button" class="cvc-btn" data-act="add-entry" aria-label="Add an entry to Experience" title="Add entry"><iconify-icon icon="carbon:add" width="16" height="16" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-btn" data-act="add-line" aria-label="Add a line to Experience" title="Add line"><iconify-icon icon="carbon:text-new-line" width="16" height="16" aria-hidden="true"></iconify-icon></button></div></div><div class="cvc-row cvc-prompt cvc-g4 is-empty is-fixed"><p class="cvc-text">Nothing here yet. Add a line or an entry.</p></div></div><div class="cvc-sec is-empty" data-section="Skills"><div class="cvc-row cvc-section cvc-g12 is-empty is-fixed"><h4 class="cvc-text">Skills</h4></div><div class="cvc-row cvc-prompt cvc-g4 is-empty is-fixed"><p class="cvc-text">Nothing here yet. Add a line or an entry.</p></div></div><div class="cvc-sec is-empty" data-section="Education and certifications"><div class="cvc-row cvc-section cvc-g12 is-empty is-fixed"><h4 class="cvc-text">Education and certifications</h4></div><div class="cvc-row cvc-prompt cvc-g4 is-empty is-fixed"><p class="cvc-text">Nothing here yet. Add a line or an entry.</p></div></div></div></div></div><p class="cvc-pagelabel">Page 1 of 1</p></div></div></div></section></div></div></section>
+<section class="board-panel" style="width:1305px" aria-labelledby="board-state-5"><header class="board-label"><span class="board-n">5</span><h2 class="board-name" id="board-state-5">A CV running onto a second page</h2><p class="board-note">Word decides where a page ends: page 2 starts at line 49. At 2560 the pages sit side by side, at 1280 one above the other, and a phone&#x27;s reading view keeps the same two pages. Line numbers are on here.</p></header><div class="board-body"><div class="cvA-frags"><figure class="cvA-frag"><figcaption class="cvA-cap">At 1280, with Line numbers on in the toolbar</figcaption><div class="cvA-slice is-canvas" style="height:519px"><div class="cvc cvc-tools" id="s5-tools" role="toolbar" aria-orientation="vertical" aria-label="CV tools"><button type="button" class="cvc-tool cvc-primary" id="s5-tool-save" title="Save as a new version" aria-label="Save as a new version"><iconify-icon icon="carbon:save" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s5-tool-undo" title="Undo" aria-label="Undo" aria-disabled="true"><iconify-icon icon="carbon:undo" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s5-tool-redo" title="Redo" aria-label="Redo" aria-disabled="true"><iconify-icon icon="carbon:redo" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s5-tool-numbers" title="Line numbers" aria-label="Line numbers" aria-pressed="true"><iconify-icon icon="carbon:list-numbered" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s5-tool-rearrange" title="Rearrange sections" aria-label="Rearrange sections" aria-pressed="false"><iconify-icon icon="carbon:arrows-vertical" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><section class="cvA-canvas" aria-labelledby="s5-pages-heading"><header class="cvA-head"><h2 class="cvA-head-title" id="s5-pages-heading">Master CV</h2><p class="cvA-state" role="status"><span class="cvA-word">Saved</span> <span>as <span class="cvA-id">cv-20261029-091500.md</span>, 29 Oct 2026 at 09:15 UTC. The scorer reads this version.</span></p><p class="cvA-side">2 pages · 94 lines</p></header><div class="pane cvA-scroll"><div class="cvA-clipwrap"><div class="cvc cvc-clip" style="height:431.906px"><div class="cvc-clip-in" style="margin-top:-930.172px"><div class="cvc cvc-sheets cvc-paper-white cvc-stack" id="s5-cv" data-paper="white" data-pages="2"><div class="cvc-page" id="s5-cv-page-1" role="group" aria-label="CV, page 1 of 2"><div class="cvc-frame"><div class="cvc-sheet"><div class="cvc-block"><div class="cvc-row cvc-name cvc-g0" id="s5-cv-line-1" data-line="1"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">1</span></span><h3 class="cvc-text">Alex Rennie</h3></div><div class="cvc-row cvc-headline cvc-g4" id="s5-cv-line-2" data-line="2"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">2</span></span><p class="cvc-text">Software quality and regulatory leader, medical device software</p></div><div class="cvc-row cvc-headline cvc-g4" id="s5-cv-line-3" data-line="3"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">3</span></span><p class="cvc-text">Guildford, Surrey · alex.rennie@example.com · 07700 900123</p></div><div class="cvc-sec" data-section="Summary"><div class="cvc-row cvc-section cvc-g12 is-fixed" id="s5-cv-line-5" data-line="5"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">5</span></span><h4 class="cvc-text">Summary</h4></div><div class="cvc-row cvc-line cvc-g4" id="s5-cv-line-6" data-line="6"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">6</span></span><p class="cvc-text">Software quality and regulatory leader for medical device software, 17 years in industry.</p></div><div class="cvc-row cvc-line cvc-g4" id="s5-cv-line-7" data-line="7"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">7</span></span><p class="cvc-text">Fractional and interim roles since 2021: software quality, IEC 62304 and audit readiness.</p></div><div class="cvc-row cvc-line cvc-g4" id="s5-cv-line-8" data-line="8"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">8</span></span><p class="cvc-text">Has taken three devices through notified body audits and one through FDA 510(k) clearance.</p></div><div class="cvc-row cvc-line cvc-g4" id="s5-cv-line-9" data-line="9"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">9</span></span><p class="cvc-text">Works across embedded firmware, IVD analysers and software as a medical device.</p></div><div class="cvc-row cvc-line cvc-g4" id="s5-cv-line-10" data-line="10"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">10</span></span><p class="cvc-text">Builds small, steady quality teams and leaves processes engineers will actually use.</p></div><div class="cvc-row cvc-line cvc-g4" id="s5-cv-line-11" data-line="11"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">11</span></span><p class="cvc-text">Based in Surrey; open to hybrid roles in the south east and remote roles across the UK.</p></div><div class="cvc-row cvc-line cvc-g4" id="s5-cv-line-12" data-line="12"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">12</span></span><p class="cvc-text">Selected outcomes across roles:</p></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s5-cv-line-13" data-line="13"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">13</span></span><p class="cvc-text">One FDA 510(k) clearance with software as a key part of the submission.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-14" data-line="14"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">14</span></span><p class="cvc-text">Two quality teams built from scratch, both still in place.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-15" data-line="15"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">15</span></span><p class="cvc-text">Release cycles cut by half at two companies without loosening controls.</p></li></ul></div><div class="cvc-sec" data-section="Experience"><div class="cvc-row cvc-section cvc-g12 is-fixed" id="s5-cv-line-17" data-line="17"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">17</span></span><h4 class="cvc-text">Experience</h4></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s5-cv-line-19" data-line="19"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">19</span></span><h5 class="cvc-text">Interim Head of Software Quality, Corbel Medical (Class IIb ventilators), 2024 to 2026</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s5-cv-line-20" data-line="20"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">20</span></span><p class="cvc-text">Brought the ventilator software file to audit readiness in seven months.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-21" data-line="21"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">21</span></span><p class="cvc-text">Led a team of seven software test and quality engineers across two sites.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-22" data-line="22"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">22</span></span><p class="cvc-text">Rewrote the software development plan and the software maintenance plan.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-23" data-line="23"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">23</span></span><p class="cvc-text">Closed 41 software CAPAs, 12 of them from the previous notified body audit.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-24" data-line="24"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">24</span></span><p class="cvc-text">Introduced weekly quality reviews with the embedded engineering leads.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-25" data-line="25"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">25</span></span><p class="cvc-text">Held two releases until every open anomaly had a documented risk assessment.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-26" data-line="26"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">26</span></span><p class="cvc-text">Recruited three permanent engineers and handed the team to a permanent head of quality.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s5-cv-line-28" data-line="28"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">28</span></span><h5 class="cvc-text">Fractional Software Quality Lead, Linwood Infusion (syringe drivers), 2022 to 2024</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s5-cv-line-29" data-line="29"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">29</span></span><p class="cvc-text">Led IEC 62304 class C software for a Class IIb pump, from planning to release.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-30" data-line="30"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">30</span></span><p class="cvc-text">Owned the software lifecycle procedures and trained 30 engineers on them.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-31" data-line="31"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">31</span></span><p class="cvc-text">Prepared the software technical file for the notified body audit; no major findings.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-32" data-line="32"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">32</span></span><p class="cvc-text">Ran ISO 14971 risk management for software hazards and wrote the risk management report.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-33" data-line="33"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">33</span></span><p class="cvc-text">Set the verification and validation strategy for embedded firmware, including HIL rigs.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-34" data-line="34"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">34</span></span><p class="cvc-text">Brought MISRA C compliance and static analysis into the build, with a deviation register.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-35" data-line="35"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">35</span></span><p class="cvc-text">Set up traceability from user needs to verification in Jama.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s5-cv-line-37" data-line="37"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">37</span></span><h5 class="cvc-text">Fractional Head of Software Quality, Tarrow Surgical (powered instruments), 2023 to 2024</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s5-cv-line-38" data-line="38"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">38</span></span><p class="cvc-text">Set up the software quality function for a 20-person firmware team before MDR certification.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-39" data-line="39"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">39</span></span><p class="cvc-text">Wrote the software verification plan and reviewed every protocol before it ran.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-40" data-line="40"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">40</span></span><p class="cvc-text">Audited two contract software suppliers and agreed their corrective actions.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-41" data-line="41"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">41</span></span><p class="cvc-text">Coached two engineers into software quality lead roles before handing over.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s5-cv-line-43" data-line="43"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">43</span></span><h5 class="cvc-text">Fractional Regulatory Software Lead, Wexcombe Health (SaMD triage app), 2021 to 2023</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s5-cv-line-44" data-line="44"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">44</span></span><p class="cvc-text">Took a Class IIa triage app through UKCA marking and its first surveillance audit.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-45" data-line="45"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">45</span></span><p class="cvc-text">Fitted IEC 62304 class B records into the team&#x27;s existing Jira and Git workflow.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-46" data-line="46"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">46</span></span><p class="cvc-text">Ran the clinical safety case under DCB0129 with the clinical safety officer.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-47" data-line="47"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">47</span></span><p class="cvc-text">Cut the regulatory review of a release from two weeks to two days.</p></li></ul></div></div></div></div></div><p class="cvc-pagelabel">Page 1 of 2</p></div><div class="cvc-page" id="s5-cv-page-2" role="group" aria-label="CV, page 2 of 2"><div class="cvc-frame"><div class="cvc-sheet"><div class="cvc-block"><div class="cvc-sec is-cont" data-section="Experience"><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g0" id="s5-cv-line-49" data-line="49"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">49</span></span><h5 class="cvc-text">Software QA Manager, Pellam Diagnostics (IVD analysers), 2017 to 2022</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s5-cv-line-50" data-line="50"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">50</span></span><p class="cvc-text">Internal auditor for software processes under ISO 13485, 14 audits a year.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-51" data-line="51"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">51</span></span><p class="cvc-text">Managed software verification for two IVD analysers under IVDD and the move to IVDR.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-52" data-line="52"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">52</span></span><p class="cvc-text">Wrote the SOUP evaluation procedure and the off-the-shelf software register.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-53" data-line="53"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">53</span></span><p class="cvc-text">Kept SOUP records and vulnerability monitoring for 120 third-party components.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-54" data-line="54"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">54</span></span><p class="cvc-text">Led the usability file for the analyser&#x27;s touchscreen software with the human factors team.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-55" data-line="55"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">55</span></span><p class="cvc-text">Worked to IEC 60601-1 with the electrical safety team on the analyser&#x27;s software controls.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-56" data-line="56"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">56</span></span><p class="cvc-text">Reduced release verification time from six weeks to three with automated regression tests.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-57" data-line="57"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">57</span></span><p class="cvc-text">Grew the software QA team from two engineers to six.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s5-cv-line-59" data-line="59"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">59</span></span><h5 class="cvc-text">Senior Software Test Engineer, Ardent Cardiac (implantable monitors), 2012 to 2017</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s5-cv-line-60" data-line="60"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">60</span></span><p class="cvc-text">Wrote verification protocols and reports for implant firmware and the clinician app.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-61" data-line="61"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">61</span></span><p class="cvc-text">Prepared the software sections of two US regulatory submissions; both cleared.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-62" data-line="62"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">62</span></span><p class="cvc-text">Ran defect triage for a 25-person firmware team.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-63" data-line="63"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">63</span></span><p class="cvc-text">Built the hardware-in-the-loop test bench used for every release.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-64" data-line="64"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">64</span></span><p class="cvc-text">Mentored four graduate test engineers.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s5-cv-line-66" data-line="66"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">66</span></span><h5 class="cvc-text">Software Test Engineer, Fairhurst Instruments (laboratory instruments), 2009 to 2012</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s5-cv-line-67" data-line="67"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">67</span></span><p class="cvc-text">Tested instrument control software and data export for laboratory customers.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-68" data-line="68"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">68</span></span><p class="cvc-text">Wrote the company&#x27;s first software test strategy.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-69" data-line="69"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">69</span></span><p class="cvc-text">Supported customer audits with test evidence and release records.</p></li></ul></div></div><div class="cvc-sec" data-section="Skills"><div class="cvc-row cvc-section cvc-g12 is-fixed" id="s5-cv-line-71" data-line="71"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">71</span></span><h4 class="cvc-text">Skills</h4></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s5-cv-line-72" data-line="72"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">72</span></span><p class="cvc-text">Standards: IEC 62304, ISO 13485, ISO 14971, IEC 60601-1, IVDR, MDR, FDA 21 CFR 820.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-73" data-line="73"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">73</span></span><p class="cvc-text">Audits: internal, supplier and notified body audits; CAPA and nonconformance handling.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-74" data-line="74"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">74</span></span><p class="cvc-text">Testing: requirements-based and risk-based test design, hardware-in-the-loop, code review.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-75" data-line="75"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">75</span></span><p class="cvc-text">Tools: Jama, Jira, Git, Polyspace, Coverity, LDRA, Python for test automation.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-76" data-line="76"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">76</span></span><p class="cvc-text">Languages: C, Python; reads C++ and Rust.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-77" data-line="77"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">77</span></span><p class="cvc-text">Ways of working: hybrid teams, written-first, small batches.</p></li></ul></div><div class="cvc-sec" data-section="Education and certifications"><div class="cvc-row cvc-section cvc-g12 is-fixed" id="s5-cv-line-79" data-line="79"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">79</span></span><h4 class="cvc-text">Education and certifications</h4></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s5-cv-line-80" data-line="80"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">80</span></span><p class="cvc-text">ISO 13485:2016 lead auditor certificate, 2023.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-81" data-line="81"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">81</span></span><p class="cvc-text">IVDR transition course, 2021.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-82" data-line="82"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">82</span></span><p class="cvc-text">ISO 14971:2019 risk management for medical devices, 2020.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-83" data-line="83"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">83</span></span><p class="cvc-text">IEC 62304 practitioner course, 2019.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-84" data-line="84"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">84</span></span><p class="cvc-text">MISRA C:2012 workshop, 2018.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-85" data-line="85"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">85</span></span><p class="cvc-text">ISO 13485 internal auditor training, 2016.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-86" data-line="86"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">86</span></span><p class="cvc-text">Certified Tester Foundation Level (ISTQB), 2010.</p></li></ul><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s5-cv-line-88" data-line="88"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">88</span></span><h5 class="cvc-text">MSc Software Engineering, University of Surrey, 2008</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s5-cv-line-89" data-line="89"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">89</span></span><p class="cvc-text">Dissertation on static analysis for safety-critical C.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-90" data-line="90"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">90</span></span><p class="cvc-text">Distinction.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s5-cv-line-92" data-line="92"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">92</span></span><h5 class="cvc-text">BEng Electronic Engineering, University of Southampton, 2007</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s5-cv-line-93" data-line="93"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">93</span></span><p class="cvc-text">Upper second-class honours.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s5-cv-line-94" data-line="94"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">94</span></span><p class="cvc-text">Final-year project on embedded control of a syringe pump.</p></li></ul></div></div></div></div></div><p class="cvc-pagelabel">Page 2 of 2</p></div></div></div></div></div></div></section></div></figure><figure class="cvA-frag"><figcaption class="cvA-cap">On a phone, with Line numbers on in the bar</figcaption><div class="cvA-phone"><div class="cvA-phone-read"><div class="cvA-flow cvc cvc-paper-white has-nums" id="s5-flow"><div class="rf-page theme-light is-cut-top" role="group" aria-label="CV, page 1 of 2"><div class="rf-entry"><h5 class="rf-row rf-ent"><span class="rf-num" aria-hidden="true">43</span>Fractional Regulatory Software Lead, Wexcombe Health (SaMD triage app), 2021 to 2023</h5><ul class="rf-list"><li class="rf-row rf-bullet"><span class="rf-num" aria-hidden="true">44</span>Took a Class IIa triage app through UKCA marking and its first surveillance audit.</li><li class="rf-row rf-bullet"><span class="rf-num" aria-hidden="true">45</span>Fitted IEC 62304 class B records into the team&#x27;s existing Jira and Git workflow.</li><li class="rf-row rf-bullet"><span class="rf-num" aria-hidden="true">46</span>Ran the clinical safety case under DCB0129 with the clinical safety officer.</li><li class="rf-row rf-bullet"><span class="rf-num" aria-hidden="true">47</span>Cut the regulatory review of a release from two weeks to two days.</li></ul></div></div><p class="rf-pagelabel">Page 1 of 2</p><div class="rf-page theme-light is-cut-foot" role="group" aria-label="CV, page 2 of 2"><div class="rf-entry"><h5 class="rf-row rf-ent"><span class="rf-num" aria-hidden="true">49</span>Software QA Manager, Pellam Diagnostics (IVD analysers), 2017 to 2022</h5><ul class="rf-list"><li class="rf-row rf-bullet"><span class="rf-num" aria-hidden="true">50</span>Internal auditor for software processes under ISO 13485, 14 audits a year.</li><li class="rf-row rf-bullet"><span class="rf-num" aria-hidden="true">51</span>Managed software verification for two IVD analysers under IVDD and the move to IVDR.</li><li class="rf-row rf-bullet"><span class="rf-num" aria-hidden="true">52</span>Wrote the SOUP evaluation procedure and the off-the-shelf software register.</li><li class="rf-row rf-bullet"><span class="rf-num" aria-hidden="true">53</span>Kept SOUP records and vulnerability monitoring for 120 third-party components.</li><li class="rf-row rf-bullet"><span class="rf-num" aria-hidden="true">54</span>Led the usability file for the analyser&#x27;s touchscreen software with the human factors team.</li></ul></div></div></div></div><div class="cvA-bar" role="toolbar" aria-label="CV actions"><button type="button" class="btn btn-primary">Save as a new version</button><button type="button" class="btn btn-secondary btn-icon" aria-label="Line numbers" aria-pressed="true"><iconify-icon icon="carbon:list-numbered" width="16" height="16" aria-hidden="true"></iconify-icon></button><button type="button" class="btn btn-ghost btn-icon" aria-label="More actions" aria-haspopup="menu" aria-expanded="false"><iconify-icon icon="carbon:overflow-menu-horizontal" width="16" height="16" aria-hidden="true"></iconify-icon></button></div></div></figure></div></div></section>
+<section class="board-panel" style="width:1280px" aria-labelledby="board-state-6"><header class="board-label"><span class="board-n">6</span><h2 class="board-name" id="board-state-6">Version history open</h2><p class="board-note">Versions are always in the rail. View opens an older one read only, numbered as a score made on it cites it. Today the history is a list of file names with no view.</p></header><div class="board-body"><div class="cvA-slice is-full" style="height:600px"><div class="cvc cvc-tools" id="s6-tools" role="toolbar" aria-orientation="vertical" aria-label="CV tools"><button type="button" class="cvc-tool" id="s6-tool-save" title="Save as a new version" aria-label="Save as a new version" aria-disabled="true"><iconify-icon icon="carbon:save" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s6-tool-undo" title="Undo" aria-label="Undo" aria-disabled="true"><iconify-icon icon="carbon:undo" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s6-tool-redo" title="Redo" aria-label="Redo" aria-disabled="true"><iconify-icon icon="carbon:redo" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s6-tool-numbers" title="Line numbers" aria-label="Line numbers" aria-pressed="true"><iconify-icon icon="carbon:list-numbered" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s6-tool-rearrange" title="Rearrange sections" aria-label="Rearrange sections" aria-pressed="false" aria-disabled="true"><iconify-icon icon="carbon:arrows-vertical" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><section class="cvA-canvas" aria-labelledby="s6-history-heading"><header class="cvA-head"><h2 class="cvA-head-title" id="s6-history-heading">Master CV</h2><p class="cvA-state" role="status"><span class="tag tag-neutral"><svg width="12" height="12" aria-hidden="true"><use href="#st-neu"></use></svg>Read only</span> <span>An older version, <span class="cvA-id">cv-20260814-180200.md</span>, saved 14 Aug 2026 at 18:02 UTC. 1 line differs from the version the scorer reads.</span></p><div class="cvA-tail"><button type="button" class="btn btn-secondary"><iconify-icon icon="carbon:arrow-left" width="16" height="16" aria-hidden="true"></iconify-icon>Back to the active version</button></div></header><div class="pane cvA-scroll"><div class="cvc cvc-sheets cvc-paper-white cvc-spread cvc-readonly" id="s6-cv" data-paper="white" data-pages="2"><div class="cvc-page" id="s6-cv-page-1" role="group" aria-label="CV, page 1 of 2"><div class="cvc-frame"><div class="cvc-sheet"><div class="cvc-block"><div class="cvc-row cvc-name cvc-g0" id="s6-cv-line-1" data-line="1"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">1</span></span><h3 class="cvc-text">Alex Rennie</h3></div><div class="cvc-row cvc-headline cvc-g4" id="s6-cv-line-2" data-line="2"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">2</span></span><p class="cvc-text">Software quality and regulatory leader, medical device software</p></div><div class="cvc-row cvc-headline cvc-g4" id="s6-cv-line-3" data-line="3"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">3</span></span><p class="cvc-text">Guildford, Surrey · alex.rennie@example.com · 07700 900123</p></div><div class="cvc-sec" data-section="Summary"><div class="cvc-row cvc-section cvc-g12" id="s6-cv-line-5" data-line="5"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">5</span></span><h4 class="cvc-text">Summary</h4></div><div class="cvc-row cvc-line cvc-g4" id="s6-cv-line-6" data-line="6"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">6</span></span><p class="cvc-text">Software quality and regulatory leader for medical device software, 17 years in industry.</p></div><div class="cvc-row cvc-line cvc-g4" id="s6-cv-line-7" data-line="7"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">7</span></span><p class="cvc-text">Fractional and interim roles since 2021: software quality, IEC 62304 and audit readiness.</p></div><div class="cvc-row cvc-line cvc-g4" id="s6-cv-line-8" data-line="8"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">8</span></span><p class="cvc-text">Has taken three devices through notified body audits and one through FDA 510(k) clearance.</p></div><div class="cvc-row cvc-line cvc-g4" id="s6-cv-line-9" data-line="9"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">9</span></span><p class="cvc-text">Works across embedded firmware, IVD analysers and software as a medical device.</p></div><div class="cvc-row cvc-line cvc-g4" id="s6-cv-line-10" data-line="10"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">10</span></span><p class="cvc-text">Builds small, steady quality teams and leaves processes engineers will actually use.</p></div><div class="cvc-row cvc-line cvc-g4" id="s6-cv-line-11" data-line="11"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">11</span></span><p class="cvc-text">Based in Surrey; open to hybrid roles in the south east and remote roles across the UK.</p></div><div class="cvc-row cvc-line cvc-g4" id="s6-cv-line-12" data-line="12"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">12</span></span><p class="cvc-text">Selected outcomes across roles:</p></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s6-cv-line-13" data-line="13"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">13</span></span><p class="cvc-text">One FDA 510(k) clearance with software as a key part of the submission.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-14" data-line="14"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">14</span></span><p class="cvc-text">Two quality teams built from scratch, both still in place.</p></li></ul></div><div class="cvc-sec" data-section="Experience"><div class="cvc-row cvc-section cvc-g12" id="s6-cv-line-16" data-line="16"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">16</span></span><h4 class="cvc-text">Experience</h4></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s6-cv-line-18" data-line="18"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">18</span></span><h5 class="cvc-text">Interim Head of Software Quality, Corbel Medical (Class IIb ventilators), 2024 to 2026</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s6-cv-line-19" data-line="19"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">19</span></span><p class="cvc-text">Brought the ventilator software file to audit readiness in seven months.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-20" data-line="20"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">20</span></span><p class="cvc-text">Led a team of seven software test and quality engineers across two sites.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-21" data-line="21"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">21</span></span><p class="cvc-text">Rewrote the software development plan and the software maintenance plan.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-22" data-line="22"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">22</span></span><p class="cvc-text">Closed 41 software CAPAs, 12 of them from the previous notified body audit.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-23" data-line="23"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">23</span></span><p class="cvc-text">Introduced weekly quality reviews with the embedded engineering leads.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-24" data-line="24"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">24</span></span><p class="cvc-text">Held two releases until every open anomaly had a documented risk assessment.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-25" data-line="25"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">25</span></span><p class="cvc-text">Recruited three permanent engineers and handed the team to a permanent head of quality.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s6-cv-line-27" data-line="27"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">27</span></span><h5 class="cvc-text">Fractional Software Quality Lead, Linwood Infusion (syringe drivers), 2022 to 2024</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s6-cv-line-28" data-line="28"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">28</span></span><p class="cvc-text">Led IEC 62304 class C software for a Class IIb pump, from planning to release.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-29" data-line="29"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">29</span></span><p class="cvc-text">Owned the software lifecycle procedures and trained 30 engineers on them.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-30" data-line="30"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">30</span></span><p class="cvc-text">Prepared the software technical file for the notified body audit; no major findings.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-31" data-line="31"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">31</span></span><p class="cvc-text">Ran ISO 14971 risk management for software hazards and wrote the risk management report.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-32" data-line="32"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">32</span></span><p class="cvc-text">Set the verification and validation strategy for embedded firmware, including HIL rigs.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-33" data-line="33"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">33</span></span><p class="cvc-text">Brought MISRA C compliance and static analysis into the build, with a deviation register.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-34" data-line="34"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">34</span></span><p class="cvc-text">Set up traceability from user needs to verification in Jama.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s6-cv-line-36" data-line="36"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">36</span></span><h5 class="cvc-text">Fractional Head of Software Quality, Tarrow Surgical (powered instruments), 2023 to 2024</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s6-cv-line-37" data-line="37"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">37</span></span><p class="cvc-text">Set up the software quality function for a 20-person firmware team before MDR certification.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-38" data-line="38"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">38</span></span><p class="cvc-text">Wrote the software verification plan and reviewed every protocol before it ran.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-39" data-line="39"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">39</span></span><p class="cvc-text">Audited two contract software suppliers and agreed their corrective actions.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-40" data-line="40"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">40</span></span><p class="cvc-text">Coached two engineers into software quality lead roles before handing over.</p></li></ul></div><div class="cvc-ent"><div class="cvc-row cvc-entry cvc-g12" id="s6-cv-line-42" data-line="42"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">42</span></span><h5 class="cvc-text">Fractional Regulatory Software Lead, Wexcombe Health (SaMD triage app), 2021 to 2023</h5></div><ul class="cvc-list"><li class="cvc-row cvc-bullet cvc-g4" id="s6-cv-line-43" data-line="43"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">43</span></span><p class="cvc-text">Took a Class IIa triage app through UKCA marking and its first surveillance audit.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-44" data-line="44"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">44</span></span><p class="cvc-text">Fitted IEC 62304 class B records into the team&#x27;s existing Jira and Git workflow.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-45" data-line="45"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">45</span></span><p class="cvc-text">Ran the clinical safety case under DCB0129 with the clinical safety officer.</p></li><li class="cvc-row cvc-bullet cvc-g0" id="s6-cv-line-46" data-line="46"><span class="cvc-gut" aria-hidden="true"><span class="cvc-num">46</span></span><p class="cvc-text">Cut the regulatory review of a release from two weeks to two days.</p></li></ul></div></div></div></div></div><p class="cvc-pagelabel">Page 1 of 2</p></div></div></div></section><aside class="pane cvA-rail" aria-label="Versions and scoring"><div class="cvA-stale"><div class="notice notice-info" role="status"><div class="notice-body"><svg class="notice-mark" width="16" height="16" aria-hidden="true"><use href="#st-neu"></use></svg><p class="notice-text"><span class="visually-hidden">Note: </span>No open role is scored on an older version.</p></div></div></div><div class="pane-body"><section class="sec" aria-labelledby="s6-versions-heading"><h2 class="sec-h" id="s6-versions-heading">Versions</h2><ul class="cvA-vers"><li class="cvA-ver is-active"><span class="cvA-ver-file mono">cv-20261029-091500.md</span><span class="cvA-ver-state">Active. The scorer reads this version.</span><span class="cvA-ver-when">Saved 29 Oct 2026 at 09:15 UTC</span></li><li class="cvA-ver" aria-current="true"><span class="cvA-ver-file mono">cv-20260814-180200.md</span><span class="cvA-ver-state">Open on the sheet, read only.</span><span class="cvA-ver-when">Saved 14 Aug 2026 at 18:02 UTC</span></li><li class="cvA-ver"><span class="cvA-ver-file mono">cv-20260512-073000.md</span><a id="s6-view-cv-20260512-073000-md" class="link link-block" href="#version-20260512-073000">View<span class="visually-hidden"> cv-20260512-073000.md</span></a><span class="cvA-ver-when">Saved 12 May 2026 at 07:30 UTC</span></li></ul><p class="cvA-note">Old versions stay for the day a score needs explaining.</p></section><section class="sec" aria-labelledby="s6-scoring-preferences-heading"><h2 class="sec-h" id="s6-scoring-preferences-heading">Scoring preferences</h2><p class="cvA-sub">Read only · last changed 11 Nov</p><dl class="cvA-prefs"><dt>Day-rate floor</dt><dd>£700</dd><dt>Salary floor</dt><dd>£100,000</dd><dt>Location</dt><dd>Hybrid in the south east, or remote in the UK</dd><dt>Sectors</dt><dd>Medical devices, IVD, SaMD</dd><dt>CV match</dt><dd>Passes at 70. Under 40 a role is Filtered.</dd></dl><p class="cvA-note">The day-rate floor is edited on Home, the rest in the preferences file. <a id="s6-open-home-to-edit-the-day-rate-floor" class="link" href="#home">Open Home</a></p></section></div></aside></div></div></section>
+<section class="board-panel" style="width:851px" aria-labelledby="board-state-7"><header class="board-label"><span class="board-n">7</span><h2 class="board-name" id="board-state-7">The stale-scores notice after a new version</h2><p class="board-note">The count and the cost come first, then a confirm in the same place. Today there is no count and the cost reads as real tokens. Re-scoring all 37 in one press is new too: today a press reaches at most 25 roles, and only roles first scored before 3 Aug.</p></header><div class="board-body"><div class="cvA-frags"><figure class="cvA-frag"><figcaption class="cvA-cap">After the save: the count and the cost, at the top of the rail</figcaption><div class="cvA-slice is-rail" style="height:300px"><aside class="pane cvA-rail" aria-label="Versions and scoring"><div class="cvA-stale"><div class="notice notice-caution" role="status"><div class="notice-body"><svg class="notice-mark" width="16" height="16" aria-hidden="true"><use href="#st-cau"></use></svg><p class="notice-text"><span class="visually-hidden">Caution: </span>37 roles are still scored on <span class="cvA-id">cv-20261029-091500.md</span>. Re-scoring them is 37 paid calls, about 60p. 1 role scored on its job description keeps that score.</p></div><button type="button" class="btn btn-secondary">Re-score 37 roles</button></div></div><div class="pane-body"><section class="sec" aria-labelledby="s7-versions-heading"><h2 class="sec-h" id="s7-versions-heading">Versions</h2><ul class="cvA-vers"><li class="cvA-ver is-active"><span class="cvA-ver-file mono">cv-20261113-111200.md</span><span class="cvA-ver-state">Active. The scorer reads this version.</span><span class="cvA-ver-when">Saved 13 Nov 2026 at 11:12 UTC</span></li><li class="cvA-ver"><span class="cvA-ver-file mono">cv-20261029-091500.md</span><a id="s7-view-cv-20261029-091500-md" class="link link-block" href="#version-20261029-091500">View<span class="visually-hidden"> cv-20261029-091500.md</span></a><span class="cvA-ver-when">Saved 29 Oct 2026 at 09:15 UTC</span></li><li class="cvA-ver"><span class="cvA-ver-file mono">cv-20260814-180200.md</span><a id="s7-view-cv-20260814-180200-md" class="link link-block" href="#version-20260814-180200">View<span class="visually-hidden"> cv-20260814-180200.md</span></a><span class="cvA-ver-when">Saved 14 Aug 2026 at 18:02 UTC</span></li><li class="cvA-ver"><span class="cvA-ver-file mono">cv-20260512-073000.md</span><a id="s7-view-cv-20260512-073000-md" class="link link-block" href="#version-20260512-073000">View<span class="visually-hidden"> cv-20260512-073000.md</span></a><span class="cvA-ver-when">Saved 12 May 2026 at 07:30 UTC</span></li></ul><p class="cvA-note">Old versions stay for the day a score needs explaining.</p></section></div></aside></div></figure><figure class="cvA-frag"><figcaption class="cvA-cap">Re-score 37 roles pressed: the confirm step</figcaption><div class="cvA-slice is-rail" style="height:104px"><aside class="pane cvA-rail" aria-label="Versions and scoring"><div class="cvA-stale"><div class="cvA-confirm" role="group" aria-labelledby="s7-stale-scores-question"><div class="cvA-confirm-body"><svg class="cvA-confirm-mark is-cau" width="16" height="16" aria-hidden="true"><use href="#st-cau"></use></svg><div><p class="cvA-q" id="s7-stale-scores-question">Re-score 37 roles against <span class="cvA-id">cv-20261113-111200.md</span>? That is 37 paid calls, about 60p.</p><p class="cvA-q-note">A role scored against its job description is left alone, so a change here never swaps that score for one made on the advert card.</p></div></div><div class="cvA-confirm-acts"><button type="button" class="btn btn-secondary">Re-score 37 roles</button><button type="button" class="btn btn-secondary">Cancel</button></div></div></div><div class="pane-body"></div></aside></div></figure><figure class="cvA-frag"><figcaption class="cvA-cap">After the run</figcaption><div class="cvA-slice is-rail" style="height:60px"><aside class="pane cvA-rail" aria-label="Versions and scoring"><div class="cvA-stale"><div class="notice notice-positive" role="status"><div class="notice-body"><svg class="notice-mark" width="16" height="16" aria-hidden="true"><use href="#st-pos"></use></svg><p class="notice-text"><span class="visually-hidden">Done: </span>Re-scored 37 roles in 37 paid calls, about 60p. 1 role scored on its job description keeps its score on <span class="cvA-id">cv-20261029-091500.md</span>.</p></div></div></div><div class="pane-body"></div></aside></div></figure></div></div></section>
+<section class="board-panel" style="width:891px" aria-labelledby="board-state-8"><header class="board-label"><span class="board-n">8</span><h2 class="board-name" id="board-state-8">Rearrange mode, the way sections are reordered</h2><p class="board-note">Not one of the seven states: the screen shows only its switch. Sections fold to their headings, and the save state stays in the header, turning to Unsaved changes after a move; Done goes back to the sheet.</p></header><div class="board-body"><div class="cvA-slice is-canvas" style="height:560px"><div class="cvc cvc-tools" id="s8-tools" role="toolbar" aria-orientation="vertical" aria-label="CV tools"><button type="button" class="cvc-tool cvc-primary" id="s8-tool-save" title="Save as a new version" aria-label="Save as a new version"><iconify-icon icon="carbon:save" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s8-tool-undo" title="Undo" aria-label="Undo" aria-disabled="true"><iconify-icon icon="carbon:undo" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s8-tool-redo" title="Redo" aria-label="Redo" aria-disabled="true"><iconify-icon icon="carbon:redo" width="20" height="20" aria-hidden="true"></iconify-icon></button><span class="cvc-tools-rule" role="separator"></span><button type="button" class="cvc-tool" id="s8-tool-numbers" title="Line numbers" aria-label="Line numbers" aria-pressed="false"><iconify-icon icon="carbon:list-numbered" width="20" height="20" aria-hidden="true"></iconify-icon></button><button type="button" class="cvc-tool" id="s8-tool-rearrange" title="Rearrange sections" aria-label="Rearrange sections" aria-pressed="true"><iconify-icon icon="carbon:arrows-vertical" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><section class="cvA-canvas" aria-labelledby="s8-rearrange-heading"><header class="cvA-head"><h2 class="cvA-head-title" id="s8-rearrange-heading">Master CV</h2><p class="cvA-state" role="status"><span class="cvA-word">Saved</span> <span>as <span class="cvA-id">cv-20261029-091500.md</span>, 29 Oct 2026 at 09:15 UTC. The scorer reads this version.</span></p><div class="cvA-modebar"><p class="cvA-mode"><span class="cvA-word">Rearrange sections</span> Move up and Move down change the order, and the line numbers follow it.</p><button type="button" class="btn btn-secondary">Done</button></div></header><div class="pane cvA-scroll"><div class="cvc cvc-paper-white cvA-ra" id="s8-cv"><div class="cvA-ra-sheet theme-light"><h3 class="cvA-ra-name">Alex Rennie</h3><p class="cvA-ra-line">Software quality and regulatory leader, medical device software</p><p class="cvA-ra-line">Guildford, Surrey · alex.rennie@example.com · 07700 900123</p><p class="cvA-ra-fixed">The name and the headline stay at the top.</p><ol class="cvA-ra-list" aria-label="Sections, in order"><li class="cvA-ra-sec"><div class="cvA-ra-head"><h4 class="cvA-ra-title">Summary</h4><span class="cvA-ra-size">10 lines</span></div><p class="cvA-ra-first">Software quality and regulatory leader for medical device software, 17 years in industry.</p><div class="cvA-ra-ctl" role="group" aria-label="Move Summary"><button type="button" class="cvA-ra-btn" aria-label="Move Summary up" title="Move up" aria-disabled="true"><iconify-icon icon="carbon:arrow-up" width="16" height="16" aria-hidden="true"></iconify-icon></button><button type="button" class="cvA-ra-btn" aria-label="Move Summary down" title="Move down"><iconify-icon icon="carbon:arrow-down" width="16" height="16" aria-hidden="true"></iconify-icon></button></div></li><li class="cvA-ra-sec"><div class="cvA-ra-head"><h4 class="cvA-ra-title">Experience</h4><span class="cvA-ra-size">7 entries</span></div><p class="cvA-ra-first">Interim Head of Software Quality, Corbel Medical (Class IIb ventilators), 2024 to 2026</p><div class="cvA-ra-ctl" role="group" aria-label="Move Experience"><button type="button" class="cvA-ra-btn" aria-label="Move Experience up" title="Move up"><iconify-icon icon="carbon:arrow-up" width="16" height="16" aria-hidden="true"></iconify-icon></button><button type="button" class="cvA-ra-btn" aria-label="Move Experience down" title="Move down"><iconify-icon icon="carbon:arrow-down" width="16" height="16" aria-hidden="true"></iconify-icon></button></div></li><li class="cvA-ra-sec"><div class="cvA-ra-head"><h4 class="cvA-ra-title">Skills</h4><span class="cvA-ra-size">6 lines</span></div><p class="cvA-ra-first">Standards: IEC 62304, ISO 13485, ISO 14971, IEC 60601-1, IVDR, MDR, FDA 21 CFR 820.</p><div class="cvA-ra-ctl" role="group" aria-label="Move Skills"><button type="button" class="cvA-ra-btn" aria-label="Move Skills up" title="Move up"><iconify-icon icon="carbon:arrow-up" width="16" height="16" aria-hidden="true"></iconify-icon></button><button type="button" class="cvA-ra-btn" aria-label="Move Skills down" title="Move down"><iconify-icon icon="carbon:arrow-down" width="16" height="16" aria-hidden="true"></iconify-icon></button></div></li><li class="cvA-ra-sec"><div class="cvA-ra-head"><h4 class="cvA-ra-title">Education and certifications</h4><span class="cvA-ra-size">7 lines, 2 entries</span></div><p class="cvA-ra-first">ISO 13485:2016 lead auditor certificate, 2023.</p><div class="cvA-ra-ctl" role="group" aria-label="Move Education and certifications"><button type="button" class="cvA-ra-btn" aria-label="Move Education and certifications up" title="Move up"><iconify-icon icon="carbon:arrow-up" width="16" height="16" aria-hidden="true"></iconify-icon></button><button type="button" class="cvA-ra-btn" aria-label="Move Education and certifications down" title="Move down" aria-disabled="true"><iconify-icon icon="carbon:arrow-down" width="16" height="16" aria-hidden="true"></iconify-icon></button></div></li></ol></div></div></div></section></div></div></section>
+</div>
+</div>
+</body>
+</html>

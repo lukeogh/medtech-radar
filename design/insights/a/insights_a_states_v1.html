@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en" data-appearance="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Insights A: states · MedTech Radar</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+/* Metric-matched fallbacks while Plex loads (design-system §16). */
+@font-face { font-family: "Plex Sans fallback"; src: local("Arial"); size-adjust: 101.17%; ascent-override: 101.32%; descent-override: 27.18%; line-gap-override: 0%; }
+@font-face { font-family: "Plex Mono fallback"; src: local("Consolas"); size-adjust: 109.13%; ascent-override: 93.92%; descent-override: 25.20%; line-gap-override: 0%; }
+
+/* Tokens. Mockups draw dark: the dark set of design-system §15 sits on :root as the default, the light set
+   of §4 under data-appearance="light", and Auto under prefers-color-scheme: light. The uploaded mark is drawn
+   in the light text colours; inverting it and turning the hue half a turn lands on the dark text tokens. */
+:root {
+  color-scheme: dark; --canvas: #0e1215; --surface: #151a1e; --surface-sunken: #1c2226; --row-hover: #192024; --row-selected: #0f3237; --text-1: #e6ebee; --text-2: #b3bec6; --text-3: #93a0a9; --border-subtle: #262e34; --border-strong: #6f7c86; --accent: #5cc3cf; --accent-hover: #82d3dc; --accent-tint: #0f3237; --on-accent: #071114; --positive: #74d39b; --positive-tint: #12291c; --caution: #f0c46a; --caution-tint: #2c2311; --negative: #ff9b8f; --negative-tint: #33191a; --neutral: #b3bec6; --neutral-tint: #1f262b; --scrim: rgba(0, 0, 0, .6); --shadow-overlay: 0 8px 24px rgba(0, 0, 0, .5); --font-sans: "IBM Plex Sans", "Plex Sans fallback", Arial, sans-serif; --font-mono: "IBM Plex Mono", "Plex Mono fallback", Consolas, monospace; --radius-0: 0; --radius-2: 2px; --radius-4: 4px; --dur: 120ms; --mark-filter: invert(1) hue-rotate(180deg);
+}
+html[data-appearance="light"] {
+  color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none;
+}
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] {
+    color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; } }
+
+/* Focus. Dark: a #ffd447 outline on a 2px surface gap; rows take the outline only, inset clear of the
+   selection bar. A static frame shows it with .is-focus on exactly one element. */
+:focus-visible, .is-focus { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+.row:focus-visible, .row.is-focus { outline-offset: -7px; box-shadow: none; }
+html[data-appearance="light"] :focus-visible, html[data-appearance="light"] .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  html[data-appearance="light"] .row:focus-visible, html[data-appearance="light"] .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] :focus-visible, html[data-appearance="auto"] .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  html[data-appearance="auto"] .row:focus-visible, html[data-appearance="auto"] .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+}
+@media (forced-colors: active) { :focus-visible, .is-focus { outline-color: Highlight; } }
+
+/* Base. The Tailwind CDN's preflight comes later in the cascade, so body is set as "html body" to keep its
+   line height, and a button's fill is always set with two classes ([type=button] in preflight counts as one). */
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--surface); }
+html body { margin: 0; background: var(--surface); color: var(--text-1); font-family: var(--font-sans); font-size: 14px;
+  line-height: 20px; font-weight: 400; letter-spacing: 0; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+h1, h2, h3, h4, p, ul, ol, dl, dd { margin: 0; }
+ul, ol { list-style: none; padding: 0; }
+button, input { font: inherit; color: inherit; letter-spacing: 0; }
+img { display: block; }
+a { color: inherit; }
+.mono { font-family: var(--font-mono); white-space: nowrap; }
+.seg-nowrap { white-space: nowrap; }
+.num { font-variant-numeric: tabular-nums; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* Where a marker is pinned (annot_on). It comes before every component rule, so a part that is already
+   positioned keeps its own position. */
+.annot-host { position: relative; }
+
+/* Type (design-system §5) */
+.text-label { font-size: 12px; line-height: 16px; font-weight: 600; }
+.text-meta { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); }
+
+/* Shell: app bar 48px, page header auto, content minmax(0, 1fr); the panes scroll, the page does not. */
+.app { display: grid; grid-template-rows: 48px auto minmax(0, 1fr); height: 100dvh; overflow: hidden; background: var(--surface); }
+.appbar { grid-row: 1; }
+.pagehead { grid-row: 2; }
+.content { grid-row: 3; }
+
+/* App bar */
+.appbar { display: flex; align-items: center; gap: 24px; min-width: 0; height: 48px; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.brand { display: flex; align-items: center; gap: 12px; flex: none; }
+.brand-mark { width: 51px; height: 24px; filter: var(--mark-filter); }
+.brand-name { font-size: 14px; line-height: 20px; font-weight: 600; white-space: nowrap; }
+.appbar-page { display: none; font-size: 16px; line-height: 24px; font-weight: 600; }
+.nav { display: flex; align-self: stretch; gap: 20px; }
+.nav a { display: flex; align-items: center; padding: 2px 2px 0; border-bottom: 2px solid transparent; color: var(--text-2);
+  text-decoration: none; white-space: nowrap; transition: color var(--dur) ease-out; }
+.nav a:hover { color: var(--text-1); }
+.nav a[aria-current="page"] { color: var(--text-1); border-bottom-color: var(--accent); }
+.appbar-tools { display: flex; align-items: center; gap: 16px; min-width: 0; margin-left: auto; }
+.cmd { display: flex; flex: none; align-items: center; gap: 8px; width: 240px; height: 32px; padding: 0 8px; text-align: left;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); color: var(--text-3); cursor: pointer; }
+.cmd-text { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cmd-icon { display: none; }
+.inbox-status { font-size: 12px; line-height: 16px; color: var(--text-3); white-space: nowrap; }
+.appearance { display: inline-flex; flex: none; }
+.seg { height: 32px; margin-left: -1px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 0;
+  background: var(--surface); color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600; cursor: pointer;
+  transition: background-color var(--dur) ease-out, color var(--dur) ease-out; }
+.seg:first-child { margin-left: 0; border-radius: var(--radius-2) 0 0 var(--radius-2); }
+.seg:last-child { border-radius: 0 var(--radius-2) var(--radius-2) 0; }
+.appearance .seg[aria-pressed="true"] { background: var(--surface-sunken); color: var(--text-1); }
+.appbar .menu-btn { display: none; }
+
+/* Controls */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: var(--radius-2); font-size: 14px; line-height: 20px; font-weight: 500;
+  white-space: nowrap; text-decoration: none; cursor: pointer;
+  transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out; }
+.btn.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.btn-secondary { background: var(--surface); border-color: var(--border-strong); color: var(--text-1); }
+.btn.btn-secondary:hover { background: var(--row-hover); }
+.btn.btn-ghost { background: transparent; color: var(--text-2); }
+.btn.btn-ghost:hover { color: var(--text-1); text-decoration: underline; text-underline-offset: 2px; }
+.btn.btn-icon { width: 32px; padding: 0; }
+.btn.is-disabled { color: var(--text-3); border-color: var(--border-subtle); cursor: default; }
+.btn.is-disabled .kbd { color: var(--text-3); border-color: var(--border-subtle); }
+.kbd { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 18px; height: 18px; padding: 0 4px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface-sunken); color: var(--text-2);
+  font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; white-space: nowrap; }
+.link { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
+  transition: color var(--dur) ease-out; }
+.link:hover { color: var(--accent-hover); text-decoration-thickness: 2px; }
+.with-icon { display: inline-flex; align-items: center; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px; border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2); background: transparent; color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600;
+  white-space: nowrap; cursor: pointer; transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out; }
+.chip:hover { color: var(--text-1); }
+.chip-count { color: var(--text-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.chip.is-selected { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+.chip-facet { padding-right: 8px; }
+.tag { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 20px; padding: 0 8px; border-radius: var(--radius-2);
+  font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+.tag-neutral { background: var(--neutral-tint); color: var(--neutral); }
+.tag-caution { background: var(--caution-tint); color: var(--caution); }
+.tag-positive { background: var(--positive-tint); color: var(--positive); }
+.is-pos { color: var(--positive); }
+.is-neg { color: var(--negative); }
+.is-neu { color: var(--neutral); }
+
+/* Page header */
+.pagehead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 56px; padding: 12px 16px;
+  background: var(--canvas); border-bottom: 1px solid var(--border-subtle); }
+.ph-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; min-width: 0; }
+.ph-title h1 { font-size: 20px; line-height: 28px; font-weight: 600; }
+.counts { font-size: 12px; line-height: 16px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ph-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.search { width: 200px; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text-1); font-size: 14px; line-height: 20px; }
+.search::placeholder { color: var(--text-3); opacity: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.undo-last { margin-left: 4px; }
+
+/* Content: panes abutting on 1px rules. The page's own CSS gives .content its columns. */
+.content { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; background: var(--surface); }
+
+/* Group and pane header (sticky, 40px), the fold button, the band divider */
+.group-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.group-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 600; white-space: nowrap; }
+.group-count { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.group-new { color: var(--text-2); }
+.fold { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; margin: 0 -8px 0 auto;
+  border: 0; border-radius: var(--radius-2); background: transparent; color: var(--text-2); cursor: pointer; }
+.fold:hover { background: var(--row-hover); color: var(--text-1); }
+.band { display: flex; align-items: center; height: 24px; padding: 0 16px; font-size: 12px; line-height: 16px; color: var(--text-3);
+  border-bottom: 1px solid var(--border-subtle); font-variant-numeric: tabular-nums; }
+
+/* Rows: a whole-row link. Three lines, 76px; two lines, 56px. */
+.row { position: relative; display: grid; grid-template-rows: 20px 16px 20px; row-gap: 2px; height: 76px; padding: 8px 16px 7px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); color: var(--text-1); text-decoration: none;
+  transition: background-color var(--dur) ease-out; }
+.row:hover { background: var(--row-hover); }
+.row[aria-current="true"] { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 13px; }
+.r1, .r2, .r3 { display: flex; min-width: 0; }
+.r1 { align-items: baseline; gap: 8px; }
+.r-new { flex: none; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-1); }
+.r-title { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+.is-unread .r-title { font-weight: 600; }
+.r-cv { flex: none; width: 40px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; }
+.r-seen { flex: none; width: 44px; text-align: right; font-size: 12px; line-height: 16px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.r2 { align-items: center; gap: 8px; }
+.r-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px;
+  line-height: 16px; color: var(--text-3); }
+.r2 .tag { margin: -2px 0; }
+.r-rate { display: inline-block; }
+.r3 { align-items: center; gap: 12px; }
+.r-lead { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2); }
+.r-marks { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.mk-pass { color: var(--text-3); }
+.mk-fail { color: var(--negative); }
+.mk-nj { color: var(--neutral); }
+.row-applied { grid-template-rows: 20px 16px; row-gap: 4px; height: 56px; }
+.more { display: flex; align-items: center; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--border-subtle); }
+
+/* Detail content: section heading, score block, reasons, definition list, reading text, evidence */
+.sec-h { margin-bottom: 8px; font-size: 16px; line-height: 24px; font-weight: 600; }
+.score { container-type: inline-size; }
+.gate-strip { display: grid; grid-template-columns: 88px 96px minmax(0, 1fr); gap: 8px 12px; align-items: start; max-width: 960px; margin-top: 8px; }
+.gate { display: contents; }
+.gate-name, .gate-status { font-size: 12px; line-height: 16px; font-weight: 600; }
+.gate-name { color: var(--text-2); }
+.gate-status { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.gate-note { font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+@container (width < 480px) {
+  .gate-strip { grid-template-columns: 72px minmax(0, 1fr); row-gap: 2px; }
+  .gate-note { grid-column: 2; margin-bottom: 8px; }
+}
+@container (width >= 720px) {
+  .gate-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 24px; }
+  .gate { display: flex; flex-direction: column; gap: 2px; }
+}
+.cv-line { display: flex; align-items: baseline; gap: 8px; margin-top: 16px; }
+.cv-label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.cv-figure { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.basis { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.reasons { display: flex; flex-direction: column; gap: 12px; }
+.reasons li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; max-width: 80ch; }
+.evidence { font-size: 12px; line-height: 16px; color: var(--text-2); text-decoration: underline; text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.evidence:hover { text-decoration-thickness: 2px; }
+.facts { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 16px; align-items: baseline; }
+.facts dt { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.facts dd { max-width: 80ch; }
+.advert-text { max-width: 72ch; font-size: 15px; line-height: 24px; }
+.advert-text h4 { margin: 24px 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
+.advert-text h4:first-child { margin-top: 0; }
+.advert-text p, .advert-text ul { margin-bottom: 12px; }
+.advert-text ul { padding-left: 20px; list-style: disc; }
+.advert-text li { margin-bottom: 4px; }
+.advert-text li::marker { color: var(--text-3); }
+mark { background: transparent; color: inherit; text-decoration: underline; text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 3px; }
+mark:target { background: var(--accent-tint); text-decoration-thickness: 2px; }
+.keymap { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; align-items: center; margin-top: 16px; }
+.keymap div { display: contents; }
+.keymap dt { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.keymap .then { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.keymap dd { color: var(--text-2); }
+
+/* Widths */
+@media (width < 1280px) { .cmd { width: auto; } .cmd-text { display: none; } .cmd-icon { display: inline-flex; } }
+@media (width < 960px) { .inbox-status { display: none; } }
+@media (pointer: coarse) and (width < 1100px) { .inbox-status { display: none; } }
+@media (width < 1800px) {
+  .ph-tools { flex-basis: 100%; margin-left: 0; }
+}
+/* Under 1024: one column, no key hints. A sub-screen (data-view="role") keeps the page header for
+   assistive technology only. */
+@media (width < 1024px) {
+  .appbar { gap: 16px; }
+  .nav { gap: 16px; }
+  .kbd { display: none; }
+  .cmd { justify-content: center; width: 32px; padding: 0; border-color: transparent; background: transparent; color: var(--text-2); }
+  .cmd-text { display: none; }
+  .cmd-icon { display: inline-flex; }
+  .app[data-view="role"] .pagehead { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .app[data-view="role"] .ph-tools, .app[data-view="role"] .counts { display: none; }
+}
+/* Under 768: the document scrolls and the panes do not; 44px targets; the app bar is the mark, the page
+   name and Menu. */
+@media (width < 768px) {
+  html { scroll-padding-top: 44px; }
+  .app { grid-template-rows: 48px auto auto; height: auto; min-height: 100dvh; overflow: visible; }
+  .nav, .appbar-tools, .brand-name { display: none; }
+  .appbar-page { display: block; }
+  .appbar .menu-btn { display: inline-flex; width: 44px; height: 44px; margin: 0 -8px 0 auto; padding: 0; }
+  .undo-last { margin-left: 0; padding-inline: 0; }
+  .ph-title h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .chips { display: contents; }
+  .search { width: 100%; }
+  .btn, .chip, .search { height: 44px; }
+  .group-head { height: 44px; }
+  .fold { width: 44px; height: 44px; margin-right: -12px; }
+  .more { min-height: 44px; }
+  .facts { grid-template-columns: 112px minmax(0, 1fr); }
+  .with-icon { display: inline-flex; align-items: center; min-height: 44px; }
+  .more .link, .evidence { position: relative; }
+  .more .link::after { content: ""; position: absolute; inset: -12px 0; }
+  .evidence::after { content: ""; position: absolute; inset: -14px 0; }
+}
+@media (pointer: coarse) {
+  .btn, .chip, .search, .seg { height: 44px; }
+  .fold, .btn.btn-icon { width: 44px; height: 44px; }
+  .cmd { height: 44px; }
+  .with-icon { display: inline-flex; align-items: center; min-height: 44px; }
+  .more { min-height: 44px; }
+  .more .link, .evidence { position: relative; }
+  .more .link::after { content: ""; position: absolute; inset: -12px 0; }
+  .evidence::after { content: ""; position: absolute; inset: -14px 0; }
+  .group-head { height: 44px; }
+}
+@media (max-height: 499px) {
+  .group-head { position: static; }
+}
+
+/* A plain document page (notes): left-aligned at a 16px inset. */
+.doc { max-width: calc(72ch + 32px); padding: 24px 16px 48px; color: var(--text-2); }
+.doc h1 { margin-bottom: 8px; font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.doc h2 { margin: 24px 0 8px; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.doc li + li { margin-top: 8px; }
+.doc ul { padding-left: 20px; list-style: disc; }
+.doc ol { padding-left: 24px; list-style: decimal; }
+.doc li::marker { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.doc .pick { margin-top: 8px; }
+.doc table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.doc th, .doc td { height: 32px; padding: 0 12px 0 0; text-align: left; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+@media (width < 480px) { .doc td { white-space: normal; overflow-wrap: anywhere; } }
+.doc th { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); border-bottom-color: var(--border-strong); }
+.doc td { color: var(--text-1); }
+.doc .after-table { margin-top: 12px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+
+/* =====================================================================================================
+   Added for later pages (design-system §6, §7, §14). Above this line is the Jobs round-2 stylesheet, rule
+   for rule, less the rules of the Jobs page alone (and with .annot-host added). Nothing below this line
+   changes a pixel of what Jobs draws: test_shell.py compares them.
+   ===================================================================================================== */
+
+/* The root is a size container named app. Write a page's width rules as @container app (width >= 1800px)
+   and a screen lays out by its own width: in a frame, and at 1280 inside a states-board panel. The two
+   rules below repeat the shell's own desktop width rules for that case. Overlays are placed against it. */
+.app { container: app / inline-size; }
+@container app (width < 1280px) { .cmd { width: auto; } .cmd-text { display: none; } .cmd-icon { display: inline-flex; } }
+@container app (width < 1800px) { .ph-tools { flex-basis: 100%; margin-left: 0; } }
+
+/* A light or a dark island inside a page of the other appearance (a white sheet of paper, a light specimen). */
+.theme-light { color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none; color: var(--text-1); }
+.theme-dark { color-scheme: dark; --canvas: #0e1215; --surface: #151a1e; --surface-sunken: #1c2226; --row-hover: #192024; --row-selected: #0f3237; --text-1: #e6ebee; --text-2: #b3bec6; --text-3: #93a0a9; --border-subtle: #262e34; --border-strong: #6f7c86; --accent: #5cc3cf; --accent-hover: #82d3dc; --accent-tint: #0f3237; --on-accent: #071114; --positive: #74d39b; --positive-tint: #12291c; --caution: #f0c46a; --caution-tint: #2c2311; --negative: #ff9b8f; --negative-tint: #33191a; --neutral: #b3bec6; --neutral-tint: #1f262b; --scrim: rgba(0, 0, 0, .6); --shadow-overlay: 0 8px 24px rgba(0, 0, 0, .5); --mark-filter: invert(1) hue-rotate(180deg); color: var(--text-1); }
+.theme-light :focus-visible, .theme-light .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  .theme-light .row:focus-visible, .theme-light .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+html[data-appearance] .theme-dark :focus-visible, html[data-appearance] .theme-dark .is-focus { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+  html[data-appearance] .theme-dark .row:focus-visible, html[data-appearance] .theme-dark .row.is-focus { outline-offset: -7px; box-shadow: none; }
+
+/* Type: the rest of the scale (design-system §5) */
+.text-page-title { font-size: 20px; line-height: 28px; font-weight: 600; }
+.text-title { font-size: 18px; line-height: 24px; font-weight: 600; }
+.text-section { font-size: 16px; line-height: 24px; font-weight: 600; }
+.text-panel { font-size: 14px; line-height: 20px; font-weight: 600; }
+.text-body { font-size: 14px; line-height: 20px; font-weight: 400; }
+.text-reading { max-width: 72ch; font-size: 15px; line-height: 24px; font-weight: 400; }
+.text-figure { font-size: 14px; line-height: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.text-figure-large { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ink-1 { color: var(--text-1); }
+.ink-2 { color: var(--text-2); }
+.ink-3 { color: var(--text-3); }
+
+/* The nav's shortest item, CV, is 21px wide. Its target is widened to 25px, not its box, so the bar keeps
+   its pixels. */
+.nav a { position: relative; }
+.nav a::after { content: ""; position: absolute; inset: 0 -2px; }
+
+/* Controls: what Jobs did not need */
+select, textarea { font: inherit; color: inherit; letter-spacing: 0; }
+.btn.btn-danger { background: var(--surface); border-color: var(--border-strong); color: var(--negative); }
+.btn.btn-danger:hover { background: var(--row-hover); }
+.btn.btn-danger.is-disabled { color: var(--text-3); border-color: var(--border-subtle); }
+.btn.btn-primary.is-disabled { background: var(--surface-sunken); border-color: var(--border-subtle); color: var(--text-3); }
+.btn.btn-ghost.is-disabled:hover { color: var(--text-3); text-decoration: none; }
+.btn[aria-pressed="true"] { background: var(--surface-sunken); border-color: var(--border-strong); color: var(--text-1); }
+.link-block { display: inline-flex; align-items: center; min-height: 24px; }
+.tag-negative { background: var(--negative-tint); color: var(--negative); }
+.is-cau { color: var(--caution); }
+.status { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+/* A link that stands alone in a 40px row, and an evidence link, are 20px and 16px tall: their targets are
+   made 24px without moving a pixel. (Jobs widens them further on touch; :where() keeps those rules on top.) */
+:where(.more) .link, :where(.evidence) { position: relative; }
+:where(.more) .link::after { content: ""; position: absolute; inset: -2px 0; }
+:where(.evidence)::after { content: ""; position: absolute; inset: -4px 0; }
+.chev { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; border: 0;
+  border-radius: var(--radius-2); background: transparent; color: var(--text-2); cursor: pointer; }
+.chev:hover { background: var(--row-hover); color: var(--text-1); }
+.action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* Page header: a back link above the title, tags after it, tools kept on the title's line */
+.ph-back { flex: 0 0 100%; }
+@media (width >= 768px) { .pagehead.ph-inline .ph-tools { flex-basis: auto; margin-left: auto; } }
+
+/* Panes */
+.pane { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scroll-padding-top: 40px; background: var(--surface); }
+.pane-body { display: flex; flex-direction: column; gap: 24px; padding: 16px 16px 24px; }
+.pane-note { display: flex; align-items: center; min-height: 32px; padding: 8px 16px 7px; font-size: 12px; line-height: 16px;
+  color: var(--text-2); border-bottom: 1px solid var(--border-subtle); }
+.head-meta { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.head-tools { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+.head-tools + .fold { margin-left: 0; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; margin-bottom: 8px; }
+.sec-head .sec-h { margin-bottom: 0; }
+.sec-meta { font-size: 12px; line-height: 16px; color: var(--text-3); }
+
+/* List rows of 56px and 40px, on the same .row */
+.row-2 { grid-template-rows: 20px 16px; row-gap: 4px; height: 56px; }
+.row-1 { grid-template-rows: 20px; height: 40px; padding-top: 10px; padding-bottom: 9px; }
+.row.is-static:hover { background: var(--surface); }
+
+/* Table: sticky head on the sunken ground, 40px rows, one line a cell */
+.table-wrap { min-width: 0; background: var(--surface); }
+.table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); }
+.table th, .table td { height: 40px; padding: 0 12px; text-align: left; vertical-align: middle; white-space: nowrap;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.table th:first-child, .table td:first-child { padding-left: 16px; }
+.table th:last-child, .table td:last-child { padding-right: 16px; }
+.table thead th { position: sticky; top: var(--table-top, 0px); z-index: 1; background: var(--surface-sunken);
+  border-bottom-color: var(--border-strong); font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); }
+.table tbody th { font-weight: 500; color: var(--text-1); }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table td.num { font-weight: 500; }
+.table .cell-trunc { max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.table .cell-meta { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.table .th-sub { margin-left: 8px; font-weight: 400; }
+.table tbody tr:hover > th, .table tbody tr:hover > td { background: var(--row-hover); }
+.table tbody tr[aria-current="true"] > th, .table tbody tr[aria-current="true"] > td { background: var(--row-selected); }
+.table tbody tr[aria-current="true"] > :first-child { border-left: 3px solid var(--accent); padding-left: 13px; }
+.th-sort { display: inline-flex; align-items: center; gap: 4px; min-width: 24px; min-height: 32px; color: inherit; text-decoration: none; }
+.th-sort:hover, .table th[aria-sort="ascending"] .th-sort, .table th[aria-sort="descending"] .th-sort { color: var(--text-1); }
+.table .t-chev { width: 48px; padding: 0 0 0 8px; }
+.table tr.is-open > th, .table tr.is-open > td { border-bottom-color: transparent; }
+.table .t-detail > td { height: auto; padding: 4px 16px 16px 56px; white-space: normal; }
+.table tbody tr.t-detail:hover > td { background: var(--surface); }
+.table .t-group > th { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.table tbody tr.t-group:hover > th, .table tbody tr.t-more:hover > td { background: var(--surface); }
+.table .t-group .group-count { margin-left: 8px; }
+@media (width < 1024px) {
+  .table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
+  .t-detail-body { position: sticky; left: 56px; width: calc(100vw - 72px); max-width: 100%; }
+}
+@media (max-height: 499px) { .table thead th { position: static; } }
+
+/* Text tabs: each tab a link, the current one marked */
+.tabs { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0 20px; min-height: 40px; padding: 0 16px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.tab { display: flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-width: 24px; min-height: 40px; padding: 2px 2px 0;
+  border-bottom: 2px solid transparent; color: var(--text-2); text-decoration: none; white-space: nowrap; transition: color var(--dur) ease-out; }
+.tab:hover { color: var(--text-1); }
+.tab[aria-current] { color: var(--text-1); border-bottom-color: var(--accent); }
+.tab-count { font-size: 12px; line-height: 16px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* Segmented control: joined segments. Buttons for a choice, links for a view switch. */
+.segmented { display: inline-flex; flex: none; }
+.segmented .seg { min-width: 32px; }
+.segmented a.seg { position: relative; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.segmented .seg:hover { color: var(--text-1); }
+.segmented .seg[aria-pressed="true"], .segmented .seg[aria-current] { background: var(--surface-sunken); color: var(--text-1); }
+.segmented a.seg[aria-current]::after { content: ""; position: absolute; left: -1px; right: -1px; bottom: -1px; height: 2px; background: var(--accent); }
+.segmented .seg:focus-visible, .segmented .seg.is-focus { position: relative; z-index: 1; }
+
+/* Notice line: mark, sentence, at most one action. No tint: the 1px rule and the mark carry it. */
+.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; min-height: 40px; padding: 4px 16px 3px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.notice-body { display: flex; align-items: flex-start; gap: 12px; flex: 1 1 24ch; min-width: 0; padding: 6px 0; }
+.notice-mark { flex: none; margin-top: 2px; }
+.notice-text { min-width: 0; max-width: 96ch; }
+.notice > .btn, .notice > .link-block { flex: none; }
+.notice > .link-block { min-height: 32px; }
+.notice-info .notice-mark { color: var(--neutral); }
+.notice-caution .notice-mark { color: var(--caution); }
+.notice-negative .notice-mark { color: var(--negative); }
+.notice-positive .notice-mark { color: var(--positive); }
+
+/* Form fields: a visible label above, 32px controls */
+.field { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
+.field-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 16px; }
+.field-row > .field { flex: 1 1 160px; }
+.field-label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.field-input { width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text-1); font-size: 14px; line-height: 20px; }
+.field-input::placeholder { color: var(--text-3); opacity: 1; }
+textarea.field-input { height: auto; min-height: 72px; padding: 5px 8px; resize: vertical; }
+select.field-input { appearance: none; -webkit-appearance: none; padding-right: 32px; cursor: pointer; }
+.field-select { position: relative; display: block; }
+.field-select iconify-icon { position: absolute; top: 50%; right: 8px; margin-top: -8px; color: var(--text-2); pointer-events: none; }
+.field-input[aria-invalid="true"] { border-color: var(--negative); }
+.field-input[readonly] { background: var(--surface-sunken); }
+.field-hint { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.field-error { display: flex; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--negative); }
+.field-error svg { flex: none; margin-top: 2px; }
+.check { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; cursor: pointer; }
+.check-input { -webkit-appearance: none; appearance: none; display: inline-grid; place-content: center; flex: none; width: 16px; height: 16px; margin: 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); cursor: pointer; }
+.check-input::before { content: ""; width: 10px; height: 10px; background: var(--on-accent); transform: scale(0);
+  clip-path: polygon(14% 44%, 0 65%, 44% 100%, 100% 20%, 82% 6%, 40% 66%); }
+.check-input:checked { background: var(--accent); border-color: var(--accent); }
+.check-input:checked::before { transform: scale(1); }
+/* A date field hands the focus on to its own calendar button, and the field then matches neither :focus nor
+   :focus-visible. So fields show the ring on :focus-within, as text fields do on any focus anyway. */
+.field-input:focus-within { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+html[data-appearance="light"] .field-input:focus-within, .theme-light .field-input:focus-within { outline-color: #14191d;
+  box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] .field-input:focus-within { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+}
+html[data-appearance] .theme-dark .field-input:focus-within { outline-color: #ffd447; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+@media (forced-colors: active) { .field-input:focus-within { outline-color: Highlight; } }
+
+/* Popover menu, drawn open. Overlays alone take radius 4px and the overlay shadow. */
+.popover-anchor { position: relative; display: inline-flex; }
+.menu, .popover { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 200px; padding: 4px 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--surface); box-shadow: var(--shadow-overlay); }
+.popover { padding: 12px; }
+.popover-anchor.is-end > .menu, .popover-anchor.is-end > .popover { right: 0; left: auto; }
+.menu .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 12px; border: 0; background: transparent;
+  color: var(--text-1); font-size: 14px; line-height: 20px; font-weight: 400; text-align: left; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.menu .menu-item:hover { background: var(--row-hover); }
+.menu .menu-item.is-current { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 9px; }
+.menu .menu-item.is-danger { color: var(--negative); }
+.menu .menu-item .kbd { margin-left: auto; }
+.menu-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+
+/* Toast: the inverse of the surface, at the bottom right of the screen it speaks for */
+.toast { position: absolute; z-index: 25; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 12px;
+  max-width: min(480px, calc(100% - 32px)); padding: 8px 8px 8px 16px; border-radius: var(--radius-4); background: var(--text-1);
+  color: var(--surface); box-shadow: var(--shadow-overlay); }
+.toast-text { min-width: 0; }
+.toast .toast-btn { flex: none; height: 32px; padding: 0 12px; border: 1px solid var(--surface); border-radius: var(--radius-2);
+  background: transparent; color: var(--surface); font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer; }
+.toast .toast-btn:hover { text-decoration: underline; text-underline-offset: 2px; }
+.toast :focus-visible, .toast .is-focus { outline-color: var(--surface); box-shadow: none; }
+
+/* Dialog and drawer, drawn open over a scrim. Placed against the nearest positioned box: the app, a
+   states-board panel or a .stage. */
+.scrim { position: absolute; inset: 0; z-index: 30; background: var(--scrim); }
+.dialog, .drawer { position: absolute; z-index: 31; display: flex; flex-direction: column; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text-1); box-shadow: var(--shadow-overlay); }
+.dialog { top: var(--overlay-top, 96px); right: 0; left: 0; width: min(var(--overlay-width, 480px), calc(100% - 32px));
+  max-height: calc(100% - var(--overlay-top, 96px) - 32px); margin-inline: auto; border-radius: var(--radius-4); }
+.drawer { top: 0; right: 0; bottom: 0; width: min(var(--overlay-width, 480px), 100%); border-width: 0 0 0 1px;
+  border-radius: var(--radius-4) 0 0 var(--radius-4); }
+.overlay-head { display: flex; align-items: center; gap: 8px; flex: none; min-height: 48px; padding: 8px 8px 7px 16px;
+  border-bottom: 1px solid var(--border-subtle); }
+.overlay-title { flex: 1 1 auto; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 600; }
+.overlay-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 16px; }
+.overlay-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle); }
+.stage { position: relative; overflow: hidden; background: var(--surface); }
+.spec-menu { height: 176px; }
+
+/* Empty and loading: left-aligned at the top of the area they replace */
+.empty { padding: 12px 16px 24px; }
+.empty > p { max-width: 72ch; }
+.empty > .btn, .empty > .link-block { margin-top: 12px; }
+.loading { padding: 12px 16px 24px; }
+.loading-text { max-width: 72ch; margin-bottom: 8px; color: var(--text-2); }
+.load-bar { display: block; max-width: 72ch; height: 12px; margin: 4px 0 8px; border-radius: var(--radius-2); background: var(--surface-sunken); }
+
+/* Vertical toolbar slot: icon buttons on the sunken ground, or the same with visible labels */
+.vtoolbar { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: none; width: 48px; padding: 8px;
+  background: var(--surface-sunken); border-right: 1px solid var(--border-subtle); --focus-gap: var(--surface-sunken); }
+.vtoolbar.has-labels { width: 216px; }
+.vtoolbar.has-labels .btn { justify-content: flex-start; padding: 0 8px; }
+.vtoolbar .btn .kbd { margin-left: auto; }
+.tool-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+.tool-note { padding: 0 8px 4px 32px; font-size: 12px; line-height: 16px; color: var(--text-3); white-space: normal; }
+
+/* 44px on touch, and under 768px where a desktop browser draws the phone frame. The app is then at least a
+   screen high: its rows keep their own heights (a short page would otherwise stretch its page header). */
+@media (width < 768px) {
+  .app { align-content: start; }
+  .pane { overflow: visible; min-height: auto; }
+  .pagehead.ph-own .ph-title h1 { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; }
+  .btn.btn-icon, .chev { width: 44px; }
+  .chev, .field-input, .segmented .seg, .toast .toast-btn, .menu .menu-item { height: 44px; }
+  textarea.field-input { height: auto; }
+  .tab, .check, .link-block, .th-sort, .notice > .link-block { min-height: 44px; }
+  .row-1 { height: 44px; padding-top: 12px; padding-bottom: 11px; }
+  .toast { left: 16px; max-width: none; }
+  .dialog { --overlay-top: 64px; }
+  .drawer { width: 100%; border-width: 0; border-radius: 0; }
+  .vtoolbar { width: 60px; }
+  .vtoolbar.has-labels { width: 216px; }
+  .spec-menu { height: 236px; }
+}
+@media (pointer: coarse) {
+  .btn.btn-icon, .chev { width: 44px; }
+  .chev, .field-input, .segmented .seg, .toast .toast-btn, .menu .menu-item { height: 44px; }
+  textarea.field-input { height: auto; }
+  .tab, .check, .link-block, .th-sort, .notice > .link-block { min-height: 44px; }
+  .row-1 { height: 44px; padding-top: 12px; padding-bottom: 11px; }
+  .vtoolbar { width: 60px; }
+  .vtoolbar.has-labels { width: 216px; }
+  .spec-menu { height: 236px; }
+}
+
+/* Hide by frame: wide is 1800px and over, desk 1024 to 1799, phone under 1024. For markers, legend lines
+   and anything else a frame does not draw. */
+@media (width >= 1800px) { .hide-wide { display: none !important; } }
+@media (width >= 1024px) and (width < 1800px) { .hide-desk { display: none !important; } }
+@media (width < 1024px) { .hide-phone { display: none !important; } }
+
+/* Annotation layer: not product UI. A marker is a 20px square, the inverse of the surface under it, with a
+   mono numeral; it takes no room. The legend sits under the app frame on the canvas ground. */
+.annot, .legend-n { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: var(--text-1);
+  color: var(--surface); font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; font-style: normal;
+  font-variant-numeric: tabular-nums; letter-spacing: 0; text-indent: 0; white-space: nowrap; }
+.annot { position: absolute; z-index: 40; margin: 0; padding: 0; border: 0; box-shadow: 0 0 0 1px var(--surface); pointer-events: none;
+  translate: var(--dx, 0px) var(--dy, 0px); }
+.annot-tl { top: 0; left: 0; }
+.annot-t { top: 0; left: calc(50% - 10px); }
+.annot-tr { top: 0; right: 0; }
+.annot-l { top: calc(50% - 10px); left: 0; }
+.annot-c { top: calc(50% - 10px); left: calc(50% - 10px); }
+.annot-r { top: calc(50% - 10px); right: 0; }
+.annot-bl { bottom: 0; left: 0; }
+.annot-b { bottom: 0; left: calc(50% - 10px); }
+.annot-br { right: 0; bottom: 0; }
+.legend { padding: 24px 16px 48px; background: var(--canvas); border-top: 1px solid var(--border-strong); color: var(--text-2); }
+.legend-title { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.legend-note { max-width: 96ch; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.legend-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); gap: 16px 32px; margin-top: 16px; }
+.legend-item { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 12px; align-items: start; max-width: 72ch; }
+.legend-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.legend-text { text-wrap: pretty; }
+
+/* Annotated frame: the app at a fixed height for the mockup, the legend under it. */
+.frame { background: var(--canvas); }
+.frame > .app { height: 900px; }
+@media (width >= 1800px) { .frame > .app { height: 1440px; } }
+@media (width < 1024px) {
+  .frame > .app { grid-template-rows: 48px auto auto; height: auto; min-height: 0; overflow: visible; }
+  .frame .pane { overflow: visible; min-height: auto; }
+}
+
+/* States board: plain panels on the canvas ground, each a label over a 1px rule and a fragment at real size. */
+.board { min-height: 100dvh; padding-bottom: 48px; background: var(--canvas); color: var(--text-2); }
+.board-head { padding: 24px 16px 0; }
+.board-head h1 { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.board-head p { max-width: 96ch; margin-top: 4px; }
+.board-panels { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 32px 24px; padding: 24px 16px 0; }
+.board-panel { position: relative; flex: none; min-width: 0; max-width: 100%; }
+.board-panel.is-auto { flex: 1 1 560px; }
+.board-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; padding-bottom: 7px; border-bottom: 1px solid var(--border-strong); }
+.board-n { min-width: 16px; font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.board-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.board-note { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.board-body { position: relative; overflow: auto; background: var(--surface); color: var(--text-1); }
+.board-body > .app { height: 100%; min-height: 0; }
+.board.is-flush .board-panels { gap: 32px 0; padding-right: 0; padding-left: 0; }
+.board.is-flush .board-label { padding-right: 16px; padding-left: 16px; }
+.board.is-flush .board-panel + .board-panel::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; z-index: 50; width: 1px;
+  background: var(--border-strong); pointer-events: none; }
+
+/* System sheet: four columns of reference from 1800px, two from 1024px, then the component list */
+.sys { min-height: 100dvh; padding: 24px 16px 64px; background: var(--canvas); color: var(--text-2); }
+.sys-head { margin-bottom: 32px; }
+.sys-head h1 { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.sys-head p { max-width: 96ch; margin-top: 4px; }
+.sys-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px 32px; align-items: start; }
+.sys-cell { display: flex; flex-direction: column; gap: 40px; min-width: 0; }
+.sys-extra { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 40px 32px; align-items: start; }
+.sys-wide, .sys-extra { margin-top: 40px; }
+@media (width >= 1024px) { .sys-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (width >= 1800px) { .sys-grid { grid-template-columns: minmax(0, 1.44fr) minmax(0, 1.44fr) minmax(0, 1fr) minmax(0, 1fr); } }
+.sys-sec { min-width: 0; }
+.sys-sec > h2 { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.sys-note { max-width: 96ch; margin: 4px 0 12px; font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+.sys-table { overflow-x: auto; }
+.sys-table .table th, .sys-table .table td { height: 32px; padding-top: 6px; padding-bottom: 5px; white-space: normal; }
+.sys-table .table .keep { white-space: nowrap; }
+.sys-table .table th:last-child, .sys-table .table td:last-child { width: 100%; }
+.sys-table .table tbody tr:hover > td { background: var(--surface); }
+.swatch { display: inline-block; flex: none; width: 32px; height: 20px; border: 1px solid var(--border-strong); vertical-align: middle; }
+.swatch-cell { display: inline-flex; align-items: center; gap: 8px; }
+.swatch-stack { display: inline-flex; flex-direction: column; gap: 4px; }
+.sys-steps { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px; margin-bottom: 16px; padding: 16px; background: var(--surface); }
+.sys-step { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 16px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.sys-step-bar { height: 16px; background: var(--text-3); }
+.sys-comps { column-gap: 48px; }
+@media (width >= 1800px) { .sys-comps { column-count: 2; } }
+.sys-comp { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 8px 24px; align-items: start; padding: 16px 0;
+  border-top: 1px solid var(--border-subtle); break-inside: avoid; }
+.sys-comp.is-wide { column-span: all; grid-template-columns: minmax(0, 1fr); }
+.sys-comp.is-wide .sys-comp-line { max-width: 96ch; }
+.sys-comp-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.sys-comp-line { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+.sys-draw { min-width: 0; overflow-x: auto; background: var(--surface); color: var(--text-1); }
+.sys-draw.is-pad { padding: 12px 16px; }
+.sys-draw > .appbar, .sys-draw > .pagehead { grid-row: auto; }
+.spec-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.spec-col { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+@media (width < 768px) { .sys-comp { grid-template-columns: minmax(0, 1fr); } .sys-table .table { min-width: 600px; } }
+
+/* ---- This page ---- */
+/* Insights A, "Above the bar". Under 1024px: one column, the list, with each urgent signal's reason, next
+   move and actions set out under its row. From 1024px: the list beside the reading pane. From 1800px:
+   list | signal | company. Panes abut on 1px rules. */
+
+/* The list: the watcher lines and the two bands that hold rows scroll; the foot (Below the bar, Done and
+   dismissed, Sources) stays under them, so the count of what is below the bar is always in view. */
+.ins-list { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); }
+.ins-rows { flex: 0 1 auto; }
+.ins-foot { flex: none; position: relative; margin-top: -1px; border-top: 1px solid var(--border-subtle);
+  background: var(--surface); }
+.ins-nothing { border-bottom: 1px solid var(--border-subtle); }
+.ins-fails { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 2px 24px;
+  padding: 0 16px 9px 44px; border-bottom: 1px solid var(--border-subtle); font-size: 12px; line-height: 16px;
+  color: var(--text-2); }
+.ins-fails span { color: var(--text-3); }
+
+/* An urgent signal set out under its row: drawn under 1024px only, where there is no reading pane. */
+.ins-open { padding: 12px 16px 16px; border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.ins-open-text { max-width: 72ch; margin-top: 2px; text-wrap: pretty; }
+.ins-open-text + .text-label { margin-top: 12px; }
+.ins-open-actions { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+  max-width: 560px; margin-top: 24px; }
+
+/* The reading pane: a header that stays, then the signal, then the company. */
+.ins-read { min-width: 0; min-height: 0; background: var(--surface); }
+.ins-head { container: inshead / inline-size; padding: 12px 16px; background: var(--surface);
+  border-bottom: 1px solid var(--border-subtle); }
+.ins-head-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title nav" "about about";
+  column-gap: 16px; }
+.ins-title { grid-area: title; align-self: center; max-width: 80ch; text-wrap: balance; }
+.ins-nav { grid-area: nav; display: flex; align-items: flex-start; gap: 8px; }
+.ins-about { grid-area: about; margin-top: 4px; }
+.ins-actions { margin-top: 12px; }
+.ins-does { max-width: 104ch; margin-top: 8px; font-size: 12px; line-height: 16px; color: var(--text-2); text-wrap: pretty; }
+@container inshead (width < 640px) {
+  .ins-head-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "title" "about" "nav"; }
+  .ins-nav { margin-top: 8px; }
+}
+.ins-scroll { min-width: 0; min-height: 0; }
+.ins-signal { container: inssig / inline-size; }
+.ins-pair { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px 32px; }
+@container inssig (width >= 720px) { .ins-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ins-text { max-width: 80ch; text-wrap: pretty; }
+.ins-more { max-width: 80ch; margin-top: 8px; color: var(--text-2); text-wrap: pretty; }
+.ins-rel { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; margin-top: 12px; }
+.ins-basis { max-width: 80ch; margin-top: 2px; text-wrap: pretty; }
+.ins-draft { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.ins-draft-text { max-width: 72ch; color: var(--text-2); text-wrap: pretty; }
+.ins-drafts-note { margin-top: 12px; }
+.ins-sources { display: flex; flex-direction: column; gap: 12px; }
+.ins-sources li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; max-width: 80ch; }
+.ins-company { border-top: 1px solid var(--border-subtle); }
+
+@container app (width < 360px) { .ins-open-actions { grid-template-columns: minmax(0, 1fr); } }
+@container app (width < 480px) { .ins-range { display: none; } }
+@container app (width < 1024px) { .ins-read { display: none; } }
+
+/* 1024 to 1799: list | reading pane. The pane's header stays and the signal and the company scroll under
+   it as one. */
+@container app (1024px <= width < 1800px) {
+  .ins { grid-template-columns: clamp(400px, 40cqi, 560px) minmax(0, 1fr); }
+  .ins-scroll { overflow: auto; overscroll-behavior: contain; }
+  .ins-scroll > .pane { overflow: visible; }
+}
+@container app (width >= 1024px) {
+  .ins-list { overflow: hidden; border-right: 1px solid var(--border-subtle); }
+  .ins-open { display: none; }
+  .ins-read { display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
+  .ins-read.ins-none { display: block; overflow: auto; }
+}
+/* 1800 and wider: list | signal | company, the company in a column of its own. */
+@container app (width >= 1800px) {
+  .ins { grid-template-columns: clamp(560px, 34cqi, 880px) minmax(0, 1fr) clamp(480px, 28cqi, 720px);
+    grid-template-rows: auto minmax(0, 1fr); }
+  .ins-list { grid-column: 1; grid-row: 1 / span 2; }
+  .ins-read, .ins-scroll { display: contents; }
+  .ins-head { grid-column: 2; grid-row: 1; }
+  .ins-signal { grid-column: 2; grid-row: 2; }
+  .ins-company { grid-column: 3; grid-row: 1 / span 2; border-top: 0; border-left: 1px solid var(--border-subtle); }
+  .ins-read.ins-none { grid-column: 2 / span 2; grid-row: 1 / span 2; }
+}
+</style>
+</head>
+<body>
+<div class="board is-flush">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="st-pos" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-cau" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 2.4a5.6 5.6 0 0 0 0 11.2z" fill="currentColor"/></symbol>
+<symbol id="st-neg" viewBox="0 0 16 16"><path d="M4.2 4.2l7.6 7.6m0-7.6l-7.6 7.6" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-neu" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+<symbol id="st-pro" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></symbol>
+</svg>
+
+<header class="board-head"><h1>Insights A, Above the bar: states</h1><p>The same screen, drawn by the same code with the day switched: empty, with a lot of data, and stale or in error. Each panel is 1280 by 900. Every company, person and product is invented.</p></header>
+<div class="board-panels">
+<section class="board-panel" style="width:1280px" aria-labelledby="board-state-1"><header class="board-label"><span class="board-n">1</span><h2 class="board-name" id="board-state-1">Empty</h2><p class="board-note">Nothing at 40 or more is open: each band says so in one line, 29 sit below the bar, and the pane shows the watcher&#x27;s last runs.</p></header><div class="board-body" style="height:900px"><div class="app">
+<header class="appbar"><div class="brand"><img class="brand-mark" src="https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/0db15a19-3516-4453-a7e9-67ecc19e8823/brand-assets/brand-radar-mark.svg/radar-mark.svg" width="51" height="24" alt=""><span class="brand-name">MedTech Radar</span><span class="appbar-page">Insights</span></div><nav class="nav" aria-label="Pages"><a id="empty-nav-home" href="#home">Home</a><a id="empty-nav-jobs" href="#jobs">Jobs</a><a id="empty-nav-insights" href="#insights" aria-current="page">Insights</a><a id="empty-nav-watchlist" href="#watchlist">Watchlist</a><a id="empty-nav-cv" href="#cv">CV</a></nav><div class="appbar-tools"><button type="button" class="cmd" aria-haspopup="dialog" aria-keyshortcuts="Control+K" aria-label="Search or run a command"><iconify-icon class="cmd-icon" icon="carbon:search" width="20" height="20" aria-hidden="true"></iconify-icon><span class="cmd-text">Search or run a command</span><kbd class="kbd" aria-hidden="true">Ctrl K</kbd></button><span class="inbox-status">Inbox on schedule · ran 09:02</span><div class="appearance" role="group" aria-label="Appearance"><button type="button" class="seg" aria-pressed="false">Light</button><button type="button" class="seg" aria-pressed="false">Auto</button><button type="button" class="seg" aria-pressed="true">Dark</button></div><button type="button" class="btn btn-ghost btn-icon help" aria-label="Keyboard shortcuts" aria-keyshortcuts="Shift+?"><iconify-icon icon="carbon:help" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><button type="button" class="btn btn-ghost menu-btn" aria-haspopup="true" aria-expanded="false">Menu</button></header><div class="pagehead ph-inline"><div class="ph-title"><h1>Insights</h1><p class="counts">No urgent signal · 0 worth a look · 29 below the bar · 3 done or dismissed</p></div><div class="ph-tools"><button type="button" class="btn btn-ghost undo-last">Undo last</button></div></div><main class="content ins"><section class="ins-list" aria-label="Signals"><div class="pane ins-rows"><p class="pane-note ins-watch"><span>Signal watcher ran 06:00, 3 hours ago. Next run 12:00.<br>26 of 26 sources read. Times are UK time.</span></p><div class="group-head"><h2 class="group-title" id="empty-band-urgent">Urgent, 75 and over<span class="group-count">0</span></h2><span class="head-meta">Phone push armed</span></div><div class="ins-nothing"><div class="empty"><p>No urgent signal is waiting.</p></div></div><div class="group-head"><h2 class="group-title" id="empty-band-look">Worth a look, 40 to 74<span class="group-count">0</span></h2></div><div class="ins-nothing"><div class="empty"><p>Nothing from 40 to 74 is open. All 11 signals found this week are below 40.</p></div></div></div><div class="ins-foot"><div class="group-head"><h2 class="group-title" id="empty-band-below"><span>Below the bar<span class="ins-range">, under 40</span></span><span class="group-count">29</span></h2><div class="head-tools"><a id="empty-show-them-in-the-list" class="link link-block" href="#insights-below">Show them in the list</a></div></div><div class="group-head"><h2 class="group-title" id="empty-band-closed">Done and dismissed<span class="group-count">3</span></h2><button type="button" class="fold" aria-expanded="false" aria-label="Done and dismissed"><iconify-icon icon="carbon:chevron-right" width="16" height="16" aria-hidden="true"></iconify-icon></button></div><div class="group-head"><h2 class="group-title" id="empty-band-sources">Sources<span class="group-count">26</span></h2><span class="head-meta">26 read at 06:00</span><button type="button" class="fold" aria-expanded="false" aria-label="Sources"><iconify-icon icon="carbon:chevron-right" width="16" height="16" aria-hidden="true"></iconify-icon></button></div></div></section><section class="pane ins-read ins-none" aria-label="No signal selected"><div class="empty"><p>No signal to read until one reaches 40.<br>The 29 below the bar are one link away, at the foot of the list.</p></div><div class="pane-body"><section class="sec" aria-labelledby="empty-signal-watcher-heading"><div class="sec-head"><h3 class="sec-h" id="empty-signal-watcher-heading">Signal watcher</h3><span class="sec-meta">Every 6 hours, from midnight. Late after 7 hours without a run.</span></div><dl class="facts"><dt>13 Nov 06:00</dt><dd>26 of 26 sources read.</dd><dt>13 Nov 00:00</dt><dd>18 of 18 origin sources read.</dd><dt>12 Nov 18:00</dt><dd>18 of 18 origin sources read.</dd><dt>Next run</dt><dd>13 Nov 12:00, in 3 hours</dd></dl></section></div></section></main>
+</div></div></section>
+<section class="board-panel" style="width:1280px" aria-labelledby="board-state-2"><header class="board-label"><span class="board-n">2</span><h2 class="board-name" id="board-state-2">A lot of data</h2><p class="board-note">5 urgent signals from 3 events: the 3 reports of Selwick Photonics are one row. 44 worth a look, and 2 sources could not be read.</p></header><div class="board-body" style="height:900px"><div class="app">
+<header class="appbar"><div class="brand"><img class="brand-mark" src="https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/0db15a19-3516-4453-a7e9-67ecc19e8823/brand-assets/brand-radar-mark.svg/radar-mark.svg" width="51" height="24" alt=""><span class="brand-name">MedTech Radar</span><span class="appbar-page">Insights</span></div><nav class="nav" aria-label="Pages"><a id="heavy-nav-home" href="#home">Home</a><a id="heavy-nav-jobs" href="#jobs">Jobs</a><a id="heavy-nav-insights" href="#insights" aria-current="page">Insights</a><a id="heavy-nav-watchlist" href="#watchlist">Watchlist</a><a id="heavy-nav-cv" href="#cv">CV</a></nav><div class="appbar-tools"><button type="button" class="cmd" aria-haspopup="dialog" aria-keyshortcuts="Control+K" aria-label="Search or run a command"><iconify-icon class="cmd-icon" icon="carbon:search" width="20" height="20" aria-hidden="true"></iconify-icon><span class="cmd-text">Search or run a command</span><kbd class="kbd" aria-hidden="true">Ctrl K</kbd></button><span class="inbox-status">Inbox ran 09:02 · could not score 3 roles</span><div class="appearance" role="group" aria-label="Appearance"><button type="button" class="seg" aria-pressed="false">Light</button><button type="button" class="seg" aria-pressed="false">Auto</button><button type="button" class="seg" aria-pressed="true">Dark</button></div><button type="button" class="btn btn-ghost btn-icon help" aria-label="Keyboard shortcuts" aria-keyshortcuts="Shift+?"><iconify-icon icon="carbon:help" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><button type="button" class="btn btn-ghost menu-btn" aria-haspopup="true" aria-expanded="false">Menu</button></header><div class="pagehead ph-inline"><div class="ph-title"><h1>Insights</h1><p class="counts">5 urgent signals from 3 events · 44 worth a look · 138 below the bar · 32 done or dismissed</p></div><div class="ph-tools"><button type="button" class="btn btn-ghost undo-last">Undo last</button></div></div><main class="content ins"><section class="ins-list" aria-label="Signals"><div class="pane ins-rows"><div class="notice notice-caution" role="status"><div class="notice-body"><svg class="notice-mark" width="16" height="16" aria-hidden="true"><use href="#st-cau"></use></svg><p class="notice-text"><span class="visually-hidden">Caution: </span>2 of 26 sources could not be read in the last run at 06:00.</p></div></div><ul class="ins-fails" aria-label="Sources that could not be read"><li>Rhine Valley Sensor Institute press <span>· blocked by robots.txt</span></li><li>Baltic Photonics Institute press <span>· unreachable</span></li></ul><p class="pane-note ins-watch"><span>Signal watcher ran 06:00, 3 hours ago. Next run 12:00.<br>24 of 26 sources read. Times are UK time.</span></p><div class="group-head"><h2 class="group-title" id="heavy-band-urgent">Urgent, 75 and over<span class="group-count">3</span></h2><span class="head-meta">5 signals from 3 events · Phone push armed</span></div><a id="heavy-row-a-university-in-enschede-spins-out-selwick" class="row row-3 is-focus" href="#signal-s-selwick-1" aria-current="true"><span class="r1"><span class="r-title">A university in Enschede spins out Selwick Photonics with a €5m seed round to build a handheld Raman reader for wound infection.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>93</span><span class="r-seen"><span class="visually-hidden">Found </span>12 Nov</span></span><span class="r2"><span class="r-meta">Selwick Photonics · Spin-off launch · Reported by 3 sources · Drafts to copy · Pushed to the phone 12 Nov</span></span><span class="r3"><span class="r-lead">New spin-off at seed stage with a software-driven diagnostic reader and no software or quality hires announced.</span></span></a><div class="ins-open" role="group" aria-label="Selwick Photonics: why it matters, next move and actions"><p class="text-label ink-2">Why it matters</p><p class="ins-open-text">New spin-off at seed stage with a software-driven diagnostic reader and no software or quality hires announced.</p><p class="text-label ink-2">Next move</p><p class="ins-open-text">Comment on the announcement today on one specific point about the product, then send the chief executive a short connection note as a peer, with no offer and no mention of paid work.</p><div class="ins-open-actions"><button type="button" class="btn btn-primary">Done</button><button type="button" class="btn btn-secondary">Dismiss</button><a id="heavy-open-the-source" class="btn btn-secondary" href="#source-lowlands-photonics-cluster-news"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Open the source<span class="visually-hidden">: Lowlands Photonics Cluster news, the first of 3 reports, in a new tab</span></a><a id="heavy-open-the-company" class="btn btn-secondary" href="#company-selwick-photonics">Open the company<span class="visually-hidden">: Selwick Photonics, its record</span></a><button type="button" class="btn btn-secondary">Copy the comment</button><button type="button" class="btn btn-secondary">Copy the connection note</button></div><p class="ins-does">Done marks all 3 reports as done and logs one contact with Selwick Photonics today, with a follow-up booked for 4 Dec. Dismiss takes all 3 reports off this list and out of the Monday digest, and logs nothing. Either can be undone from Done and dismissed, at the foot of the list.</p></div><a id="heavy-row-buying-window-hartwell-infusion-ltd-is" class="row row-3" href="#signal-s-hartwell-window"><span class="r1"><span class="r-title">Buying window. Hartwell Infusion Ltd is hiring</span><span class="r-cv"><span class="visually-hidden">Relevance </span>90</span><span class="r-seen"><span class="visually-hidden">Found </span>11 Nov</span></span><span class="r2"><span class="r-meta">Hartwell Infusion Ltd · Buying window · Pushed to the phone 11 Nov</span></span><span class="r3"><span class="r-lead">They advertised Head of Software Quality, and a first quality, regulatory or software hire at a company already contacted is the week the standards stop being abstract.</span></span></a><div class="ins-open" role="group" aria-label="Hartwell Infusion Ltd: why it matters, next move and actions"><p class="text-label ink-2">Why it matters</p><p class="ins-open-text">They advertised Head of Software Quality, and a first quality, regulatory or software hire at a company already contacted is the week the standards stop being abstract.</p><p class="text-label ink-2">Next move</p><p class="ins-open-text">Send the compliance-cost article, or the gap assessment one-pager if the article is not published yet. The note stays short, and the paid assessment earns one line at the very end, never earlier.</p><div class="ins-open-actions"><button type="button" class="btn btn-primary">Done</button><button type="button" class="btn btn-secondary">Dismiss</button><a id="heavy-open-the-source-2" class="btn btn-secondary" href="#source-a-job-advert"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Open the source<span class="visually-hidden">: the advert on LinkedIn, in a new tab</span></a><a id="heavy-open-the-company-2" class="btn btn-secondary" href="#company-hartwell-infusion-ltd">Open the company<span class="visually-hidden">: Hartwell Infusion Ltd, its record</span></a></div><p class="ins-does">Done records the next move as carried out and logs a contact with Hartwell Infusion Ltd today. Dismiss takes the signal off this list and out of the Monday digest, and logs nothing. Either can be undone from Done and dismissed, at the foot of the list.</p></div><a id="heavy-row-arvell-photonics-closes-a-4m-seed-round-for" class="row row-3" href="#signal-s-arvell-round"><span class="r1"><span class="r-title">Arvell Photonics closes a €4m seed round for a photonic chip that reads blood gases.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>88</span><span class="r-seen"><span class="visually-hidden">Found </span>10 Nov</span></span><span class="r2"><span class="r-meta">Arvell Photonics · Funding round · Drafts to copy · Pushed to the phone 10 Nov</span></span><span class="r3"><span class="r-lead">Newly funded company with a software-driven device and no software or quality lead named yet.</span></span></a><div class="ins-open" role="group" aria-label="Arvell Photonics: why it matters, next move and actions"><p class="text-label ink-2">Why it matters</p><p class="ins-open-text">Newly funded company with a software-driven device and no software or quality lead named yet.</p><p class="text-label ink-2">Next move</p><p class="ins-open-text">Comment on the announcement today on one specific point about the product, then send the chief executive a short connection note as a peer, with no offer and no mention of paid work.</p><div class="ins-open-actions"><button type="button" class="btn btn-primary">Done</button><button type="button" class="btn btn-secondary">Dismiss</button><a id="heavy-open-the-source-3" class="btn btn-secondary" href="#source-flanders-spin-off-register"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Open the source<span class="visually-hidden">: Flanders spin-off register, in a new tab</span></a><a id="heavy-open-the-company-3" class="btn btn-secondary" href="#company-arvell-photonics">Open the company<span class="visually-hidden">: Arvell Photonics, its record</span></a><button type="button" class="btn btn-secondary">Copy the comment</button><button type="button" class="btn btn-secondary">Copy the connection note</button></div><p class="ins-does">Done records the next move as carried out and logs a contact with Arvell Photonics today, with a follow-up booked for 4 Dec. Dismiss takes the signal off this list and out of the Monday digest, and logs nothing. Either can be undone from Done and dismissed, at the foot of the list.</p></div><div class="group-head"><h2 class="group-title" id="heavy-band-look">Worth a look, 40 to 74<span class="group-count">44 <span class="group-new">· 26 this week</span></span></h2></div><div class="band">Found this week, since 9 Nov</div><a id="heavy-row-pdx-diagnostics-raises-18m-series-a-for-its" class="row row-3" href="#signal-s-pdx-round"><span class="r1"><span class="r-title">PDX Diagnostics raises €18m Series A for its IVD analyser</span><span class="r-cv"><span class="visually-hidden">Relevance </span>74</span><span class="r-seen"><span class="visually-hidden">Found </span>12 Nov</span></span><span class="r2"><span class="r-meta">PDX Diagnostics · Funding round</span></span><span class="r3"><span class="r-lead">Series A at a UK analyser company heading into IVDR certification, with a quality lead named and nothing said about software leadership.</span></span></a><a id="heavy-row-belsay-diagnostics-joins-medtech" class="row row-3" href="#signal-s-belsay-diagnostics"><span class="r1"><span class="r-title">Belsay Diagnostics joins MedTech Accelerator cohort 7 with a point-of-care test for cardiac markers.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>74</span><span class="r-seen"><span class="visually-hidden">Found </span>12 Nov</span></span><span class="r2"><span class="r-meta">Belsay Diagnostics · Accelerator entry</span></span><span class="r3"><span class="r-lead">Accelerator entry in the right sector and geography, with a quality lead already named, so no gap is stated.</span></span></a><a id="heavy-row-caldrow-medical-advertises-its-first" class="row row-3" href="#signal-s-caldrow-medical"><span class="r1"><span class="r-title">Caldrow Medical advertises its first regulatory affairs manager in Woking.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>72</span><span class="r-seen"><span class="visually-hidden">Found </span>11 Nov</span></span><span class="r2"><span class="r-meta">Caldrow Medical · First hire</span></span><span class="r3"><span class="r-lead">A first quality, regulatory or software hire as far as one job advert shows, at a company with no funding or launch on file.</span></span></a><a id="heavy-row-vantage-bio-joins-medtech-accelerator" class="row row-3" href="#signal-s-vantage-cohort"><span class="r1"><span class="r-title">Vantage Bio joins MedTech Accelerator cohort 7</span><span class="r-cv"><span class="visually-hidden">Relevance </span>72</span><span class="r-seen"><span class="visually-hidden">Found </span>10 Nov</span></span><span class="r2"><span class="r-meta">Vantage Bio · Accelerator entry</span></span><span class="r3"><span class="r-lead">Accelerator entry at a seed-stage molecular test maker, with a quality lead named in the cohort notes, so no gap is stated.</span></span></a><a id="heavy-row-denhurst-imaging-closes-a-5m-series-a-to" class="row row-3" href="#signal-s-denhurst-imaging"><span class="r1"><span class="r-title">Denhurst Imaging closes a £5m Series A to take its breast screening software into clinical use.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>72</span><span class="r-seen"><span class="visually-hidden">Found </span>10 Nov</span></span><span class="r2"><span class="r-meta">Denhurst Imaging · Funding round</span></span><span class="r3"><span class="r-lead">Fresh funding in the right sector and geography, at a company whose quality leadership is already in place.</span></span></a><a id="heavy-row-a-university-in-leuven-spins-out-elmsgate" class="row row-3" href="#signal-s-elmsgate-bio"><span class="r1"><span class="r-title">A university in Leuven spins out Elmsgate Bio to commercialise a microfluidic cartridge for sepsis testing.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>71</span><span class="r-seen"><span class="visually-hidden">Found </span>9 Nov</span></span><span class="r2"><span class="r-meta">Elmsgate Bio · Spin-off launch</span></span><span class="r3"><span class="r-lead">New spin-off in the right sector and geography, with a regulated product still some way off.</span></span></a><a id="heavy-row-farrowdale-devices-joins-the-thames-valley" class="row row-3" href="#signal-s-farrowdale-devices"><span class="r1"><span class="r-title">Farrowdale Devices joins the Thames Valley Health Accelerator to develop a surgical stapler with force sensing.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>69</span><span class="r-seen"><span class="visually-hidden">Found </span>12 Nov</span></span><span class="r2"><span class="r-meta">Farrowdale Devices · Accelerator entry</span></span><span class="r3"><span class="r-lead">Accelerator entry in the right sector, at a stage where regulated work is still some way off.</span></span></a><a id="heavy-row-a-copenhagen-university-hospital-spins-out" class="row row-3" href="#signal-s-halvard-launch"><span class="r1"><span class="r-title">A Copenhagen university hospital spins out Halvard Biosensing to develop a bedside kidney function test.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>68</span><span class="r-seen"><span class="visually-hidden">Found </span>10 Nov</span></span><span class="r2"><span class="r-meta">Halvard Biosensing · Spin-off launch</span></span><span class="r3"><span class="r-lead">New spin-off from a Copenhagen hospital, with a quality lead already named among the founders.</span></span></a><a id="heavy-row-glenmoor-cardio-advertises-its-first-head" class="row row-3" href="#signal-s-glenmoor-cardio"><span class="r1"><span class="r-title">Glenmoor Cardio advertises its first head of software in Glasgow.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>66</span><span class="r-seen"><span class="visually-hidden">Found </span>11 Nov</span></span><span class="r2"><span class="r-meta">Glenmoor Cardio · First hire</span></span><span class="r3"><span class="r-lead">A first quality, regulatory or software post as far as one job advert shows, which the advert itself does not confirm.</span></span></a><a id="heavy-row-mirevo-health-joins-the-brabant-deep-tech" class="row row-3" href="#signal-s-mirevo-cohort"><span class="r1"><span class="r-title">Mirevo Health joins the Brabant deep-tech accelerator with a triage tool for chest CT.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>64</span><span class="r-seen"><span class="visually-hidden">Found </span>9 Nov</span></span><span class="r2"><span class="r-meta">Mirevo Health · Accelerator entry</span></span><span class="r3"><span class="r-lead">Accelerator entry at a software-only company whose founders include a regulatory lead.</span></span></a><a id="heavy-row-harrowby-sensing-closes-a-3-5m-seed-round" class="row row-3" href="#signal-s-harrowby-sensing"><span class="r1"><span class="r-title">Harrowby Sensing closes a £3.5m seed round for its fibre-optic temperature probe for ablation.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>63</span><span class="r-seen"><span class="visually-hidden">Found </span>10 Nov</span></span><span class="r2"><span class="r-meta">Harrowby Sensing · Funding round</span></span><span class="r3"><span class="r-lead">Right sector and geography, with no sign yet of a gap in software or quality leadership.</span></span></a><a id="heavy-row-a-university-in-manchester-spins-out" class="row row-3" href="#signal-s-inglewick-health"><span class="r1"><span class="r-title">A university in Manchester spins out Inglewick Health to run a remote monitoring service for heart failure.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>60</span><span class="r-seen"><span class="visually-hidden">Found </span>9 Nov</span></span><span class="r2"><span class="r-meta">Inglewick Health · Spin-off launch</span></span><span class="r3"><span class="r-lead">New spin-off in the right sector, with a quality lead already named among the founders.</span></span></a><a id="heavy-row-jessamy-optics-joins-the-brabant-deep-tech" class="row row-3" href="#signal-s-jessamy-optics"><span class="r1"><span class="r-title">Jessamy Optics joins the Brabant deep-tech accelerator with an optical coherence tomography probe for dermatology.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>58</span><span class="r-seen"><span class="visually-hidden">Found </span>12 Nov</span></span><span class="r2"><span class="r-meta">Jessamy Optics · Accelerator entry</span></span><span class="r3"><span class="r-lead">Accelerator entry in the right sector, at a stage where regulated work is still some way off.</span></span></a><a id="heavy-row-okara-diagnostics-wins-2-1m-in-grant" class="row row-3" href="#signal-s-okara-grant"><span class="r1"><span class="r-title">Okara Diagnostics wins €2.1m in grant funding for its rapid resistance test.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>58</span><span class="r-seen"><span class="visually-hidden">Found </span>11 Nov</span></span><span class="r2"><span class="r-meta">Okara Diagnostics · Funding round</span></span><span class="r3"><span class="r-lead">Grant funding at a seed-stage diagnostics company in Dublin, with a clinical study to run before any regulated product.</span></span></a><a id="heavy-row-kelbrook-neuro-advertises-its-first-head-of" class="row row-3" href="#signal-s-kelbrook-neuro"><span class="r1"><span class="r-title">Kelbrook Neuro advertises its first head of quality and compliance in Oxford.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>55</span><span class="r-seen"><span class="visually-hidden">Found </span>11 Nov</span></span><span class="r2"><span class="r-meta">Kelbrook Neuro · First hire</span></span><span class="r3"><span class="r-lead">A first quality, regulatory or software post as far as one job advert shows, which the advert itself does not confirm.</span></span></a><a id="heavy-row-lindrith-surgical-closes-a-6m-series-a-for" class="row row-3" href="#signal-s-lindrith-surgical"><span class="r1"><span class="r-title">Lindrith Surgical closes a €6m Series A for its camera system for keyhole surgery.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>53</span><span class="r-seen"><span class="visually-hidden">Found </span>10 Nov</span></span><span class="r2"><span class="r-meta">Lindrith Surgical · Funding round</span></span><span class="r3"><span class="r-lead">Right sector and geography, with no sign yet of a gap in software or quality leadership.</span></span></a><a id="heavy-row-quillon-neuro-enters-a-benelux-sensor" class="row row-3" href="#signal-s-quillon-cohort"><span class="r1"><span class="r-title">Quillon Neuro enters a Benelux sensor programme with its EEG headset.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>52</span><span class="r-seen"><span class="visually-hidden">Found </span>12 Nov</span></span><span class="r2"><span class="r-meta">Quillon Neuro · Accelerator entry</span></span><span class="r3"><span class="r-lead">Accelerator entry in the right sector, at a stage where regulated work is still some way off.</span></span></a><a id="heavy-row-a-research-institute-in-stevenage-spins-out" class="row row-3" href="#signal-s-marrowfield-bio"><span class="r1"><span class="r-title">A research institute in Stevenage spins out Marrowfield Bio to build a cell counting instrument for clinical laboratories.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>51</span><span class="r-seen"><span class="visually-hidden">Found </span>9 Nov</span></span><span class="r2"><span class="r-meta">Marrowfield Bio · Spin-off launch</span></span><span class="r3"><span class="r-lead">New spin-off in the right sector, with a quality lead already named among the founders.</span></span></a><a id="heavy-row-netherby-diagnostics-joins-medtech" class="row row-3" href="#signal-s-netherby-diagnostics"><span class="r1"><span class="r-title">Netherby Diagnostics joins MedTech Accelerator cohort 7 with a breath test for liver disease.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>49</span><span class="r-seen"><span class="visually-hidden">Found </span>12 Nov</span></span><span class="r2"><span class="r-meta">Netherby Diagnostics · Accelerator entry</span></span><span class="r3"><span class="r-lead">Accelerator entry in the right sector, at a stage where regulated work is still some way off.</span></span></a><a id="heavy-row-orlestone-medical-advertises-its-first-head" class="row row-3" href="#signal-s-orlestone-medical"><span class="r1"><span class="r-title">Orlestone Medical advertises its first head of software in Maidstone.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>47</span><span class="r-seen"><span class="visually-hidden">Found </span>11 Nov</span></span><span class="r2"><span class="r-meta">Orlestone Medical · First hire</span></span><span class="r3"><span class="r-lead">A first quality, regulatory or software post as far as one job advert shows, which the advert itself does not confirm.</span></span></a><a id="heavy-row-dunmere-vision-raises-1-2m-seed-round-for-a" class="row row-3" href="#signal-s-dunmere-round"><span class="r1"><span class="r-title">Dunmere Vision raises £1.2m seed round for a retinal camera for community clinics.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>47</span><span class="r-seen"><span class="visually-hidden">Found </span>9 Nov</span></span><span class="r2"><span class="r-meta">Dunmere Vision · Funding round</span></span><span class="r3"><span class="r-lead">Small seed round at a camera maker whose first product is hardware, with its software described as a later step.</span></span></a><a id="heavy-row-penhallow-imaging-closes-a-5m-series-a-for" class="row row-3" href="#signal-s-penhallow-imaging"><span class="r1"><span class="r-title">Penhallow Imaging closes a £5m Series A for its portable X-ray detector.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>45</span><span class="r-seen"><span class="visually-hidden">Found </span>10 Nov</span></span><span class="r2"><span class="r-meta">Penhallow Imaging · Funding round</span></span><span class="r3"><span class="r-lead">Right sector and geography, with no sign yet of a gap in software or quality leadership.</span></span></a><a id="heavy-row-ilvane-respiratory-advertises-its-first" class="row row-3" href="#signal-s-ilvane-hire"><span class="r1"><span class="r-title">Ilvane Respiratory advertises its first quality manager in Reading.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>43</span><span class="r-seen"><span class="visually-hidden">Found </span>10 Nov</span></span><span class="r2"><span class="r-meta">Ilvane Respiratory · First hire</span></span><span class="r3"><span class="r-lead">A first quality, regulatory or software post as far as one job advert shows, which the advert itself does not confirm.</span></span></a><a id="heavy-row-a-robotics-laboratory-in-zurich-spins-out" class="row row-3" href="#signal-s-quenby-robotics"><span class="r1"><span class="r-title">A robotics laboratory in Zurich spins out Quenby Robotics to build a rehabilitation exoskeleton for stroke patients.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>43</span><span class="r-seen"><span class="visually-hidden">Found </span>9 Nov</span></span><span class="r2"><span class="r-meta">Quenby Robotics · Spin-off launch</span></span><span class="r3"><span class="r-lead">New spin-off in the right sector, with a quality lead already named among the founders.</span></span></a><a id="heavy-row-rushmere-respiratory-joins-medtech" class="row row-3" href="#signal-s-rushmere-respiratory"><span class="r1"><span class="r-title">Rushmere Respiratory joins MedTech Accelerator cohort 7 with a ventilator for neonatal care.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>42</span><span class="r-seen"><span class="visually-hidden">Found </span>12 Nov</span></span><span class="r2"><span class="r-meta">Rushmere Respiratory · Accelerator entry</span></span><span class="r3"><span class="r-lead">Accelerator entry in the right sector, at a stage where regulated work is still some way off.</span></span></a><a id="heavy-row-thornaby-devices-advertises-its-first-head" class="row row-3" href="#signal-s-thornaby-devices"><span class="r1"><span class="r-title">Thornaby Devices advertises its first head of quality and compliance in Middlesbrough.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>41</span><span class="r-seen"><span class="visually-hidden">Found </span>11 Nov</span></span><span class="r2"><span class="r-meta">Thornaby Devices · First hire</span></span><span class="r3"><span class="r-lead">A first quality, regulatory or software post as far as one job advert shows, which the advert itself does not confirm.</span></span></a><div class="band">Found in earlier weeks, still open</div><a id="heavy-row-coldharbour-imaging-advertises-its-first" class="row row-3" href="#signal-s-coldharbour-imaging"><span class="r1"><span class="r-title">Coldharbour Imaging advertises its first head of quality and compliance in London.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>68</span><span class="r-seen"><span class="visually-hidden">Found </span>7 Nov</span></span><span class="r2"><span class="r-meta">Coldharbour Imaging · First hire</span></span><span class="r3"><span class="r-lead">A first quality, regulatory or software post as far as one job advert shows, which the advert itself does not confirm.</span></span></a><a id="heavy-row-dovercourt-bio-closes-a-2-4m-seed-round-for" class="row row-3" href="#signal-s-dovercourt-bio"><span class="r1"><span class="r-title">Dovercourt Bio closes a £2.4m seed round for its sample preparation instrument for sequencing.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>64</span><span class="r-seen"><span class="visually-hidden">Found </span>5 Nov</span></span><span class="r2"><span class="r-meta">Dovercourt Bio · Funding round</span></span><span class="r3"><span class="r-lead">Right sector and geography, with no sign yet of a gap in software or quality leadership.</span></span></a><a id="heavy-row-wexley-hearing-raises-6m-series-a-for-its" class="row row-3" href="#signal-s-wexley-round"><span class="r1"><span class="r-title">Wexley Hearing raises £6m Series A for its bone-conduction implant.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>61</span><span class="r-seen"><span class="visually-hidden">Found </span>30 Oct</span></span><span class="r2"><span class="r-meta">Wexley Hearing · Funding round</span></span><span class="r3"><span class="r-lead">Series A at a Cambridge implant company with a regulatory lead in post and no head of software named.</span></span></a><a id="heavy-row-a-university-in-carlisle-spins-out-eskdale" class="row row-3" href="#signal-s-eskdale-sensing"><span class="r1"><span class="r-title">A university in Carlisle spins out Eskdale Sensing to develop a pressure-sensing insole for diabetic foot care.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>59</span><span class="r-seen"><span class="visually-hidden">Found </span>3 Nov</span></span><span class="r2"><span class="r-meta">Eskdale Sensing · Spin-off launch</span></span><span class="r3"><span class="r-lead">New spin-off in the right sector, with a quality lead already named among the founders.</span></span></a><div class="more"><a id="heavy-show-14-more-from-earlier-weeks" class="link" href="#insights-look-earlier">Show 14 more from earlier weeks</a></div></div><div class="ins-foot"><div class="group-head"><h2 class="group-title" id="heavy-band-below"><span>Below the bar<span class="ins-range">, under 40</span></span><span class="group-count">138</span></h2><div class="head-tools"><a id="heavy-show-them-in-the-list" class="link link-block" href="#insights-below">Show them in the list</a></div></div><div class="group-head"><h2 class="group-title" id="heavy-band-closed">Done and dismissed<span class="group-count">32</span></h2><button type="button" class="fold" aria-expanded="false" aria-label="Done and dismissed"><iconify-icon icon="carbon:chevron-right" width="16" height="16" aria-hidden="true"></iconify-icon></button></div><div class="group-head"><h2 class="group-title" id="heavy-band-sources">Sources<span class="group-count">26</span></h2><span class="head-meta">24 read at 06:00, 2 could not be read</span><button type="button" class="fold" aria-expanded="false" aria-label="Sources"><iconify-icon icon="carbon:chevron-right" width="16" height="16" aria-hidden="true"></iconify-icon></button></div></div></section><section class="ins-read" aria-labelledby="heavy-signal-title"><header class="ins-head"><div class="ins-head-grid"><h2 class="text-title ins-title" id="heavy-signal-title">A university in Enschede spins out Selwick Photonics with a €5m seed round to build a handheld Raman reader for wound infection.</h2><p class="text-meta ins-about num">Selwick Photonics · Spin-off launch · Reported by 3 sources, first found 12 Nov 00:00 · Pushed to the phone 12 Nov</p><div class="ins-nav"><span class="btn btn-secondary is-disabled" aria-disabled="true">Previous<span class="visually-hidden"> signal</span><kbd class="kbd" aria-hidden="true">K</kbd></span><a id="heavy-next-signal" class="btn btn-secondary" href="#signal-s-hartwell-window" rel="next" aria-keyshortcuts="J">Next<span class="visually-hidden"> signal</span><kbd class="kbd" aria-hidden="true">J</kbd></a></div></div><div class="action-bar ins-actions"><button type="button" class="btn btn-primary" aria-keyshortcuts="E">Done<kbd class="kbd" aria-hidden="true">E</kbd></button><button type="button" class="btn btn-secondary" aria-keyshortcuts="D">Dismiss<kbd class="kbd" aria-hidden="true">D</kbd></button><a id="heavy-open-the-source-4" class="btn btn-secondary" href="#source-lowlands-photonics-cluster-news" aria-keyshortcuts="O"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Open the source<span class="visually-hidden">: Lowlands Photonics Cluster news, the first of 3 reports, in a new tab</span><kbd class="kbd" aria-hidden="true">O</kbd></a><a id="heavy-open-the-company-4" class="btn btn-secondary" href="#company-selwick-photonics">Open the company<span class="visually-hidden">: Selwick Photonics, its record</span></a></div><p class="ins-does">Done marks all 3 reports as done and logs one contact with Selwick Photonics today, with a follow-up booked for 4 Dec. Dismiss takes all 3 reports off this list and out of the Monday digest, and logs nothing. Either can be undone from Done and dismissed, at the foot of the list.</p></header><div class="ins-scroll"><div class="pane ins-signal"><div class="pane-body"><div class="ins-pair"><section class="sec" aria-labelledby="heavy-why-it-matters-heading"><h3 class="sec-h" id="heavy-why-it-matters-heading">Why it matters</h3><p class="ins-text">New spin-off at seed stage with a software-driven diagnostic reader and no software or quality hires announced.</p><p class="ins-rel"><span class="text-label ink-2">Relevance</span><span class="text-figure-large">93</span><span class="text-meta">Urgent, 75 and over</span></p><p class="text-meta ins-basis">The highest of 3 reports of one event, scored 93, 92 and 92. Each figure is the scorer&#x27;s reading of one report. At 75 and over it takes a gap in software or quality leadership as likely where the report names none.</p></section><section class="sec" aria-labelledby="heavy-next-move-heading"><h3 class="sec-h" id="heavy-next-move-heading">Next move</h3><p class="ins-text">Comment on the announcement today on one specific point about the product, then send the chief executive a short connection note as a peer, with no offer and no mention of paid work.</p></section></div><section class="sec" aria-labelledby="heavy-drafts-heading"><h3 class="sec-h" id="heavy-drafts-heading">Drafts</h3><div class="ins-pair"><div class="ins-draft"><h4 class="text-label ink-2">Comment</h4><p class="ins-draft-text">Reading a wound swab at the bedside in minutes, not after two days in a laboratory, is a real change for district nurses. It is good to see the engineering behind it get this backing. Congratulations to the whole team on the launch and the round.</p><button type="button" class="btn btn-secondary">Copy the comment</button></div><div class="ins-draft"><h4 class="text-label ink-2">Connection note</h4><p class="ins-draft-text">Congratulations on the launch and the round. Getting from a laboratory prototype to a device a clinician can use is a hard step, and it is good to see it funded. Happy to compare notes whenever it is useful.</p><div class="action-bar"><button type="button" class="btn btn-secondary">Copy the connection note</button><span class="text-meta num">207 of 300 characters</span></div></div></div><p class="text-meta ins-drafts-note">Drafts, yours to edit. Nothing is ever posted by the machine. Written from the article.</p></section><section class="sec" aria-labelledby="heavy-sources-heading"><div class="sec-head"><h3 class="sec-h" id="heavy-sources-heading">Sources</h3><span class="sec-meta">Reported by 3 sources</span></div><ul class="ins-sources"><li><a id="heavy-lowlands-photonics-cluster-news" class="link with-icon" href="#source-lowlands-photonics-cluster-news"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Lowlands Photonics Cluster news</a><span class="text-meta num">Published 10 Nov · found 12 Nov 00:00 · relevance 93</span><span class="ink-2">A university in Enschede spins out Selwick Photonics with a €5m seed round to build a handheld Raman reader for wound infection.</span></li><li><a id="heavy-delta-seed-fund-portfolio-news" class="link with-icon" href="#source-delta-seed-fund-portfolio-news"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Delta Seed Fund portfolio news</a><span class="text-meta num">Published 12 Nov · found 12 Nov 06:00 · relevance 92</span><span class="ink-2">Selwick Photonics raises €5m seed round to commercialise a Raman reader for wound infection spun out of a university in Enschede.</span></li><li><a id="heavy-photonics-in-medicine" class="link with-icon" href="#source-photonics-in-medicine"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Photonics in Medicine</a><span class="text-meta num">Published 12 Nov · found 12 Nov 06:00 · relevance 92</span><span class="ink-2">Seed round of €5m for Selwick Photonics, a new spin-off with a handheld reader for wound infection.</span></li></ul></section></div></div><div class="pane ins-company"><div class="group-head"><h3 class="group-title" id="heavy-company-heading">Selwick Photonics</h3><span class="head-meta">Seen</span></div><div class="pane-body"><section class="sec" aria-labelledby="heavy-thread-heading"><h4 class="sec-h" id="heavy-thread-heading">Thread</h4><p class="ins-text ink-2">No thread. No contact yet.</p></section><section class="sec" aria-labelledby="heavy-facts-heading"><h4 class="sec-h" id="heavy-facts-heading">Facts</h4><dl class="facts"><dt>Builds</dt><dd>A handheld Raman reader for wound infection.</dd><dt>Software</dt><dd>not known</dd><dt>Stage</dt><dd>Seed</dd><dt>Where</dt><dd>Enschede, Netherlands</dd><dt>People, as published</dt><dd>not known</dd></dl></section></div></div></div></section></main>
+</div></div></section>
+<section class="board-panel" style="width:1280px" aria-labelledby="board-state-3"><header class="board-label"><span class="board-n">3</span><h2 class="board-name" id="board-state-3">Stale or in error</h2><p class="board-note">The watcher last finished 22 hours ago and 7 of 26 sources could not be read, so each figure from it carries its age; the buying window came through the inbox, which is on time.</p></header><div class="board-body" style="height:900px"><div class="app">
+<header class="appbar"><div class="brand"><img class="brand-mark" src="https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/0db15a19-3516-4453-a7e9-67ecc19e8823/brand-assets/brand-radar-mark.svg/radar-mark.svg" width="51" height="24" alt=""><span class="brand-name">MedTech Radar</span><span class="appbar-page">Insights</span></div><nav class="nav" aria-label="Pages"><a id="stale-nav-home" href="#home">Home</a><a id="stale-nav-jobs" href="#jobs">Jobs</a><a id="stale-nav-insights" href="#insights" aria-current="page">Insights</a><a id="stale-nav-watchlist" href="#watchlist">Watchlist</a><a id="stale-nav-cv" href="#cv">CV</a></nav><div class="appbar-tools"><button type="button" class="cmd" aria-haspopup="dialog" aria-keyshortcuts="Control+K" aria-label="Search or run a command"><iconify-icon class="cmd-icon" icon="carbon:search" width="20" height="20" aria-hidden="true"></iconify-icon><span class="cmd-text">Search or run a command</span><kbd class="kbd" aria-hidden="true">Ctrl K</kbd></button><span class="inbox-status">Inbox on schedule · ran 09:02</span><div class="appearance" role="group" aria-label="Appearance"><button type="button" class="seg" aria-pressed="false">Light</button><button type="button" class="seg" aria-pressed="false">Auto</button><button type="button" class="seg" aria-pressed="true">Dark</button></div><button type="button" class="btn btn-ghost btn-icon help" aria-label="Keyboard shortcuts" aria-keyshortcuts="Shift+?"><iconify-icon icon="carbon:help" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><button type="button" class="btn btn-ghost menu-btn" aria-haspopup="true" aria-expanded="false">Menu</button></header><div class="pagehead ph-inline"><div class="ph-title"><h1>Insights</h1><p class="counts">1 urgent signal · 16 worth a look · 85 below the bar · 18 done or dismissed · Signals as of 12 Nov 11:14, 22 hours old</p></div><div class="ph-tools"><button type="button" class="btn btn-ghost undo-last">Undo last</button></div></div><main class="content ins"><section class="ins-list" aria-label="Signals"><div class="pane ins-rows"><div class="notice notice-negative" role="alert"><div class="notice-body"><svg class="notice-mark" width="16" height="16" aria-hidden="true"><use href="#st-neg"></use></svg><p class="notice-text"><span class="visually-hidden">Error: </span>The signal watcher is stalled: it last finished 22 hours ago, against a limit of 7 hours. Check now runs it once, for up to ten minutes, and sends nothing to the phone while the push is off.</p></div><button type="button" class="btn btn-secondary">Check now</button></div><p class="pane-note">4 scheduled runs since then left no record, so the cause is not known here.</p><div class="notice notice-caution" role="status"><div class="notice-body"><svg class="notice-mark" width="16" height="16" aria-hidden="true"><use href="#st-cau"></use></svg><p class="notice-text"><span class="visually-hidden">Caution: </span>7 of 26 sources could not be read in the last run, 22 hours ago.</p></div></div><ul class="ins-fails" aria-label="Sources that could not be read"><li>Delta Seed Fund portfolio news <span>· error 503</span></li><li>Rhine Valley Sensor Institute press <span>· blocked by robots.txt</span></li><li>Irish Device Founders programme <span>· error 503</span></li><li>Alpine Medical Robotics Lab news <span>· blocks plain fetches</span></li><li>Thames Valley Health Accelerator <span>· unreachable</span></li><li>Baltic Photonics Institute press <span>· unreachable</span></li><li>IVD Business Briefing <span>· unreachable</span></li></ul><p class="pane-note ins-watch"><span>Signals as of 12 Nov 11:14, 22 hours old. Next scheduled run 12:00.<br>19 of 26 sources read in that run. Times are UK time.</span></p><div class="group-head"><h2 class="group-title" id="stale-band-urgent">Urgent, 75 and over<span class="group-count">1</span></h2><span class="head-meta">Phone push is off · as of 22 hours ago</span></div><a id="stale-row-buying-window-hartwell-infusion-ltd-is" class="row row-3" href="#signal-s-hartwell-window" aria-current="true"><span class="r1"><span class="r-title">Buying window. Hartwell Infusion Ltd is hiring</span><span class="r-cv"><span class="visually-hidden">Relevance </span>90</span><span class="r-seen"><span class="visually-hidden">Found </span>11 Nov</span></span><span class="r2"><span class="r-meta">Hartwell Infusion Ltd · Buying window · Pushed to the phone 11 Nov</span></span><span class="r3"><span class="r-lead">They advertised Head of Software Quality, and a first quality, regulatory or software hire at a company already contacted is the week the standards stop being abstract.</span></span></a><div class="ins-open" role="group" aria-label="Hartwell Infusion Ltd: why it matters, next move and actions"><p class="text-label ink-2">Why it matters</p><p class="ins-open-text">They advertised Head of Software Quality, and a first quality, regulatory or software hire at a company already contacted is the week the standards stop being abstract.</p><p class="text-label ink-2">Next move</p><p class="ins-open-text">Send the compliance-cost article, or the gap assessment one-pager if the article is not published yet. The note stays short, and the paid assessment earns one line at the very end, never earlier.</p><div class="ins-open-actions"><button type="button" class="btn btn-primary">Done</button><button type="button" class="btn btn-secondary">Dismiss</button><a id="stale-open-the-source" class="btn btn-secondary" href="#source-a-job-advert"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Open the source<span class="visually-hidden">: the advert on LinkedIn, in a new tab</span></a><a id="stale-open-the-company" class="btn btn-secondary" href="#company-hartwell-infusion-ltd">Open the company<span class="visually-hidden">: Hartwell Infusion Ltd, its record</span></a></div><p class="ins-does">Done records the next move as carried out and logs a contact with Hartwell Infusion Ltd today. Dismiss takes the signal off this list and out of the Monday digest, and logs nothing. Either can be undone from Done and dismissed, at the foot of the list.</p></div><div class="group-head"><h2 class="group-title" id="stale-band-look">Worth a look, 40 to 74<span class="group-count">16 <span class="group-new">· 8 this week</span></span></h2><span class="head-meta">As of 22 hours ago</span></div><div class="band">Found this week, since 9 Nov</div><a id="stale-row-pdx-diagnostics-raises-18m-series-a-for-its" class="row row-3" href="#signal-s-pdx-round"><span class="r1"><span class="r-title">PDX Diagnostics raises €18m Series A for its IVD analyser</span><span class="r-cv"><span class="visually-hidden">Relevance </span>74</span><span class="r-seen"><span class="visually-hidden">Found </span>12 Nov</span></span><span class="r2"><span class="r-meta">PDX Diagnostics · Funding round</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>22 hours old</span></span><span class="r3"><span class="r-lead">Series A at a UK analyser company heading into IVDR certification, with a quality lead named and nothing said about software leadership.</span></span></a><a id="stale-row-vantage-bio-joins-medtech-accelerator" class="row row-3" href="#signal-s-vantage-cohort"><span class="r1"><span class="r-title">Vantage Bio joins MedTech Accelerator cohort 7</span><span class="r-cv"><span class="visually-hidden">Relevance </span>72</span><span class="r-seen"><span class="visually-hidden">Found </span>10 Nov</span></span><span class="r2"><span class="r-meta">Vantage Bio · Accelerator entry</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>22 hours old</span></span><span class="r3"><span class="r-lead">Accelerator entry at a seed-stage molecular test maker, with a quality lead named in the cohort notes, so no gap is stated.</span></span></a><a id="stale-row-a-copenhagen-university-hospital-spins-out" class="row row-3" href="#signal-s-halvard-launch"><span class="r1"><span class="r-title">A Copenhagen university hospital spins out Halvard Biosensing to develop a bedside kidney function test.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>68</span><span class="r-seen"><span class="visually-hidden">Found </span>10 Nov</span></span><span class="r2"><span class="r-meta">Halvard Biosensing · Spin-off launch</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>22 hours old</span></span><span class="r3"><span class="r-lead">New spin-off from a Copenhagen hospital, with a quality lead already named among the founders.</span></span></a><a id="stale-row-mirevo-health-joins-the-brabant-deep-tech" class="row row-3" href="#signal-s-mirevo-cohort"><span class="r1"><span class="r-title">Mirevo Health joins the Brabant deep-tech accelerator with a triage tool for chest CT.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>64</span><span class="r-seen"><span class="visually-hidden">Found </span>9 Nov</span></span><span class="r2"><span class="r-meta">Mirevo Health · Accelerator entry</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>22 hours old</span></span><span class="r3"><span class="r-lead">Accelerator entry at a software-only company whose founders include a regulatory lead.</span></span></a><a id="stale-row-okara-diagnostics-wins-2-1m-in-grant" class="row row-3" href="#signal-s-okara-grant"><span class="r1"><span class="r-title">Okara Diagnostics wins €2.1m in grant funding for its rapid resistance test.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>58</span><span class="r-seen"><span class="visually-hidden">Found </span>11 Nov</span></span><span class="r2"><span class="r-meta">Okara Diagnostics · Funding round</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>22 hours old</span></span><span class="r3"><span class="r-lead">Grant funding at a seed-stage diagnostics company in Dublin, with a clinical study to run before any regulated product.</span></span></a><a id="stale-row-quillon-neuro-enters-a-benelux-sensor" class="row row-3" href="#signal-s-quillon-cohort"><span class="r1"><span class="r-title">Quillon Neuro enters a Benelux sensor programme with its EEG headset.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>52</span><span class="r-seen"><span class="visually-hidden">Found </span>12 Nov</span></span><span class="r2"><span class="r-meta">Quillon Neuro · Accelerator entry</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>22 hours old</span></span><span class="r3"><span class="r-lead">Accelerator entry in the right sector, at a stage where regulated work is still some way off.</span></span></a><a id="stale-row-dunmere-vision-raises-1-2m-seed-round-for-a" class="row row-3" href="#signal-s-dunmere-round"><span class="r1"><span class="r-title">Dunmere Vision raises £1.2m seed round for a retinal camera for community clinics.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>47</span><span class="r-seen"><span class="visually-hidden">Found </span>9 Nov</span></span><span class="r2"><span class="r-meta">Dunmere Vision · Funding round</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>22 hours old</span></span><span class="r3"><span class="r-lead">Small seed round at a camera maker whose first product is hardware, with its software described as a later step.</span></span></a><a id="stale-row-ilvane-respiratory-advertises-its-first" class="row row-3" href="#signal-s-ilvane-hire"><span class="r1"><span class="r-title">Ilvane Respiratory advertises its first quality manager in Reading.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>43</span><span class="r-seen"><span class="visually-hidden">Found </span>10 Nov</span></span><span class="r2"><span class="r-meta">Ilvane Respiratory · First hire</span></span><span class="r3"><span class="r-lead">A first quality, regulatory or software post as far as one job advert shows, which the advert itself does not confirm.</span></span></a><div class="band">Found in earlier weeks, still open</div><a id="stale-row-wexley-hearing-raises-6m-series-a-for-its" class="row row-3" href="#signal-s-wexley-round"><span class="r1"><span class="r-title">Wexley Hearing raises £6m Series A for its bone-conduction implant.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>61</span><span class="r-seen"><span class="visually-hidden">Found </span>30 Oct</span></span><span class="r2"><span class="r-meta">Wexley Hearing · Funding round</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>22 hours old</span></span><span class="r3"><span class="r-lead">Series A at a Cambridge implant company with a regulatory lead in post and no head of software named.</span></span></a><a id="stale-row-brenmoor-robotics-raises-9m-series-a-for" class="row row-3" href="#signal-s-brenmoor-round"><span class="r1"><span class="r-title">Brenmoor Robotics raises £9m Series A for its robotic endoscopy platform.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>57</span><span class="r-seen"><span class="visually-hidden">Found </span>22 Oct</span></span><span class="r2"><span class="r-meta">Brenmoor Robotics · Funding round</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>22 hours old</span></span><span class="r3"><span class="r-lead">Series A at a UK robotics company several years from a regulated product, so the standards work is not yet pressing.</span></span></a><a id="stale-row-aldgrave-imaging-raises-5m-series-a-for-its" class="row row-3" href="#signal-s-aldgrave-round"><span class="r1"><span class="r-title">Aldgrave Imaging raises £5m Series A for its handheld ultrasound probe.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>55</span><span class="r-seen"><span class="visually-hidden">Found </span>3 Nov</span></span><span class="r2"><span class="r-meta">Aldgrave Imaging · Funding round</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>22 hours old</span></span><span class="r3"><span class="r-lead">Series A at a UK imaging company that already names a head of quality and regulatory affairs.</span></span></a><a id="stale-row-kinross-optics-raises-3m-to-develop-a" class="row row-3" href="#signal-s-kinross-round"><span class="r1"><span class="r-title">Kinross Optics raises £3m to develop a second ophthalmic laser.</span><span class="r-cv"><span class="visually-hidden">Relevance </span>49</span><span class="r-seen"><span class="visually-hidden">Found </span>15 Oct</span></span><span class="r2"><span class="r-meta">Kinross Optics · Funding round</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>22 hours old</span></span><span class="r3"><span class="r-lead">Established laser maker funding a second product, with its quality system already certified.</span></span></a><div class="more"><a id="stale-show-4-more-from-earlier-weeks" class="link" href="#insights-look-earlier">Show 4 more from earlier weeks</a></div></div><div class="ins-foot"><div class="group-head"><h2 class="group-title" id="stale-band-below"><span>Below the bar<span class="ins-range">, under 40</span></span><span class="group-count">85</span></h2><span class="head-meta">As of 22 hours ago</span><div class="head-tools"><a id="stale-show-them-in-the-list" class="link link-block" href="#insights-below">Show them in the list</a></div></div><div class="group-head"><h2 class="group-title" id="stale-band-closed">Done and dismissed<span class="group-count">18</span></h2><button type="button" class="fold" aria-expanded="false" aria-label="Done and dismissed"><iconify-icon icon="carbon:chevron-right" width="16" height="16" aria-hidden="true"></iconify-icon></button></div><div class="group-head"><h2 class="group-title" id="stale-band-sources">Sources<span class="group-count">26</span></h2><span class="head-meta">19 read 22 hours ago, 7 could not be read</span><button type="button" class="fold" aria-expanded="false" aria-label="Sources"><iconify-icon icon="carbon:chevron-right" width="16" height="16" aria-hidden="true"></iconify-icon></button></div></div></section><section class="ins-read" aria-labelledby="stale-signal-title"><header class="ins-head"><div class="ins-head-grid"><h2 class="text-title ins-title" id="stale-signal-title">Buying window. Hartwell Infusion Ltd is hiring</h2><p class="text-meta ins-about num">Hartwell Infusion Ltd · Buying window · Found 11 Nov 10:02 · Pushed to the phone 11 Nov</p><div class="ins-nav"><span class="btn btn-secondary is-disabled" aria-disabled="true">Previous<span class="visually-hidden"> signal</span><kbd class="kbd" aria-hidden="true">K</kbd></span><a id="stale-next-signal" class="btn btn-secondary" href="#signal-s-pdx-round" rel="next" aria-keyshortcuts="J">Next<span class="visually-hidden"> signal</span><kbd class="kbd" aria-hidden="true">J</kbd></a></div></div><div class="action-bar ins-actions"><button type="button" class="btn btn-primary" aria-keyshortcuts="E">Done<kbd class="kbd" aria-hidden="true">E</kbd></button><button type="button" class="btn btn-secondary" aria-keyshortcuts="D">Dismiss<kbd class="kbd" aria-hidden="true">D</kbd></button><a id="stale-open-the-source-2" class="btn btn-secondary" href="#source-a-job-advert" aria-keyshortcuts="O"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Open the source<span class="visually-hidden">: the advert on LinkedIn, in a new tab</span><kbd class="kbd" aria-hidden="true">O</kbd></a><a id="stale-open-the-company-2" class="btn btn-secondary" href="#company-hartwell-infusion-ltd">Open the company<span class="visually-hidden">: Hartwell Infusion Ltd, its record</span></a></div><p class="ins-does">Done records the next move as carried out and logs a contact with Hartwell Infusion Ltd today. Dismiss takes the signal off this list and out of the Monday digest, and logs nothing. Either can be undone from Done and dismissed, at the foot of the list.</p></header><div class="ins-scroll"><div class="pane ins-signal"><div class="pane-body"><div class="ins-pair"><section class="sec" aria-labelledby="stale-why-it-matters-heading"><h3 class="sec-h" id="stale-why-it-matters-heading">Why it matters</h3><p class="ins-text">They advertised Head of Software Quality, and a first quality, regulatory or software hire at a company already contacted is the week the standards stop being abstract.</p><p class="ins-rel"><span class="text-label ink-2">Relevance</span><span class="text-figure-large">90</span><span class="text-meta">Urgent, 75 and over</span></p><p class="text-meta ins-basis">Set by rule and not scored: a buying window is always 90. Read from the advert on LinkedIn by the inbox, found 11 Nov 10:02.</p></section><section class="sec" aria-labelledby="stale-next-move-heading"><h3 class="sec-h" id="stale-next-move-heading">Next move</h3><p class="ins-text">Send the compliance-cost article, or the gap assessment one-pager if the article is not published yet.</p><p class="ins-more">The note stays short, and the paid assessment earns one line at the very end, never earlier.</p></section></div><section class="sec" aria-labelledby="stale-drafts-heading"><h3 class="sec-h" id="stale-drafts-heading">Drafts</h3><p class="ins-text ink-2">No drafts. A buying window&#x27;s next move is to send an article.</p></section><section class="sec" aria-labelledby="stale-sources-heading"><h3 class="sec-h" id="stale-sources-heading">Sources</h3><ul class="ins-sources"><li><a id="stale-the-advert-on-linkedin" class="link with-icon" href="#source-a-job-advert"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>The advert on LinkedIn</a><span class="text-meta num">Published 11 Nov · read by the inbox 11 Nov 10:02</span><span>The role on Jobs: <a id="stale-head-of-software-quality-class-ii-infusion-pumps" class="link" href="#jobs-role-t1">Head of Software Quality, Class II infusion pumps</a></span></li></ul></section></div></div><div class="pane ins-company"><div class="group-head"><h3 class="group-title" id="stale-company-heading">Hartwell Infusion Ltd</h3><span class="head-meta">Window open since 11 Nov</span></div><div class="pane-body"><section class="sec" aria-labelledby="stale-thread-heading"><h4 class="sec-h" id="stale-thread-heading">Thread</h4><p class="ins-text">Connection note to the VP Quality</p><p class="text-meta">Due 15 Nov. Last contact 30 Oct, comment.</p></section><section class="sec" aria-labelledby="stale-facts-heading"><h4 class="sec-h" id="stale-facts-heading">Facts</h4><dl class="facts"><dt>Builds</dt><dd>Volumetric and syringe infusion pumps, Class IIb.</dd><dt>Software</dt><dd>Embedded firmware, IEC 62304 class C.</dd><dt>Stage</dt><dd>Series C</dd><dt>Where</dt><dd>Guildford, UK</dd><dt>People, as published</dt><dd>R. Okoye (VP Quality)</dd></dl></section></div><div class="group-head"><h4 class="group-title" id="stale-company-contacts">Contact log<span class="group-count">1</span></h4></div><div class="row row-2 is-static"><span class="r1"><span class="r-title">Commented on the Q3 hiring post</span><span class="r-seen"><span class="visually-hidden">On </span>30 Oct</span></span><span class="r2"><span class="r-meta">Comment · Outcome: none</span></span></div><div class="group-head"><h4 class="group-title" id="stale-company-signals">Other signals from this company<span class="group-count">1</span></h4></div><a id="stale-row-hartwell-infusion-raises-32m-series-c" class="row row-2" href="#signal-s-hartwell-round"><span class="r1"><span class="r-title">Hartwell Infusion raises £32m Series C</span><span class="r-cv"><span class="visually-hidden">Relevance </span>81</span><span class="r-seen"><span class="visually-hidden">Found </span>14 Oct</span></span><span class="r2"><span class="r-meta">Funding round · Done 30 Oct</span></span></a><div class="group-head"><h4 class="group-title" id="stale-company-roles">Roles on Jobs<span class="group-count">1</span></h4></div><a id="stale-row-head-of-software-quality-class-ii-infusion" class="row row-2" href="#jobs-role-t1"><span class="r1"><span class="r-title">Head of Software Quality, Class II infusion pumps</span><span class="r-cv"><span class="visually-hidden">CV match </span>86%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>11 Nov</span></span><span class="r2"><span class="r-meta">Top prospect · Guildford (hybrid, 2 days) · £700–£750/day · Contract · LinkedIn</span></span></a></div></div></section></main>
+</div></div></section>
+</div>
+</div>
+</body>
+</html>

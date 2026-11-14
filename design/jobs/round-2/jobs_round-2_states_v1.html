@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en" data-appearance="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jobs: seven states · MedTech Radar</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+/* Metric-matched fallbacks while Plex loads (design-system §16). */
+@font-face { font-family: "Plex Sans fallback"; src: local("Arial"); size-adjust: 101.17%; ascent-override: 101.32%; descent-override: 27.18%; line-gap-override: 0%; }
+@font-face { font-family: "Plex Mono fallback"; src: local("Consolas"); size-adjust: 109.13%; ascent-override: 93.92%; descent-override: 25.20%; line-gap-override: 0%; }
+
+/* Tokens. Mockups draw dark: the dark set of design-system §15 sits on :root as the default, the light set
+   of §4 under data-appearance="light", and Auto under prefers-color-scheme: light. The uploaded mark is drawn
+   in the light text colours; inverting it and turning the hue half a turn lands on the dark text tokens. */
+:root {
+  color-scheme: dark; --canvas: #0e1215; --surface: #151a1e; --surface-sunken: #1c2226; --row-hover: #192024; --row-selected: #0f3237; --text-1: #e6ebee; --text-2: #b3bec6; --text-3: #93a0a9; --border-subtle: #262e34; --border-strong: #6f7c86; --accent: #5cc3cf; --accent-hover: #82d3dc; --accent-tint: #0f3237; --on-accent: #071114; --positive: #74d39b; --positive-tint: #12291c; --caution: #f0c46a; --caution-tint: #2c2311; --negative: #ff9b8f; --negative-tint: #33191a; --neutral: #b3bec6; --neutral-tint: #1f262b; --scrim: rgba(0, 0, 0, .6); --shadow-overlay: 0 8px 24px rgba(0, 0, 0, .5); --font-sans: "IBM Plex Sans", "Plex Sans fallback", Arial, sans-serif; --font-mono: "IBM Plex Mono", "Plex Mono fallback", Consolas, monospace; --radius-0: 0; --radius-2: 2px; --radius-4: 4px; --dur: 120ms; --mark-filter: invert(1) hue-rotate(180deg);
+}
+html[data-appearance="light"] {
+  color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none;
+}
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] {
+    color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; } }
+
+/* Focus. Dark: a #ffd447 outline on a 2px surface gap; rows take the outline only, inset clear of the
+   selection bar. A static frame shows it with .is-focus on exactly one element. */
+:focus-visible, .is-focus { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+.row:focus-visible, .row.is-focus { outline-offset: -7px; box-shadow: none; }
+html[data-appearance="light"] :focus-visible, html[data-appearance="light"] .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  html[data-appearance="light"] .row:focus-visible, html[data-appearance="light"] .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] :focus-visible, html[data-appearance="auto"] .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  html[data-appearance="auto"] .row:focus-visible, html[data-appearance="auto"] .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+}
+@media (forced-colors: active) { :focus-visible, .is-focus { outline-color: Highlight; } }
+
+/* Base. The Tailwind CDN's preflight comes later in the cascade, so body is set as "html body" to keep its
+   line height, and a button's fill is always set with two classes ([type=button] in preflight counts as one). */
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--surface); }
+html body { margin: 0; background: var(--surface); color: var(--text-1); font-family: var(--font-sans); font-size: 14px;
+  line-height: 20px; font-weight: 400; letter-spacing: 0; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+h1, h2, h3, h4, p, ul, ol, dl, dd { margin: 0; }
+ul, ol { list-style: none; padding: 0; }
+button, input { font: inherit; color: inherit; letter-spacing: 0; }
+img { display: block; }
+a { color: inherit; }
+.mono { font-family: var(--font-mono); white-space: nowrap; }
+.seg-nowrap { white-space: nowrap; }
+.num { font-variant-numeric: tabular-nums; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* Where a marker is pinned (annot_on). It comes before every component rule, so a part that is already
+   positioned keeps its own position. */
+.annot-host { position: relative; }
+
+/* Type (design-system §5) */
+.text-label { font-size: 12px; line-height: 16px; font-weight: 600; }
+.text-meta { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); }
+
+/* Shell: app bar 48px, page header auto, content minmax(0, 1fr); the panes scroll, the page does not. */
+.app { display: grid; grid-template-rows: 48px auto minmax(0, 1fr); height: 100dvh; overflow: hidden; background: var(--surface); }
+.appbar { grid-row: 1; }
+.pagehead { grid-row: 2; }
+.content { grid-row: 3; }
+
+/* App bar */
+.appbar { display: flex; align-items: center; gap: 24px; min-width: 0; height: 48px; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.brand { display: flex; align-items: center; gap: 12px; flex: none; }
+.brand-mark { width: 51px; height: 24px; filter: var(--mark-filter); }
+.brand-name { font-size: 14px; line-height: 20px; font-weight: 600; white-space: nowrap; }
+.appbar-page { display: none; font-size: 16px; line-height: 24px; font-weight: 600; }
+.nav { display: flex; align-self: stretch; gap: 20px; }
+.nav a { display: flex; align-items: center; padding: 2px 2px 0; border-bottom: 2px solid transparent; color: var(--text-2);
+  text-decoration: none; white-space: nowrap; transition: color var(--dur) ease-out; }
+.nav a:hover { color: var(--text-1); }
+.nav a[aria-current="page"] { color: var(--text-1); border-bottom-color: var(--accent); }
+.appbar-tools { display: flex; align-items: center; gap: 16px; min-width: 0; margin-left: auto; }
+.cmd { display: flex; flex: none; align-items: center; gap: 8px; width: 240px; height: 32px; padding: 0 8px; text-align: left;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); color: var(--text-3); cursor: pointer; }
+.cmd-text { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cmd-icon { display: none; }
+.inbox-status { font-size: 12px; line-height: 16px; color: var(--text-3); white-space: nowrap; }
+.appearance { display: inline-flex; flex: none; }
+.seg { height: 32px; margin-left: -1px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 0;
+  background: var(--surface); color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600; cursor: pointer;
+  transition: background-color var(--dur) ease-out, color var(--dur) ease-out; }
+.seg:first-child { margin-left: 0; border-radius: var(--radius-2) 0 0 var(--radius-2); }
+.seg:last-child { border-radius: 0 var(--radius-2) var(--radius-2) 0; }
+.appearance .seg[aria-pressed="true"] { background: var(--surface-sunken); color: var(--text-1); }
+.appbar .menu-btn { display: none; }
+
+/* Controls */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: var(--radius-2); font-size: 14px; line-height: 20px; font-weight: 500;
+  white-space: nowrap; text-decoration: none; cursor: pointer;
+  transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out; }
+.btn.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.btn-secondary { background: var(--surface); border-color: var(--border-strong); color: var(--text-1); }
+.btn.btn-secondary:hover { background: var(--row-hover); }
+.btn.btn-ghost { background: transparent; color: var(--text-2); }
+.btn.btn-ghost:hover { color: var(--text-1); text-decoration: underline; text-underline-offset: 2px; }
+.btn.btn-icon { width: 32px; padding: 0; }
+.btn.is-disabled { color: var(--text-3); border-color: var(--border-subtle); cursor: default; }
+.btn.is-disabled .kbd { color: var(--text-3); border-color: var(--border-subtle); }
+.kbd { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 18px; height: 18px; padding: 0 4px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface-sunken); color: var(--text-2);
+  font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; white-space: nowrap; }
+.link { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
+  transition: color var(--dur) ease-out; }
+.link:hover { color: var(--accent-hover); text-decoration-thickness: 2px; }
+.with-icon { display: inline-flex; align-items: center; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px; border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2); background: transparent; color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600;
+  white-space: nowrap; cursor: pointer; transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out; }
+.chip:hover { color: var(--text-1); }
+.chip-count { color: var(--text-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.chip.is-selected { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+.chip-facet { padding-right: 8px; }
+.tag { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 20px; padding: 0 8px; border-radius: var(--radius-2);
+  font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+.tag-neutral { background: var(--neutral-tint); color: var(--neutral); }
+.tag-caution { background: var(--caution-tint); color: var(--caution); }
+.tag-positive { background: var(--positive-tint); color: var(--positive); }
+.is-pos { color: var(--positive); }
+.is-neg { color: var(--negative); }
+.is-neu { color: var(--neutral); }
+
+/* Page header */
+.pagehead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 56px; padding: 12px 16px;
+  background: var(--canvas); border-bottom: 1px solid var(--border-subtle); }
+.ph-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; min-width: 0; }
+.ph-title h1 { font-size: 20px; line-height: 28px; font-weight: 600; }
+.counts { font-size: 12px; line-height: 16px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ph-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.search { width: 200px; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text-1); font-size: 14px; line-height: 20px; }
+.search::placeholder { color: var(--text-3); opacity: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.undo-last { margin-left: 4px; }
+
+/* Content: panes abutting on 1px rules. The page's own CSS gives .content its columns. */
+.content { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; background: var(--surface); }
+
+/* Group and pane header (sticky, 40px), the fold button, the band divider */
+.group-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.group-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 600; white-space: nowrap; }
+.group-count { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.group-new { color: var(--text-2); }
+.fold { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; margin: 0 -8px 0 auto;
+  border: 0; border-radius: var(--radius-2); background: transparent; color: var(--text-2); cursor: pointer; }
+.fold:hover { background: var(--row-hover); color: var(--text-1); }
+.band { display: flex; align-items: center; height: 24px; padding: 0 16px; font-size: 12px; line-height: 16px; color: var(--text-3);
+  border-bottom: 1px solid var(--border-subtle); font-variant-numeric: tabular-nums; }
+
+/* Rows: a whole-row link. Three lines, 76px; two lines, 56px. */
+.row { position: relative; display: grid; grid-template-rows: 20px 16px 20px; row-gap: 2px; height: 76px; padding: 8px 16px 7px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); color: var(--text-1); text-decoration: none;
+  transition: background-color var(--dur) ease-out; }
+.row:hover { background: var(--row-hover); }
+.row[aria-current="true"] { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 13px; }
+.r1, .r2, .r3 { display: flex; min-width: 0; }
+.r1 { align-items: baseline; gap: 8px; }
+.r-new { flex: none; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-1); }
+.r-title { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+.is-unread .r-title { font-weight: 600; }
+.r-cv { flex: none; width: 40px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; }
+.r-seen { flex: none; width: 44px; text-align: right; font-size: 12px; line-height: 16px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.r2 { align-items: center; gap: 8px; }
+.r-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px;
+  line-height: 16px; color: var(--text-3); }
+.r2 .tag { margin: -2px 0; }
+.r-rate { display: inline-block; }
+.r3 { align-items: center; gap: 12px; }
+.r-lead { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2); }
+.r-marks { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.mk-pass { color: var(--text-3); }
+.mk-fail { color: var(--negative); }
+.mk-nj { color: var(--neutral); }
+.row-applied { grid-template-rows: 20px 16px; row-gap: 4px; height: 56px; }
+.more { display: flex; align-items: center; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--border-subtle); }
+
+/* Detail content: section heading, score block, reasons, definition list, reading text, evidence */
+.sec-h { margin-bottom: 8px; font-size: 16px; line-height: 24px; font-weight: 600; }
+.score { container-type: inline-size; }
+.gate-strip { display: grid; grid-template-columns: 88px 96px minmax(0, 1fr); gap: 8px 12px; align-items: start; max-width: 960px; margin-top: 8px; }
+.gate { display: contents; }
+.gate-name, .gate-status { font-size: 12px; line-height: 16px; font-weight: 600; }
+.gate-name { color: var(--text-2); }
+.gate-status { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.gate-note { font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+@container (width < 480px) {
+  .gate-strip { grid-template-columns: 72px minmax(0, 1fr); row-gap: 2px; }
+  .gate-note { grid-column: 2; margin-bottom: 8px; }
+}
+@container (width >= 720px) {
+  .gate-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 24px; }
+  .gate { display: flex; flex-direction: column; gap: 2px; }
+}
+.cv-line { display: flex; align-items: baseline; gap: 8px; margin-top: 16px; }
+.cv-label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.cv-figure { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.basis { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.reasons { display: flex; flex-direction: column; gap: 12px; }
+.reasons li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; max-width: 80ch; }
+.evidence { font-size: 12px; line-height: 16px; color: var(--text-2); text-decoration: underline; text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.evidence:hover { text-decoration-thickness: 2px; }
+.facts { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 16px; align-items: baseline; }
+.facts dt { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.facts dd { max-width: 80ch; }
+.advert-text { max-width: 72ch; font-size: 15px; line-height: 24px; }
+.advert-text h4 { margin: 24px 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
+.advert-text h4:first-child { margin-top: 0; }
+.advert-text p, .advert-text ul { margin-bottom: 12px; }
+.advert-text ul { padding-left: 20px; list-style: disc; }
+.advert-text li { margin-bottom: 4px; }
+.advert-text li::marker { color: var(--text-3); }
+mark { background: transparent; color: inherit; text-decoration: underline; text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 3px; }
+mark:target { background: var(--accent-tint); text-decoration-thickness: 2px; }
+.keymap { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; align-items: center; margin-top: 16px; }
+.keymap div { display: contents; }
+.keymap dt { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.keymap .then { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.keymap dd { color: var(--text-2); }
+
+/* Widths */
+@media (width < 1280px) { .cmd { width: auto; } .cmd-text { display: none; } .cmd-icon { display: inline-flex; } }
+@media (width < 960px) { .inbox-status { display: none; } }
+@media (pointer: coarse) and (width < 1100px) { .inbox-status { display: none; } }
+@media (width < 1800px) {
+  .ph-tools { flex-basis: 100%; margin-left: 0; }
+}
+/* Under 1024: one column, no key hints. A sub-screen (data-view="role") keeps the page header for
+   assistive technology only. */
+@media (width < 1024px) {
+  .appbar { gap: 16px; }
+  .nav { gap: 16px; }
+  .kbd { display: none; }
+  .cmd { justify-content: center; width: 32px; padding: 0; border-color: transparent; background: transparent; color: var(--text-2); }
+  .cmd-text { display: none; }
+  .cmd-icon { display: inline-flex; }
+  .app[data-view="role"] .pagehead { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .app[data-view="role"] .ph-tools, .app[data-view="role"] .counts { display: none; }
+}
+/* Under 768: the document scrolls and the panes do not; 44px targets; the app bar is the mark, the page
+   name and Menu. */
+@media (width < 768px) {
+  html { scroll-padding-top: 44px; }
+  .app { grid-template-rows: 48px auto auto; height: auto; min-height: 100dvh; overflow: visible; }
+  .nav, .appbar-tools, .brand-name { display: none; }
+  .appbar-page { display: block; }
+  .appbar .menu-btn { display: inline-flex; width: 44px; height: 44px; margin: 0 -8px 0 auto; padding: 0; }
+  .undo-last { margin-left: 0; padding-inline: 0; }
+  .ph-title h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .chips { display: contents; }
+  .search { width: 100%; }
+  .btn, .chip, .search { height: 44px; }
+  .group-head { height: 44px; }
+  .fold { width: 44px; height: 44px; margin-right: -12px; }
+  .more { min-height: 44px; }
+  .facts { grid-template-columns: 112px minmax(0, 1fr); }
+  .with-icon { display: inline-flex; align-items: center; min-height: 44px; }
+  .more .link, .evidence { position: relative; }
+  .more .link::after { content: ""; position: absolute; inset: -12px 0; }
+  .evidence::after { content: ""; position: absolute; inset: -14px 0; }
+}
+@media (pointer: coarse) {
+  .btn, .chip, .search, .seg { height: 44px; }
+  .fold, .btn.btn-icon { width: 44px; height: 44px; }
+  .cmd { height: 44px; }
+  .with-icon { display: inline-flex; align-items: center; min-height: 44px; }
+  .more { min-height: 44px; }
+  .more .link, .evidence { position: relative; }
+  .more .link::after { content: ""; position: absolute; inset: -12px 0; }
+  .evidence::after { content: ""; position: absolute; inset: -14px 0; }
+  .group-head { height: 44px; }
+}
+@media (max-height: 499px) {
+  .group-head { position: static; }
+}
+
+/* A plain document page (notes): left-aligned at a 16px inset. */
+.doc { max-width: calc(72ch + 32px); padding: 24px 16px 48px; color: var(--text-2); }
+.doc h1 { margin-bottom: 8px; font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.doc h2 { margin: 24px 0 8px; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.doc li + li { margin-top: 8px; }
+.doc ul { padding-left: 20px; list-style: disc; }
+.doc ol { padding-left: 24px; list-style: decimal; }
+.doc li::marker { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.doc .pick { margin-top: 8px; }
+.doc table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.doc th, .doc td { height: 32px; padding: 0 12px 0 0; text-align: left; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+@media (width < 480px) { .doc td { white-space: normal; overflow-wrap: anywhere; } }
+.doc th { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); border-bottom-color: var(--border-strong); }
+.doc td { color: var(--text-1); }
+.doc .after-table { margin-top: 12px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+
+/* =====================================================================================================
+   Added for later pages (design-system §6, §7, §14). Above this line is the Jobs round-2 stylesheet, rule
+   for rule, less the rules of the Jobs page alone (and with .annot-host added). Nothing below this line
+   changes a pixel of what Jobs draws: test_shell.py compares them.
+   ===================================================================================================== */
+
+/* The root is a size container named app. Write a page's width rules as @container app (width >= 1800px)
+   and a screen lays out by its own width: in a frame, and at 1280 inside a states-board panel. The two
+   rules below repeat the shell's own desktop width rules for that case. Overlays are placed against it. */
+.app { container: app / inline-size; }
+@container app (width < 1280px) { .cmd { width: auto; } .cmd-text { display: none; } .cmd-icon { display: inline-flex; } }
+@container app (width < 1800px) { .ph-tools { flex-basis: 100%; margin-left: 0; } }
+
+/* A light or a dark island inside a page of the other appearance (a white sheet of paper, a light specimen). */
+.theme-light { color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none; color: var(--text-1); }
+.theme-dark { color-scheme: dark; --canvas: #0e1215; --surface: #151a1e; --surface-sunken: #1c2226; --row-hover: #192024; --row-selected: #0f3237; --text-1: #e6ebee; --text-2: #b3bec6; --text-3: #93a0a9; --border-subtle: #262e34; --border-strong: #6f7c86; --accent: #5cc3cf; --accent-hover: #82d3dc; --accent-tint: #0f3237; --on-accent: #071114; --positive: #74d39b; --positive-tint: #12291c; --caution: #f0c46a; --caution-tint: #2c2311; --negative: #ff9b8f; --negative-tint: #33191a; --neutral: #b3bec6; --neutral-tint: #1f262b; --scrim: rgba(0, 0, 0, .6); --shadow-overlay: 0 8px 24px rgba(0, 0, 0, .5); --mark-filter: invert(1) hue-rotate(180deg); color: var(--text-1); }
+.theme-light :focus-visible, .theme-light .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  .theme-light .row:focus-visible, .theme-light .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+html[data-appearance] .theme-dark :focus-visible, html[data-appearance] .theme-dark .is-focus { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+  html[data-appearance] .theme-dark .row:focus-visible, html[data-appearance] .theme-dark .row.is-focus { outline-offset: -7px; box-shadow: none; }
+
+/* Type: the rest of the scale (design-system §5) */
+.text-page-title { font-size: 20px; line-height: 28px; font-weight: 600; }
+.text-title { font-size: 18px; line-height: 24px; font-weight: 600; }
+.text-section { font-size: 16px; line-height: 24px; font-weight: 600; }
+.text-panel { font-size: 14px; line-height: 20px; font-weight: 600; }
+.text-body { font-size: 14px; line-height: 20px; font-weight: 400; }
+.text-reading { max-width: 72ch; font-size: 15px; line-height: 24px; font-weight: 400; }
+.text-figure { font-size: 14px; line-height: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.text-figure-large { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ink-1 { color: var(--text-1); }
+.ink-2 { color: var(--text-2); }
+.ink-3 { color: var(--text-3); }
+
+/* The nav's shortest item, CV, is 21px wide. Its target is widened to 25px, not its box, so the bar keeps
+   its pixels. */
+.nav a { position: relative; }
+.nav a::after { content: ""; position: absolute; inset: 0 -2px; }
+
+/* Controls: what Jobs did not need */
+select, textarea { font: inherit; color: inherit; letter-spacing: 0; }
+.btn.btn-danger { background: var(--surface); border-color: var(--border-strong); color: var(--negative); }
+.btn.btn-danger:hover { background: var(--row-hover); }
+.btn.btn-danger.is-disabled { color: var(--text-3); border-color: var(--border-subtle); }
+.btn.btn-primary.is-disabled { background: var(--surface-sunken); border-color: var(--border-subtle); color: var(--text-3); }
+.btn.btn-ghost.is-disabled:hover { color: var(--text-3); text-decoration: none; }
+.btn[aria-pressed="true"] { background: var(--surface-sunken); border-color: var(--border-strong); color: var(--text-1); }
+.link-block { display: inline-flex; align-items: center; min-height: 24px; }
+.tag-negative { background: var(--negative-tint); color: var(--negative); }
+.is-cau { color: var(--caution); }
+.status { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+/* A link that stands alone in a 40px row, and an evidence link, are 20px and 16px tall: their targets are
+   made 24px without moving a pixel. (Jobs widens them further on touch; :where() keeps those rules on top.) */
+:where(.more) .link, :where(.evidence) { position: relative; }
+:where(.more) .link::after { content: ""; position: absolute; inset: -2px 0; }
+:where(.evidence)::after { content: ""; position: absolute; inset: -4px 0; }
+.chev { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; border: 0;
+  border-radius: var(--radius-2); background: transparent; color: var(--text-2); cursor: pointer; }
+.chev:hover { background: var(--row-hover); color: var(--text-1); }
+.action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* Page header: a back link above the title, tags after it, tools kept on the title's line */
+.ph-back { flex: 0 0 100%; }
+@media (width >= 768px) { .pagehead.ph-inline .ph-tools { flex-basis: auto; margin-left: auto; } }
+
+/* Panes */
+.pane { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scroll-padding-top: 40px; background: var(--surface); }
+.pane-body { display: flex; flex-direction: column; gap: 24px; padding: 16px 16px 24px; }
+.pane-note { display: flex; align-items: center; min-height: 32px; padding: 8px 16px 7px; font-size: 12px; line-height: 16px;
+  color: var(--text-2); border-bottom: 1px solid var(--border-subtle); }
+.head-meta { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.head-tools { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+.head-tools + .fold { margin-left: 0; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; margin-bottom: 8px; }
+.sec-head .sec-h { margin-bottom: 0; }
+.sec-meta { font-size: 12px; line-height: 16px; color: var(--text-3); }
+
+/* List rows of 56px and 40px, on the same .row */
+.row-2 { grid-template-rows: 20px 16px; row-gap: 4px; height: 56px; }
+.row-1 { grid-template-rows: 20px; height: 40px; padding-top: 10px; padding-bottom: 9px; }
+.row.is-static:hover { background: var(--surface); }
+
+/* Table: sticky head on the sunken ground, 40px rows, one line a cell */
+.table-wrap { min-width: 0; background: var(--surface); }
+.table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); }
+.table th, .table td { height: 40px; padding: 0 12px; text-align: left; vertical-align: middle; white-space: nowrap;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.table th:first-child, .table td:first-child { padding-left: 16px; }
+.table th:last-child, .table td:last-child { padding-right: 16px; }
+.table thead th { position: sticky; top: var(--table-top, 0px); z-index: 1; background: var(--surface-sunken);
+  border-bottom-color: var(--border-strong); font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); }
+.table tbody th { font-weight: 500; color: var(--text-1); }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table td.num { font-weight: 500; }
+.table .cell-trunc { max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.table .cell-meta { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.table .th-sub { margin-left: 8px; font-weight: 400; }
+.table tbody tr:hover > th, .table tbody tr:hover > td { background: var(--row-hover); }
+.table tbody tr[aria-current="true"] > th, .table tbody tr[aria-current="true"] > td { background: var(--row-selected); }
+.table tbody tr[aria-current="true"] > :first-child { border-left: 3px solid var(--accent); padding-left: 13px; }
+.th-sort { display: inline-flex; align-items: center; gap: 4px; min-width: 24px; min-height: 32px; color: inherit; text-decoration: none; }
+.th-sort:hover, .table th[aria-sort="ascending"] .th-sort, .table th[aria-sort="descending"] .th-sort { color: var(--text-1); }
+.table .t-chev { width: 48px; padding: 0 0 0 8px; }
+.table tr.is-open > th, .table tr.is-open > td { border-bottom-color: transparent; }
+.table .t-detail > td { height: auto; padding: 4px 16px 16px 56px; white-space: normal; }
+.table tbody tr.t-detail:hover > td { background: var(--surface); }
+.table .t-group > th { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.table tbody tr.t-group:hover > th, .table tbody tr.t-more:hover > td { background: var(--surface); }
+.table .t-group .group-count { margin-left: 8px; }
+@media (width < 1024px) {
+  .table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
+  .t-detail-body { position: sticky; left: 56px; width: calc(100vw - 72px); max-width: 100%; }
+}
+@media (max-height: 499px) { .table thead th { position: static; } }
+
+/* Text tabs: each tab a link, the current one marked */
+.tabs { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0 20px; min-height: 40px; padding: 0 16px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.tab { display: flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-width: 24px; min-height: 40px; padding: 2px 2px 0;
+  border-bottom: 2px solid transparent; color: var(--text-2); text-decoration: none; white-space: nowrap; transition: color var(--dur) ease-out; }
+.tab:hover { color: var(--text-1); }
+.tab[aria-current] { color: var(--text-1); border-bottom-color: var(--accent); }
+.tab-count { font-size: 12px; line-height: 16px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* Segmented control: joined segments. Buttons for a choice, links for a view switch. */
+.segmented { display: inline-flex; flex: none; }
+.segmented .seg { min-width: 32px; }
+.segmented a.seg { position: relative; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.segmented .seg:hover { color: var(--text-1); }
+.segmented .seg[aria-pressed="true"], .segmented .seg[aria-current] { background: var(--surface-sunken); color: var(--text-1); }
+.segmented a.seg[aria-current]::after { content: ""; position: absolute; left: -1px; right: -1px; bottom: -1px; height: 2px; background: var(--accent); }
+.segmented .seg:focus-visible, .segmented .seg.is-focus { position: relative; z-index: 1; }
+
+/* Notice line: mark, sentence, at most one action. No tint: the 1px rule and the mark carry it. */
+.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; min-height: 40px; padding: 4px 16px 3px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.notice-body { display: flex; align-items: flex-start; gap: 12px; flex: 1 1 24ch; min-width: 0; padding: 6px 0; }
+.notice-mark { flex: none; margin-top: 2px; }
+.notice-text { min-width: 0; max-width: 96ch; }
+.notice > .btn, .notice > .link-block { flex: none; }
+.notice > .link-block { min-height: 32px; }
+.notice-info .notice-mark { color: var(--neutral); }
+.notice-caution .notice-mark { color: var(--caution); }
+.notice-negative .notice-mark { color: var(--negative); }
+.notice-positive .notice-mark { color: var(--positive); }
+
+/* Form fields: a visible label above, 32px controls */
+.field { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
+.field-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 16px; }
+.field-row > .field { flex: 1 1 160px; }
+.field-label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.field-input { width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text-1); font-size: 14px; line-height: 20px; }
+.field-input::placeholder { color: var(--text-3); opacity: 1; }
+textarea.field-input { height: auto; min-height: 72px; padding: 5px 8px; resize: vertical; }
+select.field-input { appearance: none; -webkit-appearance: none; padding-right: 32px; cursor: pointer; }
+.field-select { position: relative; display: block; }
+.field-select iconify-icon { position: absolute; top: 50%; right: 8px; margin-top: -8px; color: var(--text-2); pointer-events: none; }
+.field-input[aria-invalid="true"] { border-color: var(--negative); }
+.field-input[readonly] { background: var(--surface-sunken); }
+.field-hint { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.field-error { display: flex; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--negative); }
+.field-error svg { flex: none; margin-top: 2px; }
+.check { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; cursor: pointer; }
+.check-input { -webkit-appearance: none; appearance: none; display: inline-grid; place-content: center; flex: none; width: 16px; height: 16px; margin: 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); cursor: pointer; }
+.check-input::before { content: ""; width: 10px; height: 10px; background: var(--on-accent); transform: scale(0);
+  clip-path: polygon(14% 44%, 0 65%, 44% 100%, 100% 20%, 82% 6%, 40% 66%); }
+.check-input:checked { background: var(--accent); border-color: var(--accent); }
+.check-input:checked::before { transform: scale(1); }
+/* A date field hands the focus on to its own calendar button, and the field then matches neither :focus nor
+   :focus-visible. So fields show the ring on :focus-within, as text fields do on any focus anyway. */
+.field-input:focus-within { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+html[data-appearance="light"] .field-input:focus-within, .theme-light .field-input:focus-within { outline-color: #14191d;
+  box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] .field-input:focus-within { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+}
+html[data-appearance] .theme-dark .field-input:focus-within { outline-color: #ffd447; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+@media (forced-colors: active) { .field-input:focus-within { outline-color: Highlight; } }
+
+/* Popover menu, drawn open. Overlays alone take radius 4px and the overlay shadow. */
+.popover-anchor { position: relative; display: inline-flex; }
+.menu, .popover { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 200px; padding: 4px 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--surface); box-shadow: var(--shadow-overlay); }
+.popover { padding: 12px; }
+.popover-anchor.is-end > .menu, .popover-anchor.is-end > .popover { right: 0; left: auto; }
+.menu .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 12px; border: 0; background: transparent;
+  color: var(--text-1); font-size: 14px; line-height: 20px; font-weight: 400; text-align: left; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.menu .menu-item:hover { background: var(--row-hover); }
+.menu .menu-item.is-current { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 9px; }
+.menu .menu-item.is-danger { color: var(--negative); }
+.menu .menu-item .kbd { margin-left: auto; }
+.menu-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+
+/* Toast: the inverse of the surface, at the bottom right of the screen it speaks for */
+.toast { position: absolute; z-index: 25; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 12px;
+  max-width: min(480px, calc(100% - 32px)); padding: 8px 8px 8px 16px; border-radius: var(--radius-4); background: var(--text-1);
+  color: var(--surface); box-shadow: var(--shadow-overlay); }
+.toast-text { min-width: 0; }
+.toast .toast-btn { flex: none; height: 32px; padding: 0 12px; border: 1px solid var(--surface); border-radius: var(--radius-2);
+  background: transparent; color: var(--surface); font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer; }
+.toast .toast-btn:hover { text-decoration: underline; text-underline-offset: 2px; }
+.toast :focus-visible, .toast .is-focus { outline-color: var(--surface); box-shadow: none; }
+
+/* Dialog and drawer, drawn open over a scrim. Placed against the nearest positioned box: the app, a
+   states-board panel or a .stage. */
+.scrim { position: absolute; inset: 0; z-index: 30; background: var(--scrim); }
+.dialog, .drawer { position: absolute; z-index: 31; display: flex; flex-direction: column; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text-1); box-shadow: var(--shadow-overlay); }
+.dialog { top: var(--overlay-top, 96px); right: 0; left: 0; width: min(var(--overlay-width, 480px), calc(100% - 32px));
+  max-height: calc(100% - var(--overlay-top, 96px) - 32px); margin-inline: auto; border-radius: var(--radius-4); }
+.drawer { top: 0; right: 0; bottom: 0; width: min(var(--overlay-width, 480px), 100%); border-width: 0 0 0 1px;
+  border-radius: var(--radius-4) 0 0 var(--radius-4); }
+.overlay-head { display: flex; align-items: center; gap: 8px; flex: none; min-height: 48px; padding: 8px 8px 7px 16px;
+  border-bottom: 1px solid var(--border-subtle); }
+.overlay-title { flex: 1 1 auto; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 600; }
+.overlay-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 16px; }
+.overlay-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle); }
+.stage { position: relative; overflow: hidden; background: var(--surface); }
+.spec-menu { height: 176px; }
+
+/* Empty and loading: left-aligned at the top of the area they replace */
+.empty { padding: 12px 16px 24px; }
+.empty > p { max-width: 72ch; }
+.empty > .btn, .empty > .link-block { margin-top: 12px; }
+.loading { padding: 12px 16px 24px; }
+.loading-text { max-width: 72ch; margin-bottom: 8px; color: var(--text-2); }
+.load-bar { display: block; max-width: 72ch; height: 12px; margin: 4px 0 8px; border-radius: var(--radius-2); background: var(--surface-sunken); }
+
+/* Vertical toolbar slot: icon buttons on the sunken ground, or the same with visible labels */
+.vtoolbar { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: none; width: 48px; padding: 8px;
+  background: var(--surface-sunken); border-right: 1px solid var(--border-subtle); --focus-gap: var(--surface-sunken); }
+.vtoolbar.has-labels { width: 216px; }
+.vtoolbar.has-labels .btn { justify-content: flex-start; padding: 0 8px; }
+.vtoolbar .btn .kbd { margin-left: auto; }
+.tool-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+.tool-note { padding: 0 8px 4px 32px; font-size: 12px; line-height: 16px; color: var(--text-3); white-space: normal; }
+
+/* 44px on touch, and under 768px where a desktop browser draws the phone frame. The app is then at least a
+   screen high: its rows keep their own heights (a short page would otherwise stretch its page header). */
+@media (width < 768px) {
+  .app { align-content: start; }
+  .pane { overflow: visible; min-height: auto; }
+  .pagehead.ph-own .ph-title h1 { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; }
+  .btn.btn-icon, .chev { width: 44px; }
+  .chev, .field-input, .segmented .seg, .toast .toast-btn, .menu .menu-item { height: 44px; }
+  textarea.field-input { height: auto; }
+  .tab, .check, .link-block, .th-sort, .notice > .link-block { min-height: 44px; }
+  .row-1 { height: 44px; padding-top: 12px; padding-bottom: 11px; }
+  .toast { left: 16px; max-width: none; }
+  .dialog { --overlay-top: 64px; }
+  .drawer { width: 100%; border-width: 0; border-radius: 0; }
+  .vtoolbar { width: 60px; }
+  .vtoolbar.has-labels { width: 216px; }
+  .spec-menu { height: 236px; }
+}
+@media (pointer: coarse) {
+  .btn.btn-icon, .chev { width: 44px; }
+  .chev, .field-input, .segmented .seg, .toast .toast-btn, .menu .menu-item { height: 44px; }
+  textarea.field-input { height: auto; }
+  .tab, .check, .link-block, .th-sort, .notice > .link-block { min-height: 44px; }
+  .row-1 { height: 44px; padding-top: 12px; padding-bottom: 11px; }
+  .vtoolbar { width: 60px; }
+  .vtoolbar.has-labels { width: 216px; }
+  .spec-menu { height: 236px; }
+}
+
+/* Hide by frame: wide is 1800px and over, desk 1024 to 1799, phone under 1024. For markers, legend lines
+   and anything else a frame does not draw. */
+@media (width >= 1800px) { .hide-wide { display: none !important; } }
+@media (width >= 1024px) and (width < 1800px) { .hide-desk { display: none !important; } }
+@media (width < 1024px) { .hide-phone { display: none !important; } }
+
+/* Annotation layer: not product UI. A marker is a 20px square, the inverse of the surface under it, with a
+   mono numeral; it takes no room. The legend sits under the app frame on the canvas ground. */
+.annot, .legend-n { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: var(--text-1);
+  color: var(--surface); font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; font-style: normal;
+  font-variant-numeric: tabular-nums; letter-spacing: 0; text-indent: 0; white-space: nowrap; }
+.annot { position: absolute; z-index: 40; margin: 0; padding: 0; border: 0; box-shadow: 0 0 0 1px var(--surface); pointer-events: none;
+  translate: var(--dx, 0px) var(--dy, 0px); }
+.annot-tl { top: 0; left: 0; }
+.annot-t { top: 0; left: calc(50% - 10px); }
+.annot-tr { top: 0; right: 0; }
+.annot-l { top: calc(50% - 10px); left: 0; }
+.annot-c { top: calc(50% - 10px); left: calc(50% - 10px); }
+.annot-r { top: calc(50% - 10px); right: 0; }
+.annot-bl { bottom: 0; left: 0; }
+.annot-b { bottom: 0; left: calc(50% - 10px); }
+.annot-br { right: 0; bottom: 0; }
+.legend { padding: 24px 16px 48px; background: var(--canvas); border-top: 1px solid var(--border-strong); color: var(--text-2); }
+.legend-title { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.legend-note { max-width: 96ch; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.legend-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); gap: 16px 32px; margin-top: 16px; }
+.legend-item { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 12px; align-items: start; max-width: 72ch; }
+.legend-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.legend-text { text-wrap: pretty; }
+
+/* Annotated frame: the app at a fixed height for the mockup, the legend under it. */
+.frame { background: var(--canvas); }
+.frame > .app { height: 900px; }
+@media (width >= 1800px) { .frame > .app { height: 1440px; } }
+@media (width < 1024px) {
+  .frame > .app { grid-template-rows: 48px auto auto; height: auto; min-height: 0; overflow: visible; }
+  .frame .pane { overflow: visible; min-height: auto; }
+}
+
+/* States board: plain panels on the canvas ground, each a label over a 1px rule and a fragment at real size. */
+.board { min-height: 100dvh; padding-bottom: 48px; background: var(--canvas); color: var(--text-2); }
+.board-head { padding: 24px 16px 0; }
+.board-head h1 { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.board-head p { max-width: 96ch; margin-top: 4px; }
+.board-panels { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 32px 24px; padding: 24px 16px 0; }
+.board-panel { position: relative; flex: none; min-width: 0; max-width: 100%; }
+.board-panel.is-auto { flex: 1 1 560px; }
+.board-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; padding-bottom: 7px; border-bottom: 1px solid var(--border-strong); }
+.board-n { min-width: 16px; font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.board-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.board-note { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.board-body { position: relative; overflow: auto; background: var(--surface); color: var(--text-1); }
+.board-body > .app { height: 100%; min-height: 0; }
+.board.is-flush .board-panels { gap: 32px 0; padding-right: 0; padding-left: 0; }
+.board.is-flush .board-label { padding-right: 16px; padding-left: 16px; }
+.board.is-flush .board-panel + .board-panel::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; z-index: 50; width: 1px;
+  background: var(--border-strong); pointer-events: none; }
+
+/* System sheet: four columns of reference from 1800px, two from 1024px, then the component list */
+.sys { min-height: 100dvh; padding: 24px 16px 64px; background: var(--canvas); color: var(--text-2); }
+.sys-head { margin-bottom: 32px; }
+.sys-head h1 { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.sys-head p { max-width: 96ch; margin-top: 4px; }
+.sys-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px 32px; align-items: start; }
+.sys-cell { display: flex; flex-direction: column; gap: 40px; min-width: 0; }
+.sys-extra { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 40px 32px; align-items: start; }
+.sys-wide, .sys-extra { margin-top: 40px; }
+@media (width >= 1024px) { .sys-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (width >= 1800px) { .sys-grid { grid-template-columns: minmax(0, 1.44fr) minmax(0, 1.44fr) minmax(0, 1fr) minmax(0, 1fr); } }
+.sys-sec { min-width: 0; }
+.sys-sec > h2 { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.sys-note { max-width: 96ch; margin: 4px 0 12px; font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+.sys-table { overflow-x: auto; }
+.sys-table .table th, .sys-table .table td { height: 32px; padding-top: 6px; padding-bottom: 5px; white-space: normal; }
+.sys-table .table .keep { white-space: nowrap; }
+.sys-table .table th:last-child, .sys-table .table td:last-child { width: 100%; }
+.sys-table .table tbody tr:hover > td { background: var(--surface); }
+.swatch { display: inline-block; flex: none; width: 32px; height: 20px; border: 1px solid var(--border-strong); vertical-align: middle; }
+.swatch-cell { display: inline-flex; align-items: center; gap: 8px; }
+.swatch-stack { display: inline-flex; flex-direction: column; gap: 4px; }
+.sys-steps { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px; margin-bottom: 16px; padding: 16px; background: var(--surface); }
+.sys-step { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 16px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.sys-step-bar { height: 16px; background: var(--text-3); }
+.sys-comps { column-gap: 48px; }
+@media (width >= 1800px) { .sys-comps { column-count: 2; } }
+.sys-comp { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 8px 24px; align-items: start; padding: 16px 0;
+  border-top: 1px solid var(--border-subtle); break-inside: avoid; }
+.sys-comp.is-wide { column-span: all; grid-template-columns: minmax(0, 1fr); }
+.sys-comp.is-wide .sys-comp-line { max-width: 96ch; }
+.sys-comp-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.sys-comp-line { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+.sys-draw { min-width: 0; overflow-x: auto; background: var(--surface); color: var(--text-1); }
+.sys-draw.is-pad { padding: 12px 16px; }
+.sys-draw > .appbar, .sys-draw > .pagehead { grid-row: auto; }
+.spec-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.spec-col { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+@media (width < 768px) { .sys-comp { grid-template-columns: minmax(0, 1fr); } .sys-table .table { min-width: 600px; } }
+
+/* ---- This page ---- */
+/* The Jobs page's own rules (gen_r2.CSS less the shell's). */
+html[data-appearance="light"] .nav a:focus-visible, html[data-appearance="light"] .fold:focus-visible { outline-offset: -4px; box-shadow: inset 0 0 0 2px #ffc72c; }
+html[data-appearance="light"] .appbar .menu-btn:focus-visible, html[data-appearance="light"] .advert:focus-visible { box-shadow: none; }
+html[data-appearance="light"] .advert:focus-visible > .advert-head::after { border-color: #14191d; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] .nav a:focus-visible, html[data-appearance="auto"] .fold:focus-visible { outline-offset: -4px; box-shadow: inset 0 0 0 2px #ffc72c; }
+  html[data-appearance="auto"] .appbar .menu-btn:focus-visible, html[data-appearance="auto"] .advert:focus-visible { box-shadow: none; }
+  html[data-appearance="auto"] .advert:focus-visible > .advert-head::after { border-color: #14191d; }
+}
+@media (forced-colors: active) {
+  .advert:focus-visible > .advert-head::after { border-color: Highlight; }
+}
+.nav { gap: 12px; margin-left: -4px; }
+.nav a { padding: 2px 6px 0; }
+.nav a:focus-visible { outline-offset: -4px; box-shadow: none; }
+.appbar .menu-btn:focus-visible { outline-offset: -2px; box-shadow: none; }
+.queue, .role { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; background: var(--surface); }
+.queue { container: queue / inline-size; }
+.queue { scroll-padding-top: 40px; }
+.queue .link, .queue .fold, .role .link, .role .evidence, .role .btn { scroll-margin-block: 8px; }
+.queue-note { display: flex; align-items: center; min-height: 32px; padding: 8px 16px 7px; font-size: 12px; line-height: 16px; color: var(--text-2); border-bottom: 1px solid var(--border-subtle); }
+.filtered { padding: 12px 16px 24px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.detail-head { position: sticky; top: 0; z-index: 3; container: dhead / inline-size; padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.back { display: none; }
+.dh-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title nav" "meta meta"; column-gap: 16px; }
+.dh-title { grid-area: title; align-self: center; font-size: 18px; line-height: 24px; font-weight: 600; text-wrap: balance; }
+.dh-nav { grid-area: nav; display: flex; align-items: center; gap: 8px; }
+.dh-meta { grid-area: meta; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 20px; margin-top: 4px; }
+.dh-meta-text { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.applied-note { flex: 1 1 32ch; min-width: 0; max-width: 80ch; margin-left: 4px; color: var(--text-2); text-wrap: pretty; }
+@container dhead (width < 760px) {
+  .dh-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "title" "meta" "nav"; }
+  .dh-nav { margin-top: 8px; }
+  .dh-nav .open-advert { margin: 0 auto 0 -12px; }
+}
+@container dhead (width < 680px) {
+  .actions-open { display: grid; grid-template-columns: repeat(4, max-content); }
+  .actions-open .btn-primary { grid-column: 1 / -1; justify-self: start; }
+}
+.detail-body { display: flex; flex-direction: column; gap: 24px; padding: 16px 16px 24px; }
+.lead-line, .tier { max-width: 80ch; }
+.company-meta { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.advert { border-top: 1px solid var(--border-subtle); background: var(--surface); }
+.advert-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; padding: 24px 16px 0; background: var(--surface); }
+.advert-head .sec-h { margin-bottom: 0; }
+.advert-read { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.advert-body { padding: 12px 16px 32px; }
+.empty-fact { max-width: 72ch; }
+.card-text { max-width: 72ch; margin: 8px 0 12px; font-size: 15px; line-height: 24px; color: var(--text-2); }
+.no-selection { padding: 12px 16px 24px; }
+.no-selection > p { max-width: 72ch; }
+@container queue (width < 612px) {
+  .queue .row-question { grid-template-rows: 20px 16px 40px; height: 96px; }
+  .queue .row-question .r3 { align-items: flex-start; }
+  .queue .row-question .r-lead { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; white-space: normal; }
+  .queue .row-question .r-marks { height: 20px; }
+}
+@container queue (width < 376px) {
+  .queue .row-question { grid-template-rows: 20px 16px 60px; height: 116px; }
+  .queue .row-question .r-lead { -webkit-line-clamp: 3; line-clamp: 3; }
+}
+@media (width >= 1024px) {
+  .content { grid-template-columns: 400px minmax(0, 1fr); }
+  .queue { border-right: 1px solid var(--border-subtle); }
+}
+@media (width >= 768px) and (width < 1800px) {
+  .role-detail { display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: clip; }
+  .role-scroll { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scroll-padding-block: 8px; }
+}
+@media (max-height: 499px) and (width >= 768px) and (width < 1800px) {
+  .role-detail { display: block; overflow: auto; }
+  .role-scroll { overflow: visible; }
+}
+@media (width >= 1280px) {
+  .content { grid-template-columns: 440px minmax(0, 1fr); }
+}
+@media (width >= 1800px) {
+  .content { grid-template-columns: clamp(440px, 24vw, 640px) minmax(min(640px, 100vw - 760px - clamp(440px, 24vw, 640px)), 1fr) 760px; grid-template-rows: auto minmax(0, 1fr); }
+  .queue { grid-column: 1; grid-row: 1 / span 2; }
+  .role, .role-scroll { display: contents; }
+  .detail-head { grid-column: 2; grid-row: 1; position: relative; }
+  .detail-body { grid-column: 2; grid-row: 2; min-height: 0; overflow: auto; overscroll-behavior: contain; scroll-padding-block: 8px; }
+  .advert { grid-column: 3; grid-row: 1 / span 2; min-height: 0; overflow: auto; overscroll-behavior: contain; scroll-padding-top: 40px; scroll-padding-bottom: 8px; border-top: 0; border-left: 1px solid var(--border-subtle); }
+  .advert:focus-visible { outline-offset: -2px; box-shadow: none; }
+  .advert:focus-visible > .advert-head::after { content: ""; position: absolute; inset: 0 0 -1px; border: solid #ffd447; border-width: 2px 2px 0 1px; pointer-events: none; }
+  .advert-head { position: sticky; top: 0; z-index: 2; align-items: center; height: 40px; padding: 0 16px; border-bottom: 1px solid var(--border-subtle); }
+  .advert-body { padding-top: 16px; }
+  .no-selection { grid-column: 2 / span 2; grid-row: 1 / span 2; overflow: auto; }
+}
+@media (width < 1024px) {
+  .nav { gap: 8px; }
+  .app[data-view="role"] .queue, .app[data-view="list"] .role { display: none; }
+  .back { display: inline-flex; align-items: center; margin-bottom: 8px; }
+  .prevnext { display: none; }
+}
+@media (width < 768px) {
+  .queue, .role { overflow: visible; min-height: auto; }
+  .detail-head { position: static; }
+  .back { min-height: 44px; }
+  .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .actions .btn-primary, .applied-note { grid-column: 1 / -1; justify-self: stretch; }
+  .applied-note { margin-left: 0; }
+  .company .link { display: inline-flex; align-items: center; min-height: 44px; }
+}
+@media (pointer: coarse) {
+  .company .link { display: inline-flex; align-items: center; min-height: 44px; }
+  .back { min-height: 44px; }
+  .queue { scroll-padding-top: 44px; }
+}
+@media (width < 768px), (pointer: coarse) {
+  .fold:focus-visible { outline-offset: -4px; box-shadow: none; }
+}
+@media (max-height: 499px) {
+  .detail-head, .advert-head { position: static; }
+}
+/* The states board (jobs-states.html) */
+.st-screen { background: var(--surface); }
+.st-block { display: flex; flex-direction: column; min-width: 0; }
+.st-pair { display: flex; align-items: stretch; }
+.st-pair > .st-block + .st-block { border-left: 1px solid var(--border-strong); }
+.st-stack > .st-block + .st-block { border-top: 1px solid var(--border-strong); }
+.st-cap { padding: 8px 16px 7px; font-size: 12px; line-height: 16px; color: var(--text-3); background: var(--canvas);
+  border-bottom: 1px solid var(--border-subtle); }
+.st-strip { min-height: 56px; }
+.st-cols { display: flex; align-items: stretch; min-width: 0; }
+.st-block > .st-cols { flex: 1 1 auto; }
+.st-col { flex: none; min-width: 0; overflow: clip; background: var(--surface); }
+.st-col.is-fill { flex: 1 1 0; }
+.st-col + .st-col { border-left: 1px solid var(--border-subtle); }
+.st-col > .queue { border-right: 0; }
+.st-col > .advert { border-left: 0; }
+/* Show: Expired draws its rows' text in --text-2 (design-system section 8). */
+.row.st-expired { color: var(--text-2); }
+/* A read-only role's note stands alone where the actions were. */
+.actions.st-ro > .applied-note:first-child { margin-left: 0; }
+/* Each panel's headings sit under the panel's h2 (demoted()): the page title becomes an h3, styled here as the
+   Jobs page styles its h1, and a section heading can become an h5, which the base rules do not reset. */
+.st-screen .ph-title h3 { font-size: 20px; line-height: 28px; font-weight: 600; }
+h5, h6 { margin: 0; }
+/* First run: Undo last with nothing to undo is disabled. */
+.undo-last[aria-disabled="true"], .undo-last[aria-disabled="true"]:hover { color: var(--text-3); text-decoration: none;
+  cursor: default; }
+</style>
+</head>
+<body>
+<div class="board">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="st-pos" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-cau" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 2.4a5.6 5.6 0 0 0 0 11.2z" fill="currentColor"/></symbol>
+<symbol id="st-neg" viewBox="0 0 16 16"><path d="M4.2 4.2l7.6 7.6m0-7.6l-7.6 7.6" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-neu" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+<symbol id="st-pro" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></symbol>
+</svg>
+
+<header class="board-head"><h1>Jobs: the seven states of the brief</h1><p>Each panel draws the parts of the Jobs screen a state touches, at real size, from the round-2 page itself. The full-width panels lay them out as they look at 2560 wide. The half-width panels 3 and 4 give the role detail 637px, as a screen about 1040px wide does, so panel 3&#x27;s gates sit one to a line. Companies and roles are fictional.</p></header>
+<div class="board-panels">
+<section class="board-panel" style="width:2528px" aria-labelledby="board-state-1"><header class="board-label"><span class="board-n">1</span><h2 class="board-name" id="board-state-1">No new roles today</h2><p class="board-note">The inbox ran at 09:02 and found nothing new: no row says New, no group header counts new, the chip reads New 0, and the detail pane says so in one sentence with the next step.</p></header><div class="board-body"><div class="st-screen"><header class="appbar"><div class="brand"><img class="brand-mark" src="https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/0db15a19-3516-4453-a7e9-67ecc19e8823/brand-assets/brand-radar-mark.svg/radar-mark.svg" width="51" height="24" alt=""><span class="brand-name">MedTech Radar</span><span class="appbar-page">Jobs</span></div><nav class="nav" aria-label="Pages, no new roles today"><a id="s1-nav-home" href="#home">Home</a><a id="s1-nav-jobs" href="#jobs" aria-current="page">Jobs</a><a id="s1-nav-insights" href="#insights">Insights</a><a id="s1-nav-watchlist" href="#watchlist">Watchlist</a><a id="s1-nav-cv" href="#cv">CV</a></nav><div class="appbar-tools"><button type="button" class="cmd" aria-haspopup="dialog" aria-keyshortcuts="Control+K" aria-label="Search or run a command"><iconify-icon class="cmd-icon" icon="carbon:search" width="20" height="20" aria-hidden="true"></iconify-icon><span class="cmd-text">Search or run a command</span><kbd class="kbd" aria-hidden="true">Ctrl K</kbd></button><span class="inbox-status">Inbox on schedule · ran 09:02</span><div class="appearance" role="group" aria-label="Appearance"><button type="button" class="seg" aria-pressed="false">Light</button><button type="button" class="seg" aria-pressed="false">Auto</button><button type="button" class="seg" aria-pressed="true">Dark</button></div><button type="button" class="btn btn-ghost btn-icon help" aria-label="Keyboard shortcuts" aria-keyshortcuts="Shift+?"><iconify-icon icon="carbon:help" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><button type="button" class="btn btn-ghost menu-btn" aria-haspopup="true" aria-expanded="false">Menu</button></header><div class="pagehead"><div class="ph-title"><h3>Jobs</h3><p class="counts">530 open · 8 Top prospects · 45 one question away · 186 reading · 291 filtered · 0 new</p></div><div class="ph-tools"><input class="search" type="search" placeholder="Search roles" aria-label="Search roles" aria-keyshortcuts="/"><div class="chips" role="group" aria-label="Filters"><button type="button" class="chip" aria-pressed="false">New <span class="chip-count">0</span></button><button type="button" class="chip" aria-pressed="false">Local</button><button type="button" class="chip" aria-pressed="false">UK</button><button type="button" class="chip" aria-pressed="false">Europe</button><button type="button" class="chip" aria-pressed="false">Elsewhere</button><button type="button" class="chip" aria-pressed="false">Remote</button><button type="button" class="chip" aria-pressed="false">Contract</button></div><button type="button" class="chip chip-facet" aria-haspopup="true" aria-expanded="false">Show: Open roles<iconify-icon icon="carbon:chevron-down" width="16" height="16" aria-hidden="true"></iconify-icon></button><button type="button" class="btn btn-ghost undo-last">Undo last</button></div></div><div class="st-cols" style="height:500px"><div class="st-col" style="width:614px"><section class="queue" aria-label="Roles, no new roles today">
+<p class="queue-note">Scores are from the advert card unless tagged Full job spec.</p>
+<section class="group" aria-labelledby="s1-group-top">
+<div class="group-head"><h4 class="group-title" id="s1-group-top">Top prospects<span class="group-count">8</span></h4></div>
+<div class="group-rows" id="s1-group-top-rows">
+<div class="band">CV match 80–89</div>
+<a id="s1-row-T1" class="row row-queue" href="#T1"><span class="r1"><span class="r-title">Head of Software Quality, Class II infusion pumps</span><span class="r-cv"><span class="visually-hidden">CV match </span>86%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>11 Nov</span></span><span class="r2"><span class="r-meta">Hartwell Infusion Ltd · Guildford (hybrid, 2 days) · <span class="r-rate">£700–£750/day</span> · Contract · LinkedIn</span><span class="tag tag-neutral"><iconify-icon icon="carbon:document" width="12" height="12" aria-hidden="true"></iconify-icon>Full job spec</span></span><span class="r3"><span class="r-lead">Owns the IEC 62304 software file through a notified body audit. Your CV leads with the same work.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+<a id="s1-row-T6" class="row row-queue" href="#T6"><span class="r1"><span class="r-title">Interim Head of Software | Class IIb | 6 months | £700-£750pd</span><span class="r-cv"><span class="visually-hidden">CV match </span>83%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>13 Nov</span></span><span class="r2"><span class="r-meta">Marchetti Devices · Basingstoke · <span class="r-rate">£700-£750pd</span> · Contract · LinkedIn</span></span><span class="r3"><span class="r-lead">Six-month interim lead for Class IIb device software, starting in December.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+<a id="s1-row-T2" class="row row-queue" href="#T2"><span class="r1"><span class="r-title">Fractional Software Director, IVD analyser</span><span class="r-cv"><span class="visually-hidden">CV match </span>81%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>13 Nov</span></span><span class="r2"><span class="r-meta">PDX Diagnostics · Cambridge, 3 days on site · <span class="r-rate">£800/day</span> · Contract · LinkedIn</span></span><span class="r3"><span class="r-lead">Three days a week on site leading an IVD analyser&#x27;s software through IVDR certification.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+<div class="band">CV match 70–79</div>
+<a id="s1-row-T5" class="row row-queue" href="#T5"><span class="r1"><span class="r-title">Principal Software Engineer, cardiac monitoring</span><span class="r-cv"><span class="visually-hidden">CV match </span>79%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>12 Nov</span></span><span class="r2"><span class="r-meta">Brandt Cardio · Bracknell · Contract · LinkedIn</span></span><span class="r3"><span class="r-lead">Rate not stated. Ask before anything else.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+<a id="s1-row-T8" class="row row-queue" href="#T8"><span class="r1"><span class="r-title">Head of Regulatory Software, SaMD</span><span class="r-cv"><span class="visually-hidden">CV match </span>77%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>8 Nov</span></span><span class="r2"><span class="r-meta">Quayle Health · London (hybrid, 1 day) · <span class="r-rate">£105,000/year</span> · Permanent · LinkedIn</span></span><span class="r3"><span class="r-lead">Leads regulatory work for software as a medical device, one day a week in London.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+<a id="s1-row-T4" class="row row-queue" href="#T4"><span class="r1"><span class="r-title">Software Engineering Manager, surgical robotics</span><span class="r-cv"><span class="visually-hidden">CV match </span>74%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>1 Nov</span></span><span class="r2"><span class="r-meta">Rowe &amp; Keane Surgical · London · <span class="r-rate">£95,000–£110,000/year</span> · Permanent · Indeed</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>Unknown · 12 days</span></span><span class="r3"><span class="r-lead">Manages two firmware teams on a Class IIb robotic arm heading for a 510(k).</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+<a id="s1-row-T10" class="row row-queue" href="#T10"><span class="r1"><span class="r-title">Fractional QA/RA Lead, digital pathology</span><span class="r-cv"><span class="visually-hidden">CV match </span>72%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>4 Nov</span></span><span class="r2"><span class="r-meta">TMD Instruments Ltd · Oxford · <span class="r-rate">£700/day</span> · Contract · LinkedIn</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>Unknown · 9 days</span></span><span class="r3"><span class="r-lead">Two days a week on QA and regulatory work for digital pathology software under IVDR.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+<a id="s1-row-T12" class="row row-queue" href="#T12"><span class="r1"><span class="r-title">IEC 62304 Consultant, hearing implants</span><span class="r-cv"><span class="visually-hidden">CV match </span>71%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>6 Oct</span></span><span class="r2"><span class="r-meta">Thorne Audiology · Cambridge · <span class="r-rate">£650–£700/day</span> · Contract · LinkedIn</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>Unknown · expires 20 Nov</span></span><span class="r3"><span class="r-lead">IEC 62304 consultancy on hearing implant software. Your CV has implant firmware verification.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+</div>
+</section>
+<section class="group" aria-labelledby="s1-group-question">
+<div class="group-head"><h4 class="group-title" id="s1-group-question">One question away<span class="group-count">45</span></h4></div>
+<div class="group-rows" id="s1-group-question-rows">
+<div class="band">CV match 70–79</div>
+<a id="s1-row-T3" class="row row-queue row-question" href="#T3"><span class="r1"><span class="r-title">Interim QA/RA Software Lead</span><span class="r-cv"><span class="visually-hidden">CV match </span>78%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>10 Nov</span></span><span class="r2"><span class="r-meta">Ainsworth Medical · Remote, UK · <span class="r-rate">£650/day</span> · Contract · LinkedIn</span></span><span class="r3"><span class="r-lead">Would they move on the rate? £650/day is £50 under the £700 floor.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-fail" width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate fails.</span></span></a>
+<a id="s1-row-T9" class="row row-queue row-question" href="#T9"><span class="r1"><span class="r-title">Software Verification Manager, ophthalmic lasers</span><span class="r-cv"><span class="visually-hidden">CV match </span>77%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>13 Nov</span></span><span class="r2"><span class="r-meta">Kinross Optics · Southampton (hybrid, 1 day) · <span class="r-rate">£675/day</span> · Contract · Reed</span></span><span class="r3"><span class="r-lead">Would they move on the rate? £675/day is £25 under the £700 floor.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-fail" width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate fails.</span></span></a>
+<a id="s1-row-Q3" class="row row-queue row-question" href="#Q3"><span class="r1"><span class="r-title">IEC 62304 Lead - Digital Pathology - Amsterdam (3 days on site)</span><span class="r-cv"><span class="visually-hidden">CV match </span>76%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>10 Nov</span></span><span class="r2"><span class="r-meta">Pellucid Imaging BV · Amsterdam · <span class="r-rate">€850/day</span> · Contract · LinkedIn</span></span><span class="r3"><span class="r-lead">Would they go remote? Three days a week on site in Amsterdam.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-fail" width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location fails, Rate passes.</span></span></a>
+<a id="s1-row-T7" class="row row-queue row-question" href="#T7"><span class="r1"><span class="r-title">Software Quality Engineer - Medical Devices - Contract - Outside IR35 - Hybrid (Surrey)</span><span class="r-cv"><span class="visually-hidden">CV match </span>76%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>9 Nov</span></span><span class="r2"><span class="r-meta">Lindqvist Medical UK · Woking (hybrid) · <span class="r-rate">£675/day</span> · Contract · Reed</span></span><span class="r3"><span class="r-lead">Would they move on the rate? £675/day is £25 under the £700 floor.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-fail" width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate fails.</span></span></a>
+<a id="s1-row-T11" class="row row-queue row-question" href="#T11"><span class="r1"><span class="r-title">Embedded Software Lead, enteral feeding pumps</span><span class="r-cv"><span class="visually-hidden">CV match </span>75%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>7 Nov</span></span><span class="r2"><span class="r-meta">Ashcombe Medical · Crawley · <span class="r-rate">£690/day</span> · Contract · CV-Library</span></span><span class="r3"><span class="r-lead">Would they move on the rate? £690/day is £10 under the £700 floor.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-fail" width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate fails.</span></span></a>
+<a id="s1-row-Q4" class="row row-queue row-question" href="#Q4"><span class="r1"><span class="r-title">Software Quality Lead, dental imaging</span><span class="r-cv"><span class="visually-hidden">CV match </span>74%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>12 Nov</span></span><span class="r2"><span class="r-meta">Carrow Dental Systems · Norwich · <span class="r-rate">£600/day</span> · Contract · LinkedIn</span></span><span class="r3"><span class="r-lead">Would they move on the rate? £600/day is £100 under the £700 floor.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-fail" width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate fails.</span></span></a>
+<a id="s1-row-Q6" class="row row-queue row-question" href="#Q6"><span class="r1"><span class="r-title">Software Lead, sleep apnoea devices</span><span class="r-cv"><span class="visually-hidden">CV match </span>73%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>11 Nov</span></span><span class="r2"><span class="r-meta">Mortimer Respiratory · Manchester, on site 3 days · <span class="r-rate">£700/day</span> · Contract · LinkedIn</span></span><span class="r3"><span class="r-lead">Would they take two days on site? The advert asks for three in Manchester.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-fail" width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location fails, Rate passes.</span></span></a>
+<a id="s1-row-Q1" class="row row-queue row-question" href="#Q1"><span class="r1"><span class="r-title">Software Verification Lead, insulin delivery</span><span class="r-cv"><span class="visually-hidden">CV match </span>72%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>9 Nov</span></span><span class="r2"><span class="r-meta">Vandeput Medical NV · Leuven, Belgium · <span class="r-rate">€720/day</span> · Contract · LinkedIn</span></span><span class="r3"><span class="r-lead">Would they move on the rate? €720/day is £612, £88 under the £700 floor.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-fail" width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate fails.</span></span></a>
+<a id="s1-row-Q5" class="row row-queue row-question" href="#Q5"><span class="r1"><span class="r-title">QA Manager, IVD reagents (software)</span><span class="r-cv"><span class="visually-hidden">CV match </span>71%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>30 Oct</span></span><span class="r2"><span class="r-meta">Ellery Bio · Glasgow, on site 5 days · <span class="r-rate">£100,000/year</span> · Permanent · Indeed</span><span class="tag tag-caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>Unknown · 14 days</span></span><span class="r3"><span class="r-lead">Would they go hybrid? Five days a week on site in Glasgow.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-fail" width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location fails, Rate passes.</span></span></a>
+<a id="s1-row-Q2" class="row row-queue row-question" href="#Q2"><span class="r1"><span class="r-title">Medical Device Software Consultant</span><span class="r-cv"><span class="visually-hidden">CV match </span>70%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>7 Nov</span></span><span class="r2"><span class="r-meta">MacLeod Imaging · Edinburgh, on site 4 days · <span class="r-rate">£700/day</span> · Contract · CV-Library</span></span><span class="r3"><span class="r-lead">Would they go remote? The advert asks for four days a week on site in Edinburgh.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-fail" width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location fails, Rate passes.</span></span></a>
+</div>
+<div class="more"><a id="s1-more-question" class="link" href="#tier-question">Show 35 more</a></div>
+</section>
+<section class="group" aria-labelledby="s1-group-reading">
+<div class="group-head"><h4 class="group-title" id="s1-group-reading">Reading<span class="group-count">186</span></h4><button type="button" class="fold" aria-expanded="false" aria-label="Reading"><iconify-icon icon="carbon:chevron-right" width="16" height="16" aria-hidden="true"></iconify-icon></button></div>
+</section>
+<section class="group" aria-labelledby="s1-group-applied">
+<div class="group-head"><h4 class="group-title" id="s1-group-applied">Applied<span class="group-count">7</span></h4><button type="button" class="fold" aria-expanded="false" aria-label="Applied"><iconify-icon icon="carbon:chevron-right" width="16" height="16" aria-hidden="true"></iconify-icon></button></div>
+</section>
+<p class="filtered">Filtered, 291 roles. 280 CV match under 40, 11 not a real leadership role.</p>
+</section></div><div class="st-col is-fill"><section class="role" aria-label="No role selected, no new roles today"><div class="no-selection"><p>No new roles since you last looked, on 12 Nov at 18:40. Press J to start on the 8 Top prospects, or pick a role.</p><dl class="keymap" aria-label="Keyboard map"><div><dt><kbd class="kbd">J</kbd></dt><dd>Next role</dd></div><div><dt><kbd class="kbd">K</kbd></dt><dd>Previous role</dd></div><div><dt><kbd class="kbd">Enter</kbd></dt><dd>Open</dd></div><div><dt><kbd class="kbd">Esc</kbd></dt><dd>Back to the list</dd></div><div><dt><kbd class="kbd">A</kbd></dt><dd>Archive</dd></div><div><dt><kbd class="kbd">P</kbd></dt><dd>Prepare application</dd></div><div><dt><kbd class="kbd">D</kbd></dt><dd>Dismiss</dd></div><div><dt><kbd class="kbd">C</kbd></dt><dd>Close role</dd></div><div><dt><kbd class="kbd">M</kbd></dt><dd>Mark applied</dd></div><div><dt><kbd class="kbd">O</kbd></dt><dd>Open the advert</dd></div><div><dt><kbd class="kbd">/</kbd></dt><dd>Search roles</dd></div><div><dt><kbd class="kbd">Ctrl K</kbd></dt><dd>Command palette</dd></div><div><dt><kbd class="kbd">?</kbd></dt><dd>Keyboard help</dd></div><div><dt><kbd class="kbd">G</kbd><span class="then">then</span><kbd class="kbd">H</kbd><kbd class="kbd">J</kbd><kbd class="kbd">I</kbd><kbd class="kbd">W</kbd><kbd class="kbd">C</kbd></dt><dd>Go to a page</dd></div></dl></div></section></div></div></div></div></section>
+<section class="board-panel" style="width:2528px" aria-labelledby="board-state-2"><header class="board-label"><span class="board-n">2</span><h2 class="board-name" id="board-state-2">A card score beside a full job spec score</h2><p class="board-note">A card score carries no marker. A score made on the full job spec is tagged Full job spec in its row and its header; the basis line names the basis either way, and only the full job spec has asks.</p></header><div class="board-body"><div class="st-cols"><div class="st-col" style="width:614px"><div class="st-block"><p class="st-cap">The queue: its first line, and the tag on T1&#x27;s row</p><section class="queue" aria-label="Roles, a card score beside a full job spec score"><p class="queue-note">Scores are from the advert card unless tagged Full job spec.</p>
+<section class="group" aria-labelledby="s2q-group-top">
+<div class="group-head"><h3 class="group-title" id="s2q-group-top">Top prospects<span class="group-count">8 <span class="group-new">· 3 new</span></span></h3></div>
+<div class="group-rows" id="s2q-group-top-rows">
+<div class="band">CV match 80–89</div>
+<a id="s2q-row-T1" class="row row-queue" href="#T1"><span class="r1"><span class="r-title">Head of Software Quality, Class II infusion pumps</span><span class="r-cv"><span class="visually-hidden">CV match </span>86%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>11 Nov</span></span><span class="r2"><span class="r-meta">Hartwell Infusion Ltd · Guildford (hybrid, 2 days) · <span class="r-rate">£700–£750/day</span> · Contract · LinkedIn</span><span class="tag tag-neutral"><iconify-icon icon="carbon:document" width="12" height="12" aria-hidden="true"></iconify-icon>Full job spec</span></span><span class="r3"><span class="r-lead">Owns the IEC 62304 software file through a notified body audit. Your CV leads with the same work.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+<a id="s2q-row-T6" class="row row-queue is-unread" href="#T6"><span class="r1"><span class="r-new">New</span><span class="r-title">Interim Head of Software | Class IIb | 6 months | £700-£750pd</span><span class="r-cv"><span class="visually-hidden">CV match </span>83%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>13 Nov</span></span><span class="r2"><span class="r-meta">Marchetti Devices · Basingstoke · <span class="r-rate">£700-£750pd</span> · Contract · LinkedIn</span></span><span class="r3"><span class="r-lead">Six-month interim lead for Class IIb device software, starting in December.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+<a id="s2q-row-T2" class="row row-queue is-unread" href="#T2"><span class="r1"><span class="r-new">New</span><span class="r-title">Fractional Software Director, IVD analyser</span><span class="r-cv"><span class="visually-hidden">CV match </span>81%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>13 Nov</span></span><span class="r2"><span class="r-meta">PDX Diagnostics · Cambridge, 3 days on site · <span class="r-rate">£800/day</span> · Contract · LinkedIn</span></span><span class="r3"><span class="r-lead">Three days a week on site leading an IVD analyser&#x27;s software through IVDR certification.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+</div>
+</section></section></div></div><div class="st-col" style="width:957px"><div class="st-block"><p class="st-cap">T2, scored on the advert card, as almost every role is</p><section class="role role-detail" aria-labelledby="s2c-role-title"><header class="detail-head"><a id="s2c-back-to-jobs" class="link back" href="#jobs">Back to Jobs</a><div class="dh-grid"><h3 class="dh-title" id="s2c-role-title">Fractional Software Director, IVD analyser</h3><div class="dh-meta"><span class="dh-meta-text"><a id="s2c-detail-company" class="link" href="#company-pdx">PDX Diagnostics</a> · Cambridge, 3 days on site · Contract · LinkedIn</span></div><div class="dh-nav"><a id="s2c-open-the-advert" class="btn btn-ghost open-advert" href="#advert-source-T2" aria-keyshortcuts="O"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Open the advert<kbd class="kbd" aria-hidden="true">O</kbd></a><a id="s2c-role-prev" class="btn btn-secondary prevnext" href="#T6" rel="prev" aria-keyshortcuts="K">Previous<kbd class="kbd" aria-hidden="true">K</kbd></a><a id="s2c-role-next" class="btn btn-secondary prevnext" href="#T5" rel="next" aria-keyshortcuts="J">Next<kbd class="kbd" aria-hidden="true">J</kbd></a></div></div><div class="actions actions-open"><button type="button" class="btn btn-primary" aria-keyshortcuts="P">Prepare application<kbd class="kbd" aria-hidden="true">P</kbd></button><button type="button" class="btn btn-secondary" aria-keyshortcuts="A">Archive<kbd class="kbd" aria-hidden="true">A</kbd></button><button type="button" class="btn btn-secondary" aria-keyshortcuts="D">Dismiss<kbd class="kbd" aria-hidden="true">D</kbd></button><button type="button" class="btn btn-secondary" aria-keyshortcuts="C">Close role<kbd class="kbd" aria-hidden="true">C</kbd></button><button type="button" class="btn btn-secondary" aria-keyshortcuts="M">Mark applied<kbd class="kbd" aria-hidden="true">M</kbd></button></div></header>
+<div class="role-scroll"><div class="detail-body">
+<p class="lead-line">Three days a week on site leading an IVD analyser&#x27;s software through IVDR certification.</p>
+<section class="sec score" aria-labelledby="s2c-score-heading"><h4 class="sec-h" id="s2c-score-heading">Score</h4><p class="tier">Top prospect</p><div class="gate-strip"><div class="gate"><span class="gate-name">Sector</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">IVD analyser.</span></div><div class="gate"><span class="gate-name">CV match</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">81. IVD analyser verification under IVDR is on the CV.</span></div><div class="gate"><span class="gate-name">Location</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">Cambridge, three days a week on site, UK.</span></div><div class="gate"><span class="gate-name">Rate</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">£800/day, clears the £700 floor.</span></div></div><p class="cv-line"><span class="cv-label">CV match</span><span class="cv-figure">81%</span></p><p class="basis"><span class="seg-nowrap">Scored on the advert card</span> · <span class="seg-nowrap">13 Nov</span> · <span class="seg-nowrap">claude-sonnet-4-6</span> · <span class="seg-nowrap">prompt <span class="mono">97f11cce</span></span> · <span class="seg-nowrap">CV <span class="mono">cv-20261029-091500.md</span></span></p></section>
+<section class="sec" aria-labelledby="s2c-asks-heading"><h4 class="sec-h" id="s2c-asks-heading">Asks</h4><p>No asks yet. Asks are read from the full job spec.</p></section>
+</div></div></section></div></div><div class="st-col is-fill"><div class="st-block"><p class="st-cap">T1, scored on the full job spec after Prepare application</p><section class="role role-detail" aria-labelledby="s2f-role-title"><header class="detail-head"><a id="s2f-back-to-jobs" class="link back" href="#jobs">Back to Jobs</a><div class="dh-grid"><h3 class="dh-title" id="s2f-role-title">Head of Software Quality, Class II infusion pumps</h3><div class="dh-meta"><span class="dh-meta-text"><a id="s2f-detail-company" class="link" href="#company-hartwell">Hartwell Infusion Ltd</a> · Guildford (hybrid, 2 days) · Contract · LinkedIn</span><span class="tag tag-neutral"><iconify-icon icon="carbon:document" width="12" height="12" aria-hidden="true"></iconify-icon>Full job spec</span></div><div class="dh-nav"><a id="s2f-open-the-advert" class="btn btn-ghost open-advert" href="#advert-source-T1" aria-keyshortcuts="O"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Open the advert<kbd class="kbd" aria-hidden="true">O</kbd></a><span class="btn btn-secondary prevnext is-disabled" aria-disabled="true">Previous<kbd class="kbd" aria-hidden="true">K</kbd></span><a id="s2f-role-next" class="btn btn-secondary prevnext" href="#T6" rel="next" aria-keyshortcuts="J">Next<kbd class="kbd" aria-hidden="true">J</kbd></a></div></div><div class="actions actions-open"><button type="button" class="btn btn-primary" aria-keyshortcuts="P">Prepare application<kbd class="kbd" aria-hidden="true">P</kbd></button><button type="button" class="btn btn-secondary" aria-keyshortcuts="A">Archive<kbd class="kbd" aria-hidden="true">A</kbd></button><button type="button" class="btn btn-secondary" aria-keyshortcuts="D">Dismiss<kbd class="kbd" aria-hidden="true">D</kbd></button><button type="button" class="btn btn-secondary" aria-keyshortcuts="C">Close role<kbd class="kbd" aria-hidden="true">C</kbd></button><button type="button" class="btn btn-secondary" aria-keyshortcuts="M">Mark applied<kbd class="kbd" aria-hidden="true">M</kbd></button></div></header>
+<div class="role-scroll"><div class="detail-body">
+<p class="lead-line">Owns the IEC 62304 software file through a notified body audit. Your CV leads with the same work.</p>
+<section class="sec score" aria-labelledby="s2f-score-heading"><h4 class="sec-h" id="s2f-score-heading">Score</h4><p class="tier">Top prospect</p><div class="gate-strip"><div class="gate"><span class="gate-name">Sector</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">Infusion pumps, Class IIb. In scope.</span></div><div class="gate"><span class="gate-name">CV match</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">86. IEC 62304 class C and notified body audit work are both on the CV.</span></div><div class="gate"><span class="gate-name">Location</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">Guildford, two days a week on site.</span></div><div class="gate"><span class="gate-name">Rate</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">£700–£750/day, clears the £700 floor.</span></div></div><p class="cv-line"><span class="cv-label">CV match</span><span class="cv-figure">86%</span></p><p class="basis"><span class="seg-nowrap">Scored on the full job spec</span> · <span class="seg-nowrap">13 Nov</span> · <span class="seg-nowrap">claude-sonnet-4-6</span> · <span class="seg-nowrap">prompt <span class="mono">97f11cce</span></span> · <span class="seg-nowrap">CV <span class="mono">cv-20261029-091500.md</span></span></p></section>
+<section class="sec" aria-labelledby="s2f-asks-heading"><h4 class="sec-h" id="s2f-asks-heading">Asks</h4><p>12 met · 5 partly · 1 missing. <a id="s2f-asks-in-prepare" class="link" href="#prepare-T1">See them in Prepare application</a></p></section>
+</div></div></section></div></div></div></div></section>
+<section class="board-panel" style="width:1252px" aria-labelledby="board-state-3"><header class="board-label"><span class="board-n">3</span><h2 class="board-name" id="board-state-3">No pay stated</h2><p class="board-note">An unstated rate passes the Rate gate, so the role stays a Top prospect. Line 2 shows no rate, the lead line asks first, and Details give the rate as advertised: Rate not stated.</p></header><div class="board-body"><div class="st-block"><p class="st-cap">T5, drawn as just opened, so it is still New: New clears after about two seconds</p><div class="st-cols"><div class="st-col" style="width:614px"><section class="queue" aria-label="Roles, no pay stated"><section class="group" aria-labelledby="s3-group-top">
+<div class="group-head"><h3 class="group-title" id="s3-group-top">Top prospects<span class="group-count">8 <span class="group-new">· 3 new</span></span></h3></div>
+<div class="group-rows" id="s3-group-top-rows">
+<div class="band">CV match 70–79</div>
+<a id="s3-row-T5" class="row row-queue is-unread" href="#T5" aria-current="true"><span class="r1"><span class="r-new">New</span><span class="r-title">Principal Software Engineer, cardiac monitoring</span><span class="r-cv"><span class="visually-hidden">CV match </span>79%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>12 Nov</span></span><span class="r2"><span class="r-meta">Brandt Cardio · Bracknell · Contract · LinkedIn</span></span><span class="r3"><span class="r-lead">Rate not stated. Ask before anything else.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+<a id="s3-row-T8" class="row row-queue" href="#T8"><span class="r1"><span class="r-title">Head of Regulatory Software, SaMD</span><span class="r-cv"><span class="visually-hidden">CV match </span>77%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>8 Nov</span></span><span class="r2"><span class="r-meta">Quayle Health · London (hybrid, 1 day) · <span class="r-rate">£105,000/year</span> · Permanent · LinkedIn</span></span><span class="r3"><span class="r-lead">Leads regulatory work for software as a medical device, one day a week in London.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+</div>
+</section></section></div><div class="st-col is-fill"><section class="role role-detail" aria-label="Principal Software Engineer, cardiac monitoring"><div class="role-scroll"><div class="detail-body">
+<p class="lead-line">Rate not stated. Ask before anything else.</p>
+<section class="sec score" aria-labelledby="s3-score-heading"><h4 class="sec-h" id="s3-score-heading">Score</h4><p class="tier">Top prospect</p><div class="gate-strip"><div class="gate"><span class="gate-name">Sector</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">Cardiac monitoring, Class IIa. In scope.</span></div><div class="gate"><span class="gate-name">CV match</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">79. ECG algorithm verification under IEC 62304 is on the CV.</span></div><div class="gate"><span class="gate-name">Location</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">Bracknell, UK.</span></div><div class="gate"><span class="gate-name">Rate</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">Rate not stated.</span></div></div><p class="cv-line"><span class="cv-label">CV match</span><span class="cv-figure">79%</span></p><p class="basis"><span class="seg-nowrap">Scored on the advert card</span> · <span class="seg-nowrap">12 Nov</span> · <span class="seg-nowrap">claude-sonnet-4-6</span> · <span class="seg-nowrap">prompt <span class="mono">97f11cce</span></span> · <span class="seg-nowrap">CV <span class="mono">cv-20261029-091500.md</span></span></p></section>
+<section class="sec" aria-labelledby="s3-details-heading"><h4 class="sec-h" id="s3-details-heading">Details</h4><dl class="facts"><dt>Rate as advertised</dt><dd>Rate not stated</dd><dt>State</dt><dd>Live · seen 12 Nov</dd><dt>Source</dt><dd>LinkedIn</dd></dl></section>
+</div></div></section></div></div></div></div></section>
+<section class="board-panel" style="width:1252px" aria-labelledby="board-state-4"><header class="board-label"><span class="board-n">4</span><h2 class="board-name" id="board-state-4">A repost of a role already seen</h2><p class="board-note">A repost joins its role&#x27;s chain and stays read. Only a role that comes back after expiring, or moves up a tier, shows New again, and its repost chain says why.</p></header><div class="board-body"><div class="st-stack"><div class="st-block"><p class="st-cap">A repost of a read role: chained to it, and still read</p><div class="st-cols"><div class="st-col" style="width:614px"><section class="queue" aria-label="Roles, a repost of a read role"><section class="group" aria-labelledby="s4a-group-top">
+<div class="group-head"><h3 class="group-title" id="s4a-group-top">Top prospects<span class="group-count">8 <span class="group-new">· 3 new</span></span></h3></div>
+<div class="group-rows" id="s4a-group-top-rows">
+<a id="s4a-row-T1" class="row row-queue" href="#T1" aria-current="true"><span class="r1"><span class="r-title">Head of Software Quality, Class II infusion pumps</span><span class="r-cv"><span class="visually-hidden">CV match </span>86%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>11 Nov</span></span><span class="r2"><span class="r-meta">Hartwell Infusion Ltd · Guildford (hybrid, 2 days) · <span class="r-rate">£700–£750/day</span> · Contract · LinkedIn</span><span class="tag tag-neutral"><iconify-icon icon="carbon:document" width="12" height="12" aria-hidden="true"></iconify-icon>Full job spec</span></span><span class="r3"><span class="r-lead">Owns the IEC 62304 software file through a notified body audit. Your CV leads with the same work.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+</div>
+</section></section></div><div class="st-col is-fill"><section class="role role-detail" aria-label="Head of Software Quality, Class II infusion pumps, details"><div class="role-scroll"><div class="detail-body">
+<section class="sec" aria-labelledby="s4b-details-heading"><h4 class="sec-h" id="s4b-details-heading">Details</h4><dl class="facts"><dt>Rate as advertised</dt><dd>£700–£750/day, outside IR35</dd><dt>Rate line</dt><dd>Quoted from the job spec: “Day rate £700–£750, outside IR35.”</dd><dt>State</dt><dd>Live · seen 11 Nov</dd><dt>Repost chain</dt><dd>Seen 4 times across 3 adverts since 21 Oct. A verdict here covers the whole chain.</dd><dt>Red flags</dt><dd>None</dd><dt>Source</dt><dd>LinkedIn</dd></dl></section>
+</div></div></section></div></div></div><div class="st-block"><p class="st-cap">The exception: back after expiring, so New again. Drawn as just opened: New clears after about two seconds.</p><div class="st-cols"><div class="st-col" style="width:614px"><section class="queue" aria-label="Roles, back after expiring"><section class="group" aria-labelledby="s4c-group-question">
+<div class="group-head"><h3 class="group-title" id="s4c-group-question">One question away<span class="group-count">45 <span class="group-new">· 2 new</span></span></h3></div>
+<div class="group-rows" id="s4c-group-question-rows">
+<a id="s4c-row-Q4" class="row row-queue row-question is-unread" href="#Q4" aria-current="true"><span class="r1"><span class="r-new">New</span><span class="r-title">Software Quality Lead, dental imaging</span><span class="r-cv"><span class="visually-hidden">CV match </span>74%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>12 Nov</span></span><span class="r2"><span class="r-meta">Carrow Dental Systems · Norwich · <span class="r-rate">£600/day</span> · Contract · LinkedIn</span></span><span class="r3"><span class="r-lead">Would they move on the rate? £600/day is £100 under the £700 floor.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-fail" width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate fails.</span></span></a>
+</div>
+</section></section></div><div class="st-col is-fill"><section class="role role-detail" aria-label="Software Quality Lead, dental imaging, details"><div class="role-scroll"><div class="detail-body">
+<section class="sec" aria-labelledby="s4d-details-heading"><h4 class="sec-h" id="s4d-details-heading">Details</h4><dl class="facts"><dt>Rate as advertised</dt><dd>£600/day</dd><dt>State</dt><dd>Live · seen 12 Nov</dd><dt>Repost chain</dt><dd>Seen 3 times across 2 adverts since 12 Aug; expired 9 Oct, seen again 12 Nov. A verdict here covers the whole chain.</dd><dt>Source</dt><dd>LinkedIn</dd></dl></section>
+</div></div></section></div></div></div></div></div></section>
+<section class="board-panel" style="width:2528px" aria-labelledby="board-state-5"><header class="board-label"><span class="board-n">5</span><h2 class="board-name" id="board-state-5">A role applied for</h2><p class="board-note">Mark applied moves the role to Applied, its own group and its own view, Show: Applied, where it never expires. Undo applied asks first, then puts it back in the open roles.</p></header><div class="board-body"><div class="st-screen"><div class="pagehead"><div class="ph-title"><h3>Jobs</h3><p class="counts">530 open · 8 Top prospects · 45 one question away · 186 reading · 291 filtered · 6 new</p></div><div class="ph-tools"><input class="search" type="search" placeholder="Search roles" aria-label="Search roles" aria-keyshortcuts="/"><div class="chips" role="group" aria-label="Filters"><button type="button" class="chip" aria-pressed="false">New <span class="chip-count">6</span></button><button type="button" class="chip" aria-pressed="false">Local</button><button type="button" class="chip" aria-pressed="false">UK</button><button type="button" class="chip" aria-pressed="false">Europe</button><button type="button" class="chip" aria-pressed="false">Elsewhere</button><button type="button" class="chip" aria-pressed="false">Remote</button><button type="button" class="chip" aria-pressed="false">Contract</button></div><button type="button" class="chip chip-facet is-selected" aria-haspopup="true" aria-expanded="false"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Show: Applied <span class="chip-count">7</span><iconify-icon icon="carbon:chevron-down" width="16" height="16" aria-hidden="true"></iconify-icon></button><button type="button" class="btn btn-ghost undo-last">Undo last</button></div></div><div class="st-cols" style="height:624px"><div class="st-col" style="width:614px"><section class="queue" aria-label="Roles, applied"><section class="group" aria-labelledby="s5-group-applied">
+<div class="group-head"><h4 class="group-title" id="s5-group-applied">Applied<span class="group-count">7</span></h4><button type="button" class="fold" aria-expanded="true" aria-controls="s5-group-applied-rows" aria-label="Applied"><iconify-icon icon="carbon:chevron-down" width="16" height="16" aria-hidden="true"></iconify-icon></button></div>
+<div class="group-rows" id="s5-group-applied-rows">
+<a id="s5-row-A1" class="row row-applied" href="#A1"><span class="r1"><span class="r-title">Software Lead, surgical staplers</span><span class="r-cv"><span class="visually-hidden">CV match </span>74%</span></span><span class="r2"><span class="r-meta">Applied 9 Nov · Tamesis Surgical · <span class="r-rate">£690/day</span> · Reed</span></span></a>
+<a id="s5-row-A2" class="row row-applied" href="#A2" aria-current="true"><span class="r1"><span class="r-title">Fractional QA/RA Lead, SaMD</span><span class="r-cv"><span class="visually-hidden">CV match </span>78%</span></span><span class="r2"><span class="r-meta">Applied 6 Nov · Wrenfield Digital Health · <span class="r-rate">£700/day</span> · LinkedIn</span></span></a>
+<a id="s5-row-A3" class="row row-applied" href="#A3"><span class="r1"><span class="r-title">Software Quality Lead, respiratory devices</span><span class="r-cv"><span class="visually-hidden">CV match </span>80%</span></span><span class="r2"><span class="r-meta">Applied 4 Nov · Fenwick Respiratory · <span class="r-rate">£725/day</span> · CV-Library</span></span></a>
+<a id="s5-row-A4" class="row row-applied" href="#A4"><span class="r1"><span class="r-title">IEC 62304 Consultant</span><span class="r-cv"><span class="visually-hidden">CV match </span>72%</span></span><span class="r2"><span class="r-meta">Applied 31 Oct · Clearwater Ophthalmic · <span class="r-rate">£680/day</span> · LinkedIn</span></span></a>
+<a id="s5-row-A5" class="row row-applied" href="#A5"><span class="r1"><span class="r-title">Interim Head of Software, enteral feeding pumps</span><span class="r-cv"><span class="visually-hidden">CV match </span>82%</span></span><span class="r2"><span class="r-meta">Applied 28 Oct · Marlow Medical · <span class="r-rate">£750/day</span> · LinkedIn</span></span></a>
+<a id="s5-row-A6" class="row row-applied" href="#A6"><span class="r1"><span class="r-title">Software Verification Manager, IVD</span><span class="r-cv"><span class="visually-hidden">CV match </span>70%</span></span><span class="r2"><span class="r-meta">Applied 22 Oct · Ashdown Diagnostics · <span class="r-rate">£88,000/year</span> · Indeed</span></span></a>
+<a id="s5-row-A7" class="row row-applied" href="#A7"><span class="r1"><span class="r-title">Head of Software, neuromodulation</span><span class="r-cv"><span class="visually-hidden">CV match </span>77%</span></span><span class="r2"><span class="r-meta">Applied 15 Oct · Calder Neurotech · <span class="r-rate">£105,000/year</span> · LinkedIn</span></span></a>
+</div>
+</section></section></div><div class="st-col is-fill"><section class="role role-detail" aria-labelledby="s5-role-title"><header class="detail-head"><a id="s5-back-to-jobs" class="link back" href="#jobs">Back to Jobs</a><div class="dh-grid"><h4 class="dh-title" id="s5-role-title">Fractional QA/RA Lead, SaMD</h4><div class="dh-meta"><span class="dh-meta-text"><a id="s5-detail-company" class="link" href="#company-wrenfield">Wrenfield Digital Health</a> · Remote, UK · Contract · LinkedIn</span><span class="tag tag-positive"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Applied 6 Nov</span></div><div class="dh-nav"><a id="s5-open-the-advert" class="btn btn-ghost open-advert" href="#advert-source-A2" aria-keyshortcuts="O"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Open the advert<kbd class="kbd" aria-hidden="true">O</kbd></a><a id="s5-role-prev" class="btn btn-secondary prevnext" href="#A1" rel="prev" aria-keyshortcuts="K">Previous<kbd class="kbd" aria-hidden="true">K</kbd></a><a id="s5-role-next" class="btn btn-secondary prevnext" href="#A3" rel="next" aria-keyshortcuts="J">Next<kbd class="kbd" aria-hidden="true">J</kbd></a></div></div><div class="actions"><button type="button" class="btn btn-secondary">Undo applied</button><p class="applied-note">Applied 6 Nov. Applied roles stay here and never expire. Undo asks first, then puts the role back in the open roles.</p></div></header>
+<div class="role-scroll"><div class="detail-body">
+<p class="lead-line">Two days a week leading QA/RA for a SaMD triage app under UKCA and MDR.</p>
+<section class="sec score" aria-labelledby="s5-score-heading"><h5 class="sec-h" id="s5-score-heading">Score</h5><p class="tier">Top prospect</p><div class="gate-strip"><div class="gate"><span class="gate-name">Sector</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">SaMD, Class IIa. In scope.</span></div><div class="gate"><span class="gate-name">CV match</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">78. ISO 13485 and SaMD regulatory work are on the CV.</span></div><div class="gate"><span class="gate-name">Location</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">Remote, UK.</span></div><div class="gate"><span class="gate-name">Rate</span><span class="gate-status is-pos"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</span><span class="gate-note">£700/day, clears the £700 floor.</span></div></div><p class="cv-line"><span class="cv-label">CV match</span><span class="cv-figure">78%</span></p><p class="basis"><span class="seg-nowrap">Scored on the advert card</span> · <span class="seg-nowrap">date not recorded</span> · <span class="seg-nowrap">model unknown</span> · <span class="seg-nowrap">prompt pre-record</span></p></section>
+<section class="sec" aria-labelledby="s5-reasons-heading"><h5 class="sec-h" id="s5-reasons-heading">Reasons</h5><ul class="reasons"><li><span class="reason">Leads QA/RA for SaMD under UKCA and MDR.</span><a id="s5-reason-1-evidence" class="evidence" href="#s5-q-1">“QA/RA lead for our SaMD triage app, UKCA and MDR.”</a></li><li><span class="reason">Two days a week, remote.</span><a id="s5-reason-2-evidence" class="evidence" href="#s5-q-2">“2 days per week, fully remote.”</a></li></ul></section>
+<section class="sec" aria-labelledby="s5-asks-heading"><h5 class="sec-h" id="s5-asks-heading">Asks</h5><p>No asks yet. Asks are read from the full job spec.</p></section>
+<section class="sec" aria-labelledby="s5-details-heading"><h5 class="sec-h" id="s5-details-heading">Details</h5><dl class="facts"><dt>Rate as advertised</dt><dd>£700/day</dd><dt>State</dt><dd>Applied 6 Nov</dd><dt>Repost chain</dt><dd>Seen 2 times across 1 advert since 28 Oct.</dd><dt>Source</dt><dd>LinkedIn</dd></dl></section>
+</div></div></section></div><div class="st-col" style="width:760px"><section class="advert" aria-labelledby="s5-advert-heading">
+<div class="advert-head"><h5 class="sec-h" id="s5-advert-heading">Advert</h5></div>
+<div class="advert-body">
+<p class="empty-fact">Advert not read yet. Only the advert card is on file.</p><p class="card-text">Fractional QA/RA Lead, SaMD. Wrenfield Digital Health, Remote, UK. £700/day, <mark id="s5-q-2">2 days per week, fully remote.</mark> <mark id="s5-q-1">QA/RA lead for our SaMD triage app, UKCA and MDR.</mark></p><a id="s5-advert-on-linkedin" class="link with-icon" href="#advert-source-A2"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Open the advert on LinkedIn</a>
+</div></section></div></div></div></div></section>
+<section class="board-panel" style="width:2528px" aria-labelledby="board-state-6"><header class="board-label"><span class="board-n">6</span><h2 class="board-name" id="board-state-6">A closed or expired role, looked for</h2><p class="board-note">Both leave every view and stay on file, read only, behind Show: Closed and Show: Expired. A closed role comes back only by Reopen role, an expired one by itself when an alert shows it again.</p></header><div class="board-body"><div class="st-pair"><div class="st-block" style="width:1252px"><div class="pagehead st-strip"><button type="button" class="chip chip-facet is-selected" aria-haspopup="true" aria-expanded="false"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Show: Closed <span class="chip-count">19</span><iconify-icon icon="carbon:chevron-down" width="16" height="16" aria-hidden="true"></iconify-icon></button></div><div class="st-cols"><div class="st-col" style="width:614px"><section class="queue" aria-label="Roles, closed"><section class="group" aria-labelledby="s6a-group-closed">
+<div class="group-head"><h3 class="group-title" id="s6a-group-closed">Closed<span class="group-count">19</span></h3><button type="button" class="fold" aria-expanded="true" aria-controls="s6a-group-closed-rows" aria-label="Closed"><iconify-icon icon="carbon:chevron-down" width="16" height="16" aria-hidden="true"></iconify-icon></button></div>
+<div class="group-rows" id="s6a-group-closed-rows">
+<a id="s6a-row-C1" class="row row-queue" href="#C1" aria-current="true"><span class="r1"><span class="r-title">Software Lead, dialysis systems</span><span class="r-cv"><span class="visually-hidden">CV match </span>76%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>7 Nov</span></span><span class="r2"><span class="r-meta">Meridian Renal · Leeds (hybrid, 2 days) · <span class="r-rate">£725/day</span> · Contract · LinkedIn</span><span class="tag tag-neutral"><svg width="12" height="12" aria-hidden="true"><use href="#st-neu"></use></svg>Closed by hand 9 Nov</span></span><span class="r3"><span class="r-lead">Leads the software of a home haemodialysis system through its MDR technical file.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+<a id="s6a-row-C2" class="row row-queue" href="#C2"><span class="r1"><span class="r-title">Software Quality Lead, wound care</span><span class="r-cv"><span class="visually-hidden">CV match </span>72%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>4 Nov</span></span><span class="r2"><span class="r-meta">Halberd Medical · Swindon · <span class="r-rate">£700/day</span> · Contract · LinkedIn</span><span class="tag tag-neutral"><svg width="12" height="12" aria-hidden="true"><use href="#st-neu"></use></svg>Advert closed, page check 8 Nov</span></span><span class="r3"><span class="r-lead">Software quality for a Class IIb negative pressure wound therapy pump.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate passes.</span></span></a>
+</div>
+<div class="more"><a id="s6a-more-closed" class="link" href="#closed">Show 17 more</a></div>
+</section></section></div><div class="st-col is-fill"><section class="role role-detail" aria-labelledby="s6b-role-title"><header class="detail-head"><a id="s6b-back-to-jobs" class="link back" href="#jobs">Back to Jobs</a><div class="dh-grid"><h3 class="dh-title" id="s6b-role-title">Software Lead, dialysis systems</h3><div class="dh-meta"><span class="dh-meta-text"><a id="s6b-detail-company" class="link" href="#company-meridian">Meridian Renal</a> · Leeds (hybrid, 2 days) · Contract · LinkedIn</span><span class="tag tag-neutral"><svg width="12" height="12" aria-hidden="true"><use href="#st-neu"></use></svg>Closed by hand 9 Nov</span></div><div class="dh-nav"><a id="s6b-open-the-advert" class="btn btn-ghost open-advert" href="#advert-source-C1" aria-keyshortcuts="O"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Open the advert<kbd class="kbd" aria-hidden="true">O</kbd></a><span class="btn btn-secondary prevnext is-disabled" aria-disabled="true">Previous<kbd class="kbd" aria-hidden="true">K</kbd></span><a id="s6b-role-next" class="btn btn-secondary prevnext" href="#C2" rel="next" aria-keyshortcuts="J">Next<kbd class="kbd" aria-hidden="true">J</kbd></a></div></div><div class="actions st-ro"><button type="button" class="btn btn-secondary">Reopen role</button><p class="applied-note">Closed by hand 9 Nov, for the whole repost chain. An alert does not reopen it; Reopen role puts it back in the open roles.</p></div></header>
+<div class="role-scroll"><div class="detail-body">
+<p class="lead-line">Leads the software of a home haemodialysis system through its MDR technical file.</p>
+<section class="sec" aria-labelledby="s6b-details-heading"><h4 class="sec-h" id="s6b-details-heading">Details</h4><dl class="facts"><dt>Rate as advertised</dt><dd>£725/day</dd><dt>State</dt><dd>Closed by hand 9 Nov · seen 7 Nov</dd><dt>Repost chain</dt><dd>Seen 3 times across 2 adverts since 14 Oct. A verdict here covers the whole chain.</dd><dt>Source</dt><dd>LinkedIn</dd></dl></section>
+</div></div></section></div></div></div><div class="st-block" style="width:1276px"><div class="pagehead st-strip"><button type="button" class="chip chip-facet is-selected" aria-haspopup="true" aria-expanded="false"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Show: Expired <span class="chip-count">64</span><iconify-icon icon="carbon:chevron-down" width="16" height="16" aria-hidden="true"></iconify-icon></button></div><div class="st-cols"><div class="st-col" style="width:614px"><section class="queue" aria-label="Roles, expired"><section class="group" aria-labelledby="s6c-group-expired">
+<div class="group-head"><h3 class="group-title" id="s6c-group-expired">Expired<span class="group-count">64</span></h3><button type="button" class="fold" aria-expanded="true" aria-controls="s6c-group-expired-rows" aria-label="Expired"><iconify-icon icon="carbon:chevron-down" width="16" height="16" aria-hidden="true"></iconify-icon></button></div>
+<div class="group-rows" id="s6c-group-expired-rows">
+<a id="s6c-row-E1" class="row row-queue st-expired row-question" href="#E1" aria-current="true"><span class="r1"><span class="r-title">Contract IEC 62304 Consultant</span><span class="r-cv"><span class="visually-hidden">CV match </span>73%</span><span class="r-seen"><span class="visually-hidden">Last seen </span>18 Sep</span></span><span class="r2"><span class="r-meta">Osprey Ortho · Remote, UK · <span class="r-rate">£680/day</span> · Contract · LinkedIn</span><span class="tag tag-neutral"><svg width="12" height="12" aria-hidden="true"><use href="#st-neu"></use></svg>Expired 2 Nov</span></span><span class="r3"><span class="r-lead">Would they move on the rate? £680/day is £20 under the £700 floor.</span><span class="r-marks" aria-hidden="true"><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-pass" width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg><svg class="mk-fail" width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="visually-hidden">Sector passes, CV match passes, Location passes, Rate fails.</span></span></a>
+</div>
+<div class="more"><a id="s6c-more-expired" class="link" href="#expired">Show 63 more</a></div>
+</section></section></div><div class="st-col is-fill"><section class="role role-detail" aria-labelledby="s6d-role-title"><header class="detail-head"><a id="s6d-back-to-jobs" class="link back" href="#jobs">Back to Jobs</a><div class="dh-grid"><h3 class="dh-title" id="s6d-role-title">Contract IEC 62304 Consultant</h3><div class="dh-meta"><span class="dh-meta-text"><a id="s6d-detail-company" class="link" href="#company-osprey">Osprey Ortho</a> · Remote, UK · Contract · LinkedIn</span><span class="tag tag-neutral"><svg width="12" height="12" aria-hidden="true"><use href="#st-neu"></use></svg>Expired 2 Nov</span></div><div class="dh-nav"><a id="s6d-open-the-advert" class="btn btn-ghost open-advert" href="#advert-source-E1" aria-keyshortcuts="O"><iconify-icon icon="carbon:launch" width="16" height="16" aria-hidden="true"></iconify-icon>Open the advert<kbd class="kbd" aria-hidden="true">O</kbd></a><span class="btn btn-secondary prevnext is-disabled" aria-disabled="true">Previous<kbd class="kbd" aria-hidden="true">K</kbd></span><a id="s6d-role-next" class="btn btn-secondary prevnext" href="#E2" rel="next" aria-keyshortcuts="J">Next<kbd class="kbd" aria-hidden="true">J</kbd></a></div></div><div class="actions st-ro"><p class="applied-note">Expired 2 Nov, 45 days after it was last seen. It comes back by itself, as New, when an alert shows the advert again.</p></div></header>
+<div class="role-scroll"><div class="detail-body">
+<p class="lead-line">Would they move on the rate? £680/day is £20 under the £700 floor.</p>
+<section class="sec" aria-labelledby="s6d-details-heading"><h4 class="sec-h" id="s6d-details-heading">Details</h4><dl class="facts"><dt>Rate as advertised</dt><dd>£680/day</dd><dt>State</dt><dd>Expired 2 Nov · seen 18 Sep</dd><dt>Repost chain</dt><dd>Seen 2 times across 1 advert since 4 Sep.</dd><dt>Source</dt><dd>LinkedIn</dd></dl></section>
+</div></div></section></div></div></div></div></div></section>
+<section class="board-panel" style="width:2528px" aria-labelledby="board-state-7"><header class="board-label"><span class="board-n">7</span><h2 class="board-name" id="board-state-7">First run, empty database</h2><p class="board-note">The inbox has not run, so there are no roles. The queue says what happens next, and the app bar reads Inbox never run.</p></header><div class="board-body"><div class="st-screen"><header class="appbar"><div class="brand"><img class="brand-mark" src="https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/0db15a19-3516-4453-a7e9-67ecc19e8823/brand-assets/brand-radar-mark.svg/radar-mark.svg" width="51" height="24" alt=""><span class="brand-name">MedTech Radar</span><span class="appbar-page">Jobs</span></div><nav class="nav" aria-label="Pages, first run"><a id="s7-nav-home" href="#home">Home</a><a id="s7-nav-jobs" href="#jobs" aria-current="page">Jobs</a><a id="s7-nav-insights" href="#insights">Insights</a><a id="s7-nav-watchlist" href="#watchlist">Watchlist</a><a id="s7-nav-cv" href="#cv">CV</a></nav><div class="appbar-tools"><button type="button" class="cmd" aria-haspopup="dialog" aria-keyshortcuts="Control+K" aria-label="Search or run a command"><iconify-icon class="cmd-icon" icon="carbon:search" width="20" height="20" aria-hidden="true"></iconify-icon><span class="cmd-text">Search or run a command</span><kbd class="kbd" aria-hidden="true">Ctrl K</kbd></button><span class="inbox-status">Inbox never run</span><div class="appearance" role="group" aria-label="Appearance"><button type="button" class="seg" aria-pressed="false">Light</button><button type="button" class="seg" aria-pressed="false">Auto</button><button type="button" class="seg" aria-pressed="true">Dark</button></div><button type="button" class="btn btn-ghost btn-icon help" aria-label="Keyboard shortcuts" aria-keyshortcuts="Shift+?"><iconify-icon icon="carbon:help" width="20" height="20" aria-hidden="true"></iconify-icon></button></div><button type="button" class="btn btn-ghost menu-btn" aria-haspopup="true" aria-expanded="false">Menu</button></header><div class="pagehead"><div class="ph-title"><h3>Jobs</h3><p class="counts">0 open · 0 Top prospects · 0 one question away · 0 reading · 0 filtered · 0 new</p></div><div class="ph-tools"><input class="search" type="search" placeholder="Search roles" aria-label="Search roles" aria-keyshortcuts="/"><div class="chips" role="group" aria-label="Filters"><button type="button" class="chip" aria-pressed="false">New <span class="chip-count">0</span></button><button type="button" class="chip" aria-pressed="false">Local</button><button type="button" class="chip" aria-pressed="false">UK</button><button type="button" class="chip" aria-pressed="false">Europe</button><button type="button" class="chip" aria-pressed="false">Elsewhere</button><button type="button" class="chip" aria-pressed="false">Remote</button><button type="button" class="chip" aria-pressed="false">Contract</button></div><button type="button" class="chip chip-facet" aria-haspopup="true" aria-expanded="false">Show: Open roles<iconify-icon icon="carbon:chevron-down" width="16" height="16" aria-hidden="true"></iconify-icon></button><button type="button" class="btn btn-ghost undo-last" aria-disabled="true">Undo last</button></div></div><div class="st-cols" style="height:200px"><div class="st-col" style="width:614px"><section class="queue" aria-label="Roles, first run"><div class="empty"><p>No roles yet. The inbox reads the job alert emails every hour, and roles appear here after its first run.</p></div></section></div><div class="st-col is-fill"><section class="role" aria-label="No role selected, first run"><div class="empty"><p>Nothing to open yet.</p></div></section></div></div></div></div></section>
+</div>
+</div>
+</body>
+</html>

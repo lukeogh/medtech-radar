@@ -1,0 +1,357 @@
+<!DOCTYPE html><html lang="en-GB" data-appearance="light"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MedTech Radar - Direction B: Dashboard and tables</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+    :root {
+      color-scheme: light;
+      --canvas: #f2f4f5;
+      --surface: #ffffff;
+      --surface-sunken: #e9edef;
+      --row-hover: #f4f6f7;
+      --row-selected: #e0eef0;
+      --text-1: #14191d;
+      --text-2: #3e4952;
+      --text-3: #56636d;
+      --border-subtle: #dce1e4;
+      --border-strong: #77838d;
+      --accent: #00636e;
+      --accent-hover: #004d56;
+      --accent-tint: #e0eef0;
+      --on-accent: #ffffff;
+      --positive: #13693a;
+      --positive-tint: #e2f1e7;
+      --caution: #7a4a00;
+      --caution-tint: #fcefd2;
+      --negative: #a3221b;
+      --negative-tint: #fbe5e3;
+      --neutral: #3e4952;
+      --neutral-tint: #e9edef;
+      --scrim: rgba(20, 25, 29, .4);
+      --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18);
+      --font-sans: "IBM Plex Sans", "Plex Sans fallback", Arial, sans-serif;
+      --font-mono: "IBM Plex Mono", "Plex Mono fallback", Consolas, monospace;
+      --radius-0: 0;
+      --radius-2: 2px;
+      --radius-4: 4px;
+      --dur: 120ms;
+    }
+    @media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; } }
+
+    body {
+      font-family: var(--font-sans);
+      color: var(--text-1);
+      background-color: var(--surface);
+      margin: 0;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .font-mono {
+      font-family: var(--font-mono);
+    }
+
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+
+    :focus-visible {
+      outline: 2px solid #14191d;
+      outline-offset: 2px;
+      box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c;
+    }
+    
+    .row[aria-current="true"] {
+      background: var(--row-selected);
+      border-left: 3px solid var(--accent);
+      padding-left: 13px;
+    }
+    .row.focus-simulated {
+      outline: 2px solid #14191d;
+      outline-offset: -5px;
+      box-shadow: inset 0 0 0 5px #ffc72c;
+      border-left-width: 0;
+      padding-left: 16px;
+    }
+    
+    @media (forced-colors: active) { :focus-visible { outline-color: Highlight; } }
+
+    .link {
+      color: var(--accent);
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+    }
+    .link:hover {
+      color: var(--accent-hover);
+      text-decoration-thickness: 2px;
+    }
+    .nav-link {
+      color: var(--text-2);
+      text-decoration: none;
+    }
+    .nav-link.active {
+      color: var(--text-1);
+      border-bottom: 2px solid var(--accent);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 32px;
+      border-radius: var(--radius-2);
+      font-size: 14px;
+      line-height: 20px;
+      font-weight: 500;
+      padding: 0 12px;
+      cursor: pointer;
+      transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out;
+    }
+    .btn-primary {
+      background-color: var(--accent);
+      color: var(--on-accent);
+      border: none;
+    }
+    .btn-secondary {
+      background-color: var(--surface);
+      color: var(--text-1);
+      border: 1px solid var(--border-strong);
+    }
+    .btn-ghost {
+      background-color: transparent;
+      color: var(--text-2);
+      border: none;
+    }
+    .btn-ghost:hover {
+      text-decoration: underline;
+    }
+    .btn-icon {
+      padding: 0;
+      width: 32px;
+      height: 32px;
+    }
+
+    .kbd {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 16px;
+      padding: 0 4px;
+      border: 1px solid var(--border-strong);
+      background-color: var(--surface-sunken);
+      border-radius: var(--radius-2);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-2);
+      font-weight: 500;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      height: 32px;
+      padding: 0 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-2);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-2);
+      background-color: transparent;
+    }
+    .chip.selected {
+      background-color: var(--accent-tint);
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .status-tag {
+      display: inline-flex;
+      align-items: center;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: var(--radius-2);
+      font-size: 12px;
+      font-weight: 600;
+      gap: 4px;
+    }
+    .status-tag.caution {
+      background-color: var(--caution-tint);
+      color: var(--caution);
+    }
+    .status-tag.positive {
+      background-color: var(--positive-tint);
+      color: var(--positive);
+    }
+    .status-tag.negative {
+      background-color: var(--negative-tint);
+      color: var(--negative);
+    }
+    .status-tag.neutral {
+      background-color: var(--neutral-tint);
+      color: var(--neutral);
+    }
+
+    .queue-row {
+      display: flex;
+      flex-direction: column;
+      height: 76px;
+      padding: 8px 16px;
+      text-decoration: none;
+      color: inherit;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .queue-row:hover {
+      background-color: var(--row-hover);
+    }
+
+    .line-clamp-1 {
+      display: -webkit-box;
+      -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* Typography */
+    .text-page-title { font-size: 20px; line-height: 28px; font-weight: 600; }
+    .text-section { font-size: 16px; line-height: 24px; font-weight: 600; }
+    .text-panel { font-size: 14px; line-height: 20px; font-weight: 600; }
+    .text-body { font-size: 14px; line-height: 20px; font-weight: 400; }
+    .text-body-500 { font-size: 14px; line-height: 20px; font-weight: 500; }
+    .text-reading { font-size: 15px; line-height: 24px; font-weight: 400; max-width: 72ch; }
+    .text-label { font-size: 12px; line-height: 16px; font-weight: 600; }
+    .text-meta { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); }
+    .text-figure { font-size: 14px; line-height: 20px; font-weight: 500; }
+    .text-figure-large { font-size: 20px; line-height: 28px; font-weight: 600; }
+  
+    .page-header { background: var(--canvas); padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); }
+    .bulk-bar { position: sticky; top: 0; z-index: 2; height: 40px; display: flex; align-items: center; gap: 8px;
+      padding: 0 16px; background: var(--surface-sunken); border-bottom: 1px solid var(--border-subtle); }
+    table.jobs { width: 1440px; table-layout: fixed; border-collapse: separate; border-spacing: 0; background: var(--surface); }
+    table.jobs th { position: sticky; top: 40px; z-index: 1; height: 40px; text-align: left; vertical-align: middle;
+      background: var(--surface-sunken); border-bottom: 1px solid var(--border-strong); padding: 0 12px;
+      font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); white-space: nowrap; }
+    table.jobs td { height: 40px; padding: 0 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle;
+      font-size: 14px; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    table.jobs td.cell-check, table.jobs th.cell-check, table.jobs td.cell-expand, table.jobs th.cell-expand { padding: 0 4px; text-align: center; }
+    table.jobs .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+    table.jobs tr.checked td { background: var(--row-selected); }
+    table.jobs tr.group td { background: var(--surface); height: 40px; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+    table.jobs tr.group td .count { font-size: 12px; font-weight: 400; color: var(--text-3); margin-left: 8px; }
+    table.jobs tr.more td { color: var(--accent); }
+    table.jobs tr.detail td { white-space: normal; height: auto; padding: 16px 16px 20px 96px; background: var(--surface); }
+    .gates { display: inline-flex; gap: 6px; align-items: center; }
+    .gate-pass { color: var(--text-3); } .gate-fail { color: var(--negative); } .gate-nj { color: var(--neutral); }
+    .chev { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 0;
+      background: transparent; color: var(--text-2); border-radius: var(--radius-2); cursor: pointer; }
+    .focus-ring { outline: 2px solid #14191d; outline-offset: 2px; box-shadow: 0 0 0 2px var(--surface), 0 0 0 7px #ffc72c; }
+    .provisional { border: 1px dashed var(--border-strong); border-radius: var(--radius-2); padding: 12px 16px; max-width: 1120px; }
+    .gate-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 8px 0 12px; }
+    .quote { display: block; font-size: 12px; line-height: 16px; color: var(--text-2); text-decoration: underline;
+      text-decoration-color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; margin-top: 2px; }
+    .checkbox { width: 16px; height: 16px; accent-color: var(--accent); }
+    .notes h2 { font-size: 16px; line-height: 24px; font-weight: 600; margin: 24px 0 8px; }
+    .notes h3 { font-size: 14px; line-height: 20px; font-weight: 600; margin: 16px 0 4px; }
+    .notes p { font-size: 14px; line-height: 20px; color: var(--text-2); margin: 0; max-width: 960px; }
+</style>
+</head>
+<body>
+<div style="width: 1440px; margin: 0 auto; background: var(--surface);">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="st-pos" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.8"></path></symbol>
+    <symbol id="st-cau" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"></circle><path d="M8 2.4a5.6 5.6 0 0 0 0 11.2z" fill="currentColor"></path></symbol>
+    <symbol id="st-neg" viewBox="0 0 16 16"><path d="M4.2 4.2l7.6 7.6m0-7.6l-7.6 7.6" stroke="currentColor" stroke-width="1.8"></path></symbol>
+    <symbol id="st-neu" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"></circle></symbol>
+    <symbol id="st-pro" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"></circle></symbol>
+  </svg>
+  <!-- App bar -->
+    <header style="height: 48px; display: flex; align-items: center; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;">
+      <div style="display: flex; align-items: center; gap: 12px; width: 200px;">
+        <img src="https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/0db15a19-3516-4453-a7e9-67ecc19e8823/brand-assets/brand-radar-mark.svg/radar-mark.svg" width="51" height="24" alt="">
+        <span class="text-panel">MedTech Radar</span>
+      </div>
+      
+      <nav style="display: flex; gap: 24px; margin-left: 24px;">
+        <a id="nav-home" href="#" class="nav-link text-body">Home</a>
+        <a id="nav-jobs" href="#" class="nav-link text-body active">Jobs</a>
+        <a id="nav-insights" href="#" class="nav-link text-body">Insights</a>
+        <a id="nav-watchlist" href="#" class="nav-link text-body">Watchlist</a>
+        <a id="nav-cv" href="#" class="nav-link text-body">CV</a>
+      </nav>
+      
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
+        <div style="display: flex; align-items: center; padding: 0 8px; height: 32px; border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); width: 240px;">
+          <span class="text-meta" style="flex-grow: 1;">Search or run a command</span>
+          <span class="kbd">Ctrl K</span>
+        </div>
+        <span class="text-meta">Inbox on schedule · ran 09:02</span>
+        <button class="btn btn-ghost btn-icon" aria-label="Appearance">
+          <iconify-icon icon="carbon:light" width="16" height="16"></iconify-icon>
+        </button>
+        <button class="btn btn-ghost btn-icon" aria-label="Keyboard help">
+          <iconify-icon icon="carbon:help" width="16" height="16"></iconify-icon>
+        </button>
+      </div>
+    </header>
+
+    
+  <div class="page-header">
+    <div style="display: flex; align-items: baseline; gap: 12px; height: 32px;">
+      <h1 class="text-page-title" style="margin: 0;">Jobs</h1>
+      <span class="text-meta">530 open · 12 Top prospects · 41 one question away · 186 reading · 291 filtered · 6 expiring within 7 days</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+      <button type="button" class="chip selected" style="gap: 6px;"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>All open</button><button type="button" class="chip" style="gap: 6px;">Local contracts<span class="text-meta" style="font-weight: 400;">9</span></button><button type="button" class="chip" style="gap: 6px;">Rate not stated<span class="text-meta" style="font-weight: 400;">6</span></button><button type="button" class="chip" style="gap: 6px;">Unknown for 20+ days<span class="text-meta" style="font-weight: 400;">27</span></button><button type="button" class="chip" style="gap: 6px;">Expiring within 7 days<span class="text-meta" style="font-weight: 400;">6</span></button>
+      <button type="button" class="btn btn-ghost">Save this filter</button>
+    </div>
+  </div>
+  <div class="bulk-bar">
+    <span class="text-panel" style="margin-right: 8px;">3 selected</span>
+    <button type="button" class="btn btn-secondary">Acknowledge</button>
+    <button type="button" class="btn btn-secondary">Park until…</button>
+    <button type="button" class="btn btn-secondary">Dismiss</button>
+    <button type="button" class="btn btn-ghost">Clear selection</button>
+  </div>
+  <table class="jobs"><colgroup><col style="width: 40px;"><col style="width: 40px;"><col><col style="width: 152px;"><col style="width: 104px;"><col style="width: 88px;"><col style="width: 160px;"><col style="width: 120px;"><col style="width: 96px;"><col style="width: 80px;"><col style="width: 208px;"></colgroup><thead><tr><th class="cell-check" scope="col"><input type="checkbox" class="checkbox" aria-label="Select all"></th><th class="cell-expand" scope="col"><span class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);">Expand</span></th><th scope="col">Role</th><th scope="col">Company</th><th scope="col" aria-sort="descending" style="text-align: right;">CV match <iconify-icon icon="carbon:arrow-down" width="16" height="16" style="vertical-align: -3px;"></iconify-icon></th><th scope="col">Gates<div class="text-meta" style="font-weight: 400;">S · C · L · R</div></th><th scope="col">Rate as advertised</th><th scope="col">Location</th><th scope="col">Type</th><th scope="col">Last seen</th><th scope="col">State</th></tr></thead><tbody><tr class="group"><td colspan="11">Top prospects<span class="count">12</span></td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Head of Software Quality, Class II infusion pumps"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Head of Software Quality, Class II infusion pumps"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Head of Software Quality, Class II infusion pumps" class="text-body-500">Head of Software Quality, Class II infusion pumps</td><td>Hartwell Infusion Ltd</td><td class="num">86%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£700–£750/day, outside IR35</td><td title="Guildford (hybrid, 2 days)">Guildford (hybrid, 2 days)</td><td>Contract</td><td class="tabular-nums">11 Nov</td><td>Live</td></tr><tr class="checked"><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Interim Head of Software | Class IIb | 6 months | £700-£750pd" checked></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Interim Head of Software | Class IIb | 6 months | £700-£750pd"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Interim Head of Software | Class IIb | 6 months | £700-£750pd" class="text-body-500">Interim Head of Software | Class IIb | 6 months | £700-£750pd</td><td>Marchetti Devices</td><td class="num">83%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£700-£750pd</td><td title="Basingstoke">Basingstoke</td><td>Contract</td><td class="tabular-nums">13 Nov</td><td>Live</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Fractional Software Director, IVD analyser"></td><td class="cell-expand"><button type="button" class="chev focus-ring" aria-expanded="true" aria-label="Collapse Fractional Software Director, IVD analyser"><iconify-icon icon="carbon:chevron-down" width="16" height="16"></iconify-icon></button></td><td title="Fractional Software Director, IVD analyser" class="text-body-500">Fractional Software Director, IVD analyser</td><td>PDX Diagnostics</td><td class="num">81%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£800/day</td><td title="Cambridge, 3 days on site">Cambridge, 3 days on site</td><td>Contract</td><td class="tabular-nums">13 Nov</td><td>Live</td></tr><tr class="detail"><td colspan="11">
+  <p class="text-body" style="color: var(--text-2); margin: 0 0 12px;">Three days a week on site leading an IVD analyser's software through IVDR certification.</p>
+  <div class="provisional">
+    <div class="text-body" style="color: var(--text-2); display: flex; align-items: center; gap: 6px;"><svg width="12" height="12" aria-hidden="true"><use href="#st-pro"></use></svg>Provisional. Scored on the advert card.</div>
+    <div class="text-body" style="margin-top: 12px;">Top prospect</div>
+    <div class="gate-strip">
+      <div><div class="text-label">Sector</div><div class="text-label" style="color: var(--positive); display: flex; align-items: center; gap: 4px; margin-top: 2px;"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</div><div class="text-meta" style="margin-top: 2px;">IVD analyser.</div></div>
+      <div><div class="text-label">CV match</div><div class="text-label" style="color: var(--positive); display: flex; align-items: center; gap: 4px; margin-top: 2px;"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</div><div class="text-meta" style="margin-top: 2px;">81. IVD analyser verification under IVDR is on the CV.</div></div>
+      <div><div class="text-label">Location</div><div class="text-label" style="color: var(--positive); display: flex; align-items: center; gap: 4px; margin-top: 2px;"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</div><div class="text-meta" style="margin-top: 2px;">Cambridge, three days a week on site, UK.</div></div>
+      <div><div class="text-label">Rate</div><div class="text-label" style="color: var(--positive); display: flex; align-items: center; gap: 4px; margin-top: 2px;"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg>Passes</div><div class="text-meta" style="margin-top: 2px;">£800/day, above the £650 floor.</div></div>
+    </div>
+    <div style="display: flex; align-items: baseline; gap: 8px;"><span class="text-label">CV match</span><span class="text-figure-large tabular-nums">81%</span></div>
+    <div class="text-meta" style="margin-top: 2px;">Scored on the advert card · 13 Nov · claude-sonnet-4-6 · prompt <span class="font-mono">97f11cce</span> · CV <span class="font-mono">cv-20261029-091500.md</span></div>
+    <h4 class="text-section" style="margin: 16px 0 8px;">Reasons</h4>
+    <div class="text-body">Takes analyser software through IVDR certification.<a id="t2-quote-1" href="#card" class="quote">“Take our analyser software through IVDR certification.”</a></div>
+    <div class="text-body" style="margin-top: 12px;">Fractional director, three days a week in Cambridge.<a id="t2-quote-2" href="#card" class="quote">“£800/day, 3 days a week on site.”</a></div>
+  </div>
+  <p class="text-body" style="margin: 16px 0 4px;">Only the advert card is on file.</p>
+  <p id="card" class="text-reading" style="color: var(--text-2); margin: 0;">Fractional Software Director, IVD analyser. PDX Diagnostics, Cambridge. £800/day, 3 days a week on site. Take our analyser software through IVDR certification.</p>
+  <div style="display: flex; gap: 8px; margin-top: 16px; align-items: center;">
+    <button type="button" class="btn btn-primary">Prepare application</button>
+    <button type="button" class="btn btn-secondary">Acknowledge</button>
+    <button type="button" class="btn btn-secondary">Park until…</button>
+    <button type="button" class="btn btn-secondary">Dismiss</button>
+    <button type="button" class="btn btn-secondary">Close role</button>
+    <button type="button" class="btn btn-secondary">Mark applied</button>
+    <a id="t2-open-advert" href="#" class="btn btn-ghost" style="gap: 6px; text-decoration: none;"><iconify-icon icon="carbon:launch" width="16" height="16"></iconify-icon>Open the advert</a>
+  </div>
+</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Principal Software Engineer, cardiac monitoring"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Principal Software Engineer, cardiac monitoring"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Principal Software Engineer, cardiac monitoring" class="text-body-500">Principal Software Engineer, cardiac monitoring</td><td>Brandt Cardio</td><td class="num">79%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td><span class="status-tag caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>Rate not stated</span></td><td title="Bracknell">Bracknell</td><td>Contract</td><td class="tabular-nums">12 Nov</td><td>Live</td></tr><tr class="checked"><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Interim QA/RA Software Lead" checked></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Interim QA/RA Software Lead"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Interim QA/RA Software Lead" class="text-body-500">Interim QA/RA Software Lead</td><td>Ainsworth Medical</td><td class="num">78%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£650/day</td><td title="Remote, UK">Remote, UK</td><td>Contract</td><td class="tabular-nums">10 Nov</td><td>Live</td></tr><tr class="checked"><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Software Verification Manager, ophthalmic lasers" checked></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Software Verification Manager, ophthalmic lasers"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Software Verification Manager, ophthalmic lasers" class="text-body-500">Software Verification Manager, ophthalmic lasers</td><td>Kinross Optics</td><td class="num">77%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£675/day</td><td title="Southampton (hybrid, 1 day)">Southampton (hybrid, 1 day)</td><td>Contract</td><td class="tabular-nums">13 Nov</td><td>Live</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Head of Regulatory Software, SaMD"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Head of Regulatory Software, SaMD"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Head of Regulatory Software, SaMD" class="text-body-500">Head of Regulatory Software, SaMD</td><td>Quayle Health</td><td class="num">77%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£105,000/year</td><td title="London (hybrid, 1 day)">London (hybrid, 1 day)</td><td>Permanent</td><td class="tabular-nums">8 Nov</td><td>Live</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Software Quality Engineer - Medical Devices - Contract - Outside IR35 - Hybrid (Surrey)"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Software Quality Engineer - Medical Devices - Contract - Outside IR35 - Hybrid (Surrey)"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Software Quality Engineer - Medical Devices - Contract - Outside IR35 - Hybrid (Surrey)" class="text-body-500">Software Quality Engineer - Medical Devices - Contract - Outside IR35 - Hybrid (Surrey)</td><td>Lindqvist Medical UK</td><td class="num">76%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£675/day, outside IR35</td><td title="Woking (hybrid)">Woking (hybrid)</td><td>Contract</td><td class="tabular-nums">9 Nov</td><td>Live</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Embedded Software Lead, enteral feeding pumps"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Embedded Software Lead, enteral feeding pumps"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Embedded Software Lead, enteral feeding pumps" class="text-body-500">Embedded Software Lead, enteral feeding pumps</td><td>Ashcombe Medical</td><td class="num">75%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£690/day</td><td title="Crawley">Crawley</td><td>Contract</td><td class="tabular-nums">7 Nov</td><td>Live</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Software Engineering Manager, surgical robotics"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Software Engineering Manager, surgical robotics"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Software Engineering Manager, surgical robotics" class="text-body-500">Software Engineering Manager, surgical robotics</td><td>Rowe &amp; Keane Surgical</td><td class="num">74%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£95,000–£110,000/year</td><td title="London">London</td><td>Permanent</td><td class="tabular-nums">1 Nov</td><td><span class="status-tag caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>Unknown · 12 days</span></td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Fractional QA/RA Lead, digital pathology"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Fractional QA/RA Lead, digital pathology"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Fractional QA/RA Lead, digital pathology" class="text-body-500">Fractional QA/RA Lead, digital pathology</td><td>TMD Instruments Ltd</td><td class="num">72%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£700/day, 2 days a week</td><td title="Oxford">Oxford</td><td>Contract</td><td class="tabular-nums">4 Nov</td><td><span class="status-tag caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>Unknown · 9 days</span></td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select IEC 62304 Consultant, hearing implants"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand IEC 62304 Consultant, hearing implants"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="IEC 62304 Consultant, hearing implants" class="text-body-500">IEC 62304 Consultant, hearing implants</td><td>Thorne Audiology</td><td class="num">71%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£650–£700/day</td><td title="Cambridge">Cambridge</td><td>Contract</td><td class="tabular-nums">6 Oct</td><td><span class="status-tag caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>Unknown · expires 20 Nov</span></td></tr><tr class="group"><td colspan="11">One question away<span class="count">41</span></td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select IEC 62304 Lead - Digital Pathology - Amsterdam (3 days on site)"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand IEC 62304 Lead - Digital Pathology - Amsterdam (3 days on site)"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="IEC 62304 Lead - Digital Pathology - Amsterdam (3 days on site)" class="text-body-500">IEC 62304 Lead - Digital Pathology - Amsterdam (3 days on site)</td><td>Pellucid Imaging BV</td><td class="num">76%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location fails, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>€850/day</td><td title="Amsterdam">Amsterdam</td><td>Contract</td><td class="tabular-nums">10 Nov</td><td>Live</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Software Quality Lead, dental imaging"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Software Quality Lead, dental imaging"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Software Quality Lead, dental imaging" class="text-body-500">Software Quality Lead, dental imaging</td><td>Carrow Dental Systems</td><td class="num">74%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate fails"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span></span></td><td>£600/day</td><td title="Norwich">Norwich</td><td>Contract</td><td class="tabular-nums">12 Nov</td><td>Live</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Software Lead, sleep apnoea devices"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Software Lead, sleep apnoea devices"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Software Lead, sleep apnoea devices" class="text-body-500">Software Lead, sleep apnoea devices</td><td>Mortimer Respiratory</td><td class="num">73%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location fails, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£700/day</td><td title="Manchester, on site 3 days">Manchester, on site 3 days</td><td>Contract</td><td class="tabular-nums">11 Nov</td><td>Live</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Software Verification Lead, insulin delivery"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Software Verification Lead, insulin delivery"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Software Verification Lead, insulin delivery" class="text-body-500">Software Verification Lead, insulin delivery</td><td>Vandeput Medical NV</td><td class="num">72%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location passes, Rate fails"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span></span></td><td>€720/day</td><td title="Leuven, Belgium">Leuven, Belgium</td><td>Contract</td><td class="tabular-nums">9 Nov</td><td>Live</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select QA Manager, IVD reagents (software)"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand QA Manager, IVD reagents (software)"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="QA Manager, IVD reagents (software)" class="text-body-500">QA Manager, IVD reagents (software)</td><td>Ellery Bio</td><td class="num">71%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location fails, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£100,000/year</td><td title="Glasgow, on site 5 days">Glasgow, on site 5 days</td><td>Permanent</td><td class="tabular-nums">30 Oct</td><td><span class="status-tag caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>Unknown · 14 days</span></td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Medical Device Software Consultant"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Medical Device Software Consultant"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Medical Device Software Consultant" class="text-body-500">Medical Device Software Consultant</td><td>MacLeod Imaging</td><td class="num">70%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match passes, Location fails, Rate passes"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span></span></td><td>£700/day</td><td title="Edinburgh, on site 4 days">Edinburgh, on site 4 days</td><td>Contract</td><td class="tabular-nums">7 Nov</td><td>Live</td></tr><tr class="more"><td colspan="11" style="padding-left: 96px;"><a id="more-question" href="#" class="link">Show 35 more</a></td></tr><tr class="group"><td colspan="11">Reading<span class="count">186</span></td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Head of QA, cosmetic devices"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Head of QA, cosmetic devices"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Head of QA, cosmetic devices" class="text-body-500">Head of QA, cosmetic devices</td><td>Sabine Beauty Tech</td><td class="num">61%</td><td><span class="gates" role="img" aria-label="Sector fails, CV match fails, Location passes, Rate fails"><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span></span></td><td>£90,000/year</td><td title="London">London</td><td>Permanent</td><td class="tabular-nums">8 Nov</td><td>Live</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Clinical Software Specialist"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Clinical Software Specialist"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Clinical Software Specialist" class="text-body-500">Clinical Software Specialist</td><td>Whitlock Health</td><td class="num">55%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match fails, Location passes, Rate fails"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span></span></td><td>£450/day</td><td title="Leeds">Leeds</td><td>Contract</td><td class="tabular-nums">13 Nov</td><td>Live</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Senior Embedded Engineer (Zephyr), wearables"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Senior Embedded Engineer (Zephyr), wearables"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Senior Embedded Engineer (Zephyr), wearables" class="text-body-500">Senior Embedded Engineer (Zephyr), wearables</td><td>Okafor Wearables</td><td class="num">52%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match fails, Location passes, Rate fails"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span></span></td><td>£70,000/year</td><td title="Crawley">Crawley</td><td>Permanent</td><td class="tabular-nums">11 Nov</td><td>Live</td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Regulatory Affairs Manager, SaMD"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Regulatory Affairs Manager, SaMD"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Regulatory Affairs Manager, SaMD" class="text-body-500">Regulatory Affairs Manager, SaMD</td><td>Pemberton Digital Health</td><td class="num">48%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match fails, Location passes, Rate fails"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span></span></td><td>£75,000/year</td><td title="Woking">Woking</td><td>Permanent</td><td class="tabular-nums">24 Oct</td><td><span class="status-tag caution"><svg width="12" height="12" aria-hidden="true"><use href="#st-cau"></use></svg>Unknown · 20 days</span></td></tr><tr class=""><td class="cell-check"><input type="checkbox" class="checkbox" aria-label="Select Firmware Engineer, hearing aids"></td><td class="cell-expand"><button type="button" class="chev" aria-expanded="false" aria-label="Expand Firmware Engineer, hearing aids"><iconify-icon icon="carbon:chevron-right" width="16" height="16"></iconify-icon></button></td><td title="Firmware Engineer, hearing aids" class="text-body-500">Firmware Engineer, hearing aids</td><td>Calder Audio</td><td class="num">45%</td><td><span class="gates" role="img" aria-label="Sector passes, CV match fails, Location not judged, Rate fails"><span class="gate-pass"><svg width="12" height="12" aria-hidden="true"><use href="#st-pos"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span><span class="gate-nj"><svg width="12" height="12" aria-hidden="true"><use href="#st-neu"></use></svg></span><span class="gate-fail"><svg width="12" height="12" aria-hidden="true"><use href="#st-neg"></use></svg></span></span></td><td>£62,000/year</td><td title="Bristol">Bristol</td><td>Permanent</td><td class="tabular-nums">10 Nov</td><td>Live</td></tr><tr class="more"><td colspan="11" style="padding-left: 96px;"><a id="more-reading" href="#" class="link">Show 181 more</a></td></tr></tbody></table>
+  <div style="padding: 12px 16px 24px;">
+    <p class="text-meta" style="margin: 0;">239 listed, grouped by tier, highest CV match first within each tier.</p>
+    <p class="text-meta" style="margin: 4px 0 0;">Filtered, 291 roles. 280 CV match under 40, 11 not a real leadership role.</p>
+  </div>
+  <div class="notes" style="margin-top: 64px; border-top: 1px solid var(--border-subtle); padding: 8px 16px 48px; background: var(--surface);">
+    <h2>Direction notes</h2>
+    <h3>Rationale</h3><p>A standing view of the market; scanning and comparing gates across many roles at once.</p><h3>Borrowed from</h3><p>IBM Carbon data tables, NN/g table guidance, Sales Navigator Account Hub.</p><h3>Trade-offs</h3><p>Best for scanning, comparing and auditing; slower per-role decisions; risk of spreadsheet fatigue; Prepare application opens a full page that fetches and scores the full description once.</p><h3>Pages this changes most</h3><p>Jobs, Home (a one-screen summary of counts and short lists, as text), Watchlist (a company table by last signal).</p><h3>Primary action and why</h3><p>Prepare application in the expanded row, because expanding a role is the moment of deciding to pursue it.</p><h3>Proposals this screen shows</h3><p>Saved filters, the expiring count and label, bulk actions, Park until…, the Provisional label, reasons on a card score, tier group rows with Show more, the renamed buttons, the Watchlist page in the nav. With nothing checked, the toolbar holds &quot;Search roles&quot; (focused by /), facet chips Tier, Region, Type and State, and Columns and Density.</p><h3>Open questions for Luke</h3><p>Which columns survive at 1024px; should saved filters also appear on Home; is grouping by tier better than one flat sort.</p><h3>URL of this screen</h3><p>/jobs?view=table&amp;sort=cv&amp;expand=T2</p>
+  </div>
+</div>
+</body></html>

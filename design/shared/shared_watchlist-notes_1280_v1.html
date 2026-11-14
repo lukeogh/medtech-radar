@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en" data-appearance="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Company watchlist, three variations: notes · MedTech Radar</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+/* Metric-matched fallbacks while Plex loads (design-system §16). */
+@font-face { font-family: "Plex Sans fallback"; src: local("Arial"); size-adjust: 101.17%; ascent-override: 101.32%; descent-override: 27.18%; line-gap-override: 0%; }
+@font-face { font-family: "Plex Mono fallback"; src: local("Consolas"); size-adjust: 109.13%; ascent-override: 93.92%; descent-override: 25.20%; line-gap-override: 0%; }
+
+/* Tokens. Mockups draw dark: the dark set of design-system §15 sits on :root as the default, the light set
+   of §4 under data-appearance="light", and Auto under prefers-color-scheme: light. The uploaded mark is drawn
+   in the light text colours; inverting it and turning the hue half a turn lands on the dark text tokens. */
+:root {
+  color-scheme: dark; --canvas: #0e1215; --surface: #151a1e; --surface-sunken: #1c2226; --row-hover: #192024; --row-selected: #0f3237; --text-1: #e6ebee; --text-2: #b3bec6; --text-3: #93a0a9; --border-subtle: #262e34; --border-strong: #6f7c86; --accent: #5cc3cf; --accent-hover: #82d3dc; --accent-tint: #0f3237; --on-accent: #071114; --positive: #74d39b; --positive-tint: #12291c; --caution: #f0c46a; --caution-tint: #2c2311; --negative: #ff9b8f; --negative-tint: #33191a; --neutral: #b3bec6; --neutral-tint: #1f262b; --scrim: rgba(0, 0, 0, .6); --shadow-overlay: 0 8px 24px rgba(0, 0, 0, .5); --font-sans: "IBM Plex Sans", "Plex Sans fallback", Arial, sans-serif; --font-mono: "IBM Plex Mono", "Plex Mono fallback", Consolas, monospace; --radius-0: 0; --radius-2: 2px; --radius-4: 4px; --dur: 120ms; --mark-filter: invert(1) hue-rotate(180deg);
+}
+html[data-appearance="light"] {
+  color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none;
+}
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] {
+    color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; } }
+
+/* Focus. Dark: a #ffd447 outline on a 2px surface gap; rows take the outline only, inset clear of the
+   selection bar. A static frame shows it with .is-focus on exactly one element. */
+:focus-visible, .is-focus { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+.row:focus-visible, .row.is-focus { outline-offset: -7px; box-shadow: none; }
+html[data-appearance="light"] :focus-visible, html[data-appearance="light"] .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  html[data-appearance="light"] .row:focus-visible, html[data-appearance="light"] .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] :focus-visible, html[data-appearance="auto"] .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  html[data-appearance="auto"] .row:focus-visible, html[data-appearance="auto"] .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+}
+@media (forced-colors: active) { :focus-visible, .is-focus { outline-color: Highlight; } }
+
+/* Base. The Tailwind CDN's preflight comes later in the cascade, so body is set as "html body" to keep its
+   line height, and a button's fill is always set with two classes ([type=button] in preflight counts as one). */
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--surface); }
+html body { margin: 0; background: var(--surface); color: var(--text-1); font-family: var(--font-sans); font-size: 14px;
+  line-height: 20px; font-weight: 400; letter-spacing: 0; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+h1, h2, h3, h4, p, ul, ol, dl, dd { margin: 0; }
+ul, ol { list-style: none; padding: 0; }
+button, input { font: inherit; color: inherit; letter-spacing: 0; }
+img { display: block; }
+a { color: inherit; }
+.mono { font-family: var(--font-mono); white-space: nowrap; }
+.seg-nowrap { white-space: nowrap; }
+.num { font-variant-numeric: tabular-nums; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* Where a marker is pinned (annot_on). It comes before every component rule, so a part that is already
+   positioned keeps its own position. */
+.annot-host { position: relative; }
+
+/* Type (design-system §5) */
+.text-label { font-size: 12px; line-height: 16px; font-weight: 600; }
+.text-meta { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); }
+
+/* Shell: app bar 48px, page header auto, content minmax(0, 1fr); the panes scroll, the page does not. */
+.app { display: grid; grid-template-rows: 48px auto minmax(0, 1fr); height: 100dvh; overflow: hidden; background: var(--surface); }
+.appbar { grid-row: 1; }
+.pagehead { grid-row: 2; }
+.content { grid-row: 3; }
+
+/* App bar */
+.appbar { display: flex; align-items: center; gap: 24px; min-width: 0; height: 48px; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.brand { display: flex; align-items: center; gap: 12px; flex: none; }
+.brand-mark { width: 51px; height: 24px; filter: var(--mark-filter); }
+.brand-name { font-size: 14px; line-height: 20px; font-weight: 600; white-space: nowrap; }
+.appbar-page { display: none; font-size: 16px; line-height: 24px; font-weight: 600; }
+.nav { display: flex; align-self: stretch; gap: 20px; }
+.nav a { display: flex; align-items: center; padding: 2px 2px 0; border-bottom: 2px solid transparent; color: var(--text-2);
+  text-decoration: none; white-space: nowrap; transition: color var(--dur) ease-out; }
+.nav a:hover { color: var(--text-1); }
+.nav a[aria-current="page"] { color: var(--text-1); border-bottom-color: var(--accent); }
+.appbar-tools { display: flex; align-items: center; gap: 16px; min-width: 0; margin-left: auto; }
+.cmd { display: flex; flex: none; align-items: center; gap: 8px; width: 240px; height: 32px; padding: 0 8px; text-align: left;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); color: var(--text-3); cursor: pointer; }
+.cmd-text { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cmd-icon { display: none; }
+.inbox-status { font-size: 12px; line-height: 16px; color: var(--text-3); white-space: nowrap; }
+.appearance { display: inline-flex; flex: none; }
+.seg { height: 32px; margin-left: -1px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 0;
+  background: var(--surface); color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600; cursor: pointer;
+  transition: background-color var(--dur) ease-out, color var(--dur) ease-out; }
+.seg:first-child { margin-left: 0; border-radius: var(--radius-2) 0 0 var(--radius-2); }
+.seg:last-child { border-radius: 0 var(--radius-2) var(--radius-2) 0; }
+.appearance .seg[aria-pressed="true"] { background: var(--surface-sunken); color: var(--text-1); }
+.appbar .menu-btn { display: none; }
+
+/* Controls */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: var(--radius-2); font-size: 14px; line-height: 20px; font-weight: 500;
+  white-space: nowrap; text-decoration: none; cursor: pointer;
+  transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out; }
+.btn.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.btn-secondary { background: var(--surface); border-color: var(--border-strong); color: var(--text-1); }
+.btn.btn-secondary:hover { background: var(--row-hover); }
+.btn.btn-ghost { background: transparent; color: var(--text-2); }
+.btn.btn-ghost:hover { color: var(--text-1); text-decoration: underline; text-underline-offset: 2px; }
+.btn.btn-icon { width: 32px; padding: 0; }
+.btn.is-disabled { color: var(--text-3); border-color: var(--border-subtle); cursor: default; }
+.btn.is-disabled .kbd { color: var(--text-3); border-color: var(--border-subtle); }
+.kbd { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 18px; height: 18px; padding: 0 4px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface-sunken); color: var(--text-2);
+  font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; white-space: nowrap; }
+.link { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
+  transition: color var(--dur) ease-out; }
+.link:hover { color: var(--accent-hover); text-decoration-thickness: 2px; }
+.with-icon { display: inline-flex; align-items: center; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px; border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2); background: transparent; color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600;
+  white-space: nowrap; cursor: pointer; transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out; }
+.chip:hover { color: var(--text-1); }
+.chip-count { color: var(--text-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.chip.is-selected { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+.chip-facet { padding-right: 8px; }
+.tag { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 20px; padding: 0 8px; border-radius: var(--radius-2);
+  font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+.tag-neutral { background: var(--neutral-tint); color: var(--neutral); }
+.tag-caution { background: var(--caution-tint); color: var(--caution); }
+.tag-positive { background: var(--positive-tint); color: var(--positive); }
+.is-pos { color: var(--positive); }
+.is-neg { color: var(--negative); }
+.is-neu { color: var(--neutral); }
+
+/* Page header */
+.pagehead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 56px; padding: 12px 16px;
+  background: var(--canvas); border-bottom: 1px solid var(--border-subtle); }
+.ph-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; min-width: 0; }
+.ph-title h1 { font-size: 20px; line-height: 28px; font-weight: 600; }
+.counts { font-size: 12px; line-height: 16px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ph-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.search { width: 200px; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text-1); font-size: 14px; line-height: 20px; }
+.search::placeholder { color: var(--text-3); opacity: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.undo-last { margin-left: 4px; }
+
+/* Content: panes abutting on 1px rules. The page's own CSS gives .content its columns. */
+.content { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; background: var(--surface); }
+
+/* Group and pane header (sticky, 40px), the fold button, the band divider */
+.group-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.group-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 600; white-space: nowrap; }
+.group-count { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.group-new { color: var(--text-2); }
+.fold { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; margin: 0 -8px 0 auto;
+  border: 0; border-radius: var(--radius-2); background: transparent; color: var(--text-2); cursor: pointer; }
+.fold:hover { background: var(--row-hover); color: var(--text-1); }
+.band { display: flex; align-items: center; height: 24px; padding: 0 16px; font-size: 12px; line-height: 16px; color: var(--text-3);
+  border-bottom: 1px solid var(--border-subtle); font-variant-numeric: tabular-nums; }
+
+/* Rows: a whole-row link. Three lines, 76px; two lines, 56px. */
+.row { position: relative; display: grid; grid-template-rows: 20px 16px 20px; row-gap: 2px; height: 76px; padding: 8px 16px 7px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); color: var(--text-1); text-decoration: none;
+  transition: background-color var(--dur) ease-out; }
+.row:hover { background: var(--row-hover); }
+.row[aria-current="true"] { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 13px; }
+.r1, .r2, .r3 { display: flex; min-width: 0; }
+.r1 { align-items: baseline; gap: 8px; }
+.r-new { flex: none; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-1); }
+.r-title { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+.is-unread .r-title { font-weight: 600; }
+.r-cv { flex: none; width: 40px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; }
+.r-seen { flex: none; width: 44px; text-align: right; font-size: 12px; line-height: 16px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.r2 { align-items: center; gap: 8px; }
+.r-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px;
+  line-height: 16px; color: var(--text-3); }
+.r2 .tag { margin: -2px 0; }
+.r-rate { display: inline-block; }
+.r3 { align-items: center; gap: 12px; }
+.r-lead { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2); }
+.r-marks { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.mk-pass { color: var(--text-3); }
+.mk-fail { color: var(--negative); }
+.mk-nj { color: var(--neutral); }
+.row-applied { grid-template-rows: 20px 16px; row-gap: 4px; height: 56px; }
+.more { display: flex; align-items: center; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--border-subtle); }
+
+/* Detail content: section heading, score block, reasons, definition list, reading text, evidence */
+.sec-h { margin-bottom: 8px; font-size: 16px; line-height: 24px; font-weight: 600; }
+.score { container-type: inline-size; }
+.gate-strip { display: grid; grid-template-columns: 88px 96px minmax(0, 1fr); gap: 8px 12px; align-items: start; max-width: 960px; margin-top: 8px; }
+.gate { display: contents; }
+.gate-name, .gate-status { font-size: 12px; line-height: 16px; font-weight: 600; }
+.gate-name { color: var(--text-2); }
+.gate-status { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.gate-note { font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+@container (width < 480px) {
+  .gate-strip { grid-template-columns: 72px minmax(0, 1fr); row-gap: 2px; }
+  .gate-note { grid-column: 2; margin-bottom: 8px; }
+}
+@container (width >= 720px) {
+  .gate-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 24px; }
+  .gate { display: flex; flex-direction: column; gap: 2px; }
+}
+.cv-line { display: flex; align-items: baseline; gap: 8px; margin-top: 16px; }
+.cv-label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.cv-figure { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.basis { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.reasons { display: flex; flex-direction: column; gap: 12px; }
+.reasons li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; max-width: 80ch; }
+.evidence { font-size: 12px; line-height: 16px; color: var(--text-2); text-decoration: underline; text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.evidence:hover { text-decoration-thickness: 2px; }
+.facts { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 16px; align-items: baseline; }
+.facts dt { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.facts dd { max-width: 80ch; }
+.advert-text { max-width: 72ch; font-size: 15px; line-height: 24px; }
+.advert-text h4 { margin: 24px 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
+.advert-text h4:first-child { margin-top: 0; }
+.advert-text p, .advert-text ul { margin-bottom: 12px; }
+.advert-text ul { padding-left: 20px; list-style: disc; }
+.advert-text li { margin-bottom: 4px; }
+.advert-text li::marker { color: var(--text-3); }
+mark { background: transparent; color: inherit; text-decoration: underline; text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 3px; }
+mark:target { background: var(--accent-tint); text-decoration-thickness: 2px; }
+.keymap { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; align-items: center; margin-top: 16px; }
+.keymap div { display: contents; }
+.keymap dt { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.keymap .then { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.keymap dd { color: var(--text-2); }
+
+/* Widths */
+@media (width < 1280px) { .cmd { width: auto; } .cmd-text { display: none; } .cmd-icon { display: inline-flex; } }
+@media (width < 960px) { .inbox-status { display: none; } }
+@media (pointer: coarse) and (width < 1100px) { .inbox-status { display: none; } }
+@media (width < 1800px) {
+  .ph-tools { flex-basis: 100%; margin-left: 0; }
+}
+/* Under 1024: one column, no key hints. A sub-screen (data-view="role") keeps the page header for
+   assistive technology only. */
+@media (width < 1024px) {
+  .appbar { gap: 16px; }
+  .nav { gap: 16px; }
+  .kbd { display: none; }
+  .cmd { justify-content: center; width: 32px; padding: 0; border-color: transparent; background: transparent; color: var(--text-2); }
+  .cmd-text { display: none; }
+  .cmd-icon { display: inline-flex; }
+  .app[data-view="role"] .pagehead { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .app[data-view="role"] .ph-tools, .app[data-view="role"] .counts { display: none; }
+}
+/* Under 768: the document scrolls and the panes do not; 44px targets; the app bar is the mark, the page
+   name and Menu. */
+@media (width < 768px) {
+  html { scroll-padding-top: 44px; }
+  .app { grid-template-rows: 48px auto auto; height: auto; min-height: 100dvh; overflow: visible; }
+  .nav, .appbar-tools, .brand-name { display: none; }
+  .appbar-page { display: block; }
+  .appbar .menu-btn { display: inline-flex; width: 44px; height: 44px; margin: 0 -8px 0 auto; padding: 0; }
+  .undo-last { margin-left: 0; padding-inline: 0; }
+  .ph-title h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .chips { display: contents; }
+  .search { width: 100%; }
+  .btn, .chip, .search { height: 44px; }
+  .group-head { height: 44px; }
+  .fold { width: 44px; height: 44px; margin-right: -12px; }
+  .more { min-height: 44px; }
+  .facts { grid-template-columns: 112px minmax(0, 1fr); }
+  .with-icon { display: inline-flex; align-items: center; min-height: 44px; }
+  .more .link, .evidence { position: relative; }
+  .more .link::after { content: ""; position: absolute; inset: -12px 0; }
+  .evidence::after { content: ""; position: absolute; inset: -14px 0; }
+}
+@media (pointer: coarse) {
+  .btn, .chip, .search, .seg { height: 44px; }
+  .fold, .btn.btn-icon { width: 44px; height: 44px; }
+  .cmd { height: 44px; }
+  .with-icon { display: inline-flex; align-items: center; min-height: 44px; }
+  .more { min-height: 44px; }
+  .more .link, .evidence { position: relative; }
+  .more .link::after { content: ""; position: absolute; inset: -12px 0; }
+  .evidence::after { content: ""; position: absolute; inset: -14px 0; }
+  .group-head { height: 44px; }
+}
+@media (max-height: 499px) {
+  .group-head { position: static; }
+}
+
+/* A plain document page (notes): left-aligned at a 16px inset. */
+.doc { max-width: calc(72ch + 32px); padding: 24px 16px 48px; color: var(--text-2); }
+.doc h1 { margin-bottom: 8px; font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.doc h2 { margin: 24px 0 8px; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.doc li + li { margin-top: 8px; }
+.doc ul { padding-left: 20px; list-style: disc; }
+.doc ol { padding-left: 24px; list-style: decimal; }
+.doc li::marker { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.doc .pick { margin-top: 8px; }
+.doc table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.doc th, .doc td { height: 32px; padding: 0 12px 0 0; text-align: left; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+@media (width < 480px) { .doc td { white-space: normal; overflow-wrap: anywhere; } }
+.doc th { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); border-bottom-color: var(--border-strong); }
+.doc td { color: var(--text-1); }
+.doc .after-table { margin-top: 12px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+
+/* =====================================================================================================
+   Added for later pages (design-system §6, §7, §14). Above this line is the Jobs round-2 stylesheet, rule
+   for rule, less the rules of the Jobs page alone (and with .annot-host added). Nothing below this line
+   changes a pixel of what Jobs draws: test_shell.py compares them.
+   ===================================================================================================== */
+
+/* The root is a size container named app. Write a page's width rules as @container app (width >= 1800px)
+   and a screen lays out by its own width: in a frame, and at 1280 inside a states-board panel. The two
+   rules below repeat the shell's own desktop width rules for that case. Overlays are placed against it. */
+.app { container: app / inline-size; }
+@container app (width < 1280px) { .cmd { width: auto; } .cmd-text { display: none; } .cmd-icon { display: inline-flex; } }
+@container app (width < 1800px) { .ph-tools { flex-basis: 100%; margin-left: 0; } }
+
+/* A light or a dark island inside a page of the other appearance (a white sheet of paper, a light specimen). */
+.theme-light { color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none; color: var(--text-1); }
+.theme-dark { color-scheme: dark; --canvas: #0e1215; --surface: #151a1e; --surface-sunken: #1c2226; --row-hover: #192024; --row-selected: #0f3237; --text-1: #e6ebee; --text-2: #b3bec6; --text-3: #93a0a9; --border-subtle: #262e34; --border-strong: #6f7c86; --accent: #5cc3cf; --accent-hover: #82d3dc; --accent-tint: #0f3237; --on-accent: #071114; --positive: #74d39b; --positive-tint: #12291c; --caution: #f0c46a; --caution-tint: #2c2311; --negative: #ff9b8f; --negative-tint: #33191a; --neutral: #b3bec6; --neutral-tint: #1f262b; --scrim: rgba(0, 0, 0, .6); --shadow-overlay: 0 8px 24px rgba(0, 0, 0, .5); --mark-filter: invert(1) hue-rotate(180deg); color: var(--text-1); }
+.theme-light :focus-visible, .theme-light .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  .theme-light .row:focus-visible, .theme-light .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+html[data-appearance] .theme-dark :focus-visible, html[data-appearance] .theme-dark .is-focus { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+  html[data-appearance] .theme-dark .row:focus-visible, html[data-appearance] .theme-dark .row.is-focus { outline-offset: -7px; box-shadow: none; }
+
+/* Type: the rest of the scale (design-system §5) */
+.text-page-title { font-size: 20px; line-height: 28px; font-weight: 600; }
+.text-title { font-size: 18px; line-height: 24px; font-weight: 600; }
+.text-section { font-size: 16px; line-height: 24px; font-weight: 600; }
+.text-panel { font-size: 14px; line-height: 20px; font-weight: 600; }
+.text-body { font-size: 14px; line-height: 20px; font-weight: 400; }
+.text-reading { max-width: 72ch; font-size: 15px; line-height: 24px; font-weight: 400; }
+.text-figure { font-size: 14px; line-height: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.text-figure-large { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ink-1 { color: var(--text-1); }
+.ink-2 { color: var(--text-2); }
+.ink-3 { color: var(--text-3); }
+
+/* The nav's shortest item, CV, is 21px wide. Its target is widened to 25px, not its box, so the bar keeps
+   its pixels. */
+.nav a { position: relative; }
+.nav a::after { content: ""; position: absolute; inset: 0 -2px; }
+
+/* Controls: what Jobs did not need */
+select, textarea { font: inherit; color: inherit; letter-spacing: 0; }
+.btn.btn-danger { background: var(--surface); border-color: var(--border-strong); color: var(--negative); }
+.btn.btn-danger:hover { background: var(--row-hover); }
+.btn.btn-danger.is-disabled { color: var(--text-3); border-color: var(--border-subtle); }
+.btn.btn-primary.is-disabled { background: var(--surface-sunken); border-color: var(--border-subtle); color: var(--text-3); }
+.btn.btn-ghost.is-disabled:hover { color: var(--text-3); text-decoration: none; }
+.btn[aria-pressed="true"] { background: var(--surface-sunken); border-color: var(--border-strong); color: var(--text-1); }
+.link-block { display: inline-flex; align-items: center; min-height: 24px; }
+.tag-negative { background: var(--negative-tint); color: var(--negative); }
+.is-cau { color: var(--caution); }
+.status { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+/* A link that stands alone in a 40px row, and an evidence link, are 20px and 16px tall: their targets are
+   made 24px without moving a pixel. (Jobs widens them further on touch; :where() keeps those rules on top.) */
+:where(.more) .link, :where(.evidence) { position: relative; }
+:where(.more) .link::after { content: ""; position: absolute; inset: -2px 0; }
+:where(.evidence)::after { content: ""; position: absolute; inset: -4px 0; }
+.chev { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; border: 0;
+  border-radius: var(--radius-2); background: transparent; color: var(--text-2); cursor: pointer; }
+.chev:hover { background: var(--row-hover); color: var(--text-1); }
+.action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* Page header: a back link above the title, tags after it, tools kept on the title's line */
+.ph-back { flex: 0 0 100%; }
+@media (width >= 768px) { .pagehead.ph-inline .ph-tools { flex-basis: auto; margin-left: auto; } }
+
+/* Panes */
+.pane { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scroll-padding-top: 40px; background: var(--surface); }
+.pane-body { display: flex; flex-direction: column; gap: 24px; padding: 16px 16px 24px; }
+.pane-note { display: flex; align-items: center; min-height: 32px; padding: 8px 16px 7px; font-size: 12px; line-height: 16px;
+  color: var(--text-2); border-bottom: 1px solid var(--border-subtle); }
+.head-meta { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.head-tools { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+.head-tools + .fold { margin-left: 0; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; margin-bottom: 8px; }
+.sec-head .sec-h { margin-bottom: 0; }
+.sec-meta { font-size: 12px; line-height: 16px; color: var(--text-3); }
+
+/* List rows of 56px and 40px, on the same .row */
+.row-2 { grid-template-rows: 20px 16px; row-gap: 4px; height: 56px; }
+.row-1 { grid-template-rows: 20px; height: 40px; padding-top: 10px; padding-bottom: 9px; }
+.row.is-static:hover { background: var(--surface); }
+
+/* Table: sticky head on the sunken ground, 40px rows, one line a cell */
+.table-wrap { min-width: 0; background: var(--surface); }
+.table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); }
+.table th, .table td { height: 40px; padding: 0 12px; text-align: left; vertical-align: middle; white-space: nowrap;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.table th:first-child, .table td:first-child { padding-left: 16px; }
+.table th:last-child, .table td:last-child { padding-right: 16px; }
+.table thead th { position: sticky; top: var(--table-top, 0px); z-index: 1; background: var(--surface-sunken);
+  border-bottom-color: var(--border-strong); font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); }
+.table tbody th { font-weight: 500; color: var(--text-1); }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table td.num { font-weight: 500; }
+.table .cell-trunc { max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.table .cell-meta { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.table .th-sub { margin-left: 8px; font-weight: 400; }
+.table tbody tr:hover > th, .table tbody tr:hover > td { background: var(--row-hover); }
+.table tbody tr[aria-current="true"] > th, .table tbody tr[aria-current="true"] > td { background: var(--row-selected); }
+.table tbody tr[aria-current="true"] > :first-child { border-left: 3px solid var(--accent); padding-left: 13px; }
+.th-sort { display: inline-flex; align-items: center; gap: 4px; min-width: 24px; min-height: 32px; color: inherit; text-decoration: none; }
+.th-sort:hover, .table th[aria-sort="ascending"] .th-sort, .table th[aria-sort="descending"] .th-sort { color: var(--text-1); }
+.table .t-chev { width: 48px; padding: 0 0 0 8px; }
+.table tr.is-open > th, .table tr.is-open > td { border-bottom-color: transparent; }
+.table .t-detail > td { height: auto; padding: 4px 16px 16px 56px; white-space: normal; }
+.table tbody tr.t-detail:hover > td { background: var(--surface); }
+.table .t-group > th { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.table tbody tr.t-group:hover > th, .table tbody tr.t-more:hover > td { background: var(--surface); }
+.table .t-group .group-count { margin-left: 8px; }
+@media (width < 1024px) {
+  .table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
+  .t-detail-body { position: sticky; left: 56px; width: calc(100vw - 72px); max-width: 100%; }
+}
+@media (max-height: 499px) { .table thead th { position: static; } }
+
+/* Text tabs: each tab a link, the current one marked */
+.tabs { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0 20px; min-height: 40px; padding: 0 16px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.tab { display: flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-width: 24px; min-height: 40px; padding: 2px 2px 0;
+  border-bottom: 2px solid transparent; color: var(--text-2); text-decoration: none; white-space: nowrap; transition: color var(--dur) ease-out; }
+.tab:hover { color: var(--text-1); }
+.tab[aria-current] { color: var(--text-1); border-bottom-color: var(--accent); }
+.tab-count { font-size: 12px; line-height: 16px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* Segmented control: joined segments. Buttons for a choice, links for a view switch. */
+.segmented { display: inline-flex; flex: none; }
+.segmented .seg { min-width: 32px; }
+.segmented a.seg { position: relative; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.segmented .seg:hover { color: var(--text-1); }
+.segmented .seg[aria-pressed="true"], .segmented .seg[aria-current] { background: var(--surface-sunken); color: var(--text-1); }
+.segmented a.seg[aria-current]::after { content: ""; position: absolute; left: -1px; right: -1px; bottom: -1px; height: 2px; background: var(--accent); }
+.segmented .seg:focus-visible, .segmented .seg.is-focus { position: relative; z-index: 1; }
+
+/* Notice line: mark, sentence, at most one action. No tint: the 1px rule and the mark carry it. */
+.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; min-height: 40px; padding: 4px 16px 3px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.notice-body { display: flex; align-items: flex-start; gap: 12px; flex: 1 1 24ch; min-width: 0; padding: 6px 0; }
+.notice-mark { flex: none; margin-top: 2px; }
+.notice-text { min-width: 0; max-width: 96ch; }
+.notice > .btn, .notice > .link-block { flex: none; }
+.notice > .link-block { min-height: 32px; }
+.notice-info .notice-mark { color: var(--neutral); }
+.notice-caution .notice-mark { color: var(--caution); }
+.notice-negative .notice-mark { color: var(--negative); }
+.notice-positive .notice-mark { color: var(--positive); }
+
+/* Form fields: a visible label above, 32px controls */
+.field { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
+.field-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 16px; }
+.field-row > .field { flex: 1 1 160px; }
+.field-label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.field-input { width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text-1); font-size: 14px; line-height: 20px; }
+.field-input::placeholder { color: var(--text-3); opacity: 1; }
+textarea.field-input { height: auto; min-height: 72px; padding: 5px 8px; resize: vertical; }
+select.field-input { appearance: none; -webkit-appearance: none; padding-right: 32px; cursor: pointer; }
+.field-select { position: relative; display: block; }
+.field-select iconify-icon { position: absolute; top: 50%; right: 8px; margin-top: -8px; color: var(--text-2); pointer-events: none; }
+.field-input[aria-invalid="true"] { border-color: var(--negative); }
+.field-input[readonly] { background: var(--surface-sunken); }
+.field-hint { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.field-error { display: flex; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--negative); }
+.field-error svg { flex: none; margin-top: 2px; }
+.check { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; cursor: pointer; }
+.check-input { -webkit-appearance: none; appearance: none; display: inline-grid; place-content: center; flex: none; width: 16px; height: 16px; margin: 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); cursor: pointer; }
+.check-input::before { content: ""; width: 10px; height: 10px; background: var(--on-accent); transform: scale(0);
+  clip-path: polygon(14% 44%, 0 65%, 44% 100%, 100% 20%, 82% 6%, 40% 66%); }
+.check-input:checked { background: var(--accent); border-color: var(--accent); }
+.check-input:checked::before { transform: scale(1); }
+/* A date field hands the focus on to its own calendar button, and the field then matches neither :focus nor
+   :focus-visible. So fields show the ring on :focus-within, as text fields do on any focus anyway. */
+.field-input:focus-within { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+html[data-appearance="light"] .field-input:focus-within, .theme-light .field-input:focus-within { outline-color: #14191d;
+  box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] .field-input:focus-within { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+}
+html[data-appearance] .theme-dark .field-input:focus-within { outline-color: #ffd447; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+@media (forced-colors: active) { .field-input:focus-within { outline-color: Highlight; } }
+
+/* Popover menu, drawn open. Overlays alone take radius 4px and the overlay shadow. */
+.popover-anchor { position: relative; display: inline-flex; }
+.menu, .popover { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 200px; padding: 4px 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--surface); box-shadow: var(--shadow-overlay); }
+.popover { padding: 12px; }
+.popover-anchor.is-end > .menu, .popover-anchor.is-end > .popover { right: 0; left: auto; }
+.menu .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 12px; border: 0; background: transparent;
+  color: var(--text-1); font-size: 14px; line-height: 20px; font-weight: 400; text-align: left; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.menu .menu-item:hover { background: var(--row-hover); }
+.menu .menu-item.is-current { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 9px; }
+.menu .menu-item.is-danger { color: var(--negative); }
+.menu .menu-item .kbd { margin-left: auto; }
+.menu-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+
+/* Toast: the inverse of the surface, at the bottom right of the screen it speaks for */
+.toast { position: absolute; z-index: 25; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 12px;
+  max-width: min(480px, calc(100% - 32px)); padding: 8px 8px 8px 16px; border-radius: var(--radius-4); background: var(--text-1);
+  color: var(--surface); box-shadow: var(--shadow-overlay); }
+.toast-text { min-width: 0; }
+.toast .toast-btn { flex: none; height: 32px; padding: 0 12px; border: 1px solid var(--surface); border-radius: var(--radius-2);
+  background: transparent; color: var(--surface); font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer; }
+.toast .toast-btn:hover { text-decoration: underline; text-underline-offset: 2px; }
+.toast :focus-visible, .toast .is-focus { outline-color: var(--surface); box-shadow: none; }
+
+/* Dialog and drawer, drawn open over a scrim. Placed against the nearest positioned box: the app, a
+   states-board panel or a .stage. */
+.scrim { position: absolute; inset: 0; z-index: 30; background: var(--scrim); }
+.dialog, .drawer { position: absolute; z-index: 31; display: flex; flex-direction: column; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text-1); box-shadow: var(--shadow-overlay); }
+.dialog { top: var(--overlay-top, 96px); right: 0; left: 0; width: min(var(--overlay-width, 480px), calc(100% - 32px));
+  max-height: calc(100% - var(--overlay-top, 96px) - 32px); margin-inline: auto; border-radius: var(--radius-4); }
+.drawer { top: 0; right: 0; bottom: 0; width: min(var(--overlay-width, 480px), 100%); border-width: 0 0 0 1px;
+  border-radius: var(--radius-4) 0 0 var(--radius-4); }
+.overlay-head { display: flex; align-items: center; gap: 8px; flex: none; min-height: 48px; padding: 8px 8px 7px 16px;
+  border-bottom: 1px solid var(--border-subtle); }
+.overlay-title { flex: 1 1 auto; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 600; }
+.overlay-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 16px; }
+.overlay-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle); }
+.stage { position: relative; overflow: hidden; background: var(--surface); }
+.spec-menu { height: 176px; }
+
+/* Empty and loading: left-aligned at the top of the area they replace */
+.empty { padding: 12px 16px 24px; }
+.empty > p { max-width: 72ch; }
+.empty > .btn, .empty > .link-block { margin-top: 12px; }
+.loading { padding: 12px 16px 24px; }
+.loading-text { max-width: 72ch; margin-bottom: 8px; color: var(--text-2); }
+.load-bar { display: block; max-width: 72ch; height: 12px; margin: 4px 0 8px; border-radius: var(--radius-2); background: var(--surface-sunken); }
+
+/* Vertical toolbar slot: icon buttons on the sunken ground, or the same with visible labels */
+.vtoolbar { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: none; width: 48px; padding: 8px;
+  background: var(--surface-sunken); border-right: 1px solid var(--border-subtle); --focus-gap: var(--surface-sunken); }
+.vtoolbar.has-labels { width: 216px; }
+.vtoolbar.has-labels .btn { justify-content: flex-start; padding: 0 8px; }
+.vtoolbar .btn .kbd { margin-left: auto; }
+.tool-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+.tool-note { padding: 0 8px 4px 32px; font-size: 12px; line-height: 16px; color: var(--text-3); white-space: normal; }
+
+/* 44px on touch, and under 768px where a desktop browser draws the phone frame. The app is then at least a
+   screen high: its rows keep their own heights (a short page would otherwise stretch its page header). */
+@media (width < 768px) {
+  .app { align-content: start; }
+  .pane { overflow: visible; min-height: auto; }
+  .pagehead.ph-own .ph-title h1 { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; }
+  .btn.btn-icon, .chev { width: 44px; }
+  .chev, .field-input, .segmented .seg, .toast .toast-btn, .menu .menu-item { height: 44px; }
+  textarea.field-input { height: auto; }
+  .tab, .check, .link-block, .th-sort, .notice > .link-block { min-height: 44px; }
+  .row-1 { height: 44px; padding-top: 12px; padding-bottom: 11px; }
+  .toast { left: 16px; max-width: none; }
+  .dialog { --overlay-top: 64px; }
+  .drawer { width: 100%; border-width: 0; border-radius: 0; }
+  .vtoolbar { width: 60px; }
+  .vtoolbar.has-labels { width: 216px; }
+  .spec-menu { height: 236px; }
+}
+@media (pointer: coarse) {
+  .btn.btn-icon, .chev { width: 44px; }
+  .chev, .field-input, .segmented .seg, .toast .toast-btn, .menu .menu-item { height: 44px; }
+  textarea.field-input { height: auto; }
+  .tab, .check, .link-block, .th-sort, .notice > .link-block { min-height: 44px; }
+  .row-1 { height: 44px; padding-top: 12px; padding-bottom: 11px; }
+  .vtoolbar { width: 60px; }
+  .vtoolbar.has-labels { width: 216px; }
+  .spec-menu { height: 236px; }
+}
+
+/* Hide by frame: wide is 1800px and over, desk 1024 to 1799, phone under 1024. For markers, legend lines
+   and anything else a frame does not draw. */
+@media (width >= 1800px) { .hide-wide { display: none !important; } }
+@media (width >= 1024px) and (width < 1800px) { .hide-desk { display: none !important; } }
+@media (width < 1024px) { .hide-phone { display: none !important; } }
+
+/* Annotation layer: not product UI. A marker is a 20px square, the inverse of the surface under it, with a
+   mono numeral; it takes no room. The legend sits under the app frame on the canvas ground. */
+.annot, .legend-n { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: var(--text-1);
+  color: var(--surface); font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; font-style: normal;
+  font-variant-numeric: tabular-nums; letter-spacing: 0; text-indent: 0; white-space: nowrap; }
+.annot { position: absolute; z-index: 40; margin: 0; padding: 0; border: 0; box-shadow: 0 0 0 1px var(--surface); pointer-events: none;
+  translate: var(--dx, 0px) var(--dy, 0px); }
+.annot-tl { top: 0; left: 0; }
+.annot-t { top: 0; left: calc(50% - 10px); }
+.annot-tr { top: 0; right: 0; }
+.annot-l { top: calc(50% - 10px); left: 0; }
+.annot-c { top: calc(50% - 10px); left: calc(50% - 10px); }
+.annot-r { top: calc(50% - 10px); right: 0; }
+.annot-bl { bottom: 0; left: 0; }
+.annot-b { bottom: 0; left: calc(50% - 10px); }
+.annot-br { right: 0; bottom: 0; }
+.legend { padding: 24px 16px 48px; background: var(--canvas); border-top: 1px solid var(--border-strong); color: var(--text-2); }
+.legend-title { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.legend-note { max-width: 96ch; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.legend-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); gap: 16px 32px; margin-top: 16px; }
+.legend-item { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 12px; align-items: start; max-width: 72ch; }
+.legend-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.legend-text { text-wrap: pretty; }
+
+/* Annotated frame: the app at a fixed height for the mockup, the legend under it. */
+.frame { background: var(--canvas); }
+.frame > .app { height: 900px; }
+@media (width >= 1800px) { .frame > .app { height: 1440px; } }
+@media (width < 1024px) {
+  .frame > .app { grid-template-rows: 48px auto auto; height: auto; min-height: 0; overflow: visible; }
+  .frame .pane { overflow: visible; min-height: auto; }
+}
+
+/* States board: plain panels on the canvas ground, each a label over a 1px rule and a fragment at real size. */
+.board { min-height: 100dvh; padding-bottom: 48px; background: var(--canvas); color: var(--text-2); }
+.board-head { padding: 24px 16px 0; }
+.board-head h1 { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.board-head p { max-width: 96ch; margin-top: 4px; }
+.board-panels { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 32px 24px; padding: 24px 16px 0; }
+.board-panel { position: relative; flex: none; min-width: 0; max-width: 100%; }
+.board-panel.is-auto { flex: 1 1 560px; }
+.board-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; padding-bottom: 7px; border-bottom: 1px solid var(--border-strong); }
+.board-n { min-width: 16px; font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.board-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.board-note { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.board-body { position: relative; overflow: auto; background: var(--surface); color: var(--text-1); }
+.board-body > .app { height: 100%; min-height: 0; }
+.board.is-flush .board-panels { gap: 32px 0; padding-right: 0; padding-left: 0; }
+.board.is-flush .board-label { padding-right: 16px; padding-left: 16px; }
+.board.is-flush .board-panel + .board-panel::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; z-index: 50; width: 1px;
+  background: var(--border-strong); pointer-events: none; }
+
+/* System sheet: four columns of reference from 1800px, two from 1024px, then the component list */
+.sys { min-height: 100dvh; padding: 24px 16px 64px; background: var(--canvas); color: var(--text-2); }
+.sys-head { margin-bottom: 32px; }
+.sys-head h1 { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.sys-head p { max-width: 96ch; margin-top: 4px; }
+.sys-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px 32px; align-items: start; }
+.sys-cell { display: flex; flex-direction: column; gap: 40px; min-width: 0; }
+.sys-extra { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 40px 32px; align-items: start; }
+.sys-wide, .sys-extra { margin-top: 40px; }
+@media (width >= 1024px) { .sys-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (width >= 1800px) { .sys-grid { grid-template-columns: minmax(0, 1.44fr) minmax(0, 1.44fr) minmax(0, 1fr) minmax(0, 1fr); } }
+.sys-sec { min-width: 0; }
+.sys-sec > h2 { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.sys-note { max-width: 96ch; margin: 4px 0 12px; font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+.sys-table { overflow-x: auto; }
+.sys-table .table th, .sys-table .table td { height: 32px; padding-top: 6px; padding-bottom: 5px; white-space: normal; }
+.sys-table .table .keep { white-space: nowrap; }
+.sys-table .table th:last-child, .sys-table .table td:last-child { width: 100%; }
+.sys-table .table tbody tr:hover > td { background: var(--surface); }
+.swatch { display: inline-block; flex: none; width: 32px; height: 20px; border: 1px solid var(--border-strong); vertical-align: middle; }
+.swatch-cell { display: inline-flex; align-items: center; gap: 8px; }
+.swatch-stack { display: inline-flex; flex-direction: column; gap: 4px; }
+.sys-steps { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px; margin-bottom: 16px; padding: 16px; background: var(--surface); }
+.sys-step { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 16px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.sys-step-bar { height: 16px; background: var(--text-3); }
+.sys-comps { column-gap: 48px; }
+@media (width >= 1800px) { .sys-comps { column-count: 2; } }
+.sys-comp { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 8px 24px; align-items: start; padding: 16px 0;
+  border-top: 1px solid var(--border-subtle); break-inside: avoid; }
+.sys-comp.is-wide { column-span: all; grid-template-columns: minmax(0, 1fr); }
+.sys-comp.is-wide .sys-comp-line { max-width: 96ch; }
+.sys-comp-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.sys-comp-line { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+.sys-draw { min-width: 0; overflow-x: auto; background: var(--surface); color: var(--text-1); }
+.sys-draw.is-pad { padding: 12px 16px; }
+.sys-draw > .appbar, .sys-draw > .pagehead { grid-row: auto; }
+.spec-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.spec-col { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+@media (width < 768px) { .sys-comp { grid-template-columns: minmax(0, 1fr); } .sys-table .table { min-width: 600px; } }
+
+/* ---- This page ---- */
+.doc.nt-doc { color: var(--text-2); }
+.nt-doc p, .nt-doc li { overflow-wrap: break-word; }
+.nt-doc .notice { margin: 12px 0 0; padding-left: 0; padding-right: 0; }
+.nt-doc .notice-text { color: var(--text-1); }
+.nt-doc .nt-intro { margin-top: 12px; }
+.nt-doc p + p, .nt-doc p + ul, .nt-doc ul + p, .nt-doc p + table, .nt-doc table + p { margin-top: 8px; }
+.nt-doc .nt-sec { margin-top: 32px; padding-top: 4px; border-top: 1px solid var(--border-subtle); }
+.nt-doc .nt-sec > h2 { margin-top: 12px; }
+.nt-doc h3 { margin: 16px 0 6px; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.nt-doc h4 { margin: 0 0 6px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); }
+.nt-doc .nt-after { margin-top: 12px; }
+.nt-trade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; }
+.nt-doc .nt-trade ul { padding-left: 18px; }
+.nt-doc .nt-q > li { color: var(--text-1); }
+
+.nt-doc .nt-table { margin-top: 8px; table-layout: fixed; }
+.doc .nt-table th, .doc .nt-table td { height: auto; padding: 6px 12px 6px 0; vertical-align: top; white-space: normal;
+  overflow-wrap: break-word; }
+.doc .nt-table tbody th { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2);
+  border-bottom-color: var(--border-subtle); }
+.doc .nt-table tbody td { font-size: 13px; line-height: 18px; }
+.doc .nt-frames tbody th { font-family: var(--font-mono); font-weight: 400; }
+
+/* The navigation file: prose keeps the 72ch measure, the drawing and the tables take the width. */
+.doc.nt-wide { max-width: calc(1200px + 32px); }
+.nt-wide .nt-intro, .nt-wide .nt-sec > p, .nt-wide .nt-sec > ul, .nt-wide .notice { max-width: 72ch; }
+.nt-map { margin: 16px 0 0; }
+.nt-canvas { position: relative; }
+.nt-lines { position: absolute; left: 0; top: 0; overflow: visible; }
+.nt-l { fill: none; stroke: var(--text-2); stroke-width: 1.5; }
+.nt-l.nt-pro { stroke-dasharray: 6 4; }
+.nt-ah path { fill: var(--text-2); }
+.nt-box { position: absolute; display: flex; flex-direction: column; justify-content: center; padding: 6px 12px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--surface-sunken); }
+.nt-box-pro { border-style: dashed; }
+.nt-doc .nt-box p + p, .nt-doc .nt-sbox p + p { margin-top: 0; }
+.nt-box-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.nt-box-sub { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.nt-edge { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; gap: 2px;
+  padding: 3px 6px; background: var(--surface); font-size: 12px; line-height: 16px; color: var(--text-1);
+  white-space: nowrap; }
+.nt-edge-line { display: flex; align-items: center; gap: 6px; }
+.nt-edge-one .nt-edge-line { flex-direction: column; gap: 2px; }
+.nt-glyph { color: var(--text-3); }
+.nt-stack { display: none; }
+.nt-sbox { padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-4);
+  background: var(--surface-sunken); }
+.nt-doc .nt-outs { margin-top: 6px; padding-left: 0; list-style: none; }
+.nt-doc .nt-outs li { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 4px;
+  font-size: 13px; line-height: 18px; color: var(--text-1); }
+.nt-to { font-weight: 600; }
+.nt-routes .status, .nt-nav .status { white-space: nowrap; }
+
+@media (width < 1240px) {
+  .nt-canvas { display: none; }
+  .nt-stack { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+}
+@media (width < 600px) {
+  .nt-trade { grid-template-columns: minmax(0, 1fr); }
+  .nt-doc .nt-table, .nt-doc .nt-table tbody, .nt-doc .nt-table tr, .nt-doc .nt-table th,
+  .nt-doc .nt-table td { display: block; width: auto; }
+  .nt-doc .nt-table colgroup { display: none; }
+  .nt-doc .nt-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+    white-space: nowrap; }
+  .nt-doc .nt-table tr { padding: 8px 0; border-bottom: 1px solid var(--border-subtle); }
+  .doc .nt-table th, .doc .nt-table td { padding: 2px 0; border-bottom: 0; }
+  .doc .nt-table td::before, .doc .nt-table th::before { content: attr(data-label); display: block;
+    font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); }
+  .doc .nt-table th[data-label=""]::before { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="doc nt-doc">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="st-pos" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-cau" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 2.4a5.6 5.6 0 0 0 0 11.2z" fill="currentColor"/></symbol>
+<symbol id="st-neg" viewBox="0 0 16 16"><path d="M4.2 4.2l7.6 7.6m0-7.6l-7.6 7.6" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-neu" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+<symbol id="st-pro" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></symbol>
+</svg>
+<h1>Company watchlist, three variations: notes</h1><div class="notice notice-caution" role="status"><div class="notice-body"><svg class="notice-mark" width="16" height="16" aria-hidden="true"><use href="#st-cau"></use></svg><p class="notice-text"><span class="visually-hidden">Caution: </span><strong>Unreviewed.</strong> These screens were drawn and self-checked by their authors; the review and fix round was skipped this time, so expect small faults.</p></div></div><p class="nt-intro">A, B and C are labels, not a ranking. Each variation takes one position on the questions the audit left open, and its section says which. Their proposal lists differ in length only because the screens draw different things. Every company, person and product on the screens is invented.</p><section class="nt-sec" aria-labelledby="variation-a"><h2 id="variation-a">A. Table and record</h2><h3>Rationale</h3><p>Watchlist A is a table of the companies you chose, one row each, with the latest signal, its relevance, the date found, the thread, the last contact and the state side by side, urgent rows first by a rule written above the table. Selecting a row opens the company’s record beside the table at 2560 and as its own page below 1800, so the reason to act, “Why now”, and the place to act, “Log a contact”, sit together. It reuses the list-beside-detail pattern of Jobs with J and K, and Radar’s part is to suggest companies with a signal at 70 or more, never to add one.</p><h3>The position it takes</h3><p>You choose the targets: a company joins the list only when you press Add to watchlist on a signal or on a company’s page. Radar suggests the companies with a signal at 70 or more that are not on the list, and adds nothing to it by itself.</p><h3>What it gives and what it costs</h3><div class="nt-trade"><div><h4>Gives</h4><ul><li>Every watched company is on one screen, comparable column by column, with the order rule written out and every count matching the rows.</li><li>At 2560 the record sits beside the table, so reading why it matters and logging a contact happen without leaving the list.</li><li>It follows the Jobs pattern of a list beside a detail, with J and K, so there is little new to learn.</li><li>The list stays small and deliberate, and Radar’s suggestion shows without changing it.</li></ul></div><div><h4>Costs</h4><ul><li>Cells are one line, so long headlines and next actions are cut short, at 2560 as well, with the full text in the record.</li><li>At 1280 and on a phone the record is a separate page, so moving between companies is a page load.</li><li>A table answers which company before what to do, so the next move is one click away and not in the row.</li><li>A company with an urgent signal stays off the list until you add it, and with no “not a target” the suggestion can linger.</li></ul></div></div><h3>Proposals it draws</h3><ul><li>Radar’s suggestion line (“1 company has a signal at 70 or more and is not on the list: …”) with “Add Vantage Bio to the watchlist”, and “Added by you on 14 Oct” on a record.</li><li>A table of the companies on the list: Company, Latest signal, Relevance, Found, Thread, Last contact and State, with the order written above it and “Signals as of the signal watcher’s run at 13 Nov 06:00”.</li><li>“Search companies” over every company on file, the chips “Urgent 1”, “Thread due 2” and “Window open 3”, a Region facet and sortable column heads.</li><li>The company record in a pane beside the table at 2560, with Previous and Next (K and J), “Set state”, which gathers today’s three state buttons, and “Remove from watchlist”.</li><li>“Why now”: the latest signal’s why it matters and next move, with what its relevance rests on (“fixed for every buying window, not scored” or “scored from this one item”).</li><li>“More actions” on each contact, holding Edit and Delete.</li></ul><p class="nt-after">It also draws everything listed under “What all three draw”. Not drawn on any frame: adding a company from a signal or from its own page, since only the suggestion line’s Add button is drawn.</p></section><section class="nt-sec" aria-labelledby="variation-b"><h2 id="variation-b">B. By next move</h2><h3>Rationale</h3><p>Watchlist B is a to-do list of threads, so its question is what to do next and for which company. The rule puts a company on the list and you only take companies off, and the list is grouped by what you have to do, Act now, Due, Waiting and Watching, each row leading with the next move in words and with when it is due at the right. The company record is a page of its own that opens on the thread with Log a contact drawn open, then the contact log, the signals and the roles on Jobs.</p><h3>The position it takes</h3><p>The watchlist is a to-do list of threads, and a company is on it by rule: a signal at 70 or more in the last 90 days, or any contact logged. Nothing is added by hand, and a company you remove stays off until a contact is logged with it.</p><h3>What it gives and what it costs</h3><div class="nt-trade"><div><h4>Gives</h4><ul><li>Every row answers what to do next in its first line, with the due state beside it, so the page reads as a to-do list.</li><li>The rule fills the list with no upkeep, so a company with a signal at 70 or more cannot be missed.</li><li>Overdue and due-today threads have a group of their own, marked with a mark and a word.</li><li>The record opens on the thread with the form, so acting on a company and logging it happen in one place.</li></ul></div><div><h4>Costs</h4><ul><li>The company is the second thing read on each row, so finding one company is slower than in a table.</li><li>A company with no signal at 70 or more and no contact cannot be on the list, which leaves off 15 of the typical day’s 24 hand-picked companies.</li><li>The record is a full page even at 2560, so the list and a record are never read side by side.</li><li>The list changes by itself as signals pass 90 days, and a company contacted once stays in Waiting until removed.</li></ul></div></div><h3>Proposals it draws</h3><ul><li>The list made by the rule, with the rule written above it (“On the list by rule: a signal at 70 or more in the last 90 days, or any contact logged”), and “Remove from the list”, which keeps a company off until a contact is logged.</li><li>Groups by next move with counts, Act now, Due, Waiting and Watching, and the header line “10 on the list · 1 to act on now · 2 due, 1 overdue · 5 waiting · 2 watching”.</li><li>“Leaves the list 10 Feb” on Watching rows: the rule’s 90 days, counted from the newest signal at 70 or more.</li><li>“Change the next action” to set, move or clear a thread’s next action, and the next action carried over into the form so that a thread is not ended by accident.</li><li>“Copy the comment” and “Copy the connection note” on a row whose next move needs them, and “Dismiss the signal” on the record.</li><li>The record as a page of its own, opening on the thread with Log a contact drawn open, and “On the list” saying why the rule holds the company and since when.</li></ul><p class="nt-after">It also draws everything listed under “What all three draw”. Not drawn on any frame: Log a contact opening in place under a row, and the undo after “Save contact” and “Remove from the list”.</p></section><section class="nt-sec" aria-labelledby="variation-c"><h2 id="variation-c">C. Timeline</h2><h3>Rationale</h3><p>Watchlist C lays every signal and contact on one time axis, newest first, with why each matters and the next move in the entry. The timeline starts at today with the next actions due or overdue and then the form that writes the log, and a rail lists the companies by latest activity, each with its state, its thread and who added it. From 1800px the selected company’s record sits at the right, and narrower it is a page of its own built from the same parts.</p><h3>The position it takes</h3><p>Timing is the point, so time is the axis and the watchlist reads as a log, newest first, from today. Both you and the rule can add a company, you by name and the rule on a signal at 70 or more in 90 days or a contact logged, and each company says how it came onto the list.</p><h3>What it gives and what it costs</h3><div class="nt-trade"><div><h4>Gives</h4><ul><li>What happened, and in what order, reads at a glance, with each signal’s why and next move in the entry.</li><li>The log is written where it is read, and a logged contact appears at the head of the timeline.</li><li>The company record has the same shape as the list, so moving between them costs nothing to learn.</li><li>The rail shows each company’s state, its thread or who added it, and its latest activity on one line.</li></ul></div><div><h4>Costs</h4><ul><li>An urgent signal sits at its date and can fall below newer, weaker entries, and at 1280 the open 11 Nov buying window sits at the fold.</li><li>A heavy week makes a long feed, 66 signals and 22 contacts after a week away, with older entries behind a link.</li><li>Future due dates are not on the axis, since only due and overdue actions open the timeline.</li><li>On a phone the companies, their search and “Add a company” are a second tab, one tap away.</li></ul></div></div><h3>Proposals it draws</h3><ul><li>A timeline of signals and contacts across the list, newest first, with All, Signals and Contacts views, which also makes a page of every contact.</li><li>A rail of companies by latest activity, with “Search companies”, “State: All 24” and “Add a company”.</li><li>Both ways onto the list, said on each company: “15 added by you, 9 by the rule”, “added by you on 10 Nov”, “On the list by rule: …”.</li><li>What removal does, said beside “Remove from the watchlist”: the rule adds a company back only on a new signal at 70 or more or a new contact.</li><li>“Today” at the head of the timeline, the next actions due or overdue, each with “Log a contact for …”, then the Log a contact form with “Prompted by”.</li><li>Your last visit drawn as a line on the axis, “Your last visit, 12 Nov 18:40” (no visit is recorded today).</li><li>The record as a pane at the right from 1800px, with “Open as its own page” and its own timeline of contacts and signals.</li><li>“Show the 33 earlier entries” and “Show the other 6 next actions due”, each with its own address.</li></ul><p class="nt-after">It also draws everything listed under “What all three draw”. Not drawn on any frame: what follows “Add a company”, and a first contact logged with a company that is not on the list.</p></section><section class="nt-sec" aria-labelledby="what-varies"><h2 id="what-varies">What varies</h2><p>One row for each open point, one column for each variation, plain facts in each cell.</p><table role="table" class="nt-table nt-varies"><caption class="visually-hidden">What varies between the three variations</caption><colgroup><col style="width:22%"><col style="width:26%"><col style="width:26%"><col style="width:26%"></colgroup><thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">Open point</th><th role="columnheader" scope="col">A. Table and record</th><th role="columnheader" scope="col">B. By next move</th><th role="columnheader" scope="col">C. Timeline</th></tr></thead><tbody role="rowgroup"><tr role="row"><th role="rowheader" scope="row" data-label="Open point">Who adds a company</th><td role="cell" data-label="A. Table and record">You, with Add to watchlist; Radar suggests</td><td role="cell" data-label="B. By next move">The rule alone; you can remove</td><td role="cell" data-label="C. Timeline">You or the rule; each company says which</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Open point">The rule</th><td role="cell" data-label="A. Table and record">None; a suggestion at 70 or more</td><td role="cell" data-label="B. By next move">A signal at 70 or more in 90 days, or any contact</td><td role="cell" data-label="C. Timeline">The same rule, beside Add a company</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Open point">Typical day</th><td role="cell" data-label="A. Table and record">24 companies, 1 suggested</td><td role="cell" data-label="B. By next move">10 companies: 1 act now, 2 due, 5 waiting, 2 watching</td><td role="cell" data-label="C. Timeline">24 companies: 15 added by you, 9 by the rule</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Open point">After a week away</th><td role="cell" data-label="A. Table and record">61 companies</td><td role="cell" data-label="B. By next move">23 companies</td><td role="cell" data-label="C. Timeline">61 companies, 66 signals and 22 contacts</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Open point">Shape</th><td role="cell" data-label="A. Table and record">A table, one row per company</td><td role="cell" data-label="B. By next move">Four groups by next move</td><td role="cell" data-label="C. Timeline">A timeline of signals and contacts beside a rail of companies</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Open point">Order</th><td role="cell" data-label="A. Table and record">Urgent first, by a rule written above the table</td><td role="cell" data-label="B. By next move">By group; due rows oldest first</td><td role="cell" data-label="C. Timeline">Newest first</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Open point">An open urgent signal</th><td role="cell" data-label="A. Table and record">The first row, tagged Urgent</td><td role="cell" data-label="B. By next move">Act now, the first group</td><td role="cell" data-label="C. Timeline">At its date, tagged Urgent</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Open point">Company record</th><td role="cell" data-label="A. Table and record">A pane beside the table at 2560; a page below 1800</td><td role="cell" data-label="B. By next move">A page of its own at every width</td><td role="cell" data-label="C. Timeline">A pane from 1800; a page below</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Open point">Log a contact</th><td role="cell" data-label="A. Table and record">A form in the record</td><td role="cell" data-label="B. By next move">Drawn open on the record</td><td role="cell" data-label="C. Timeline">A form under Today, with Prompted by</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Open point">Search and filters</th><td role="cell" data-label="A. Table and record">Search, three chips, Region, sortable heads</td><td role="cell" data-label="B. By next move">None</td><td role="cell" data-label="C. Timeline">Search and a state filter in the rail</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Open point">Record of a visit</th><td role="cell" data-label="A. Table and record">None</td><td role="cell" data-label="B. By next move">None</td><td role="cell" data-label="C. Timeline">A last-visit line on the timeline</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Open point">Keys</th><td role="cell" data-label="A. Table and record">J, K and /</td><td role="cell" data-label="B. By next move">None</td><td role="cell" data-label="C. Timeline">None</td></tr></tbody></table></section><section class="nt-sec" aria-labelledby="all-three"><h2 id="all-three">What all three draw</h2><p>Proposals that A, B and C share, so the lists under A, B and C leave them out. Each is something the product does not do today.</p><ul><li>The shared app bar of Jobs round 2, and a Watchlist page in the navigation that lists companies (no such page exists today).</li><li>Taking a company off the list.</li><li>A company record laid out from one set of parts, facts, thread, contact log, signals and roles on Jobs, which starts with “Back to Watchlist” when it is a page of its own.</li><li>Log a contact on screen: date, channel, note, outcome (None, Reply or Conversation), next action and due date (no screen can add a contact today).</li><li>A contact tied to the signal that prompted it, marking that signal done: a box in A and B, “Prompted by” in C (a contact has no such link today).</li><li>Threads with a due state, “Due today” and “Overdue by 1 day”, as a mark and a word (nothing marks an overdue thread today).</li><li>Open urgent signals set apart: the Urgent tag in A and C, the Act now group in B.</li><li>Each signal’s next move shown with it, in the record in A and on the list and the record in B and C (the company page does not show it today).</li><li>Signal types, and on the heavy day one row for one event reported by several sources.</li><li>A buying window’s 90 labelled as fixed for every window and not scored, and the day its window opened.</li><li>A link from a signal raised from a job advert to its role on Jobs, and the company’s roles drawn as Jobs rows with their CV match (today’s company page prints “Score unscored”).</li><li>The company’s state shown in the list (today it shows on its own page only).</li><li>Watcher health on the watchlist: on the stale day a notice, the age on signal figures and “Check now” with what it does beside it (A and C also say when the watcher last ran on a typical day).</li><li>Addresses for rows and views, so a link from Home can land on a company or its thread.</li><li>“Times are UK time”, said once.</li></ul></section><section class="nt-sec" aria-labelledby="differ"><h2 id="differ">Where the working view and the product differ</h2><p>From the audit’s design facts, as the product stood on 13 Nov 2026.</p><ul><li>There is no watchlist: no page lists companies, the navigation has no entry for one, and nothing marks a company as a target. In the code the word “watchlist” means the list of news sources.</li><li>Company records make themselves from every advert and signal, at least 2,431 on the day and 801 linked from a page, so recruiters, large employers, institutes and the news sources themselves all have company pages.</li><li>A company page is reached from a company name on Insights, from inside an opened role on Jobs, or by typing its number; there is no index and no search.</li><li>“Buying window” in the code means any new advert from a company already in the contact log, always set to 90, and none has been raised. The working view’s meaning, a first hire in quality, regulatory or software leadership, is the first-hire tripwire, which since 5 Nov scores under 40, and software-leadership hires are not detected at all.</li><li>The contact log is empty, and no screen can add, edit or delete a contact: contacts are written from a command line, by “I did it” on Insights, or by a change of state on a company page.</li><li>A thread is not stored: it is the newest contact that carries a next action, none exists, and nothing marks one overdue.</li><li>Why a signal matters is a line with no label, and its next move is not shown on the company page.</li><li>Nothing counts or groups the signals at 75 or more, and none has reached the phone.</li><li>Companies first met through a signal are never enriched, so their facts read “not known” and their region “Elsewhere”.</li><li>A company’s state shows on its own page only: no list, count or rule reads it, and every company reads “seen” today.</li></ul></section><section class="nt-sec" aria-labelledby="questions"><h2 id="questions">Questions that block the choice</h2><p>These decide between the variations, so they come first.</p><ul class="nt-q"><li>Who puts a company on the list: you alone, with Radar suggesting (A), the rule alone (B), or both, with each company saying which (C)?</li><li>What should the page answer first: which company (A’s table), what to do next (B’s groups), or what happened when (C’s timeline)?</li><li>Should the company record sit beside the list on a wide screen (A and C), or always be a page of its own (B)?</li></ul><h3>Also open, whichever is chosen</h3><ul><li>What a buying window is: the code’s meaning, any new advert from a company already contacted, fixed at 90, or the working view’s, a first hire in quality, regulatory or software leadership.</li><li>If Insights C is chosen, its By company view is the watchlist: should it then take the layout chosen here, or stay a view of the signals table?</li></ul></section><section class="nt-sec" aria-labelledby="frames"><h2 id="frames">Frames</h2><table role="table" class="nt-table nt-frames"><caption class="visually-hidden">Every frame of the three variations, with its size</caption><colgroup><col style="width:24%"><col style="width:36%"><col style="width:15%"><col style="width:25%"></colgroup><thead role="rowgroup"><tr role="row"><th role="columnheader" scope="col">Frame</th><th role="columnheader" scope="col">Shows</th><th role="columnheader" scope="col">Size</th><th role="columnheader" scope="col">File</th></tr></thead><tbody role="rowgroup"><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-A-2560</th><td role="cell" data-label="Shows">A typical day at 2560</td><td role="cell" data-label="Size">2560 × 1853</td><td role="cell" data-label="File">watchlist-A/watchlist-A.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-A-1280</th><td role="cell" data-label="Shows">A typical day at 1280</td><td role="cell" data-label="Size">1280 × 1445</td><td role="cell" data-label="File">watchlist-A/watchlist-A.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-A-phone</th><td role="cell" data-label="Shows">A typical day on a phone, 390 wide</td><td role="cell" data-label="Size">390 × 3176</td><td role="cell" data-label="File">watchlist-A/watchlist-A.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-A-states</th><td role="cell" data-label="Shows">States board: empty, heavy, and stale or in error</td><td role="cell" data-label="Size">2560 × 2056</td><td role="cell" data-label="File">watchlist-A/watchlist-A-states.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-A-company-1280</th><td role="cell" data-label="Shows">The company record as a page, at 1280</td><td role="cell" data-label="Size">1280 × 1373</td><td role="cell" data-label="File">watchlist-A/watchlist-A-company.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-A-company-phone</th><td role="cell" data-label="Shows">The company record on a phone, 390 wide</td><td role="cell" data-label="Size">390 × 3156</td><td role="cell" data-label="File">watchlist-A/watchlist-A-company.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-B-2560</th><td role="cell" data-label="Shows">A typical day at 2560</td><td role="cell" data-label="Size">2560 × 1761</td><td role="cell" data-label="File">watchlist-B/watchlist-B.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-B-1280</th><td role="cell" data-label="Shows">A typical day at 1280</td><td role="cell" data-label="Size">1280 × 1409</td><td role="cell" data-label="File">watchlist-B/watchlist-B.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-B-phone</th><td role="cell" data-label="Shows">A typical day on a phone, 390 wide</td><td role="cell" data-label="Size">390 × 4235</td><td role="cell" data-label="File">watchlist-B/watchlist-B.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-B-states</th><td role="cell" data-label="Shows">States board: empty, heavy, and stale or in error</td><td role="cell" data-label="Size">2560 × 2056</td><td role="cell" data-label="File">watchlist-B/watchlist-B-states.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-B-company-1280</th><td role="cell" data-label="Shows">The company record as a page, at 1280</td><td role="cell" data-label="Size">1280 × 1277</td><td role="cell" data-label="File">watchlist-B/watchlist-B-company.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-B-company-phone</th><td role="cell" data-label="Shows">The company record on a phone, 390 wide</td><td role="cell" data-label="Size">390 × 4130</td><td role="cell" data-label="File">watchlist-B/watchlist-B-company.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-C-2560</th><td role="cell" data-label="Shows">A typical day at 2560</td><td role="cell" data-label="Size">2560 × 1781</td><td role="cell" data-label="File">watchlist-C/watchlist-C.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-C-1280</th><td role="cell" data-label="Shows">A typical day at 1280</td><td role="cell" data-label="Size">1280 × 1393</td><td role="cell" data-label="File">watchlist-C/watchlist-C.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-C-phone</th><td role="cell" data-label="Shows">A typical day on a phone, 390 wide</td><td role="cell" data-label="Size">390 × 4331</td><td role="cell" data-label="File">watchlist-C/watchlist-C.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-C-states</th><td role="cell" data-label="Shows">States board: empty, heavy, and stale or in error</td><td role="cell" data-label="Size">2560 × 2056</td><td role="cell" data-label="File">watchlist-C/watchlist-C-states.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-C-company-1280</th><td role="cell" data-label="Shows">The company record as a page, at 1280</td><td role="cell" data-label="Size">1280 × 1333</td><td role="cell" data-label="File">watchlist-C/watchlist-C-company.html</td></tr><tr role="row"><th role="rowheader" scope="row" data-label="Frame">watchlist-C-company-phone</th><td role="cell" data-label="Shows">The company record on a phone, 390 wide</td><td role="cell" data-label="Size">390 × 2886</td><td role="cell" data-label="File">watchlist-C/watchlist-C-company.html</td></tr></tbody></table><p class="after-table">Heights include the legend under each screen. Each states board sets the empty, heavy, and stale or in error days at 1280 × 900 on one 2560 board, and the company frames show Hartwell Infusion Ltd’s record.</p></section></div>
+</body>
+</html>

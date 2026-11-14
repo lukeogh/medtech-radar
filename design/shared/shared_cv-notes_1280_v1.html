@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en" data-appearance="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CV: notes · MedTech Radar</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+/* Metric-matched fallbacks while Plex loads (design-system §16). */
+@font-face { font-family: "Plex Sans fallback"; src: local("Arial"); size-adjust: 101.17%; ascent-override: 101.32%; descent-override: 27.18%; line-gap-override: 0%; }
+@font-face { font-family: "Plex Mono fallback"; src: local("Consolas"); size-adjust: 109.13%; ascent-override: 93.92%; descent-override: 25.20%; line-gap-override: 0%; }
+
+/* Tokens. Mockups draw dark: the dark set of design-system §15 sits on :root as the default, the light set
+   of §4 under data-appearance="light", and Auto under prefers-color-scheme: light. The uploaded mark is drawn
+   in the light text colours; inverting it and turning the hue half a turn lands on the dark text tokens. */
+:root {
+  color-scheme: dark; --canvas: #0e1215; --surface: #151a1e; --surface-sunken: #1c2226; --row-hover: #192024; --row-selected: #0f3237; --text-1: #e6ebee; --text-2: #b3bec6; --text-3: #93a0a9; --border-subtle: #262e34; --border-strong: #6f7c86; --accent: #5cc3cf; --accent-hover: #82d3dc; --accent-tint: #0f3237; --on-accent: #071114; --positive: #74d39b; --positive-tint: #12291c; --caution: #f0c46a; --caution-tint: #2c2311; --negative: #ff9b8f; --negative-tint: #33191a; --neutral: #b3bec6; --neutral-tint: #1f262b; --scrim: rgba(0, 0, 0, .6); --shadow-overlay: 0 8px 24px rgba(0, 0, 0, .5); --font-sans: "IBM Plex Sans", "Plex Sans fallback", Arial, sans-serif; --font-mono: "IBM Plex Mono", "Plex Mono fallback", Consolas, monospace; --radius-0: 0; --radius-2: 2px; --radius-4: 4px; --dur: 120ms; --mark-filter: invert(1) hue-rotate(180deg);
+}
+html[data-appearance="light"] {
+  color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none;
+}
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] {
+    color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; } }
+
+/* Focus. Dark: a #ffd447 outline on a 2px surface gap; rows take the outline only, inset clear of the
+   selection bar. A static frame shows it with .is-focus on exactly one element. */
+:focus-visible, .is-focus { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+.row:focus-visible, .row.is-focus { outline-offset: -7px; box-shadow: none; }
+html[data-appearance="light"] :focus-visible, html[data-appearance="light"] .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  html[data-appearance="light"] .row:focus-visible, html[data-appearance="light"] .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] :focus-visible, html[data-appearance="auto"] .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  html[data-appearance="auto"] .row:focus-visible, html[data-appearance="auto"] .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+}
+@media (forced-colors: active) { :focus-visible, .is-focus { outline-color: Highlight; } }
+
+/* Base. The Tailwind CDN's preflight comes later in the cascade, so body is set as "html body" to keep its
+   line height, and a button's fill is always set with two classes ([type=button] in preflight counts as one). */
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--surface); }
+html body { margin: 0; background: var(--surface); color: var(--text-1); font-family: var(--font-sans); font-size: 14px;
+  line-height: 20px; font-weight: 400; letter-spacing: 0; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+h1, h2, h3, h4, p, ul, ol, dl, dd { margin: 0; }
+ul, ol { list-style: none; padding: 0; }
+button, input { font: inherit; color: inherit; letter-spacing: 0; }
+img { display: block; }
+a { color: inherit; }
+.mono { font-family: var(--font-mono); white-space: nowrap; }
+.seg-nowrap { white-space: nowrap; }
+.num { font-variant-numeric: tabular-nums; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* Where a marker is pinned (annot_on). It comes before every component rule, so a part that is already
+   positioned keeps its own position. */
+.annot-host { position: relative; }
+
+/* Type (design-system §5) */
+.text-label { font-size: 12px; line-height: 16px; font-weight: 600; }
+.text-meta { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); }
+
+/* Shell: app bar 48px, page header auto, content minmax(0, 1fr); the panes scroll, the page does not. */
+.app { display: grid; grid-template-rows: 48px auto minmax(0, 1fr); height: 100dvh; overflow: hidden; background: var(--surface); }
+.appbar { grid-row: 1; }
+.pagehead { grid-row: 2; }
+.content { grid-row: 3; }
+
+/* App bar */
+.appbar { display: flex; align-items: center; gap: 24px; min-width: 0; height: 48px; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.brand { display: flex; align-items: center; gap: 12px; flex: none; }
+.brand-mark { width: 51px; height: 24px; filter: var(--mark-filter); }
+.brand-name { font-size: 14px; line-height: 20px; font-weight: 600; white-space: nowrap; }
+.appbar-page { display: none; font-size: 16px; line-height: 24px; font-weight: 600; }
+.nav { display: flex; align-self: stretch; gap: 20px; }
+.nav a { display: flex; align-items: center; padding: 2px 2px 0; border-bottom: 2px solid transparent; color: var(--text-2);
+  text-decoration: none; white-space: nowrap; transition: color var(--dur) ease-out; }
+.nav a:hover { color: var(--text-1); }
+.nav a[aria-current="page"] { color: var(--text-1); border-bottom-color: var(--accent); }
+.appbar-tools { display: flex; align-items: center; gap: 16px; min-width: 0; margin-left: auto; }
+.cmd { display: flex; flex: none; align-items: center; gap: 8px; width: 240px; height: 32px; padding: 0 8px; text-align: left;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); color: var(--text-3); cursor: pointer; }
+.cmd-text { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cmd-icon { display: none; }
+.inbox-status { font-size: 12px; line-height: 16px; color: var(--text-3); white-space: nowrap; }
+.appearance { display: inline-flex; flex: none; }
+.seg { height: 32px; margin-left: -1px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 0;
+  background: var(--surface); color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600; cursor: pointer;
+  transition: background-color var(--dur) ease-out, color var(--dur) ease-out; }
+.seg:first-child { margin-left: 0; border-radius: var(--radius-2) 0 0 var(--radius-2); }
+.seg:last-child { border-radius: 0 var(--radius-2) var(--radius-2) 0; }
+.appearance .seg[aria-pressed="true"] { background: var(--surface-sunken); color: var(--text-1); }
+.appbar .menu-btn { display: none; }
+
+/* Controls */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: var(--radius-2); font-size: 14px; line-height: 20px; font-weight: 500;
+  white-space: nowrap; text-decoration: none; cursor: pointer;
+  transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out; }
+.btn.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.btn-secondary { background: var(--surface); border-color: var(--border-strong); color: var(--text-1); }
+.btn.btn-secondary:hover { background: var(--row-hover); }
+.btn.btn-ghost { background: transparent; color: var(--text-2); }
+.btn.btn-ghost:hover { color: var(--text-1); text-decoration: underline; text-underline-offset: 2px; }
+.btn.btn-icon { width: 32px; padding: 0; }
+.btn.is-disabled { color: var(--text-3); border-color: var(--border-subtle); cursor: default; }
+.btn.is-disabled .kbd { color: var(--text-3); border-color: var(--border-subtle); }
+.kbd { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 18px; height: 18px; padding: 0 4px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface-sunken); color: var(--text-2);
+  font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; white-space: nowrap; }
+.link { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
+  transition: color var(--dur) ease-out; }
+.link:hover { color: var(--accent-hover); text-decoration-thickness: 2px; }
+.with-icon { display: inline-flex; align-items: center; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px; border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2); background: transparent; color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600;
+  white-space: nowrap; cursor: pointer; transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out; }
+.chip:hover { color: var(--text-1); }
+.chip-count { color: var(--text-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.chip.is-selected { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+.chip-facet { padding-right: 8px; }
+.tag { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 20px; padding: 0 8px; border-radius: var(--radius-2);
+  font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+.tag-neutral { background: var(--neutral-tint); color: var(--neutral); }
+.tag-caution { background: var(--caution-tint); color: var(--caution); }
+.tag-positive { background: var(--positive-tint); color: var(--positive); }
+.is-pos { color: var(--positive); }
+.is-neg { color: var(--negative); }
+.is-neu { color: var(--neutral); }
+
+/* Page header */
+.pagehead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 56px; padding: 12px 16px;
+  background: var(--canvas); border-bottom: 1px solid var(--border-subtle); }
+.ph-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; min-width: 0; }
+.ph-title h1 { font-size: 20px; line-height: 28px; font-weight: 600; }
+.counts { font-size: 12px; line-height: 16px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ph-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.search { width: 200px; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text-1); font-size: 14px; line-height: 20px; }
+.search::placeholder { color: var(--text-3); opacity: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.undo-last { margin-left: 4px; }
+
+/* Content: panes abutting on 1px rules. The page's own CSS gives .content its columns. */
+.content { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; background: var(--surface); }
+
+/* Group and pane header (sticky, 40px), the fold button, the band divider */
+.group-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.group-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 600; white-space: nowrap; }
+.group-count { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.group-new { color: var(--text-2); }
+.fold { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; margin: 0 -8px 0 auto;
+  border: 0; border-radius: var(--radius-2); background: transparent; color: var(--text-2); cursor: pointer; }
+.fold:hover { background: var(--row-hover); color: var(--text-1); }
+.band { display: flex; align-items: center; height: 24px; padding: 0 16px; font-size: 12px; line-height: 16px; color: var(--text-3);
+  border-bottom: 1px solid var(--border-subtle); font-variant-numeric: tabular-nums; }
+
+/* Rows: a whole-row link. Three lines, 76px; two lines, 56px. */
+.row { position: relative; display: grid; grid-template-rows: 20px 16px 20px; row-gap: 2px; height: 76px; padding: 8px 16px 7px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); color: var(--text-1); text-decoration: none;
+  transition: background-color var(--dur) ease-out; }
+.row:hover { background: var(--row-hover); }
+.row[aria-current="true"] { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 13px; }
+.r1, .r2, .r3 { display: flex; min-width: 0; }
+.r1 { align-items: baseline; gap: 8px; }
+.r-new { flex: none; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-1); }
+.r-title { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+.is-unread .r-title { font-weight: 600; }
+.r-cv { flex: none; width: 40px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; }
+.r-seen { flex: none; width: 44px; text-align: right; font-size: 12px; line-height: 16px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.r2 { align-items: center; gap: 8px; }
+.r-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px;
+  line-height: 16px; color: var(--text-3); }
+.r2 .tag { margin: -2px 0; }
+.r-rate { display: inline-block; }
+.r3 { align-items: center; gap: 12px; }
+.r-lead { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2); }
+.r-marks { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.mk-pass { color: var(--text-3); }
+.mk-fail { color: var(--negative); }
+.mk-nj { color: var(--neutral); }
+.row-applied { grid-template-rows: 20px 16px; row-gap: 4px; height: 56px; }
+.more { display: flex; align-items: center; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--border-subtle); }
+
+/* Detail content: section heading, score block, reasons, definition list, reading text, evidence */
+.sec-h { margin-bottom: 8px; font-size: 16px; line-height: 24px; font-weight: 600; }
+.score { container-type: inline-size; }
+.gate-strip { display: grid; grid-template-columns: 88px 96px minmax(0, 1fr); gap: 8px 12px; align-items: start; max-width: 960px; margin-top: 8px; }
+.gate { display: contents; }
+.gate-name, .gate-status { font-size: 12px; line-height: 16px; font-weight: 600; }
+.gate-name { color: var(--text-2); }
+.gate-status { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.gate-note { font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+@container (width < 480px) {
+  .gate-strip { grid-template-columns: 72px minmax(0, 1fr); row-gap: 2px; }
+  .gate-note { grid-column: 2; margin-bottom: 8px; }
+}
+@container (width >= 720px) {
+  .gate-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 24px; }
+  .gate { display: flex; flex-direction: column; gap: 2px; }
+}
+.cv-line { display: flex; align-items: baseline; gap: 8px; margin-top: 16px; }
+.cv-label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.cv-figure { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.basis { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.reasons { display: flex; flex-direction: column; gap: 12px; }
+.reasons li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; max-width: 80ch; }
+.evidence { font-size: 12px; line-height: 16px; color: var(--text-2); text-decoration: underline; text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.evidence:hover { text-decoration-thickness: 2px; }
+.facts { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 16px; align-items: baseline; }
+.facts dt { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.facts dd { max-width: 80ch; }
+.advert-text { max-width: 72ch; font-size: 15px; line-height: 24px; }
+.advert-text h4 { margin: 24px 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
+.advert-text h4:first-child { margin-top: 0; }
+.advert-text p, .advert-text ul { margin-bottom: 12px; }
+.advert-text ul { padding-left: 20px; list-style: disc; }
+.advert-text li { margin-bottom: 4px; }
+.advert-text li::marker { color: var(--text-3); }
+mark { background: transparent; color: inherit; text-decoration: underline; text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 3px; }
+mark:target { background: var(--accent-tint); text-decoration-thickness: 2px; }
+.keymap { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; align-items: center; margin-top: 16px; }
+.keymap div { display: contents; }
+.keymap dt { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.keymap .then { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.keymap dd { color: var(--text-2); }
+
+/* Widths */
+@media (width < 1280px) { .cmd { width: auto; } .cmd-text { display: none; } .cmd-icon { display: inline-flex; } }
+@media (width < 960px) { .inbox-status { display: none; } }
+@media (pointer: coarse) and (width < 1100px) { .inbox-status { display: none; } }
+@media (width < 1800px) {
+  .ph-tools { flex-basis: 100%; margin-left: 0; }
+}
+/* Under 1024: one column, no key hints. A sub-screen (data-view="role") keeps the page header for
+   assistive technology only. */
+@media (width < 1024px) {
+  .appbar { gap: 16px; }
+  .nav { gap: 16px; }
+  .kbd { display: none; }
+  .cmd { justify-content: center; width: 32px; padding: 0; border-color: transparent; background: transparent; color: var(--text-2); }
+  .cmd-text { display: none; }
+  .cmd-icon { display: inline-flex; }
+  .app[data-view="role"] .pagehead { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .app[data-view="role"] .ph-tools, .app[data-view="role"] .counts { display: none; }
+}
+/* Under 768: the document scrolls and the panes do not; 44px targets; the app bar is the mark, the page
+   name and Menu. */
+@media (width < 768px) {
+  html { scroll-padding-top: 44px; }
+  .app { grid-template-rows: 48px auto auto; height: auto; min-height: 100dvh; overflow: visible; }
+  .nav, .appbar-tools, .brand-name { display: none; }
+  .appbar-page { display: block; }
+  .appbar .menu-btn { display: inline-flex; width: 44px; height: 44px; margin: 0 -8px 0 auto; padding: 0; }
+  .undo-last { margin-left: 0; padding-inline: 0; }
+  .ph-title h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .chips { display: contents; }
+  .search { width: 100%; }
+  .btn, .chip, .search { height: 44px; }
+  .group-head { height: 44px; }
+  .fold { width: 44px; height: 44px; margin-right: -12px; }
+  .more { min-height: 44px; }
+  .facts { grid-template-columns: 112px minmax(0, 1fr); }
+  .with-icon { display: inline-flex; align-items: center; min-height: 44px; }
+  .more .link, .evidence { position: relative; }
+  .more .link::after { content: ""; position: absolute; inset: -12px 0; }
+  .evidence::after { content: ""; position: absolute; inset: -14px 0; }
+}
+@media (pointer: coarse) {
+  .btn, .chip, .search, .seg { height: 44px; }
+  .fold, .btn.btn-icon { width: 44px; height: 44px; }
+  .cmd { height: 44px; }
+  .with-icon { display: inline-flex; align-items: center; min-height: 44px; }
+  .more { min-height: 44px; }
+  .more .link, .evidence { position: relative; }
+  .more .link::after { content: ""; position: absolute; inset: -12px 0; }
+  .evidence::after { content: ""; position: absolute; inset: -14px 0; }
+  .group-head { height: 44px; }
+}
+@media (max-height: 499px) {
+  .group-head { position: static; }
+}
+
+/* A plain document page (notes): left-aligned at a 16px inset. */
+.doc { max-width: calc(72ch + 32px); padding: 24px 16px 48px; color: var(--text-2); }
+.doc h1 { margin-bottom: 8px; font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.doc h2 { margin: 24px 0 8px; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.doc li + li { margin-top: 8px; }
+.doc ul { padding-left: 20px; list-style: disc; }
+.doc ol { padding-left: 24px; list-style: decimal; }
+.doc li::marker { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.doc .pick { margin-top: 8px; }
+.doc table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.doc th, .doc td { height: 32px; padding: 0 12px 0 0; text-align: left; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+@media (width < 480px) { .doc td { white-space: normal; overflow-wrap: anywhere; } }
+.doc th { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); border-bottom-color: var(--border-strong); }
+.doc td { color: var(--text-1); }
+.doc .after-table { margin-top: 12px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+
+/* =====================================================================================================
+   Added for later pages (design-system §6, §7, §14). Above this line is the Jobs round-2 stylesheet, rule
+   for rule, less the rules of the Jobs page alone (and with .annot-host added). Nothing below this line
+   changes a pixel of what Jobs draws: test_shell.py compares them.
+   ===================================================================================================== */
+
+/* The root is a size container named app. Write a page's width rules as @container app (width >= 1800px)
+   and a screen lays out by its own width: in a frame, and at 1280 inside a states-board panel. The two
+   rules below repeat the shell's own desktop width rules for that case. Overlays are placed against it. */
+.app { container: app / inline-size; }
+@container app (width < 1280px) { .cmd { width: auto; } .cmd-text { display: none; } .cmd-icon { display: inline-flex; } }
+@container app (width < 1800px) { .ph-tools { flex-basis: 100%; margin-left: 0; } }
+
+/* A light or a dark island inside a page of the other appearance (a white sheet of paper, a light specimen). */
+.theme-light { color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none; color: var(--text-1); }
+.theme-dark { color-scheme: dark; --canvas: #0e1215; --surface: #151a1e; --surface-sunken: #1c2226; --row-hover: #192024; --row-selected: #0f3237; --text-1: #e6ebee; --text-2: #b3bec6; --text-3: #93a0a9; --border-subtle: #262e34; --border-strong: #6f7c86; --accent: #5cc3cf; --accent-hover: #82d3dc; --accent-tint: #0f3237; --on-accent: #071114; --positive: #74d39b; --positive-tint: #12291c; --caution: #f0c46a; --caution-tint: #2c2311; --negative: #ff9b8f; --negative-tint: #33191a; --neutral: #b3bec6; --neutral-tint: #1f262b; --scrim: rgba(0, 0, 0, .6); --shadow-overlay: 0 8px 24px rgba(0, 0, 0, .5); --mark-filter: invert(1) hue-rotate(180deg); color: var(--text-1); }
+.theme-light :focus-visible, .theme-light .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  .theme-light .row:focus-visible, .theme-light .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+html[data-appearance] .theme-dark :focus-visible, html[data-appearance] .theme-dark .is-focus { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+  html[data-appearance] .theme-dark .row:focus-visible, html[data-appearance] .theme-dark .row.is-focus { outline-offset: -7px; box-shadow: none; }
+
+/* Type: the rest of the scale (design-system §5) */
+.text-page-title { font-size: 20px; line-height: 28px; font-weight: 600; }
+.text-title { font-size: 18px; line-height: 24px; font-weight: 600; }
+.text-section { font-size: 16px; line-height: 24px; font-weight: 600; }
+.text-panel { font-size: 14px; line-height: 20px; font-weight: 600; }
+.text-body { font-size: 14px; line-height: 20px; font-weight: 400; }
+.text-reading { max-width: 72ch; font-size: 15px; line-height: 24px; font-weight: 400; }
+.text-figure { font-size: 14px; line-height: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.text-figure-large { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ink-1 { color: var(--text-1); }
+.ink-2 { color: var(--text-2); }
+.ink-3 { color: var(--text-3); }
+
+/* The nav's shortest item, CV, is 21px wide. Its target is widened to 25px, not its box, so the bar keeps
+   its pixels. */
+.nav a { position: relative; }
+.nav a::after { content: ""; position: absolute; inset: 0 -2px; }
+
+/* Controls: what Jobs did not need */
+select, textarea { font: inherit; color: inherit; letter-spacing: 0; }
+.btn.btn-danger { background: var(--surface); border-color: var(--border-strong); color: var(--negative); }
+.btn.btn-danger:hover { background: var(--row-hover); }
+.btn.btn-danger.is-disabled { color: var(--text-3); border-color: var(--border-subtle); }
+.btn.btn-primary.is-disabled { background: var(--surface-sunken); border-color: var(--border-subtle); color: var(--text-3); }
+.btn.btn-ghost.is-disabled:hover { color: var(--text-3); text-decoration: none; }
+.btn[aria-pressed="true"] { background: var(--surface-sunken); border-color: var(--border-strong); color: var(--text-1); }
+.link-block { display: inline-flex; align-items: center; min-height: 24px; }
+.tag-negative { background: var(--negative-tint); color: var(--negative); }
+.is-cau { color: var(--caution); }
+.status { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+/* A link that stands alone in a 40px row, and an evidence link, are 20px and 16px tall: their targets are
+   made 24px without moving a pixel. (Jobs widens them further on touch; :where() keeps those rules on top.) */
+:where(.more) .link, :where(.evidence) { position: relative; }
+:where(.more) .link::after { content: ""; position: absolute; inset: -2px 0; }
+:where(.evidence)::after { content: ""; position: absolute; inset: -4px 0; }
+.chev { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; border: 0;
+  border-radius: var(--radius-2); background: transparent; color: var(--text-2); cursor: pointer; }
+.chev:hover { background: var(--row-hover); color: var(--text-1); }
+.action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* Page header: a back link above the title, tags after it, tools kept on the title's line */
+.ph-back { flex: 0 0 100%; }
+@media (width >= 768px) { .pagehead.ph-inline .ph-tools { flex-basis: auto; margin-left: auto; } }
+
+/* Panes */
+.pane { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scroll-padding-top: 40px; background: var(--surface); }
+.pane-body { display: flex; flex-direction: column; gap: 24px; padding: 16px 16px 24px; }
+.pane-note { display: flex; align-items: center; min-height: 32px; padding: 8px 16px 7px; font-size: 12px; line-height: 16px;
+  color: var(--text-2); border-bottom: 1px solid var(--border-subtle); }
+.head-meta { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.head-tools { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+.head-tools + .fold { margin-left: 0; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; margin-bottom: 8px; }
+.sec-head .sec-h { margin-bottom: 0; }
+.sec-meta { font-size: 12px; line-height: 16px; color: var(--text-3); }
+
+/* List rows of 56px and 40px, on the same .row */
+.row-2 { grid-template-rows: 20px 16px; row-gap: 4px; height: 56px; }
+.row-1 { grid-template-rows: 20px; height: 40px; padding-top: 10px; padding-bottom: 9px; }
+.row.is-static:hover { background: var(--surface); }
+
+/* Table: sticky head on the sunken ground, 40px rows, one line a cell */
+.table-wrap { min-width: 0; background: var(--surface); }
+.table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); }
+.table th, .table td { height: 40px; padding: 0 12px; text-align: left; vertical-align: middle; white-space: nowrap;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.table th:first-child, .table td:first-child { padding-left: 16px; }
+.table th:last-child, .table td:last-child { padding-right: 16px; }
+.table thead th { position: sticky; top: var(--table-top, 0px); z-index: 1; background: var(--surface-sunken);
+  border-bottom-color: var(--border-strong); font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); }
+.table tbody th { font-weight: 500; color: var(--text-1); }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table td.num { font-weight: 500; }
+.table .cell-trunc { max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.table .cell-meta { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.table .th-sub { margin-left: 8px; font-weight: 400; }
+.table tbody tr:hover > th, .table tbody tr:hover > td { background: var(--row-hover); }
+.table tbody tr[aria-current="true"] > th, .table tbody tr[aria-current="true"] > td { background: var(--row-selected); }
+.table tbody tr[aria-current="true"] > :first-child { border-left: 3px solid var(--accent); padding-left: 13px; }
+.th-sort { display: inline-flex; align-items: center; gap: 4px; min-width: 24px; min-height: 32px; color: inherit; text-decoration: none; }
+.th-sort:hover, .table th[aria-sort="ascending"] .th-sort, .table th[aria-sort="descending"] .th-sort { color: var(--text-1); }
+.table .t-chev { width: 48px; padding: 0 0 0 8px; }
+.table tr.is-open > th, .table tr.is-open > td { border-bottom-color: transparent; }
+.table .t-detail > td { height: auto; padding: 4px 16px 16px 56px; white-space: normal; }
+.table tbody tr.t-detail:hover > td { background: var(--surface); }
+.table .t-group > th { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.table tbody tr.t-group:hover > th, .table tbody tr.t-more:hover > td { background: var(--surface); }
+.table .t-group .group-count { margin-left: 8px; }
+@media (width < 1024px) {
+  .table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
+  .t-detail-body { position: sticky; left: 56px; width: calc(100vw - 72px); max-width: 100%; }
+}
+@media (max-height: 499px) { .table thead th { position: static; } }
+
+/* Text tabs: each tab a link, the current one marked */
+.tabs { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0 20px; min-height: 40px; padding: 0 16px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.tab { display: flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-width: 24px; min-height: 40px; padding: 2px 2px 0;
+  border-bottom: 2px solid transparent; color: var(--text-2); text-decoration: none; white-space: nowrap; transition: color var(--dur) ease-out; }
+.tab:hover { color: var(--text-1); }
+.tab[aria-current] { color: var(--text-1); border-bottom-color: var(--accent); }
+.tab-count { font-size: 12px; line-height: 16px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* Segmented control: joined segments. Buttons for a choice, links for a view switch. */
+.segmented { display: inline-flex; flex: none; }
+.segmented .seg { min-width: 32px; }
+.segmented a.seg { position: relative; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.segmented .seg:hover { color: var(--text-1); }
+.segmented .seg[aria-pressed="true"], .segmented .seg[aria-current] { background: var(--surface-sunken); color: var(--text-1); }
+.segmented a.seg[aria-current]::after { content: ""; position: absolute; left: -1px; right: -1px; bottom: -1px; height: 2px; background: var(--accent); }
+.segmented .seg:focus-visible, .segmented .seg.is-focus { position: relative; z-index: 1; }
+
+/* Notice line: mark, sentence, at most one action. No tint: the 1px rule and the mark carry it. */
+.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; min-height: 40px; padding: 4px 16px 3px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.notice-body { display: flex; align-items: flex-start; gap: 12px; flex: 1 1 24ch; min-width: 0; padding: 6px 0; }
+.notice-mark { flex: none; margin-top: 2px; }
+.notice-text { min-width: 0; max-width: 96ch; }
+.notice > .btn, .notice > .link-block { flex: none; }
+.notice > .link-block { min-height: 32px; }
+.notice-info .notice-mark { color: var(--neutral); }
+.notice-caution .notice-mark { color: var(--caution); }
+.notice-negative .notice-mark { color: var(--negative); }
+.notice-positive .notice-mark { color: var(--positive); }
+
+/* Form fields: a visible label above, 32px controls */
+.field { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
+.field-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 16px; }
+.field-row > .field { flex: 1 1 160px; }
+.field-label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.field-input { width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text-1); font-size: 14px; line-height: 20px; }
+.field-input::placeholder { color: var(--text-3); opacity: 1; }
+textarea.field-input { height: auto; min-height: 72px; padding: 5px 8px; resize: vertical; }
+select.field-input { appearance: none; -webkit-appearance: none; padding-right: 32px; cursor: pointer; }
+.field-select { position: relative; display: block; }
+.field-select iconify-icon { position: absolute; top: 50%; right: 8px; margin-top: -8px; color: var(--text-2); pointer-events: none; }
+.field-input[aria-invalid="true"] { border-color: var(--negative); }
+.field-input[readonly] { background: var(--surface-sunken); }
+.field-hint { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.field-error { display: flex; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--negative); }
+.field-error svg { flex: none; margin-top: 2px; }
+.check { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; cursor: pointer; }
+.check-input { -webkit-appearance: none; appearance: none; display: inline-grid; place-content: center; flex: none; width: 16px; height: 16px; margin: 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); cursor: pointer; }
+.check-input::before { content: ""; width: 10px; height: 10px; background: var(--on-accent); transform: scale(0);
+  clip-path: polygon(14% 44%, 0 65%, 44% 100%, 100% 20%, 82% 6%, 40% 66%); }
+.check-input:checked { background: var(--accent); border-color: var(--accent); }
+.check-input:checked::before { transform: scale(1); }
+/* A date field hands the focus on to its own calendar button, and the field then matches neither :focus nor
+   :focus-visible. So fields show the ring on :focus-within, as text fields do on any focus anyway. */
+.field-input:focus-within { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+html[data-appearance="light"] .field-input:focus-within, .theme-light .field-input:focus-within { outline-color: #14191d;
+  box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] .field-input:focus-within { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+}
+html[data-appearance] .theme-dark .field-input:focus-within { outline-color: #ffd447; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+@media (forced-colors: active) { .field-input:focus-within { outline-color: Highlight; } }
+
+/* Popover menu, drawn open. Overlays alone take radius 4px and the overlay shadow. */
+.popover-anchor { position: relative; display: inline-flex; }
+.menu, .popover { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 200px; padding: 4px 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--surface); box-shadow: var(--shadow-overlay); }
+.popover { padding: 12px; }
+.popover-anchor.is-end > .menu, .popover-anchor.is-end > .popover { right: 0; left: auto; }
+.menu .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 12px; border: 0; background: transparent;
+  color: var(--text-1); font-size: 14px; line-height: 20px; font-weight: 400; text-align: left; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.menu .menu-item:hover { background: var(--row-hover); }
+.menu .menu-item.is-current { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 9px; }
+.menu .menu-item.is-danger { color: var(--negative); }
+.menu .menu-item .kbd { margin-left: auto; }
+.menu-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+
+/* Toast: the inverse of the surface, at the bottom right of the screen it speaks for */
+.toast { position: absolute; z-index: 25; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 12px;
+  max-width: min(480px, calc(100% - 32px)); padding: 8px 8px 8px 16px; border-radius: var(--radius-4); background: var(--text-1);
+  color: var(--surface); box-shadow: var(--shadow-overlay); }
+.toast-text { min-width: 0; }
+.toast .toast-btn { flex: none; height: 32px; padding: 0 12px; border: 1px solid var(--surface); border-radius: var(--radius-2);
+  background: transparent; color: var(--surface); font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer; }
+.toast .toast-btn:hover { text-decoration: underline; text-underline-offset: 2px; }
+.toast :focus-visible, .toast .is-focus { outline-color: var(--surface); box-shadow: none; }
+
+/* Dialog and drawer, drawn open over a scrim. Placed against the nearest positioned box: the app, a
+   states-board panel or a .stage. */
+.scrim { position: absolute; inset: 0; z-index: 30; background: var(--scrim); }
+.dialog, .drawer { position: absolute; z-index: 31; display: flex; flex-direction: column; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text-1); box-shadow: var(--shadow-overlay); }
+.dialog { top: var(--overlay-top, 96px); right: 0; left: 0; width: min(var(--overlay-width, 480px), calc(100% - 32px));
+  max-height: calc(100% - var(--overlay-top, 96px) - 32px); margin-inline: auto; border-radius: var(--radius-4); }
+.drawer { top: 0; right: 0; bottom: 0; width: min(var(--overlay-width, 480px), 100%); border-width: 0 0 0 1px;
+  border-radius: var(--radius-4) 0 0 var(--radius-4); }
+.overlay-head { display: flex; align-items: center; gap: 8px; flex: none; min-height: 48px; padding: 8px 8px 7px 16px;
+  border-bottom: 1px solid var(--border-subtle); }
+.overlay-title { flex: 1 1 auto; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 600; }
+.overlay-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 16px; }
+.overlay-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle); }
+.stage { position: relative; overflow: hidden; background: var(--surface); }
+.spec-menu { height: 176px; }
+
+/* Empty and loading: left-aligned at the top of the area they replace */
+.empty { padding: 12px 16px 24px; }
+.empty > p { max-width: 72ch; }
+.empty > .btn, .empty > .link-block { margin-top: 12px; }
+.loading { padding: 12px 16px 24px; }
+.loading-text { max-width: 72ch; margin-bottom: 8px; color: var(--text-2); }
+.load-bar { display: block; max-width: 72ch; height: 12px; margin: 4px 0 8px; border-radius: var(--radius-2); background: var(--surface-sunken); }
+
+/* Vertical toolbar slot: icon buttons on the sunken ground, or the same with visible labels */
+.vtoolbar { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: none; width: 48px; padding: 8px;
+  background: var(--surface-sunken); border-right: 1px solid var(--border-subtle); --focus-gap: var(--surface-sunken); }
+.vtoolbar.has-labels { width: 216px; }
+.vtoolbar.has-labels .btn { justify-content: flex-start; padding: 0 8px; }
+.vtoolbar .btn .kbd { margin-left: auto; }
+.tool-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+.tool-note { padding: 0 8px 4px 32px; font-size: 12px; line-height: 16px; color: var(--text-3); white-space: normal; }
+
+/* 44px on touch, and under 768px where a desktop browser draws the phone frame. The app is then at least a
+   screen high: its rows keep their own heights (a short page would otherwise stretch its page header). */
+@media (width < 768px) {
+  .app { align-content: start; }
+  .pane { overflow: visible; min-height: auto; }
+  .pagehead.ph-own .ph-title h1 { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; }
+  .btn.btn-icon, .chev { width: 44px; }
+  .chev, .field-input, .segmented .seg, .toast .toast-btn, .menu .menu-item { height: 44px; }
+  textarea.field-input { height: auto; }
+  .tab, .check, .link-block, .th-sort, .notice > .link-block { min-height: 44px; }
+  .row-1 { height: 44px; padding-top: 12px; padding-bottom: 11px; }
+  .toast { left: 16px; max-width: none; }
+  .dialog { --overlay-top: 64px; }
+  .drawer { width: 100%; border-width: 0; border-radius: 0; }
+  .vtoolbar { width: 60px; }
+  .vtoolbar.has-labels { width: 216px; }
+  .spec-menu { height: 236px; }
+}
+@media (pointer: coarse) {
+  .btn.btn-icon, .chev { width: 44px; }
+  .chev, .field-input, .segmented .seg, .toast .toast-btn, .menu .menu-item { height: 44px; }
+  textarea.field-input { height: auto; }
+  .tab, .check, .link-block, .th-sort, .notice > .link-block { min-height: 44px; }
+  .row-1 { height: 44px; padding-top: 12px; padding-bottom: 11px; }
+  .vtoolbar { width: 60px; }
+  .vtoolbar.has-labels { width: 216px; }
+  .spec-menu { height: 236px; }
+}
+
+/* Hide by frame: wide is 1800px and over, desk 1024 to 1799, phone under 1024. For markers, legend lines
+   and anything else a frame does not draw. */
+@media (width >= 1800px) { .hide-wide { display: none !important; } }
+@media (width >= 1024px) and (width < 1800px) { .hide-desk { display: none !important; } }
+@media (width < 1024px) { .hide-phone { display: none !important; } }
+
+/* Annotation layer: not product UI. A marker is a 20px square, the inverse of the surface under it, with a
+   mono numeral; it takes no room. The legend sits under the app frame on the canvas ground. */
+.annot, .legend-n { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: var(--text-1);
+  color: var(--surface); font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; font-style: normal;
+  font-variant-numeric: tabular-nums; letter-spacing: 0; text-indent: 0; white-space: nowrap; }
+.annot { position: absolute; z-index: 40; margin: 0; padding: 0; border: 0; box-shadow: 0 0 0 1px var(--surface); pointer-events: none;
+  translate: var(--dx, 0px) var(--dy, 0px); }
+.annot-tl { top: 0; left: 0; }
+.annot-t { top: 0; left: calc(50% - 10px); }
+.annot-tr { top: 0; right: 0; }
+.annot-l { top: calc(50% - 10px); left: 0; }
+.annot-c { top: calc(50% - 10px); left: calc(50% - 10px); }
+.annot-r { top: calc(50% - 10px); right: 0; }
+.annot-bl { bottom: 0; left: 0; }
+.annot-b { bottom: 0; left: calc(50% - 10px); }
+.annot-br { right: 0; bottom: 0; }
+.legend { padding: 24px 16px 48px; background: var(--canvas); border-top: 1px solid var(--border-strong); color: var(--text-2); }
+.legend-title { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.legend-note { max-width: 96ch; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.legend-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); gap: 16px 32px; margin-top: 16px; }
+.legend-item { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 12px; align-items: start; max-width: 72ch; }
+.legend-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.legend-text { text-wrap: pretty; }
+
+/* Annotated frame: the app at a fixed height for the mockup, the legend under it. */
+.frame { background: var(--canvas); }
+.frame > .app { height: 900px; }
+@media (width >= 1800px) { .frame > .app { height: 1440px; } }
+@media (width < 1024px) {
+  .frame > .app { grid-template-rows: 48px auto auto; height: auto; min-height: 0; overflow: visible; }
+  .frame .pane { overflow: visible; min-height: auto; }
+}
+
+/* States board: plain panels on the canvas ground, each a label over a 1px rule and a fragment at real size. */
+.board { min-height: 100dvh; padding-bottom: 48px; background: var(--canvas); color: var(--text-2); }
+.board-head { padding: 24px 16px 0; }
+.board-head h1 { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.board-head p { max-width: 96ch; margin-top: 4px; }
+.board-panels { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 32px 24px; padding: 24px 16px 0; }
+.board-panel { position: relative; flex: none; min-width: 0; max-width: 100%; }
+.board-panel.is-auto { flex: 1 1 560px; }
+.board-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; padding-bottom: 7px; border-bottom: 1px solid var(--border-strong); }
+.board-n { min-width: 16px; font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.board-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.board-note { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.board-body { position: relative; overflow: auto; background: var(--surface); color: var(--text-1); }
+.board-body > .app { height: 100%; min-height: 0; }
+.board.is-flush .board-panels { gap: 32px 0; padding-right: 0; padding-left: 0; }
+.board.is-flush .board-label { padding-right: 16px; padding-left: 16px; }
+.board.is-flush .board-panel + .board-panel::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; z-index: 50; width: 1px;
+  background: var(--border-strong); pointer-events: none; }
+
+/* System sheet: four columns of reference from 1800px, two from 1024px, then the component list */
+.sys { min-height: 100dvh; padding: 24px 16px 64px; background: var(--canvas); color: var(--text-2); }
+.sys-head { margin-bottom: 32px; }
+.sys-head h1 { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.sys-head p { max-width: 96ch; margin-top: 4px; }
+.sys-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px 32px; align-items: start; }
+.sys-cell { display: flex; flex-direction: column; gap: 40px; min-width: 0; }
+.sys-extra { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 40px 32px; align-items: start; }
+.sys-wide, .sys-extra { margin-top: 40px; }
+@media (width >= 1024px) { .sys-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (width >= 1800px) { .sys-grid { grid-template-columns: minmax(0, 1.44fr) minmax(0, 1.44fr) minmax(0, 1fr) minmax(0, 1fr); } }
+.sys-sec { min-width: 0; }
+.sys-sec > h2 { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.sys-note { max-width: 96ch; margin: 4px 0 12px; font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+.sys-table { overflow-x: auto; }
+.sys-table .table th, .sys-table .table td { height: 32px; padding-top: 6px; padding-bottom: 5px; white-space: normal; }
+.sys-table .table .keep { white-space: nowrap; }
+.sys-table .table th:last-child, .sys-table .table td:last-child { width: 100%; }
+.sys-table .table tbody tr:hover > td { background: var(--surface); }
+.swatch { display: inline-block; flex: none; width: 32px; height: 20px; border: 1px solid var(--border-strong); vertical-align: middle; }
+.swatch-cell { display: inline-flex; align-items: center; gap: 8px; }
+.swatch-stack { display: inline-flex; flex-direction: column; gap: 4px; }
+.sys-steps { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px; margin-bottom: 16px; padding: 16px; background: var(--surface); }
+.sys-step { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 16px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.sys-step-bar { height: 16px; background: var(--text-3); }
+.sys-comps { column-gap: 48px; }
+@media (width >= 1800px) { .sys-comps { column-count: 2; } }
+.sys-comp { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 8px 24px; align-items: start; padding: 16px 0;
+  border-top: 1px solid var(--border-subtle); break-inside: avoid; }
+.sys-comp.is-wide { column-span: all; grid-template-columns: minmax(0, 1fr); }
+.sys-comp.is-wide .sys-comp-line { max-width: 96ch; }
+.sys-comp-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.sys-comp-line { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+.sys-draw { min-width: 0; overflow-x: auto; background: var(--surface); color: var(--text-1); }
+.sys-draw.is-pad { padding: 12px 16px; }
+.sys-draw > .appbar, .sys-draw > .pagehead { grid-row: auto; }
+.spec-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.spec-col { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+@media (width < 768px) { .sys-comp { grid-template-columns: minmax(0, 1fr); } .sys-table .table { min-width: 600px; } }
+
+/* ---- This page ---- */
+/* The notes pages: the shell's plain document page (.doc), left aligned, with every block of prose held
+   to a 72ch measure and the comparison table given the frame's width. */
+.doc.nt { max-width: none; }
+.nt > :not(.nt-wide) { max-width: 72ch; }
+.nt > .nt-wide { max-width: 1248px; }
+.nt-mast { display: flex; align-items: center; height: 32px; margin-bottom: 16px; }
+.nt-lede { margin-top: 8px; }
+.nt-sec { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border-subtle); }
+.doc .nt-sec > h2 { margin-top: 0; }
+.nt-h3 { margin: 20px 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.nt-sub { margin: 12px 0 6px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); }
+.nt-k, .nt-area { font-weight: 600; color: var(--text-1); }
+.nt-pair > p + p { margin-top: 2px; }
+.nt-intro { margin-bottom: 8px; }
+.nt-scroll { overflow-x: auto; }
+.doc .nt-vary { min-width: 880px; }
+.doc .nt-vary th, .doc .nt-vary td { height: auto; padding: 8px 16px 8px 0; vertical-align: top; white-space: normal; }
+.doc .nt-vary tbody th { width: 16%; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2);
+  border-bottom-color: var(--border-subtle); }
+.doc .nt-vary td { width: 28%; color: var(--text-1); }
+.doc .nt-frames td:nth-child(3) { font-variant-numeric: tabular-nums; }
+/* A frame's name heads its row; it reads as the other cells do. */
+.doc .nt-frames tbody th { font-size: 14px; line-height: 20px; font-weight: 400; color: var(--text-1);
+  border-bottom-color: var(--border-subtle); }
+</style>
+</head>
+<body>
+<div class="doc nt">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="st-pos" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-cau" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 2.4a5.6 5.6 0 0 0 0 11.2z" fill="currentColor"/></symbol>
+<symbol id="st-neg" viewBox="0 0 16 16"><path d="M4.2 4.2l7.6 7.6m0-7.6l-7.6 7.6" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-neu" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+<symbol id="st-pro" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></symbol>
+</svg>
+<div class="nt-mast"><div class="brand"><img class="brand-mark" src="https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/0db15a19-3516-4453-a7e9-67ecc19e8823/brand-assets/brand-radar-mark.svg/radar-mark.svg" width="51" height="24" alt=""><span class="brand-name">MedTech Radar</span></div></div><h1>CV: notes</h1><p class="nt-lede">Three variations of the CV page, drawn for the owner to choose between: A, Three panes; B, Asks grid; C, Margin notes. The names come from the Prepare application page, because each variation is one answer for both pages; that page&#x27;s notes are in notes-prepare. Each is drawn on its own terms and stated evenly; none is ranked, recommended or merged.</p><p class="nt-lede">A proposal is anything a frame draws that the product does not do today, read against the ground truth of main on 13 Nov 2026. The CV, its employers and every name are fictional.</p><p class="nt-lede">Words used here: a pane is one of the areas that sit side by side on the screen; a band is a strip across its full width; a rail is a column that stays at one side; a drawer is a panel that opens over the page and closes again; a tint is a faint colour behind text; the primary action is the one button drawn filled.</p><section class="nt-sec" aria-labelledby="a-three-panes-heading"><h2 id="a-three-panes-heading">A: Three panes</h2><h3 class="nt-h3">Rationale</h3><p>A keeps three things in view at 2560: a slim toolbar, the master CV as two A4 pages side by side at 100% on white paper, and a rail for everything about the master that is not its text. The rail says whether any scores are stale, lists the versions with the one the scorer reads, shows the scoring preferences read only, and holds the one-off import. Page-level actions sit in one fixed toolbar of icons, with Save as a new version as the one primary action, and an item&#x27;s controls show in the right margin only for the item under the pointer or the focus. Line numbers are a switch, off by default, and sections are reordered in a separate Rearrange mode, in which each section folds to its heading, its size and its opening words, with Move up and Move down. At 1280 the pages stack in one column beside the rail, and on a phone the rail&#x27;s parts become tabs and the sheet reflows to a reading view in the same type, a white page at a time.</p><h3 class="nt-h3">Trade-offs</h3><ul><li class="nt-pair"><p><span class="nt-k">Gives:</span> At 2560 both pages and the whole rail are in view with no scrolling, so the version the scorer reads, the stale-scores state and the preferences sit beside the text being edited.</p><p><span class="nt-k">Costs:</span> The rail always takes width (about 850px at 2560, 389px at 1280, 320px from 1024 to 1279px), and at 2560 its lower half is empty.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> White paper laid out line for line as the Word file, so line lengths and page breaks are the download&#x27;s.</p><p><span class="nt-k">Costs:</span> Two white A4 sheets, about 1,610 by 1,120px, are the brightest thing on a dark screen.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> The sheet is at 100% from 1280px up, and on a phone it reflows to a reading view in the sheet&#x27;s own type.</p><p><span class="nt-k">Costs:</span> From 1024 to 1279px it is scaled to 90% or 75%, and on a phone the page shape gives way to the reading view, so what is seen there is not the printed page.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> A toolbar of icons 48px wide holds every page-level action in one fixed place.</p><p><span class="nt-k">Costs:</span> The actions carry no visible words, so they are learnt from the names shown on hover and read out by a screen reader, and Save as a new version is a filled icon button rather than a labelled one.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Rearrange mode gives an overview of the section order and keeps move controls off every heading in normal editing.</p><p><span class="nt-k">Costs:</span> Moving a section takes the switch, the moves and Done, and the sections&#x27; text is folded away while moving.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Line numbers hidden by default keep the sheet looking like the document.</p><p><span class="nt-k">Costs:</span> Checking a cited line means turning the switch on first.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> A fixed place at the top of the rail where the count and the cost of stale scores appear after a save, with the confirm in the same place.</p><p><span class="nt-k">Costs:</span> The slot takes a line even when nothing is pending.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> The versions are always listed, and View opens an older one read only, numbered as a score made on it cites it.</p><p><span class="nt-k">Costs:</span> The list grows with every save and needs a cut-off or a Show all once there are many versions.</p></li></ul><h3 class="nt-h3">What it borrows</h3><h4 class="nt-sub">From the Enhancv model</h4><ul><li>The sheet as the interface: two white A4 pages at real size, typed into where they stand.</li><li>A separate view for reordering sections, as Enhancv&#x27;s Rearrange dialog is, with the two changes the study draws from its sessions: each section keeps its opening words, and Move up and Move down replace dragging.</li><li>A slim toolbar of icons at the left, where Enhancv kept its toolbox from 2024 to early 2026, with Undo and Redo always on screen, and the save state in words beside the document&#x27;s name.</li></ul><h4 class="nt-sub">From other products</h4><ul><li>Two pages side by side, as a word processor&#x27;s multiple-page view shows a spread.</li><li>A rail of properties and versions beside the document, as a document editor keeps its version history in a side panel.</li></ul><h3 class="nt-h3">Proposals it draws</h3><p class="nt-intro">These come on top of the proposals all three draw, which are listed after C; an item says what the product does today where that helps.</p><ul><li><span class="nt-area">Layout:</span> A two-page spread at 100% from 2100px; one page column at 100% from 1280 to 2099px, 90% from 1152 to 1279px and 75% from 1024 to 1151px.</li><li><span class="nt-area">Layout:</span> A rail at the right with the stale-scores line, Versions, Scoring preferences and the one-off import; the canvas header “Master CV” with the save state in words and “2 pages · 94 lines”.</li><li><span class="nt-area">Toolbar:</span> A slim toolbar of icons: Save as a new version (the primary action), Undo, Redo, Line numbers (a switch) and Rearrange sections (a switch); Undo and Redo are not built.</li><li><span class="nt-area">Line numbers:</span> Every line&#x27;s number shown in the sheet&#x27;s left margin by the Line numbers switch.</li><li><span class="nt-area">Reordering:</span> Rearrange mode: each section folded to its heading, its size (“10 lines”, “7 entries”, “7 lines, 2 entries”) and its opening words, with Move up and Move down in the right margin, “The name and the headline stay at the top.”, the header “Rearrange sections” with “Move up and Move down change the order, and the line numbers follow it.”, and Done.</li><li><span class="nt-area">Saving:</span> “Unsaved changes” with “1 line changed since cv-20261029-091500.md. Save as a new version to keep it.”; while it saves, today&#x27;s “Saving the master CV as a new version.”; then “Saved as cv-20261113-111200.md, 13 Nov 2026 at 11:12 UTC. The scorer reads it from now on.”</li><li><span class="nt-area">Versions:</span> Versions in the rail, newest first, with each save&#x27;s time in UTC, “Active. The scorer reads this version.” and the file names in the monospaced face; at rail widths of 720px and more, a three-column list.</li><li><span class="nt-area">Versions:</span> An older version open on the sheet: the “Read only” tag, “An older version, cv-20260814-180200.md, saved 14 Aug 2026 at 18:02 UTC. 1 line differs from the version the scorer reads.”, “Back to the active version”, its own line numbers, and the rail row “Open on the sheet, read only.”</li><li><span class="nt-area">Stale scores:</span> The line at the top of the rail, “No open role is scored on an older version.” when nothing is pending, and after a save “37 roles are still scored on cv-20261029-091500.md. Re-scoring them is 37 paid calls, about 60p. 1 role scored on its job description keeps that score.” with “Re-score 37 roles”.</li><li><span class="nt-area">Stale scores:</span> The confirm in the same place, “Re-score 37 roles against cv-20261113-111200.md? That is 37 paid calls, about 60p.”, with today&#x27;s sentence on roles scored against their job description, “Re-score 37 roles” and “Cancel”; afterwards “Re-scored 37 roles in 37 paid calls, about 60p. 1 role scored on its job description keeps its score on cv-20261029-091500.md.” One press reaches all 37.</li><li><span class="nt-area">Preferences:</span> Read only in the rail: Day-rate floor £700, Salary floor £100,000, Location, Sectors, and CV match, “Passes at 70. Under 40 a role is Filtered.”, with “Read only · last changed 11 Nov”, “The day-rate floor is edited on Home, the rest in the preferences file.” and “Open Home”.</li><li><span class="nt-area">Import:</span> The one-off import at the foot of the rail with a “Pick a file” button.</li><li><span class="nt-area">States:</span> An imported master: “Imported from Rennie CV 2026.docx as cv-20261113-110500.md, 13 Nov 2026 at 11:05 UTC.” in the header, and the notice shortened to “This version was imported, so it is shown in the editor&#x27;s layout. Check it, then save it once: until then the scorer reads it as imported and no role gets a tailored copy from it.”</li><li><span class="nt-area">States:</span> A master that cannot be read: the toolbar kept with every tool unavailable, the tag “Could not be read”, the rail&#x27;s row “Active. It could not be read here.” and the stale line “Re-scoring them waits until the master can be read.”</li><li><span class="nt-area">Phone:</span> The tabs “CV”, “Versions 3” and “Preferences” under the stale-scores line, a reading view of the sheet in its own type a white page at a time, the focused entry&#x27;s controls as a row of 44px buttons under its heading, and a bar at the foot with Save as a new version, Line numbers and More actions.</li></ul></section><section class="nt-sec" aria-labelledby="b-asks-grid-heading"><h2 id="b-asks-grid-heading">B: Asks grid</h2><h3 class="nt-h3">Rationale</h3><p>B keeps the CV&#x27;s structure in an outline beside the sheet: every section and entry with the lines it runs over, split where Word starts a page, and with Move up and Move down always there, so reordering needs no mode. The sheet is one page column at 100% on dimmed paper in the Word file&#x27;s layout, and shows a line number only for the line being edited, while the outline and Go to line give the rest. Page actions sit in a labelled toolbar (Save version, History, Preferences, Import), and history, scoring preferences and the import open from it as drawers, out of view until wanted. Anything about the CV as a whole, such as roles still scored on an old version, is a notice line under the page header. At 1280 the outline narrows beside the sheet and an open drawer covers it, and on a phone the outline is the first view, with rows that open to their lines and the page as a second view.</p><h3 class="nt-h3">Trade-offs</h3><ul><li class="nt-pair"><p><span class="nt-k">Gives:</span> The whole structure and every item&#x27;s line range are in view beside the sheet at every desktop width, and a section or an entry moves with one press and no mode.</p><p><span class="nt-k">Costs:</span> The outline repeats the headings beside the sheet, so the structure is drawn twice.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> The sheet reads as the download, with no number except on the line being edited.</p><p><span class="nt-k">Costs:</span> A bullet&#x27;s number takes a step: put the focus on the line, read the range in the outline, or use Go to line; nothing shows every number at once.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Dimmed paper means less glare on a dark screen, and the Word file&#x27;s layout is unchanged.</p><p><span class="nt-k">Costs:</span> Dimmed paper is not literally white, so the download looks brighter than the screen.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> History, the preferences and the import stay out of the way until opened, and from 1800px an open drawer covers only the empty end of the outline&#x27;s rows.</p><p><span class="nt-k">Costs:</span> History and the preferences are one press away, not always in view, and at 1280 an open drawer covers the outline and dims the rest.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Every page action has its name on screen, with no icon to learn.</p><p><span class="nt-k">Costs:</span> The labelled toolbar is 72px wide against 48px for icons alone, and “Preferences” breaks with a hyphen to fit.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> One page column leaves the outline its room beside the sheet.</p><p><span class="nt-k">Costs:</span> Page 2 needs a scroll even at 2560.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> On a phone the outline is the first view, with 15px text and small edits in place.</p><p><span class="nt-k">Costs:</span> There the page itself is seen only in the Page view, scaled to about 43%, to see where pages break.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> The outline stays beside the sheet down to 1024px.</p><p><span class="nt-k">Costs:</span> At 1280 the outline is about 366px wide, so long entry headings wrap to three or four lines, and from 1024 to 1279px the sheet is drawn at 75% to leave the outline about 300px.</p></li></ul><h3 class="nt-h3">What it borrows</h3><h4 class="nt-sub">From the Enhancv model</h4><ul><li>The sheet as the place where text is typed, in the Word file&#x27;s layout and page breaks.</li><li>A toolbar with a word on every tool and History one press away, as on Enhancv&#x27;s left card of 2024 to early 2026.</li><li>One item&#x27;s controls at a time, outside the text, in a fixed order: add, move, delete.</li></ul><h4 class="nt-sub">From other products</h4><ul><li>An outline beside the document, as a word processor&#x27;s navigation pane lists the headings.</li><li>Go to line, as a code editor takes the cursor to a line by its number.</li></ul><h3 class="nt-h3">Proposals it draws</h3><p class="nt-intro">These come on top of the proposals all three draw, which are listed after C; an item says what the product does today where that helps.</p><ul><li><span class="nt-area">Layout:</span> One page column at 100% from 1280px and 75% from 1024 to 1279px, beside an outline panel; drawers for History, Scoring preferences and Import that open over the empty right end of the outline&#x27;s rows from 1800px, and over the screen at 1280.</li><li><span class="nt-area">Layout:</span> The save state in the page header, “No unsaved changes” or the “Unsaved changes” tag, with “The scorer reads cv-20261029-091500.md, saved 29 Oct 2026 at 09:15 UTC · 94 lines · 2 pages”.</li><li><span class="nt-area">Toolbar:</span> A labelled toolbar: “Save version” (today “Save as a new version”), drawn filled as the primary action, then History, Preferences and Import.</li><li><span class="nt-area">Outline:</span> Each section and entry with the lines it runs over (“19–26”), the bands “Page 1 · lines 1 to 47” and “Page 2 · lines 49 to 94”, the row of the item in focus marked, and “Line numbers are positions in the CV text. They move when a line is added or removed above.”</li><li><span class="nt-area">Reordering:</span> Move up and Move down on every outline row, for sections and entries; at the first or last place the button stays, unavailable.</li><li><span class="nt-area">Line numbers:</span> No numbers on the sheet except for the line in focus, and Go to line, which takes the sheet to a line by its number and puts the focus on it.</li><li><span class="nt-area">Saving:</span> Today&#x27;s “Saving the master CV as a new version.” while it saves, then the new “Saved as cv-20261113-111200.md. The scorer reads it from now on.”</li><li><span class="nt-area">Saving:</span> The refusal after a save from another tab as a notice line with “Reload”: “The master was saved as cv-20261113-111200.md in another tab or window since this page opened, so nothing was saved here. Reloading shows that version and drops the edit on screen.” (today red text under the Save button).</li><li><span class="nt-area">Versions:</span> History rows with each version&#x27;s date and time, “The scorer reads this version” on the active one and “View” on older ones.</li><li><span class="nt-area">Stale scores:</span> A notice line under the page header: “37 roles scored on their advert card are still on cv-20261029-091500.md. Re-scoring them is 37 paid calls, about 60p, in runs of up to 25.” with “Re-score 25 roles”.</li><li><span class="nt-area">Stale scores:</span> A confirm dialog, “Re-score 25 of the 37 roles against cv-20261113-111200.md? That is 25 paid calls, about 40p. The other 12 wait for a second run.”, with today&#x27;s sentence on roles scored against their job description, “Re-score 25 roles” and “Cancel”.</li><li><span class="nt-area">Stale scores:</span> “Re-scoring 25 roles against cv-20261113-111200.md. A run can take up to 10 minutes.” while it runs, then “Re-scored 25, still stale 12. Re-scoring the other 12 is 12 paid calls, about 20p.” with “Re-score 12 roles”; each press keeps today&#x27;s limit of 25.</li><li><span class="nt-area">Preferences:</span> Read only in a drawer, “Read only here, last changed 11 Nov.”, with the day-rate and salary floors, location, sectors, “CV match passes at” 70% and “Filtered under” 40%, and “Edit the day-rate floor, title and keywords on Home”.</li><li><span class="nt-area">Import:</span> The import in a drawer with “Choose a file” and the file&#x27;s name; its note, preview, “Confirm, make it active” and “Discard” are today&#x27;s.</li><li><span class="nt-area">States:</span> Notice lines under the page header for the whole CV: the imported master (today&#x27;s banner, shortened), the unreadable master with “Import a replacement”, and the other-tab refusal with “Reload”; the tags “Not in the editor&#x27;s layout yet” and “Could not be read”.</li><li><span class="nt-area">States:</span> In the outline, “–” and “No line number yet” for an empty section, and for an imported master “Numbered as the editor lays it out. Until it is saved here, the scorer numbers the imported text as stored, so a citation may point elsewhere.”</li><li><span class="nt-area">Phone:</span> The outline as the first view, its rows opening to show their lines as fields, with “Open all lines”, the entry buttons “Add bullet”, “Add entry below” and “Delete entry”, the four page actions as a row of buttons, and Page as a second view with the sheet at about 43%.</li></ul></section><section class="nt-sec" aria-labelledby="c-margin-notes-heading"><h2 id="c-margin-notes-heading">C: Margin notes</h2><h3 class="nt-h3">Rationale</h3><p>C keeps the master CV at its real A4 width in one page column and puts history, preferences and the import behind three tabs in one column beside it, so the sheet is never narrowed whichever tab is open. The sheet is drawn in the app&#x27;s dark tokens with light ink, and a Paper preview switch shows it white, as the Word file prints. Line numbers are a switch, off by default, and also show by themselves beside the lines that asks cite, which is where a number says a score leans on that line. Sections move with Move up and Move down among their own controls, shown on hover and focus, so reordering needs no mode, and notices that apply only sometimes, such as stale scores, open as a line above the sheet. At 1280 the sheet stays at 100% beside the tabbed column, and on a phone the CV reflows to a reading view with its cited numbers in a narrow column at its left and the tabs under it.</p><h3 class="nt-h3">Trade-offs</h3><ul><li class="nt-pair"><p><span class="nt-k">Gives:</span> The sheet keeps its full 794px width at every desktop width from 1280px up, whichever tab is open.</p><p><span class="nt-k">Costs:</span> History, Preferences and Import are never in view together, so checking a version against the preferences takes a tab switch, and from 1024 to 1279px the sheet is scaled to 78%.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> No white page glares on a dark screen, and the app keeps one look.</p><p><span class="nt-k">Costs:</span> What is on screen is not literally what prints until Paper preview is switched on, and under the Light appearance the sheet stays dark inside a light app.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Sections are reordered where they stand, with buttons that work from the keyboard and no mode to enter or leave.</p><p><span class="nt-k">Costs:</span> A large reorder takes many presses of Move up or Move down, and there is no overview of all the sections at once.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Notices appear only when they apply, in place above the sheet, and the stale-scores line states the count and the cost before any button.</p><p><span class="nt-k">Costs:</span> A notice put off with Cancel has no other home on this page.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Only the lines a score leans on show their numbers, so a cited line is marked before it is changed.</p><p><span class="nt-k">Costs:</span> A bare number does not say which role or which ask cites it; the role&#x27;s own page does.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Save as a new version is drawn filled only while there are unsaved changes, so the toolbar shows when a save is due.</p><p><span class="nt-k">Costs:</span> With nothing to save no button stands out, and Save as a new version looks like the tools beside it.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> One page column matches how Word sets the pages.</p><p><span class="nt-k">Costs:</span> At 2560 page 2 needs a scroll, and the tabbed column is wider than any one tab needs, so its lower part is empty.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> On a phone the CV reflows into one column with the same lines, numbers and controls.</p><p><span class="nt-k">Costs:</span> On a phone the page shape is lost, and a page break shows only as a rule.</p></li></ul><h3 class="nt-h3">What it borrows</h3><h4 class="nt-sub">From the Enhancv model</h4><ul><li>The sheet at real size as the editing surface, with a preview of it without editing aids, as Enhancv&#x27;s Preview is, here Paper preview.</li><li>A slim toolbar of icons at the left, where Enhancv kept its toolbox from 2024 to early 2026, with Undo and Redo always on screen.</li><li>Item and section controls outside the text, shown on focus as well as on hover, as the study asks of a keyboard version.</li></ul><h4 class="nt-sub">From other products</h4><ul><li>Tabs in one side column, as an editor&#x27;s side panel switches between its views.</li><li>Marks in the margin only beside the lines that matter, as a code editor marks, in the narrow margin beside its text, the lines that carry a breakpoint or a change.</li></ul><h3 class="nt-h3">Proposals it draws</h3><p class="nt-intro">These come on top of the proposals all three draw, which are listed after C; an item says what the product does today where that helps.</p><ul><li><span class="nt-area">Layout:</span> One page column at 100% from 1280px and 78% from 1024 to 1279px, beside one column with the tabs History, Preferences and Import (today four sections are always on the page).</li><li><span class="nt-area">Layout:</span> The canvas head with “Master CV” and its state: “Saved”; the “Unsaved changes” tag with “The scorer reads cv-20261029-091500.md until you save.”; “Saving”; and after a save “cv-20261113-111200.md · saved 13 Nov at 11:12 UTC · the scorer reads it from now on”.</li><li><span class="nt-area">Sheet:</span> A dark sheet in the app&#x27;s dark tokens with light ink, and the toolbar switch “Paper preview” that shows each sheet white and without margin numbers.</li><li><span class="nt-area">Toolbar:</span> A slim toolbar of named icons: Save as a new version, Undo, Redo, Line numbers and Paper preview; Save as a new version drawn as the primary action only while there are unsaved changes; Undo and Redo are not built.</li><li><span class="nt-area">Line numbers:</span> Hidden by default behind the Line numbers switch, and shown by themselves beside the 20 lines that asks cite, with “Numbers show beside the 20 lines that asks cite.” in the canvas head; they would be read from the asks stored with each role&#x27;s score on this version.</li><li><span class="nt-area">Reordering:</span> A section heading&#x27;s own controls, Add entry, Add line, Move up and Move down, shown on hover and focus; a line&#x27;s are Move up, Move down and Delete.</li><li><span class="nt-area">Versions:</span> The History tab: “Versions” with “3, newest first”, today&#x27;s note, and rows with “Saved 29 Oct at 09:15 UTC”, “The scorer reads this” on the active one and View on older ones.</li><li><span class="nt-area">Stale scores:</span> A line above the sheet after a new version: “37 roles scored on the advert card are still on cv-20261029-091500.md, and re-scoring them is 37 paid calls, about 60p. 1 role scored on its job description keeps that score.” with “Re-score 37 roles”.</li><li><span class="nt-area">Stale scores:</span> The confirm as a line in place of the browser&#x27;s dialog, “Re-score 37 roles against cv-20261113-111200.md? That is 37 paid calls, about 60p.”, with today&#x27;s sentence on job-description scores, “Re-score 37 roles” and “Cancel”; then “Re-scored 37, still stale 0. 1 role keeps its job-description score on cv-20261029-091500.md.” One press reaches all 37.</li><li><span class="nt-area">Preferences:</span> Read only, with the “Read only” tag, “Last changed 11 Nov.” and “Open Home”, rows for the day-rate and salary floors, location and sectors, and “CV match pass mark” 70 and “Filtered floor” 40, each with the gate it feeds.</li><li><span class="nt-area">Preferences:</span> “What the scorer reads”: the CV version, the scoring preferences, prompt 97f11cce and model claude-sonnet-4-6, with a note that the rest of the preferences file is prose the scorer reads whole.</li><li><span class="nt-area">Import:</span> The Import tab with “Choose a file”; after Confirm, “Imported Rennie CV 2026.docx on 13 Nov at 11:05 UTC as cv-20261113-110500.md.”, with the extracted text kept in the tab until the version is saved in the editor&#x27;s layout.</li><li><span class="nt-area">States:</span> An imported master: the head tag “Not in the editor&#x27;s layout” and its notice as a line above the sheet.</li><li><span class="nt-area">States:</span> A master that cannot be read: the head tag “Cannot be read”, “No editor and no Save until a master can be read.”, the reason as a line above the sheet, every tool unavailable, and an empty state with “Open Import”.</li><li><span class="nt-area">States:</span> With Line numbers on, the numbers run on across the page break and skip the blank lines.</li><li><span class="nt-area">Phone:</span> A reading view in Arial with the cited numbers in a narrow column at the left, the toolbar as a row of 44px buttons above the CV without Paper preview, the focused entry&#x27;s controls in a row under its heading, a “Page 2 of 2” rule, and the tabs under the CV.</li></ul></section><section class="nt-sec" aria-labelledby="proposals-all-three-draw-heading"><h2 id="proposals-all-three-draw-heading">Proposals all three draw</h2><p class="nt-intro">What A, B and C each draw in its own way and the product does not do today.</p><ul><li><span class="nt-area">Sheet:</span> The master CV drawn as A4 sheets in Arial, in the Word file&#x27;s layout and edited in place, with the page break where Word puts it and “Page 1 of 2” under each sheet (today numbered one-line fields on the app&#x27;s ground, with no pages).</li><li><span class="nt-area">Sheet:</span> A vertical toolbar at the left for page-level actions (today one “Save as a new version” button above the CV).</li><li><span class="nt-area">Sheet:</span> An item&#x27;s controls for one item at a time, on hover and on focus, outside the text: an entry&#x27;s Add bullet, Add entry below, Move up, Move down and Delete, in that order (today “+ Bullet”, “+ Line” and “+ Entry” are always on screen).</li><li><span class="nt-area">Sheet:</span> Line numbers hidden by default (today always shown in a column), and sections that can be reordered (today they cannot be reordered or added).</li><li><span class="nt-area">Sheet:</span> The empty-section line “Nothing here yet. Add a line or an entry.” (today an empty section has no words).</li><li><span class="nt-area">Page:</span> CV current in the navigation and the Appearance control in the app bar (today the CV page&#x27;s navigation has no CV link and no Appearance control).</li><li><span class="nt-area">Saving:</span> The save state in words, with the “Unsaved changes” tag (today only the browser&#x27;s leave-page prompt), and after a save a line naming the new version as the one the scorer reads from now on (today the page reloads, and the line above the CV then names the new version).</li><li><span class="nt-area">Versions:</span> Each version with the date and time of its save, the active one named as the version the scorer reads, and View on an older one to open it read only (today a list of file names, the active one marked “active”).</li><li><span class="nt-area">Preferences:</span> The scoring preferences read only on the CV page, “last changed 11 Nov”, with the CV match pass mark of 70 and the Filtered floor of 40 (today three values are edited on Home, no date is stored, and the pass mark and the floor are shown nowhere).</li><li><span class="nt-area">Stale scores:</span> A stale-scores notice after a new version with the count and the cost first, “37 roles … 37 paid calls, about 60p.”, and a confirm on the page in place of the browser&#x27;s dialog (today a fixed “After a change” section, no count, and “This spends real tokens.”).</li><li><span class="nt-area">Import:</span> A button to choose the file (“Pick a file” or “Choose a file”) in place of the plain file input; the extract, confirm and discard steps are today&#x27;s.</li><li><span class="nt-area">States:</span> A master that cannot be read keeps a way to the import beside its error (today one banner replaces the Master CV section, and the import stays further down the page).</li></ul></section><section class="nt-sec nt-wide" aria-labelledby="what-varies-heading"><h2 id="what-varies-heading">What varies</h2><p class="nt-intro">One row for each thing the spec leaves open, one column for each variation. Each cell says what that variation draws.</p><div class="nt-scroll" role="region" aria-label="What varies, CV page" tabindex="0"><table class="nt-vary"><thead><tr><th scope="col">What</th><th scope="col">A: Three panes</th><th scope="col">B: Asks grid</th><th scope="col">C: Margin notes</th></tr></thead><tbody><tr><th scope="row">At 2560</th><td>Toolbar, then pages 1 and 2 side by side at 100%, then a rail with the stale-scores line, Versions, Scoring preferences and the import.</td><td>Labelled toolbar, one page column at 100%, the outline, and a drawer open beside the outline.</td><td>Toolbar, one page column at 100%, and one column with the tabs History, Preferences and Import.</td></tr><tr><th scope="row">At 1280</th><td>One page column at 100% beside the rail, about 390px wide.</td><td>One page column at 100% beside the outline, about 366px wide; a drawer opens over the screen.</td><td>One page column at 100% beside the tabbed column.</td></tr><tr><th scope="row">On a phone</th><td>The stale-scores line, the tabs CV, Versions and Preferences, a reflowed reading view a white page at a time, and a bar at the foot.</td><td>The outline first, its rows opening to their lines as fields; Page as a second view with the sheet at about 43%.</td><td>The toolbar as a row, a reflowed reading view with the cited numbers in a narrow column at the left, and the tabs under the CV.</td></tr><tr><th scope="row">How the paper sits in the dark app</th><td>White, as the Word file prints.</td><td>Dimmed: a cool grey, #dce1e4, with dark ink.</td><td>Dark, in the app&#x27;s tokens, with a Paper preview switch for white.</td></tr><tr><th scope="row">The toolbar</th><td>48px of icons: Save as a new version, Undo, Redo, Line numbers, Rearrange sections; Save drawn filled whenever it can be used.</td><td>72px with words: Save version, History, Preferences, Import; Save version always drawn filled.</td><td>48px of icons: Save as a new version, Undo, Redo, Line numbers, Paper preview; Save drawn filled only while there are unsaved changes.</td></tr><tr><th scope="row">Where the history lives</th><td>Versions, always in the rail.</td><td>History, a drawer from the toolbar.</td><td>History, a tab beside the sheet.</td></tr><tr><th scope="row">Where the preferences live</th><td>In the rail, read only.</td><td>In a drawer, read only.</td><td>In a tab, read only, with what the scorer reads.</td></tr><tr><th scope="row">Where the import lives</th><td>At the foot of the rail.</td><td>In a drawer.</td><td>In a tab.</td></tr><tr><th scope="row">Where the stale-scores notice lives</th><td>At the top of the rail, always; it says so when nothing is pending.</td><td>A notice line under the page header, after a save.</td><td>A line above the sheet, after a save.</td></tr><tr><th scope="row">How far one press re-scores</th><td>All 37 stale roles.</td><td>Up to 25; the other 12 take a second press.</td><td>All 37 stale roles.</td></tr><tr><th scope="row">How sections are reordered</th><td>Rearrange mode: each section folds to its heading, size and opening words, with Move up and Move down.</td><td>Move up and Move down on every outline row, with no mode.</td><td>Move up and Move down among a section heading&#x27;s own controls, with no mode.</td></tr><tr><th scope="row">How line numbers show</th><td>A switch shows every number; off by default.</td><td>Only the line in focus on the sheet; each item&#x27;s range in the outline; Go to line.</td><td>A switch shows every number; the lines asks cite show theirs anyway.</td></tr><tr><th scope="row">Undo and Redo</th><td>In the toolbar.</td><td>Not drawn.</td><td>In the toolbar.</td></tr></tbody></table></div></section><section class="nt-sec" aria-labelledby="where-the-brief-and-the-build-differ-heading"><h2 id="where-the-brief-and-the-build-differ-heading">Where the brief and the build differ</h2><p class="nt-intro">From the ground truth of what is built (its sections 5 and 6): what a designer or the owner has to know before choosing.</p><ul><li>Line numbers are positions, not identities. Every line of the CV text is numbered from 1, headings and the blank line before each heading included, and a number shifts when a line is added or removed above; a citation survives an edit because the cited line is found again by its words. The brief&#x27;s stable number on every line is not built; all three variations hide the numbers by default, and when they show, blank lines show none, so the visible numbers skip.</li><li>An experience entry is one heading line of free text, “Job title, Company (what it makes), 2022 to 2024”, with its lines and bullets under it. The brief&#x27;s company, job title, dates and location have no fields of their own, and the Word template has no tabs or tables, so nothing can sit at the right-hand edge.</li><li>The brief&#x27;s typical CV is two pages of about 120 lines. In the Word template a CV of about 112 numbered lines took three pages, so two pages hold about 90: the sample was cut to 94 numbered lines, which Word sets on two pages with page 2 starting at line 49.</li><li>The brief&#x27;s slim vertical toolbar follows the layout Enhancv used from 2024 to early 2026. In spring 2026 Enhancv began moving those tools to a bar across the top (its help note of 7 Apr 2026 says some users see it), and whether the left toolbar is still served could not be established. All three variations keep a toolbar at the left, as the brief asks.</li><li>The theme defaults to Auto, which follows the operating system, with Light and Dark as choices set on Home or Jobs; the CV page has no Appearance control today. The brief calls the current theme dark: every frame is drawn dark, with the control in the app bar.</li><li>Today the CV page&#x27;s navigation lists Home, Jobs and Insights, with no CV link and no page marked as current; the page is reached from Home and from the Prepare page.</li><li>Only LinkedIn adverts can be fetched, so only a LinkedIn role can hold a score made on its job description, and such a score is never re-scored after a new master, from the CV page or the Prepare page.</li><li>Jobs says “full job spec” and the Prepare page says “full description”; these designs say “the job description” in sentences and keep the tag “Full job spec”.</li><li>The CV is not drawn as a page today: it is a column of numbered one-line fields in the system font, with uppercase section headings, on the app&#x27;s own ground. The Word file is A4 and Arial, in sentence case, so what is on screen does not match what is downloaded.</li><li>Saving is one button, “Save as a new version”, enabled whether or not anything changed; a save that changes nothing writes nothing, and the only sign of a save is the page reloading with the new version&#x27;s name. Nothing labels unsaved changes but the browser&#x27;s leave-page prompt.</li><li>A save made from a page opened before another tab saved is refused, in red under the button, with the name of the version now in use.</li><li>There is no undo beyond the browser&#x27;s own inside a field. Deleting a line asks nothing; deleting an entry or a section asks first.</li><li>The add buttons, “+ Line”, “+ Bullet”, “+ Entry” and “+ Headline line”, are always on screen. Only the move, bullet and delete controls wait for hover or focus, and a line&#x27;s show all the time on touch screens and at 600px and under.</li><li>An empty section shows no words and no number, and is left out of the text and the Word file.</li><li>History is a list of file names, always on the page; it does not open or close. No version can be viewed, compared or restored from the page; an older one is made active only by editing, by hand, the file that names the version in use.</li><li>Sections cannot be reordered or added today.</li><li>Stale scores have no flag and no count. One press of “Re-score stale items” reaches at most 25 roles, and only roles whose score still holds the single combined figure the scorer gave before 3 Aug 2026; a score made since then has no such figure, so a role first scored after that date is never reached. The confirm is the browser&#x27;s, and its cost reads “This spends real tokens.”</li><li>The scoring preferences are on Home, where Title, Day-rate floor and Keywords are edited. The location and sector rules are prose in the preferences file, the CV match pass mark of 70 and the Filtered floor of 40 are shown nowhere, and no date is stored for any preference.</li><li>The one-off import is always on the page and takes md, txt and pdf files as well as Word files.</li><li>Caps the brief does not mention: a save needs a CV of 20,000 characters, 400 lines and 1,000 characters on a line or fewer; an upload is at most 5 MB; and an extracted text waits 24 hours for its confirm.</li></ul></section><section class="nt-sec" aria-labelledby="questions-heading"><h2 id="questions-heading">Questions</h2><h3 class="nt-h3">Questions that bear on the choice between A, B and C</h3><ol><li>How should the paper sit in the dark app: white, as the Word file prints (A), a dimmed grey with dark ink (B), or dark with a Paper preview switch (C)? The same choice holds on the Prepare application page.</li><li>How should sections be reordered: in a Rearrange mode that folds each section to its heading, its size and its opening words (A), from the outline at any time (B), or with Move up and Move down among each section&#x27;s own controls (C)?</li><li>How should line numbers show: a switch for every number (A), the line in focus with each item&#x27;s range in the outline and Go to line (B), or a switch plus the numbers of cited lines by themselves (C)?</li><li>Where should the history and the preferences live: always in view in a rail (A), one press away in drawers (B), or in tabs beside the sheet (C)?</li><li>On a phone, which first view: a reflowed reading view of the sheet (A, C), or the outline with rows that open (B, which also has a Page view of the sheet at about 43%)? Is reading with small edits enough there, or should the phone also show the page shape?</li></ol><h3 class="nt-h3">Questions for one variation, if it is chosen</h3><p class="nt-intro">Three for each variation.</p><ol start="6"><li>In A, the rail keeps about 850px at 2560 and its lower half is empty. Should the rail be narrower there?</li><li>In A, the stale-scores line stays at the top of the rail even when nothing is pending. Should it show only after a new version?</li><li>In A, the list of versions grows with every save. How many should the rail show before a Show all?</li><li>In B, nothing shows every line number at once. Are the line in focus, the outline&#x27;s ranges and Go to line enough to check a citation such as “CV line 34”?</li><li>In B, at 1280 an open drawer covers the outline and dims the rest. Should a drawer at that width leave the outline in view?</li><li>In B, “Preferences” breaks with a hyphen in the 72px toolbar. Should the toolbar be wider, or the label shorter?</li><li>In C, after Cancel, should the stale-scores line open again on the next visit, or should the history carry the count?</li><li>In C, should a cited line&#x27;s number say, on hover or focus, which role and which ask cite it?</li><li>In C, should the tabbed column open on the tab last used, and Paper preview stay as it was left on both pages, or should each start on History and the dark sheet?</li></ol><h3 class="nt-h3">Questions that stand whichever is chosen</h3><ol start="15"><li>Should one confirmed run re-score every stale role (A and C draw 37 in one press), or keep today&#x27;s 25 a press (B draws runs of up to 25)? Today&#x27;s run also skips every role first scored since 3 Aug 2026, whose score has no combined figure: should it reach them?</li><li>Should View open an older version read only on the sheet, as all three offer and A draws open? Should an older version ever be made the one the scorer reads from this page, and should two versions be comparable?</li><li>Should the scoring preferences stay read only here, edited on Home and in the preferences file, or be edited on this page?</li><li>“Last changed 11 Nov” needs a date that is not stored today. Should Radar record when the preferences file changes?</li><li>Are Undo and Redo wanted (A and C draw them)? Deleting a line asks nothing today, so Undo would be the only way back. Should there also be one action that discards every unsaved edit?</li><li>The brief asks for a stable number on every line; the build numbers lines by position, so a number moves when a line is added above. Accept position numbers, or build a stable id for each line?</li><li>Should “Save as a new version” stay enabled while nothing has changed, as today (a save that changes nothing writes nothing), or be unavailable until a line is typed? A draws it filled as the primary action whenever it can be used, B always, and C only while there are unsaved changes.</li><li>The list of versions is called Versions in A and History in B and C. Which word should the product use?</li><li>Should Title and Keywords, the two lines edited on Home, be listed with the read-only preferences? None of the three lists them.</li></ol></section><section class="nt-sec" aria-labelledby="frames-heading"><h2 id="frames-heading">Frames</h2><table class="nt-frames" aria-label="Frames of the CV page"><thead><tr><th scope="col">Frame</th><th scope="col">What</th><th scope="col">Size</th><th scope="col">File</th></tr></thead><tbody><tr><th scope="row">cv-A-2560</th><td>A, 2560 wide, annotated</td><td>2560 × 1857</td><td>cv-A.html</td></tr><tr><th scope="row">cv-A-1280</th><td>A, 1280 wide, annotated</td><td>1280 × 1585</td><td>cv-A.html</td></tr><tr><th scope="row">cv-A-phone</th><td>A, 390 wide, a phone, annotated</td><td>390 × 4906</td><td>cv-A.html</td></tr><tr><th scope="row">cv-A-states</th><td>A, states board</td><td>2560 × 3693</td><td>cv-A-states.html</td></tr><tr><th scope="row">cv-B-2560</th><td>B, 2560 wide, annotated</td><td>2560 × 1877</td><td>cv-B.html</td></tr><tr><th scope="row">cv-B-1280</th><td>B, 1280 wide, annotated</td><td>1280 × 1469</td><td>cv-B.html</td></tr><tr><th scope="row">cv-B-phone</th><td>B, 390 wide, a phone, annotated</td><td>390 × 4015</td><td>cv-B.html</td></tr><tr><th scope="row">cv-B-states</th><td>B, states board</td><td>2560 × 4146</td><td>cv-B-states.html</td></tr><tr><th scope="row">cv-C-2560</th><td>C, 2560 wide, annotated</td><td>2560 × 1841</td><td>cv-C.html</td></tr><tr><th scope="row">cv-C-1280</th><td>C, 1280 wide, annotated</td><td>1280 × 1569</td><td>cv-C.html</td></tr><tr><th scope="row">cv-C-phone</th><td>C, 390 wide, a phone, annotated</td><td>390 × 6684</td><td>cv-C.html</td></tr><tr><th scope="row">cv-C-states</th><td>C, states board</td><td>2560 × 3305</td><td>cv-C-states.html</td></tr></tbody></table><p class="after-table">Each annotated frame is the screen, 1440px high from 1800px wide and 900px from 1024 to 1799px, with its legend under it; a phone frame is the whole page with its legend. A variation's 2560, 1280 and phone frames are one file at three widths, and its states board draws the seven states of the spec at real size; A's board adds an eighth panel for Rearrange mode. This stage's own frames are notes-prepare (1280 × 13773), notes-cv (1280 × 12978) and system (1280 × 14442).</p></section></div>
+</body>
+</html>

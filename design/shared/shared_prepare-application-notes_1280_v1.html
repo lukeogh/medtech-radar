@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en" data-appearance="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prepare application: notes · MedTech Radar</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+/* Metric-matched fallbacks while Plex loads (design-system §16). */
+@font-face { font-family: "Plex Sans fallback"; src: local("Arial"); size-adjust: 101.17%; ascent-override: 101.32%; descent-override: 27.18%; line-gap-override: 0%; }
+@font-face { font-family: "Plex Mono fallback"; src: local("Consolas"); size-adjust: 109.13%; ascent-override: 93.92%; descent-override: 25.20%; line-gap-override: 0%; }
+
+/* Tokens. Mockups draw dark: the dark set of design-system §15 sits on :root as the default, the light set
+   of §4 under data-appearance="light", and Auto under prefers-color-scheme: light. The uploaded mark is drawn
+   in the light text colours; inverting it and turning the hue half a turn lands on the dark text tokens. */
+:root {
+  color-scheme: dark; --canvas: #0e1215; --surface: #151a1e; --surface-sunken: #1c2226; --row-hover: #192024; --row-selected: #0f3237; --text-1: #e6ebee; --text-2: #b3bec6; --text-3: #93a0a9; --border-subtle: #262e34; --border-strong: #6f7c86; --accent: #5cc3cf; --accent-hover: #82d3dc; --accent-tint: #0f3237; --on-accent: #071114; --positive: #74d39b; --positive-tint: #12291c; --caution: #f0c46a; --caution-tint: #2c2311; --negative: #ff9b8f; --negative-tint: #33191a; --neutral: #b3bec6; --neutral-tint: #1f262b; --scrim: rgba(0, 0, 0, .6); --shadow-overlay: 0 8px 24px rgba(0, 0, 0, .5); --font-sans: "IBM Plex Sans", "Plex Sans fallback", Arial, sans-serif; --font-mono: "IBM Plex Mono", "Plex Mono fallback", Consolas, monospace; --radius-0: 0; --radius-2: 2px; --radius-4: 4px; --dur: 120ms; --mark-filter: invert(1) hue-rotate(180deg);
+}
+html[data-appearance="light"] {
+  color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none;
+}
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] {
+    color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; } }
+
+/* Focus. Dark: a #ffd447 outline on a 2px surface gap; rows take the outline only, inset clear of the
+   selection bar. A static frame shows it with .is-focus on exactly one element. */
+:focus-visible, .is-focus { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+.row:focus-visible, .row.is-focus { outline-offset: -7px; box-shadow: none; }
+html[data-appearance="light"] :focus-visible, html[data-appearance="light"] .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  html[data-appearance="light"] .row:focus-visible, html[data-appearance="light"] .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] :focus-visible, html[data-appearance="auto"] .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  html[data-appearance="auto"] .row:focus-visible, html[data-appearance="auto"] .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+}
+@media (forced-colors: active) { :focus-visible, .is-focus { outline-color: Highlight; } }
+
+/* Base. The Tailwind CDN's preflight comes later in the cascade, so body is set as "html body" to keep its
+   line height, and a button's fill is always set with two classes ([type=button] in preflight counts as one). */
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--surface); }
+html body { margin: 0; background: var(--surface); color: var(--text-1); font-family: var(--font-sans); font-size: 14px;
+  line-height: 20px; font-weight: 400; letter-spacing: 0; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+h1, h2, h3, h4, p, ul, ol, dl, dd { margin: 0; }
+ul, ol { list-style: none; padding: 0; }
+button, input { font: inherit; color: inherit; letter-spacing: 0; }
+img { display: block; }
+a { color: inherit; }
+.mono { font-family: var(--font-mono); white-space: nowrap; }
+.seg-nowrap { white-space: nowrap; }
+.num { font-variant-numeric: tabular-nums; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* Where a marker is pinned (annot_on). It comes before every component rule, so a part that is already
+   positioned keeps its own position. */
+.annot-host { position: relative; }
+
+/* Type (design-system §5) */
+.text-label { font-size: 12px; line-height: 16px; font-weight: 600; }
+.text-meta { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); }
+
+/* Shell: app bar 48px, page header auto, content minmax(0, 1fr); the panes scroll, the page does not. */
+.app { display: grid; grid-template-rows: 48px auto minmax(0, 1fr); height: 100dvh; overflow: hidden; background: var(--surface); }
+.appbar { grid-row: 1; }
+.pagehead { grid-row: 2; }
+.content { grid-row: 3; }
+
+/* App bar */
+.appbar { display: flex; align-items: center; gap: 24px; min-width: 0; height: 48px; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.brand { display: flex; align-items: center; gap: 12px; flex: none; }
+.brand-mark { width: 51px; height: 24px; filter: var(--mark-filter); }
+.brand-name { font-size: 14px; line-height: 20px; font-weight: 600; white-space: nowrap; }
+.appbar-page { display: none; font-size: 16px; line-height: 24px; font-weight: 600; }
+.nav { display: flex; align-self: stretch; gap: 20px; }
+.nav a { display: flex; align-items: center; padding: 2px 2px 0; border-bottom: 2px solid transparent; color: var(--text-2);
+  text-decoration: none; white-space: nowrap; transition: color var(--dur) ease-out; }
+.nav a:hover { color: var(--text-1); }
+.nav a[aria-current="page"] { color: var(--text-1); border-bottom-color: var(--accent); }
+.appbar-tools { display: flex; align-items: center; gap: 16px; min-width: 0; margin-left: auto; }
+.cmd { display: flex; flex: none; align-items: center; gap: 8px; width: 240px; height: 32px; padding: 0 8px; text-align: left;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); color: var(--text-3); cursor: pointer; }
+.cmd-text { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cmd-icon { display: none; }
+.inbox-status { font-size: 12px; line-height: 16px; color: var(--text-3); white-space: nowrap; }
+.appearance { display: inline-flex; flex: none; }
+.seg { height: 32px; margin-left: -1px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 0;
+  background: var(--surface); color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600; cursor: pointer;
+  transition: background-color var(--dur) ease-out, color var(--dur) ease-out; }
+.seg:first-child { margin-left: 0; border-radius: var(--radius-2) 0 0 var(--radius-2); }
+.seg:last-child { border-radius: 0 var(--radius-2) var(--radius-2) 0; }
+.appearance .seg[aria-pressed="true"] { background: var(--surface-sunken); color: var(--text-1); }
+.appbar .menu-btn { display: none; }
+
+/* Controls */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: var(--radius-2); font-size: 14px; line-height: 20px; font-weight: 500;
+  white-space: nowrap; text-decoration: none; cursor: pointer;
+  transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out; }
+.btn.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.btn-secondary { background: var(--surface); border-color: var(--border-strong); color: var(--text-1); }
+.btn.btn-secondary:hover { background: var(--row-hover); }
+.btn.btn-ghost { background: transparent; color: var(--text-2); }
+.btn.btn-ghost:hover { color: var(--text-1); text-decoration: underline; text-underline-offset: 2px; }
+.btn.btn-icon { width: 32px; padding: 0; }
+.btn.is-disabled { color: var(--text-3); border-color: var(--border-subtle); cursor: default; }
+.btn.is-disabled .kbd { color: var(--text-3); border-color: var(--border-subtle); }
+.kbd { display: inline-flex; align-items: center; justify-content: center; flex: none; min-width: 18px; height: 18px; padding: 0 4px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface-sunken); color: var(--text-2);
+  font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; white-space: nowrap; }
+.link { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
+  transition: color var(--dur) ease-out; }
+.link:hover { color: var(--accent-hover); text-decoration-thickness: 2px; }
+.with-icon { display: inline-flex; align-items: center; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px; border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2); background: transparent; color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600;
+  white-space: nowrap; cursor: pointer; transition: background-color var(--dur) ease-out, color var(--dur) ease-out, border-color var(--dur) ease-out; }
+.chip:hover { color: var(--text-1); }
+.chip-count { color: var(--text-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.chip.is-selected { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+.chip-facet { padding-right: 8px; }
+.tag { display: inline-flex; align-items: center; gap: 4px; flex: none; height: 20px; padding: 0 8px; border-radius: var(--radius-2);
+  font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+.tag-neutral { background: var(--neutral-tint); color: var(--neutral); }
+.tag-caution { background: var(--caution-tint); color: var(--caution); }
+.tag-positive { background: var(--positive-tint); color: var(--positive); }
+.is-pos { color: var(--positive); }
+.is-neg { color: var(--negative); }
+.is-neu { color: var(--neutral); }
+
+/* Page header */
+.pagehead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 56px; padding: 12px 16px;
+  background: var(--canvas); border-bottom: 1px solid var(--border-subtle); }
+.ph-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; min-width: 0; }
+.ph-title h1 { font-size: 20px; line-height: 28px; font-weight: 600; }
+.counts { font-size: 12px; line-height: 16px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ph-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.search { width: 200px; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text-1); font-size: 14px; line-height: 20px; }
+.search::placeholder { color: var(--text-3); opacity: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.undo-last { margin-left: 4px; }
+
+/* Content: panes abutting on 1px rules. The page's own CSS gives .content its columns. */
+.content { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; background: var(--surface); }
+
+/* Group and pane header (sticky, 40px), the fold button, the band divider */
+.group-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border-subtle); }
+.group-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 600; white-space: nowrap; }
+.group-count { font-size: 12px; line-height: 16px; font-weight: 400; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.group-new { color: var(--text-2); }
+.fold { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; margin: 0 -8px 0 auto;
+  border: 0; border-radius: var(--radius-2); background: transparent; color: var(--text-2); cursor: pointer; }
+.fold:hover { background: var(--row-hover); color: var(--text-1); }
+.band { display: flex; align-items: center; height: 24px; padding: 0 16px; font-size: 12px; line-height: 16px; color: var(--text-3);
+  border-bottom: 1px solid var(--border-subtle); font-variant-numeric: tabular-nums; }
+
+/* Rows: a whole-row link. Three lines, 76px; two lines, 56px. */
+.row { position: relative; display: grid; grid-template-rows: 20px 16px 20px; row-gap: 2px; height: 76px; padding: 8px 16px 7px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); color: var(--text-1); text-decoration: none;
+  transition: background-color var(--dur) ease-out; }
+.row:hover { background: var(--row-hover); }
+.row[aria-current="true"] { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 13px; }
+.r1, .r2, .r3 { display: flex; min-width: 0; }
+.r1 { align-items: baseline; gap: 8px; }
+.r-new { flex: none; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-1); }
+.r-title { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+.is-unread .r-title { font-weight: 600; }
+.r-cv { flex: none; width: 40px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; }
+.r-seen { flex: none; width: 44px; text-align: right; font-size: 12px; line-height: 16px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.r2 { align-items: center; gap: 8px; }
+.r-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px;
+  line-height: 16px; color: var(--text-3); }
+.r2 .tag { margin: -2px 0; }
+.r-rate { display: inline-block; }
+.r3 { align-items: center; gap: 12px; }
+.r-lead { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-2); }
+.r-marks { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.mk-pass { color: var(--text-3); }
+.mk-fail { color: var(--negative); }
+.mk-nj { color: var(--neutral); }
+.row-applied { grid-template-rows: 20px 16px; row-gap: 4px; height: 56px; }
+.more { display: flex; align-items: center; min-height: 40px; padding: 0 16px; border-bottom: 1px solid var(--border-subtle); }
+
+/* Detail content: section heading, score block, reasons, definition list, reading text, evidence */
+.sec-h { margin-bottom: 8px; font-size: 16px; line-height: 24px; font-weight: 600; }
+.score { container-type: inline-size; }
+.gate-strip { display: grid; grid-template-columns: 88px 96px minmax(0, 1fr); gap: 8px 12px; align-items: start; max-width: 960px; margin-top: 8px; }
+.gate { display: contents; }
+.gate-name, .gate-status { font-size: 12px; line-height: 16px; font-weight: 600; }
+.gate-name { color: var(--text-2); }
+.gate-status { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.gate-note { font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+@container (width < 480px) {
+  .gate-strip { grid-template-columns: 72px minmax(0, 1fr); row-gap: 2px; }
+  .gate-note { grid-column: 2; margin-bottom: 8px; }
+}
+@container (width >= 720px) {
+  .gate-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 24px; }
+  .gate { display: flex; flex-direction: column; gap: 2px; }
+}
+.cv-line { display: flex; align-items: baseline; gap: 8px; margin-top: 16px; }
+.cv-label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.cv-figure { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.basis { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.reasons { display: flex; flex-direction: column; gap: 12px; }
+.reasons li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; max-width: 80ch; }
+.evidence { font-size: 12px; line-height: 16px; color: var(--text-2); text-decoration: underline; text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.evidence:hover { text-decoration-thickness: 2px; }
+.facts { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 16px; align-items: baseline; }
+.facts dt { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.facts dd { max-width: 80ch; }
+.advert-text { max-width: 72ch; font-size: 15px; line-height: 24px; }
+.advert-text h4 { margin: 24px 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
+.advert-text h4:first-child { margin-top: 0; }
+.advert-text p, .advert-text ul { margin-bottom: 12px; }
+.advert-text ul { padding-left: 20px; list-style: disc; }
+.advert-text li { margin-bottom: 4px; }
+.advert-text li::marker { color: var(--text-3); }
+mark { background: transparent; color: inherit; text-decoration: underline; text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px; text-underline-offset: 3px; }
+mark:target { background: var(--accent-tint); text-decoration-thickness: 2px; }
+.keymap { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; align-items: center; margin-top: 16px; }
+.keymap div { display: contents; }
+.keymap dt { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.keymap .then { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.keymap dd { color: var(--text-2); }
+
+/* Widths */
+@media (width < 1280px) { .cmd { width: auto; } .cmd-text { display: none; } .cmd-icon { display: inline-flex; } }
+@media (width < 960px) { .inbox-status { display: none; } }
+@media (pointer: coarse) and (width < 1100px) { .inbox-status { display: none; } }
+@media (width < 1800px) {
+  .ph-tools { flex-basis: 100%; margin-left: 0; }
+}
+/* Under 1024: one column, no key hints. A sub-screen (data-view="role") keeps the page header for
+   assistive technology only. */
+@media (width < 1024px) {
+  .appbar { gap: 16px; }
+  .nav { gap: 16px; }
+  .kbd { display: none; }
+  .cmd { justify-content: center; width: 32px; padding: 0; border-color: transparent; background: transparent; color: var(--text-2); }
+  .cmd-text { display: none; }
+  .cmd-icon { display: inline-flex; }
+  .app[data-view="role"] .pagehead { position: absolute; width: 1px; height: 1px; min-height: 0; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .app[data-view="role"] .ph-tools, .app[data-view="role"] .counts { display: none; }
+}
+/* Under 768: the document scrolls and the panes do not; 44px targets; the app bar is the mark, the page
+   name and Menu. */
+@media (width < 768px) {
+  html { scroll-padding-top: 44px; }
+  .app { grid-template-rows: 48px auto auto; height: auto; min-height: 100dvh; overflow: visible; }
+  .nav, .appbar-tools, .brand-name { display: none; }
+  .appbar-page { display: block; }
+  .appbar .menu-btn { display: inline-flex; width: 44px; height: 44px; margin: 0 -8px 0 auto; padding: 0; }
+  .undo-last { margin-left: 0; padding-inline: 0; }
+  .ph-title h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  .chips { display: contents; }
+  .search { width: 100%; }
+  .btn, .chip, .search { height: 44px; }
+  .group-head { height: 44px; }
+  .fold { width: 44px; height: 44px; margin-right: -12px; }
+  .more { min-height: 44px; }
+  .facts { grid-template-columns: 112px minmax(0, 1fr); }
+  .with-icon { display: inline-flex; align-items: center; min-height: 44px; }
+  .more .link, .evidence { position: relative; }
+  .more .link::after { content: ""; position: absolute; inset: -12px 0; }
+  .evidence::after { content: ""; position: absolute; inset: -14px 0; }
+}
+@media (pointer: coarse) {
+  .btn, .chip, .search, .seg { height: 44px; }
+  .fold, .btn.btn-icon { width: 44px; height: 44px; }
+  .cmd { height: 44px; }
+  .with-icon { display: inline-flex; align-items: center; min-height: 44px; }
+  .more { min-height: 44px; }
+  .more .link, .evidence { position: relative; }
+  .more .link::after { content: ""; position: absolute; inset: -12px 0; }
+  .evidence::after { content: ""; position: absolute; inset: -14px 0; }
+  .group-head { height: 44px; }
+}
+@media (max-height: 499px) {
+  .group-head { position: static; }
+}
+
+/* A plain document page (notes): left-aligned at a 16px inset. */
+.doc { max-width: calc(72ch + 32px); padding: 24px 16px 48px; color: var(--text-2); }
+.doc h1 { margin-bottom: 8px; font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.doc h2 { margin: 24px 0 8px; font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.doc li + li { margin-top: 8px; }
+.doc ul { padding-left: 20px; list-style: disc; }
+.doc ol { padding-left: 24px; list-style: decimal; }
+.doc li::marker { color: var(--text-3); font-variant-numeric: tabular-nums; }
+.doc .pick { margin-top: 8px; }
+.doc table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.doc th, .doc td { height: 32px; padding: 0 12px 0 0; text-align: left; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+@media (width < 480px) { .doc td { white-space: normal; overflow-wrap: anywhere; } }
+.doc th { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); border-bottom-color: var(--border-strong); }
+.doc td { color: var(--text-1); }
+.doc .after-table { margin-top: 12px; font-size: 12px; line-height: 16px; color: var(--text-3); }
+
+/* =====================================================================================================
+   Added for later pages (design-system §6, §7, §14). Above this line is the Jobs round-2 stylesheet, rule
+   for rule, less the rules of the Jobs page alone (and with .annot-host added). Nothing below this line
+   changes a pixel of what Jobs draws: test_shell.py compares them.
+   ===================================================================================================== */
+
+/* The root is a size container named app. Write a page's width rules as @container app (width >= 1800px)
+   and a screen lays out by its own width: in a frame, and at 1280 inside a states-board panel. The two
+   rules below repeat the shell's own desktop width rules for that case. Overlays are placed against it. */
+.app { container: app / inline-size; }
+@container app (width < 1280px) { .cmd { width: auto; } .cmd-text { display: none; } .cmd-icon { display: inline-flex; } }
+@container app (width < 1800px) { .ph-tools { flex-basis: 100%; margin-left: 0; } }
+
+/* A light or a dark island inside a page of the other appearance (a white sheet of paper, a light specimen). */
+.theme-light { color-scheme: light; --canvas: #f2f4f5; --surface: #ffffff; --surface-sunken: #e9edef; --row-hover: #f4f6f7; --row-selected: #e0eef0; --text-1: #14191d; --text-2: #3e4952; --text-3: #56636d; --border-subtle: #dce1e4; --border-strong: #77838d; --accent: #00636e; --accent-hover: #004d56; --accent-tint: #e0eef0; --on-accent: #ffffff; --positive: #13693a; --positive-tint: #e2f1e7; --caution: #7a4a00; --caution-tint: #fcefd2; --negative: #a3221b; --negative-tint: #fbe5e3; --neutral: #3e4952; --neutral-tint: #e9edef; --scrim: rgba(20, 25, 29, .4); --shadow-overlay: 0 8px 24px rgba(20, 25, 29, .18); --mark-filter: none; color: var(--text-1); }
+.theme-dark { color-scheme: dark; --canvas: #0e1215; --surface: #151a1e; --surface-sunken: #1c2226; --row-hover: #192024; --row-selected: #0f3237; --text-1: #e6ebee; --text-2: #b3bec6; --text-3: #93a0a9; --border-subtle: #262e34; --border-strong: #6f7c86; --accent: #5cc3cf; --accent-hover: #82d3dc; --accent-tint: #0f3237; --on-accent: #071114; --positive: #74d39b; --positive-tint: #12291c; --caution: #f0c46a; --caution-tint: #2c2311; --negative: #ff9b8f; --negative-tint: #33191a; --neutral: #b3bec6; --neutral-tint: #1f262b; --scrim: rgba(0, 0, 0, .6); --shadow-overlay: 0 8px 24px rgba(0, 0, 0, .5); --mark-filter: invert(1) hue-rotate(180deg); color: var(--text-1); }
+.theme-light :focus-visible, .theme-light .is-focus { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+  .theme-light .row:focus-visible, .theme-light .row.is-focus { outline-offset: -5px; box-shadow: inset 0 0 0 5px #ffc72c; }
+html[data-appearance] .theme-dark :focus-visible, html[data-appearance] .theme-dark .is-focus { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+  html[data-appearance] .theme-dark .row:focus-visible, html[data-appearance] .theme-dark .row.is-focus { outline-offset: -7px; box-shadow: none; }
+
+/* Type: the rest of the scale (design-system §5) */
+.text-page-title { font-size: 20px; line-height: 28px; font-weight: 600; }
+.text-title { font-size: 18px; line-height: 24px; font-weight: 600; }
+.text-section { font-size: 16px; line-height: 24px; font-weight: 600; }
+.text-panel { font-size: 14px; line-height: 20px; font-weight: 600; }
+.text-body { font-size: 14px; line-height: 20px; font-weight: 400; }
+.text-reading { max-width: 72ch; font-size: 15px; line-height: 24px; font-weight: 400; }
+.text-figure { font-size: 14px; line-height: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.text-figure-large { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ink-1 { color: var(--text-1); }
+.ink-2 { color: var(--text-2); }
+.ink-3 { color: var(--text-3); }
+
+/* The nav's shortest item, CV, is 21px wide. Its target is widened to 25px, not its box, so the bar keeps
+   its pixels. */
+.nav a { position: relative; }
+.nav a::after { content: ""; position: absolute; inset: 0 -2px; }
+
+/* Controls: what Jobs did not need */
+select, textarea { font: inherit; color: inherit; letter-spacing: 0; }
+.btn.btn-danger { background: var(--surface); border-color: var(--border-strong); color: var(--negative); }
+.btn.btn-danger:hover { background: var(--row-hover); }
+.btn.btn-danger.is-disabled { color: var(--text-3); border-color: var(--border-subtle); }
+.btn.btn-primary.is-disabled { background: var(--surface-sunken); border-color: var(--border-subtle); color: var(--text-3); }
+.btn.btn-ghost.is-disabled:hover { color: var(--text-3); text-decoration: none; }
+.btn[aria-pressed="true"] { background: var(--surface-sunken); border-color: var(--border-strong); color: var(--text-1); }
+.link-block { display: inline-flex; align-items: center; min-height: 24px; }
+.tag-negative { background: var(--negative-tint); color: var(--negative); }
+.is-cau { color: var(--caution); }
+.status { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+/* A link that stands alone in a 40px row, and an evidence link, are 20px and 16px tall: their targets are
+   made 24px without moving a pixel. (Jobs widens them further on touch; :where() keeps those rules on top.) */
+:where(.more) .link, :where(.evidence) { position: relative; }
+:where(.more) .link::after { content: ""; position: absolute; inset: -2px 0; }
+:where(.evidence)::after { content: ""; position: absolute; inset: -4px 0; }
+.chev { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; border: 0;
+  border-radius: var(--radius-2); background: transparent; color: var(--text-2); cursor: pointer; }
+.chev:hover { background: var(--row-hover); color: var(--text-1); }
+.action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* Page header: a back link above the title, tags after it, tools kept on the title's line */
+.ph-back { flex: 0 0 100%; }
+@media (width >= 768px) { .pagehead.ph-inline .ph-tools { flex-basis: auto; margin-left: auto; } }
+
+/* Panes */
+.pane { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scroll-padding-top: 40px; background: var(--surface); }
+.pane-body { display: flex; flex-direction: column; gap: 24px; padding: 16px 16px 24px; }
+.pane-note { display: flex; align-items: center; min-height: 32px; padding: 8px 16px 7px; font-size: 12px; line-height: 16px;
+  color: var(--text-2); border-bottom: 1px solid var(--border-subtle); }
+.head-meta { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.head-tools { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+.head-tools + .fold { margin-left: 0; }
+.sec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; margin-bottom: 8px; }
+.sec-head .sec-h { margin-bottom: 0; }
+.sec-meta { font-size: 12px; line-height: 16px; color: var(--text-3); }
+
+/* List rows of 56px and 40px, on the same .row */
+.row-2 { grid-template-rows: 20px 16px; row-gap: 4px; height: 56px; }
+.row-1 { grid-template-rows: 20px; height: 40px; padding-top: 10px; padding-bottom: 9px; }
+.row.is-static:hover { background: var(--surface); }
+
+/* Table: sticky head on the sunken ground, 40px rows, one line a cell */
+.table-wrap { min-width: 0; background: var(--surface); }
+.table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); }
+.table th, .table td { height: 40px; padding: 0 12px; text-align: left; vertical-align: middle; white-space: nowrap;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.table th:first-child, .table td:first-child { padding-left: 16px; }
+.table th:last-child, .table td:last-child { padding-right: 16px; }
+.table thead th { position: sticky; top: var(--table-top, 0px); z-index: 1; background: var(--surface-sunken);
+  border-bottom-color: var(--border-strong); font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); }
+.table tbody th { font-weight: 500; color: var(--text-1); }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table td.num { font-weight: 500; }
+.table .cell-trunc { max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.table .cell-meta { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.table .th-sub { margin-left: 8px; font-weight: 400; }
+.table tbody tr:hover > th, .table tbody tr:hover > td { background: var(--row-hover); }
+.table tbody tr[aria-current="true"] > th, .table tbody tr[aria-current="true"] > td { background: var(--row-selected); }
+.table tbody tr[aria-current="true"] > :first-child { border-left: 3px solid var(--accent); padding-left: 13px; }
+.th-sort { display: inline-flex; align-items: center; gap: 4px; min-width: 24px; min-height: 32px; color: inherit; text-decoration: none; }
+.th-sort:hover, .table th[aria-sort="ascending"] .th-sort, .table th[aria-sort="descending"] .th-sort { color: var(--text-1); }
+.table .t-chev { width: 48px; padding: 0 0 0 8px; }
+.table tr.is-open > th, .table tr.is-open > td { border-bottom-color: transparent; }
+.table .t-detail > td { height: auto; padding: 4px 16px 16px 56px; white-space: normal; }
+.table tbody tr.t-detail:hover > td { background: var(--surface); }
+.table .t-group > th { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.table tbody tr.t-group:hover > th, .table tbody tr.t-more:hover > td { background: var(--surface); }
+.table .t-group .group-count { margin-left: 8px; }
+@media (width < 1024px) {
+  .table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
+  .t-detail-body { position: sticky; left: 56px; width: calc(100vw - 72px); max-width: 100%; }
+}
+@media (max-height: 499px) { .table thead th { position: static; } }
+
+/* Text tabs: each tab a link, the current one marked */
+.tabs { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0 20px; min-height: 40px; padding: 0 16px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.tab { display: flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-width: 24px; min-height: 40px; padding: 2px 2px 0;
+  border-bottom: 2px solid transparent; color: var(--text-2); text-decoration: none; white-space: nowrap; transition: color var(--dur) ease-out; }
+.tab:hover { color: var(--text-1); }
+.tab[aria-current] { color: var(--text-1); border-bottom-color: var(--accent); }
+.tab-count { font-size: 12px; line-height: 16px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* Segmented control: joined segments. Buttons for a choice, links for a view switch. */
+.segmented { display: inline-flex; flex: none; }
+.segmented .seg { min-width: 32px; }
+.segmented a.seg { position: relative; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.segmented .seg:hover { color: var(--text-1); }
+.segmented .seg[aria-pressed="true"], .segmented .seg[aria-current] { background: var(--surface-sunken); color: var(--text-1); }
+.segmented a.seg[aria-current]::after { content: ""; position: absolute; left: -1px; right: -1px; bottom: -1px; height: 2px; background: var(--accent); }
+.segmented .seg:focus-visible, .segmented .seg.is-focus { position: relative; z-index: 1; }
+
+/* Notice line: mark, sentence, at most one action. No tint: the 1px rule and the mark carry it. */
+.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; min-height: 40px; padding: 4px 16px 3px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--surface); }
+.notice-body { display: flex; align-items: flex-start; gap: 12px; flex: 1 1 24ch; min-width: 0; padding: 6px 0; }
+.notice-mark { flex: none; margin-top: 2px; }
+.notice-text { min-width: 0; max-width: 96ch; }
+.notice > .btn, .notice > .link-block { flex: none; }
+.notice > .link-block { min-height: 32px; }
+.notice-info .notice-mark { color: var(--neutral); }
+.notice-caution .notice-mark { color: var(--caution); }
+.notice-negative .notice-mark { color: var(--negative); }
+.notice-positive .notice-mark { color: var(--positive); }
+
+/* Form fields: a visible label above, 32px controls */
+.field { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
+.field-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 16px; }
+.field-row > .field { flex: 1 1 160px; }
+.field-label { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.field-input { width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text-1); font-size: 14px; line-height: 20px; }
+.field-input::placeholder { color: var(--text-3); opacity: 1; }
+textarea.field-input { height: auto; min-height: 72px; padding: 5px 8px; resize: vertical; }
+select.field-input { appearance: none; -webkit-appearance: none; padding-right: 32px; cursor: pointer; }
+.field-select { position: relative; display: block; }
+.field-select iconify-icon { position: absolute; top: 50%; right: 8px; margin-top: -8px; color: var(--text-2); pointer-events: none; }
+.field-input[aria-invalid="true"] { border-color: var(--negative); }
+.field-input[readonly] { background: var(--surface-sunken); }
+.field-hint { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.field-error { display: flex; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--negative); }
+.field-error svg { flex: none; margin-top: 2px; }
+.check { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; cursor: pointer; }
+.check-input { -webkit-appearance: none; appearance: none; display: inline-grid; place-content: center; flex: none; width: 16px; height: 16px; margin: 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-2); background: var(--surface); cursor: pointer; }
+.check-input::before { content: ""; width: 10px; height: 10px; background: var(--on-accent); transform: scale(0);
+  clip-path: polygon(14% 44%, 0 65%, 44% 100%, 100% 20%, 82% 6%, 40% 66%); }
+.check-input:checked { background: var(--accent); border-color: var(--accent); }
+.check-input:checked::before { transform: scale(1); }
+/* A date field hands the focus on to its own calendar button, and the field then matches neither :focus nor
+   :focus-visible. So fields show the ring on :focus-within, as text fields do on any focus anyway. */
+.field-input:focus-within { outline: 2px solid #ffd447; outline-offset: 2px; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+html[data-appearance="light"] .field-input:focus-within, .theme-light .field-input:focus-within { outline-color: #14191d;
+  box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+@media (prefers-color-scheme: light) {
+  html[data-appearance="auto"] .field-input:focus-within { outline-color: #14191d; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)), 0 0 0 7px #ffc72c; }
+}
+html[data-appearance] .theme-dark .field-input:focus-within { outline-color: #ffd447; box-shadow: 0 0 0 2px var(--focus-gap, var(--surface)); }
+@media (forced-colors: active) { .field-input:focus-within { outline-color: Highlight; } }
+
+/* Popover menu, drawn open. Overlays alone take radius 4px and the overlay shadow. */
+.popover-anchor { position: relative; display: inline-flex; }
+.menu, .popover { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 200px; padding: 4px 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--surface); box-shadow: var(--shadow-overlay); }
+.popover { padding: 12px; }
+.popover-anchor.is-end > .menu, .popover-anchor.is-end > .popover { right: 0; left: auto; }
+.menu .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 12px; border: 0; background: transparent;
+  color: var(--text-1); font-size: 14px; line-height: 20px; font-weight: 400; text-align: left; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.menu .menu-item:hover { background: var(--row-hover); }
+.menu .menu-item.is-current { background: var(--row-selected); border-left: 3px solid var(--accent); padding-left: 9px; }
+.menu .menu-item.is-danger { color: var(--negative); }
+.menu .menu-item .kbd { margin-left: auto; }
+.menu-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+
+/* Toast: the inverse of the surface, at the bottom right of the screen it speaks for */
+.toast { position: absolute; z-index: 25; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 12px;
+  max-width: min(480px, calc(100% - 32px)); padding: 8px 8px 8px 16px; border-radius: var(--radius-4); background: var(--text-1);
+  color: var(--surface); box-shadow: var(--shadow-overlay); }
+.toast-text { min-width: 0; }
+.toast .toast-btn { flex: none; height: 32px; padding: 0 12px; border: 1px solid var(--surface); border-radius: var(--radius-2);
+  background: transparent; color: var(--surface); font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer; }
+.toast .toast-btn:hover { text-decoration: underline; text-underline-offset: 2px; }
+.toast :focus-visible, .toast .is-focus { outline-color: var(--surface); box-shadow: none; }
+
+/* Dialog and drawer, drawn open over a scrim. Placed against the nearest positioned box: the app, a
+   states-board panel or a .stage. */
+.scrim { position: absolute; inset: 0; z-index: 30; background: var(--scrim); }
+.dialog, .drawer { position: absolute; z-index: 31; display: flex; flex-direction: column; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text-1); box-shadow: var(--shadow-overlay); }
+.dialog { top: var(--overlay-top, 96px); right: 0; left: 0; width: min(var(--overlay-width, 480px), calc(100% - 32px));
+  max-height: calc(100% - var(--overlay-top, 96px) - 32px); margin-inline: auto; border-radius: var(--radius-4); }
+.drawer { top: 0; right: 0; bottom: 0; width: min(var(--overlay-width, 480px), 100%); border-width: 0 0 0 1px;
+  border-radius: var(--radius-4) 0 0 var(--radius-4); }
+.overlay-head { display: flex; align-items: center; gap: 8px; flex: none; min-height: 48px; padding: 8px 8px 7px 16px;
+  border-bottom: 1px solid var(--border-subtle); }
+.overlay-title { flex: 1 1 auto; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 600; }
+.overlay-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 16px; }
+.overlay-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle); }
+.stage { position: relative; overflow: hidden; background: var(--surface); }
+.spec-menu { height: 176px; }
+
+/* Empty and loading: left-aligned at the top of the area they replace */
+.empty { padding: 12px 16px 24px; }
+.empty > p { max-width: 72ch; }
+.empty > .btn, .empty > .link-block { margin-top: 12px; }
+.loading { padding: 12px 16px 24px; }
+.loading-text { max-width: 72ch; margin-bottom: 8px; color: var(--text-2); }
+.load-bar { display: block; max-width: 72ch; height: 12px; margin: 4px 0 8px; border-radius: var(--radius-2); background: var(--surface-sunken); }
+
+/* Vertical toolbar slot: icon buttons on the sunken ground, or the same with visible labels */
+.vtoolbar { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: none; width: 48px; padding: 8px;
+  background: var(--surface-sunken); border-right: 1px solid var(--border-subtle); --focus-gap: var(--surface-sunken); }
+.vtoolbar.has-labels { width: 216px; }
+.vtoolbar.has-labels .btn { justify-content: flex-start; padding: 0 8px; }
+.vtoolbar .btn .kbd { margin-left: auto; }
+.tool-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+.tool-note { padding: 0 8px 4px 32px; font-size: 12px; line-height: 16px; color: var(--text-3); white-space: normal; }
+
+/* 44px on touch, and under 768px where a desktop browser draws the phone frame. The app is then at least a
+   screen high: its rows keep their own heights (a short page would otherwise stretch its page header). */
+@media (width < 768px) {
+  .app { align-content: start; }
+  .pane { overflow: visible; min-height: auto; }
+  .pagehead.ph-own .ph-title h1 { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; }
+  .btn.btn-icon, .chev { width: 44px; }
+  .chev, .field-input, .segmented .seg, .toast .toast-btn, .menu .menu-item { height: 44px; }
+  textarea.field-input { height: auto; }
+  .tab, .check, .link-block, .th-sort, .notice > .link-block { min-height: 44px; }
+  .row-1 { height: 44px; padding-top: 12px; padding-bottom: 11px; }
+  .toast { left: 16px; max-width: none; }
+  .dialog { --overlay-top: 64px; }
+  .drawer { width: 100%; border-width: 0; border-radius: 0; }
+  .vtoolbar { width: 60px; }
+  .vtoolbar.has-labels { width: 216px; }
+  .spec-menu { height: 236px; }
+}
+@media (pointer: coarse) {
+  .btn.btn-icon, .chev { width: 44px; }
+  .chev, .field-input, .segmented .seg, .toast .toast-btn, .menu .menu-item { height: 44px; }
+  textarea.field-input { height: auto; }
+  .tab, .check, .link-block, .th-sort, .notice > .link-block { min-height: 44px; }
+  .row-1 { height: 44px; padding-top: 12px; padding-bottom: 11px; }
+  .vtoolbar { width: 60px; }
+  .vtoolbar.has-labels { width: 216px; }
+  .spec-menu { height: 236px; }
+}
+
+/* Hide by frame: wide is 1800px and over, desk 1024 to 1799, phone under 1024. For markers, legend lines
+   and anything else a frame does not draw. */
+@media (width >= 1800px) { .hide-wide { display: none !important; } }
+@media (width >= 1024px) and (width < 1800px) { .hide-desk { display: none !important; } }
+@media (width < 1024px) { .hide-phone { display: none !important; } }
+
+/* Annotation layer: not product UI. A marker is a 20px square, the inverse of the surface under it, with a
+   mono numeral; it takes no room. The legend sits under the app frame on the canvas ground. */
+.annot, .legend-n { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; background: var(--text-1);
+  color: var(--surface); font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; font-style: normal;
+  font-variant-numeric: tabular-nums; letter-spacing: 0; text-indent: 0; white-space: nowrap; }
+.annot { position: absolute; z-index: 40; margin: 0; padding: 0; border: 0; box-shadow: 0 0 0 1px var(--surface); pointer-events: none;
+  translate: var(--dx, 0px) var(--dy, 0px); }
+.annot-tl { top: 0; left: 0; }
+.annot-t { top: 0; left: calc(50% - 10px); }
+.annot-tr { top: 0; right: 0; }
+.annot-l { top: calc(50% - 10px); left: 0; }
+.annot-c { top: calc(50% - 10px); left: calc(50% - 10px); }
+.annot-r { top: calc(50% - 10px); right: 0; }
+.annot-bl { bottom: 0; left: 0; }
+.annot-b { bottom: 0; left: calc(50% - 10px); }
+.annot-br { right: 0; bottom: 0; }
+.legend { padding: 24px 16px 48px; background: var(--canvas); border-top: 1px solid var(--border-strong); color: var(--text-2); }
+.legend-title { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.legend-note { max-width: 96ch; font-size: 12px; line-height: 16px; color: var(--text-3); }
+.legend-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); gap: 16px 32px; margin-top: 16px; }
+.legend-item { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 12px; align-items: start; max-width: 72ch; }
+.legend-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.legend-text { text-wrap: pretty; }
+
+/* Annotated frame: the app at a fixed height for the mockup, the legend under it. */
+.frame { background: var(--canvas); }
+.frame > .app { height: 900px; }
+@media (width >= 1800px) { .frame > .app { height: 1440px; } }
+@media (width < 1024px) {
+  .frame > .app { grid-template-rows: 48px auto auto; height: auto; min-height: 0; overflow: visible; }
+  .frame .pane { overflow: visible; min-height: auto; }
+}
+
+/* States board: plain panels on the canvas ground, each a label over a 1px rule and a fragment at real size. */
+.board { min-height: 100dvh; padding-bottom: 48px; background: var(--canvas); color: var(--text-2); }
+.board-head { padding: 24px 16px 0; }
+.board-head h1 { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.board-head p { max-width: 96ch; margin-top: 4px; }
+.board-panels { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 32px 24px; padding: 24px 16px 0; }
+.board-panel { position: relative; flex: none; min-width: 0; max-width: 100%; }
+.board-panel.is-auto { flex: 1 1 560px; }
+.board-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; padding-bottom: 7px; border-bottom: 1px solid var(--border-strong); }
+.board-n { min-width: 16px; font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.board-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.board-note { font-size: 12px; line-height: 16px; color: var(--text-3); }
+.board-body { position: relative; overflow: auto; background: var(--surface); color: var(--text-1); }
+.board-body > .app { height: 100%; min-height: 0; }
+.board.is-flush .board-panels { gap: 32px 0; padding-right: 0; padding-left: 0; }
+.board.is-flush .board-label { padding-right: 16px; padding-left: 16px; }
+.board.is-flush .board-panel + .board-panel::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; z-index: 50; width: 1px;
+  background: var(--border-strong); pointer-events: none; }
+
+/* System sheet: four columns of reference from 1800px, two from 1024px, then the component list */
+.sys { min-height: 100dvh; padding: 24px 16px 64px; background: var(--canvas); color: var(--text-2); }
+.sys-head { margin-bottom: 32px; }
+.sys-head h1 { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--text-1); }
+.sys-head p { max-width: 96ch; margin-top: 4px; }
+.sys-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px 32px; align-items: start; }
+.sys-cell { display: flex; flex-direction: column; gap: 40px; min-width: 0; }
+.sys-extra { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 40px 32px; align-items: start; }
+.sys-wide, .sys-extra { margin-top: 40px; }
+@media (width >= 1024px) { .sys-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (width >= 1800px) { .sys-grid { grid-template-columns: minmax(0, 1.44fr) minmax(0, 1.44fr) minmax(0, 1fr) minmax(0, 1fr); } }
+.sys-sec { min-width: 0; }
+.sys-sec > h2 { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); }
+.sys-note { max-width: 96ch; margin: 4px 0 12px; font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+.sys-table { overflow-x: auto; }
+.sys-table .table th, .sys-table .table td { height: 32px; padding-top: 6px; padding-bottom: 5px; white-space: normal; }
+.sys-table .table .keep { white-space: nowrap; }
+.sys-table .table th:last-child, .sys-table .table td:last-child { width: 100%; }
+.sys-table .table tbody tr:hover > td { background: var(--surface); }
+.swatch { display: inline-block; flex: none; width: 32px; height: 20px; border: 1px solid var(--border-strong); vertical-align: middle; }
+.swatch-cell { display: inline-flex; align-items: center; gap: 8px; }
+.swatch-stack { display: inline-flex; flex-direction: column; gap: 4px; }
+.sys-steps { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 24px; margin-bottom: 16px; padding: 16px; background: var(--surface); }
+.sys-step { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 12px; line-height: 16px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; }
+.sys-step-bar { height: 16px; background: var(--text-3); }
+.sys-comps { column-gap: 48px; }
+@media (width >= 1800px) { .sys-comps { column-count: 2; } }
+.sys-comp { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 8px 24px; align-items: start; padding: 16px 0;
+  border-top: 1px solid var(--border-subtle); break-inside: avoid; }
+.sys-comp.is-wide { column-span: all; grid-template-columns: minmax(0, 1fr); }
+.sys-comp.is-wide .sys-comp-line { max-width: 96ch; }
+.sys-comp-name { font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.sys-comp-line { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--text-3); text-wrap: pretty; }
+.sys-draw { min-width: 0; overflow-x: auto; background: var(--surface); color: var(--text-1); }
+.sys-draw.is-pad { padding: 12px 16px; }
+.sys-draw > .appbar, .sys-draw > .pagehead { grid-row: auto; }
+.spec-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.spec-col { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+@media (width < 768px) { .sys-comp { grid-template-columns: minmax(0, 1fr); } .sys-table .table { min-width: 600px; } }
+
+/* ---- This page ---- */
+/* The notes pages: the shell's plain document page (.doc), left aligned, with every block of prose held
+   to a 72ch measure and the comparison table given the frame's width. */
+.doc.nt { max-width: none; }
+.nt > :not(.nt-wide) { max-width: 72ch; }
+.nt > .nt-wide { max-width: 1248px; }
+.nt-mast { display: flex; align-items: center; height: 32px; margin-bottom: 16px; }
+.nt-lede { margin-top: 8px; }
+.nt-sec { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border-subtle); }
+.doc .nt-sec > h2 { margin-top: 0; }
+.nt-h3 { margin: 20px 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-1); }
+.nt-sub { margin: 12px 0 6px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-3); }
+.nt-k, .nt-area { font-weight: 600; color: var(--text-1); }
+.nt-pair > p + p { margin-top: 2px; }
+.nt-intro { margin-bottom: 8px; }
+.nt-scroll { overflow-x: auto; }
+.doc .nt-vary { min-width: 880px; }
+.doc .nt-vary th, .doc .nt-vary td { height: auto; padding: 8px 16px 8px 0; vertical-align: top; white-space: normal; }
+.doc .nt-vary tbody th { width: 16%; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2);
+  border-bottom-color: var(--border-subtle); }
+.doc .nt-vary td { width: 28%; color: var(--text-1); }
+.doc .nt-frames td:nth-child(3) { font-variant-numeric: tabular-nums; }
+/* A frame's name heads its row; it reads as the other cells do. */
+.doc .nt-frames tbody th { font-size: 14px; line-height: 20px; font-weight: 400; color: var(--text-1);
+  border-bottom-color: var(--border-subtle); }
+</style>
+</head>
+<body>
+<div class="doc nt">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="st-pos" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-cau" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 2.4a5.6 5.6 0 0 0 0 11.2z" fill="currentColor"/></symbol>
+<symbol id="st-neg" viewBox="0 0 16 16"><path d="M4.2 4.2l7.6 7.6m0-7.6l-7.6 7.6" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="st-neu" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+<symbol id="st-pro" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></symbol>
+</svg>
+<div class="nt-mast"><div class="brand"><img class="brand-mark" src="https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/0db15a19-3516-4453-a7e9-67ecc19e8823/brand-assets/brand-radar-mark.svg/radar-mark.svg" width="51" height="24" alt=""><span class="brand-name">MedTech Radar</span></div></div><h1>Prepare application: notes</h1><p class="nt-lede">Three variations of the Prepare application page, drawn for the owner to choose between: A, Three panes; B, Asks grid; C, Margin notes. Each is drawn on its own terms and stated evenly; none is ranked, recommended or merged.</p><p class="nt-lede">Each variation is one answer for both pages, so the CV page&#x27;s notes, in notes-cv, follow the same three. A proposal is anything a frame draws that the product does not do today, read against the ground truth of main on 13 Nov 2026. The role, the CV, the advert and every name are fictional.</p><p class="nt-lede">Words used here: a pane is one of the areas that sit side by side on the screen; a band is a strip across its full width; a rail is a column that stays at one side; a drawer is a panel that opens over the page and closes again; a tint is a faint colour behind text; the primary action is the one button drawn filled.</p><section class="nt-sec" aria-labelledby="a-three-panes-heading"><h2 id="a-three-panes-heading">A: Three panes</h2><h3 class="nt-h3">Rationale</h3><p>A puts what decides the application in one band under the page header: both scores with what each was based on, the four gates, the rate line, and the actions in the order they are used. Below the band three panes hold the work: at 2560 the tailored copy on a white sheet at full size, the asks, and the advert as it is stored. Evidence is linked by highlight alone: the selected ask lights its cited lines on the sheet, and the line in focus lights the asks that cite it, so each ask keeps to one row. At 1280 the band keeps the two scores and the actions, the gates and the rate line fold into Score details, and the advert becomes a tab beside the asks. On a phone the asks lead, with the CV and the advert as tabs and Save CV and Mark applied in a bar at the foot.</p><h3 class="nt-h3">Trade-offs</h3><ul><li class="nt-pair"><p><span class="nt-k">Gives:</span> At 2560 both scores, the gates, the rate line, every action, all 18 asks and the selected ask&#x27;s lines are in view with no scrolling.</p><p><span class="nt-k">Costs:</span> The band takes about 170px of height at 2560 and about 110px at 1280, and at 1024 it wraps to about 200px, so the panes are shorter.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> A white sheet that looks as the Word download prints.</p><p><span class="nt-k">Costs:</span> It is the brightest thing on a dark screen.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Evidence by highlight keeps each ask to one row, so the list stays short.</p><p><span class="nt-k">Costs:</span> The list shows cited line numbers, not the cited words, so reading a citation means looking across to the sheet.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> The actions sit in one row in the order they are used, with Rescore role&#x27;s cost beside it.</p><p><span class="nt-k">Costs:</span> The actions sit away from the CV they act on.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> The advert is shown as it is stored, with nothing invented about its structure.</p><p><span class="nt-k">Costs:</span> Its headings read like body text, and even this 3,227-character advert needs a scroll at 2560; a typical one of 5,000 to 10,000 characters always will.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> At 1280 the sheet sits beside the asks, at 80%.</p><p><span class="nt-k">Costs:</span> Its body text is then about 11px, and about 10px from 1024 to 1239px: small for editing in place. The asks and the advert cannot be seen together, and the gates and the rate line are one press away in Score details.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> The selected ask stays selected, so its lines stay lit while the copy is edited.</p><p><span class="nt-k">Costs:</span> Two kinds of highlight can be on at once, the selected ask&#x27;s lines and the asks citing the line in focus, and the reader has to tell them apart.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> On a phone the asks lead, and Save CV and Mark applied stay in a bar at the foot.</p><p><span class="nt-k">Costs:</span> Rescore role, Download and Open the advert on LinkedIn are one tap deeper, in More, and the asks and the CV are never in view together.</p></li></ul><h3 class="nt-h3">What it borrows</h3><h4 class="nt-sub">From the Enhancv model</h4><ul><li>The sheet as the one editing surface: the copy is drawn once, at A4 proportions on white paper, and typed into where it stands.</li><li>A slim toolbar of icons at the canvas&#x27;s left, where Enhancv kept its toolbox from 2024 to early 2026, with Undo and Redo always on screen.</li><li>One item&#x27;s controls at a time, in the margin outside the text, not on the item&#x27;s top edge, where Enhancv&#x27;s bar covers the line above.</li></ul><h4 class="nt-sub">From other products</h4><ul><li>Highlighting that runs both ways, as a spreadsheet can trace the cells a formula reads and the cells that read it.</li><li>The work, its findings and its source in panes side by side, as a code editor can set a file beside its list of problems and a preview.</li></ul><h3 class="nt-h3">Proposals it draws</h3><p class="nt-intro">These come on top of the proposals all three draw, which are listed after C; an item says what the product does today where that helps.</p><ul><li><span class="nt-area">Layout:</span> A band across the full width under the page header, holding both scores, the four gates, the rate line and the actions, then three panes at 2560: the CV, the asks and the advert (today the page is capped at 1,400px and centred, in two columns).</li><li><span class="nt-area">Layout:</span> At 1280, the CV beside one pane with the tabs Asks and Advert; the gates, the rate line, the card score and the score before the rescore fold under a “Score details” button that opens them in place.</li><li><span class="nt-area">Sheet:</span> White paper; the sheet at 100% from 2400px, 80% from 1800 to 2399px, 90% from 1440 to 1799px, 80% from 1240 to 1439px and 70% from 1024 to 1239px.</li><li><span class="nt-area">Sheet:</span> Undo and Redo in the toolbar beside Line numbers; neither exists today.</li><li><span class="nt-area">Scores:</span> Both scores side by side in the band, with the asides “The role&#x27;s score, shown on Jobs” and “This role only, never on Jobs”; the model is left out of the score&#x27;s basis under 1800px, and the prompt, the date and the CV version stay.</li><li><span class="nt-area">Scores:</span> When the tier held: “The job description kept this role a Top prospect. This score replaced the card score, 81%, at 13 Nov 09:02.”</li><li><span class="nt-area">Actions:</span> One row in the order they are used: Rescore role with its cost, Save CV with its state, Download, Open the advert on LinkedIn, Mark applied as the page&#x27;s one primary action, and Start again from master as a quiet button with no border, set apart at the end.</li><li><span class="nt-area">Actions:</span> Save CV&#x27;s state beside the button: “Saved 13 Nov 10:44 as CV - Alex Rennie - Hartwell Infusion Ltd - Head of Software Quality, Class II infusion pumps” at 2560, the time alone at 1280 with the name in the CV pane header.</li><li><span class="nt-area">Actions:</span> Download shown unavailable until something is saved (today it is hidden).</li><li><span class="nt-area">Asks:</span> Each ask on one row: its status, the ask, a “Was partly” or “Was missing” tag and its cited line numbers as links, with the cited words left to the sheet (today each cited line&#x27;s text is printed under its ask).</li><li><span class="nt-area">Asks:</span> The counts in the list&#x27;s header, which stays in view as the list scrolls, “13 met · 5 partly · 0 missing”, and “From this copy&#x27;s score, 13 Nov 10:42.” before the product&#x27;s own sentence.</li><li><span class="nt-area">Asks:</span> The number of the line in focus boxed in the rows of the asks that cite it (lighting those asks is built today).</li><li><span class="nt-area">Advert:</span> The pane&#x27;s line “The job description, stored 13 Nov 09:14 from LinkedIn · 3,227 characters”; the text as it is stored today.</li><li><span class="nt-area">States:</span> Closed: “This role was closed by hand on 9 Nov.” with the tag “Closed by hand, 9 Nov”. Expired: “This role expired on 2 Nov, after 45 days with no sign of its advert.” with “Expired 2 Nov”.</li><li><span class="nt-area">States:</span> A master not in the editor&#x27;s layout: the copy actions shown unavailable with one reason, “No copy until the master is saved once on the CV page.” (today no action buttons are drawn).</li><li><span class="nt-area">States:</span> A stale ask: “CV 34, changed” in its row, and under it today&#x27;s label, “CV line 34 when scored, since changed”, followed by “It counts as stale until the words are back or the copy is rescored.”</li><li><span class="nt-area">States:</span> An unanchored ask: “No line” in its row, and “Nothing on the sheet is lit for it.” added to today&#x27;s warning.</li><li><span class="nt-area">States:</span> An older prompt: “The prompt is now 97f11cce.” added to today&#x27;s line, and under This copy “Made with the newer prompt, so part of the gap between the two scores comes from the prompt.”</li><li><span class="nt-area">States:</span> The question before Mark applied asked in a dialog on the page, in today&#x27;s words (today the browser&#x27;s own confirm box asks it).</li><li><span class="nt-area">Phone:</span> The score summary, then the tabs Asks, CV and Advert, and a bar at the foot with Save CV, Mark applied and More; More holds Rescore role with its cost, Download, Open the advert on LinkedIn and Start again from master.</li><li><span class="nt-area">Phone:</span> The CV tab reflows the sheet&#x27;s lines to the screen in the sheet&#x27;s own type, with the open line&#x27;s controls in a row under it, and the selected ask carries a link, “Show line 20 on the CV”.</li></ul></section><section class="nt-sec" aria-labelledby="b-asks-grid-heading"><h2 id="b-asks-grid-heading">B: Asks grid</h2><h3 class="nt-h3">Rationale</h3><p>B makes the asks the main object of the page: a table that gives, for each ask, its status, the CV lines that evidence it in number and words, the advert sentence it came from, and what changed at the last rescore. Because the evidence reads in the row, the sheet no longer carries the comparison and is drawn smaller, 80% at 2560 and 75% at 1280, on dimmed paper: a cool grey with dark ink in the Word file&#x27;s layout. The page&#x27;s own actions sit in a labelled toolbar beside the sheet, with Rescore role&#x27;s cost under its name, while Open the advert on LinkedIn and Mark applied, which act on the role, sit at the right of the page header. The two scores share one small table above the asks, so what each was scored on, its gates and its tier compare line by line, and at 2560 the advert, with its headings and bullets kept, is the third pane. At 1280 the advert opens as a drawer from the grid&#x27;s header, and on a phone the asks come first, each row opening in place to show its evidence, with the CV and the advert as further views.</p><h3 class="nt-h3">Trade-offs</h3><ul><li class="nt-pair"><p><span class="nt-k">Gives:</span> Each ask&#x27;s evidence reads in its row, and at 2560 both scores, page 1 of the CV and 17 of the 18 asks are in view at once.</p><p><span class="nt-k">Costs:</span> The sheet is drawn at 80% at 2560, 75% at 1280 and 62% from 1024 to 1279px, so its body text is about 11px, 10.5px and under 9px: small for editing in place.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Cited lines are printed in the grid as well as lit on the sheet, so a moved or edited-away line shows in the row itself.</p><p><span class="nt-k">Costs:</span> The same words appear twice on screen, and the page reads as a dense table rather than as prose.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> The In the advert column ties each ask to the sentence it came from and links into the advert.</p><p><span class="nt-k">Costs:</span> It rests on two things not stored today, a tie from each ask to its sentence and the advert&#x27;s headings and bullets; it is dropped at 1280, where the advert is a drawer; and the long quoted sentences make rows taller.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> One labelled toolbar holds every page action, each with its word, and the cost sits under Rescore role before it is pressed.</p><p><span class="nt-k">Costs:</span> It takes 72px of width, and its labels and notes wrap to two or three short lines.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> The two scores share one table, so basis, gates and tier compare line by line.</p><p><span class="nt-k">Costs:</span> The block is about 240px tall at the top of the grid, and at 1280 and on a phone the gates shrink to marks and names, with the scorer&#x27;s notes left out.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Dimmed paper means less glare in a dark room.</p><p><span class="nt-k">Costs:</span> The page is not the white of the download, and the evidence tints are lighter than the paper, so a cited line reads as a light band rather than a darker one.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> At 1280 the advert is one press away in a drawer, and the grid keeps its width.</p><p><span class="nt-k">Costs:</span> At 1280 the CV, the asks and the advert are not all in view together.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> On a phone the asks come first, and each row opens in place with its evidence.</p><p><span class="nt-k">Costs:</span> The CV and the advert are separate views, and Start again from master and Line numbers are reached only from the CV view.</p></li></ul><h3 class="nt-h3">What it borrows</h3><h4 class="nt-sub">From the Enhancv model</h4><ul><li>The sheet as the one place where the copy is typed, in the Word file&#x27;s layout and page breaks.</li><li>A toolbar with a word on every tool, as Enhancv&#x27;s left card of 2024 to early 2026 has.</li><li>One item&#x27;s controls at a time, in the margin outside the text, in a fixed order: add, move, delete.</li></ul><h4 class="nt-sub">From other products</h4><ul><li>A traceability matrix, one row per requirement with its status, its evidence and its source, as a regulated team&#x27;s requirements tool lays it out.</li><li>Rows that open in place on a phone, as a settings list opens one item at a time.</li></ul><h3 class="nt-h3">Proposals it draws</h3><p class="nt-intro">These come on top of the proposals all three draw, which are listed after C; an item says what the product does today where that helps.</p><ul><li><span class="nt-area">Layout:</span> At 2560 the CV, the asks grid and the advert side by side, with the scores at the top of the grid pane (today two columns in a page capped at 1,400px).</li><li><span class="nt-area">Layout:</span> At 1280 the CV beside a grid of three columns, Ask, Status and CV evidence, and the advert in a drawer opened by “Show the advert” in the grid&#x27;s header.</li><li><span class="nt-area">Sheet:</span> Dimmed paper, #dce1e4 with dark ink, and the sheet scaled by width: 80% from 2400px, 76% from 2200px, 75% from 1280 to 2199px and 62% from 1024 to 1279px.</li><li><span class="nt-area">Sheet:</span> A labelled toolbar beside the sheet with Save CV, Rescore role, Download, Start again from master and Line numbers, and notes under the tools: “Saved 10:44” or “Unsaved”, “One paid call, about 2p.”, “Saved copy” or “Nothing saved”.</li><li><span class="nt-area">Sheet:</span> With Line numbers off, numbers on the sheet only for the selected ask&#x27;s cited lines and the line being edited.</li><li><span class="nt-area">Scores:</span> The two scores in one table: Master CV, “The score Jobs shows”, beside This copy, “Rescored 10:42, never shown on Jobs”, with the rows Score and Scored on, the four gates of each score with the scorer&#x27;s notes, and the rate line under both; at 1280 and on a phone the gates as marks and names.</li><li><span class="nt-area">Scores:</span> When the tier held: “The job description kept this role a Top prospect. The card scored 81% at 09:02.” When it moved, the move is said in the score row (“… Nothing was dismissed. On the card: 81%, One question away, 13 Nov 09:02.”), not in a notice at the top.</li><li><span class="nt-area">Actions:</span> Open the advert on LinkedIn and Mark applied at the right of the page header, with “Mark applied records the saved copy as the one sent.”</li><li><span class="nt-area">Actions:</span> The save line over the sheet: “Saved as CV - Alex Rennie - Hartwell Infusion Ltd - Head of Software Quality, Class II infusion pumps, 13 Nov 10:44. Download gives this copy as a Word file.” (today the saved line gives the name and the date only).</li><li><span class="nt-area">Asks:</span> The asks as a table with the columns Ask, Status, CV evidence (each cited line&#x27;s number and words, each a link to it on the sheet), In the advert and Change at the 10:42 rescore.</li><li><span class="nt-area">Asks:</span> The In the advert column: each ask&#x27;s source sentence quoted and linked into the advert; nothing stored ties an ask to a sentence today.</li><li><span class="nt-area">Asks:</span> A stale ask&#x27;s status as a struck mark with “Stale” over “was met” (today one chip, “Stale, was met”, after its own mark); its cited line is struck through in the row, as it is under the ask today.</li><li><span class="nt-area">Advert:</span> The advert with its headings and bullets kept (stored today as plain lines), unmarked, each ask&#x27;s sentence the target of its In the advert link; the pane&#x27;s line “Read from LinkedIn, 13 Nov 09:14”.</li><li><span class="nt-area">States:</span> Closed: “This role was closed by hand on 9 Nov.” with the tag “Closed by hand, 9 Nov”; expired: “This role expired on 2 Nov, after 45 days with no sign of its advert.” with “Expired 2 Nov”; beside the role actions, “Nothing here can be scored, saved or changed.”</li><li><span class="nt-area">States:</span> An applied role&#x27;s CV headed “Tailored CV, as sent”, with the Read only tag.</li><li><span class="nt-area">States:</span> A master not in the editor&#x27;s layout: the canvas header “Master CV cv-20261113-110500.md, as stored” with the Read only tag, and the tools noted “Read only” or “Nothing saved”.</li><li><span class="nt-area">Phone:</span> Open the advert on LinkedIn and Mark applied under the header, a row of Save CV, Rescore role and Download with “Rescore role: one paid call, about 2p. Start again from master and Line numbers are in the CV view.”, then the views Asks, CV and Advert; the scores table opens the Asks view, and each ask row opens in place to show its cited lines, its source sentence and its change.</li></ul></section><section class="nt-sec" aria-labelledby="c-margin-notes-heading"><h2 id="c-margin-notes-heading">C: Margin notes</h2><h3 class="nt-h3">Rationale</h3><p>C places each ask beside the CV line that evidences it, as a reviewer&#x27;s comments sit beside a manuscript, so where the CV answers an ask is read by position. The tailored copy stays at the centre at full size on a dark sheet in the app&#x27;s own tokens, with a Paper preview switch that shows it white, as the Word file prints. Asks that no line evidences are listed at the top of the margin under “Not evidenced on the CV”, so the gaps are read first, and at 2560 the advert stands on the left with its headings kept and each ask&#x27;s sentence underlined. A rail on the right holds the two scores side by side and the steps of the sitting: six plain buttons in the order they are used, each with its facts, and no ticks. At 1280 the advert and the rail open as drawers from the page header, and on a phone the CV becomes a reading view with each ask printed under the lines it cites.</p><h3 class="nt-h3">Trade-offs</h3><ul><li class="nt-pair"><p><span class="nt-k">Gives:</span> Evidence is read by position: a note stands level with the first line it cites and a bracket marks its lines, so no list has to be matched to the sheet.</p><p><span class="nt-k">Costs:</span> Where many asks cite neighbouring lines, notes are pushed off their lines and depend on the thin lines that join them to their brackets: the Linwood Infusion entry has 8 notes for its 9 lines, and its last note sits about 230px below its line.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> The sheet is at 100% at 2560 and at 1280, line for line as the Word file.</p><p><span class="nt-k">Costs:</span> Page 2 and its 5 notes are below the fold at 2560, which the margin says in “13 notes beside page 1 and 5 beside page 2.” From 1024 to 1279px the sheet is at 80%, with body text of about 11px.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Gaps are read first, with missing, unanchored and stale asks listed at the top of the margin.</p><p><span class="nt-k">Costs:</span> A stale ask leaves the place where its line was; the way back is its label, “CV line 34 when scored, since changed”, and the word Changed on the sheet.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> The steps record the sitting in words (rescored 13 Nov 10:42, saved 13 Nov 10:44) with no ticks, and Rescore role&#x27;s cost sits beside the button.</p><p><span class="nt-k">Costs:</span> At 1280 the scores and the steps are one press away in a drawer and the job description in another, so the notes and the job description are not in view together; on a phone the steps come before a long reading view.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> A dark sheet, so no white page sits in a dark app and the screen keeps one look.</p><p><span class="nt-k">Costs:</span> What is on screen is not literally what prints until Paper preview is switched on.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> The advert marks the sentence each ask was read from, so an ask can be checked against the employer&#x27;s wording.</p><p><span class="nt-k">Costs:</span> It needs two things the product does not store today: the advert&#x27;s headings and lists, and a tie from each ask to its sentence.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> On a phone each ask is printed under the lines it cites, so its evidence is read in place.</p><p><span class="nt-k">Costs:</span> The page shape and the page breaks are not visible there, and the page runs to about 7,900px before its legend.</p></li><li class="nt-pair"><p><span class="nt-k">Gives:</span> Notes follow their lines as the copy is edited.</p><p><span class="nt-k">Costs:</span> The notes must be measured and placed by a script in the browser, and placed again after every edit.</p></li></ul><h3 class="nt-h3">What it borrows</h3><h4 class="nt-sub">From the Enhancv model</h4><ul><li>The sheet as the one editing surface, at full size.</li><li>A preview of the sheet without editing aids: Enhancv&#x27;s Preview, here the Paper preview switch that shows the page white.</li><li>Controls that stand outside the text and cover nothing, as Enhancv&#x27;s side button and its column of icons do.</li></ul><h4 class="nt-sub">From other products</h4><ul><li>Comments in the margin, each level with the text it refers to and joined to it by a line, as Word shows a document under review.</li><li>A source with the sentence a note rests on underlined, as a reading or annotation tool marks a passage.</li></ul><h3 class="nt-h3">Proposals it draws</h3><p class="nt-intro">These come on top of the proposals all three draw, which are listed after C; an item says what the product does today where that helps.</p><ul><li><span class="nt-area">Layout:</span> At 2560 the job description on the left, the CV and its margin of notes in the middle, and a rail for the scores and the steps on the right; from 1800 to 2359px the rail stays and the job description becomes a drawer.</li><li><span class="nt-area">Layout:</span> At 1280 the sheet and its notes, with “Show the job description” and “Show scores and steps” in the page header opening drawers.</li><li><span class="nt-area">Layout:</span> The role&#x27;s title as the page&#x27;s heading (today “Prepare application”).</li><li><span class="nt-area">Sheet:</span> A dark sheet in the app&#x27;s dark tokens with light ink, at 100% at 2560 and 1280 and 80% from 1024 to 1279px, and a “Paper preview” switch in the toolbar that shows it white.</li><li><span class="nt-area">Sheet:</span> The numbers of the lines that asks cite shown by themselves, with the Line numbers switch off.</li><li><span class="nt-area">Asks:</span> A margin column of notes: each met or partly ask level with the first line it cites, a bracket in the sheet&#x27;s right margin over its lines with a tick per line, and a thin line joining the bracket to its note; the selected note is held level and the others spread round it.</li><li><span class="nt-area">Asks:</span> “Not evidenced on the CV” at the top of the margin for missing, unanchored and stale asks, with “None. Every ask cites at least one line of this copy.” when it is empty, and the count “13 notes beside page 1 and 5 beside page 2.”</li><li><span class="nt-area">Asks:</span> “Also cited by …, noted on page 1.” beside page 2, for an ask whose lines fall on both pages.</li><li><span class="nt-area">Asks:</span> A reason under each partly or missing ask, such as “Traceability is in Jama. Polarion is not named.”, and “Desirable” beside an ask; neither is stored today.</li><li><span class="nt-area">Advert:</span> The job description with its headings and lists kept, each ask&#x27;s sentence underlined in its status style (solid met, dashed partly, dotted missing) with a key line, the selected ask&#x27;s sentence marked, and the pane&#x27;s line “Stored 13 Nov 09:14 from LinkedIn · 3,227 characters”.</li><li><span class="nt-area">Scores:</span> A score rail with Master CV and This copy side by side, each with its tier in words and its basis (what it was scored on, when, the CV file, the model and the prompt), and one gate table for both, its CV match notes labelled “Master CV.” and “This copy.”</li><li><span class="nt-area">Scores:</span> “The job description kept this role a Top prospect. It replaced the card score of 13 Nov 09:02: 81%, Top prospect.” and “The Jobs page keeps showing the master CV&#x27;s score.”</li><li><span class="nt-area">Actions:</span> The steps of the sitting: six plain buttons in the order they are used, each with its facts (Tailor the copy, Rescore role, Save CV, Download, Open the advert on LinkedIn, Mark applied), and Start again from master apart under a rule.</li><li><span class="nt-area">Actions:</span> “Tailor the copy”, a button that takes the focus to the copy, with “3 lines differ from the master CV: 1 reworded, 1 added, 1 cut.”</li><li><span class="nt-area">Actions:</span> Rescore role&#x27;s last run, “Last run 13 Nov 10:42: CV match 86% to 89%. 2 asks changed.”, with the two change lines under it (today the same facts are in the message line and the Tailored copy card).</li><li><span class="nt-area">Actions:</span> Save CV&#x27;s fact, “Saved 13 Nov 10:44 as CV - Alex Rennie - … One saved copy for this role, and nothing on screen has changed since.”, and “Edited since the save at 10:44.” beside the Unsaved changes tag.</li><li><span class="nt-area">Actions:</span> Mark applied&#x27;s fact, “Not applied yet. Records the saved copy as the CV sent, and asks first if the copy on screen is not the saved one.”, and “Opens in a new tab. Radar never submits an application.” under Open the advert on LinkedIn.</li><li><span class="nt-area">States:</span> “Score it against the stored job description” shown unavailable during a wait, beside its clock time.</li><li><span class="nt-area">States:</span> After the copy changed in another tab: a “Reload the page” button with the message, and Rescore role and Save CV held unavailable, “Stores and spends nothing until the page is reloaded.”</li><li><span class="nt-area">States:</span> Download and Mark applied shown unavailable with a reason, and “View the advert” beside the unavailable LinkedIn step for a role from another board.</li><li><span class="nt-area">States:</span> Closed and expired: the Read only tag with “Closed by hand, 9 Nov.” or “Expired 2 Nov, after 45 days with no sign of its advert.”, and “This role is not open.” under Mark applied.</li><li><span class="nt-area">States:</span> Applied: “Applied 13 Nov with CV - … Undo is on the Jobs page, in the Applied section.” under Mark applied.</li><li><span class="nt-area">States:</span> An older prompt: “The scoring prompt is now 97f11cce. This copy was scored with it at 10:42.”</li><li><span class="nt-area">States:</span> While the job description is fetched and scored: static loading bars where the job description and the asks will be.</li><li><span class="nt-area">Phone:</span> The role header, the scores, the rate line and the steps first, then the CV as a reading view with each ask printed under the lines it cites and the open line&#x27;s controls under it, and the job description folded behind “Show the job description”.</li></ul></section><section class="nt-sec" aria-labelledby="proposals-all-three-draw-heading"><h2 id="proposals-all-three-draw-heading">Proposals all three draw</h2><p class="nt-intro">What A, B and C each draw in its own way and the product does not do today.</p><ul><li><span class="nt-area">Sheet:</span> The tailored copy drawn as A4 sheets in Arial, laid out line for line as the Word file and edited in place, with “Page 1 of 2” under each sheet (today a list of numbered one-line fields in the system font, with no pages).</li><li><span class="nt-area">Sheet:</span> A vertical toolbar at the canvas&#x27;s left for page-level tools (today one row of buttons above the CV), and line numbers hidden by default behind a Line numbers switch (today every number is always shown).</li><li><span class="nt-area">Sheet:</span> The line being edited drawn as a field in its own place and type, with Move up, Move down and Delete in the sheet&#x27;s right margin for that line only (today every line is a text field in a numbered list, and the add buttons are always on screen).</li><li><span class="nt-area">Page:</span> Back to Jobs at the head of the page, Jobs current in the navigation, the Appearance control in the app bar, and the role&#x27;s facts as the Jobs row gives them, with “Live, seen 11 Nov” and the Full job spec tag (today no current page is marked, the page has no Appearance control, and whether the role is live is not on it).</li><li><span class="nt-area">Scores:</span> CV match written as a percentage, “86%” and “89%” (today “CV match 86.”).</li><li><span class="nt-area">Scores:</span> The card score shown when the tier held, in a sentence that says so (today nothing is said when the tier holds, and the card score is not drawn).</li><li><span class="nt-area">Actions:</span> Rescore role&#x27;s cost on screen before the press, “One paid call, about 2p.”, and Rescore role shown unavailable, with its reason, when there is no job description to score against (today no cost is stated and the button is always enabled).</li><li><span class="nt-area">Actions:</span> “Mark applied” in place of “Applied, sent it”, with Open the advert on LinkedIn moved from the role&#x27;s facts to the actions.</li><li><span class="nt-area">Actions:</span> The save state in words: the “Unsaved changes” tag and the time of the last save (today nothing labels unsaved edits).</li><li><span class="nt-area">Asks:</span> A selected ask that stays selected, its cited lines lit with a tint, a bar and the status mark (today the highlight clears as soon as the pointer or the focus moves).</li><li><span class="nt-area">Words:</span> “The job description” in sentences in place of “full description”, with the tag kept as “Full job spec”.</li><li><span class="nt-area">States:</span> Clock times for retries, “Try again after 10:35.” and “Try again after 09:19.” (today a duration, and nothing counts down).</li><li><span class="nt-area">States:</span> A closed role and an expired role told apart, each with its date (today one sentence covers every way a role stops being open, with no date).</li><li><span class="nt-area">States:</span> An applied role dated “Applied 13 Nov”, with “Undo is on the Jobs page.” where Mark applied stood.</li></ul></section><section class="nt-sec nt-wide" aria-labelledby="what-varies-heading"><h2 id="what-varies-heading">What varies</h2><p class="nt-intro">One row for each thing the spec leaves open, one column for each variation. Each cell says what that variation draws.</p><div class="nt-scroll" role="region" aria-label="What varies, Prepare application page" tabindex="0"><table class="nt-vary"><thead><tr><th scope="col">What</th><th scope="col">A: Three panes</th><th scope="col">B: Asks grid</th><th scope="col">C: Margin notes</th></tr></thead><tbody><tr><th scope="row">At 2560</th><td>A band of scores and actions under the page header; below it three panes: the CV at 100%, the asks, the advert.</td><td>Three panes: the CV at 80% with a labelled toolbar, the asks grid with the scores above it, the advert.</td><td>Three columns: the job description, the CV at 100% with its margin of notes, and a rail for the scores and the steps.</td></tr><tr><th scope="row">At 1280</th><td>The band, shortened to the scores and the actions; the CV at 80% beside one pane with the tabs Asks and Advert.</td><td>The CV at 75% beside a grid of three columns; the advert in a drawer from the grid&#x27;s header.</td><td>The CV at 100% with its margin notes; the job description, and the scores and steps, in drawers from the page header.</td></tr><tr><th scope="row">On a phone</th><td>The score summary, then the tabs Asks, CV and Advert; Save CV, Mark applied and More in a bar at the foot.</td><td>The role actions, then Save CV, Rescore role and Download, then the views Asks, CV and Advert; ask rows open in place.</td><td>One column: the scores, the rate line and the steps, then the CV as a reading view with each ask under its lines; the job description folded at the foot.</td></tr><tr><th scope="row">Where the scores sit</th><td>In the band, side by side; the gates and the rate line beside them at 2560, in Score details under 1800px.</td><td>In one table at the top of the grid pane, with the gates and the rate line under the two scores.</td><td>In the rail, side by side, with one gate table for both and the rate line.</td></tr><tr><th scope="row">Where the actions sit</th><td>One row in the band, in the order they are used; Mark applied is the primary action, and Start again from master stands apart at the end.</td><td>Page actions in the labelled toolbar beside the sheet; Open the advert on LinkedIn and Mark applied at the right of the page header.</td><td>Six numbered steps in the rail, each a plain button with its facts; Start again from master under a rule.</td></tr><tr><th scope="row">How the asks are listed</th><td>One row each: status, ask, change tag and cited line numbers.</td><td>A table: Ask, Status, CV evidence with the cited words, In the advert, Change.</td><td>Notes in the sheet&#x27;s margin, each level with its first cited line; asks with no line listed at the top.</td></tr><tr><th scope="row">How evidence is linked</th><td>By highlight, both ways: the selected ask lights its lines, and the line in focus lights the asks that cite it.</td><td>In the row, by number and words, with the same highlight on the sheet.</td><td>By position, with a bracket over the cited lines and a thin line to the note, and the same highlight.</td></tr><tr><th scope="row">The advert</th><td>As stored today: plain lines.</td><td>Headings and bullets kept, unmarked; each ask quotes and links its sentence.</td><td>Headings and lists kept; each ask&#x27;s sentence underlined in its status style.</td></tr><tr><th scope="row">How the paper sits in the dark app</th><td>White, as the Word file prints.</td><td>Dimmed: a cool grey, #dce1e4, with dark ink.</td><td>Dark, in the app&#x27;s tokens, with a Paper preview switch for white.</td></tr><tr><th scope="row">Line numbers on the sheet</th><td>Off by default; the switch shows every number.</td><td>Off by default except for the selected ask&#x27;s lines and the line being edited; the switch shows every number.</td><td>Off by default except for the lines asks cite; the switch shows every number.</td></tr><tr><th scope="row">Rescore role&#x27;s cost</th><td>Beside the button, in the band.</td><td>Under its name in the toolbar.</td><td>Beside its step in the rail.</td></tr><tr><th scope="row">Ask and advert data not stored today</th><td>None: the asks and the advert are drawn from what is stored.</td><td>The advert sentence behind each ask; the advert&#x27;s headings and bullets.</td><td>The advert sentence behind each ask; the advert&#x27;s headings and lists; a reason under partly and missing asks; the Desirable flag.</td></tr></tbody></table></div></section><section class="nt-sec" aria-labelledby="where-the-brief-and-the-build-differ-heading"><h2 id="where-the-brief-and-the-build-differ-heading">Where the brief and the build differ</h2><p class="nt-intro">From the ground truth of what is built (its sections 5 and 6): what a designer or the owner has to know before choosing.</p><ul><li>Line numbers are positions, not identities. Every line of the CV text is numbered from 1, headings and the blank line before each heading included, and a number shifts when a line is added or removed above. A citation survives an edit because the cited line is found again by its words: a moved line shows “(14 when scored)”, and a cited line whose words changed makes its ask stale. The brief&#x27;s stable number on every line is not built; all three variations hide the numbers by default, and when they show, blank lines show none, so the visible numbers skip.</li><li>The copy is not drawn as a page today. The same editor as the CV page draws it as a column of numbered one-line fields in the system font, so what is on screen does not match the Word file that is downloaded.</li><li>An experience entry is one heading line of free text, “Job title, Company (what it makes), 2022 to 2024”, with its lines and bullets under it. There are no separate fields for company, job title, dates or location, and the Word template has no tabs or tables, so nothing can sit at the right-hand edge.</li><li>The brief&#x27;s typical CV is two pages of about 120 lines. In the Word template a CV of about 112 numbered lines took three pages, so two pages hold about 90: the sample was cut to 94 numbered lines, which Word sets on two pages with page 2 starting at line 49.</li><li>The brief&#x27;s slim vertical toolbar follows the layout Enhancv used from 2024 to early 2026. In spring 2026 Enhancv began moving those tools to a bar across the top (its help note of 7 Apr 2026 says some users see it), and whether the left toolbar is still served could not be established. All three variations keep a toolbar at the left, as the brief asks.</li><li>The theme defaults to Auto, which follows the operating system, with Light and Dark as choices set on Home or Jobs; these two pages have no Appearance control today. The brief calls the current theme dark: every frame is drawn dark, with the control in the app bar.</li><li>Today this page&#x27;s navigation lists Home, Jobs, Insights and CV and marks no page as current; the CV page&#x27;s lists Home, Jobs and Insights.</li><li>Jobs says “full job spec” (its tag, and “Scored on the full job spec” in a row&#x27;s detail) and the Prepare page says “full description”. These designs say “the job description” in sentences and keep the tag “Full job spec”.</li><li>Only LinkedIn adverts can be fetched. A role from Reed, Indeed or CV-Library never gets a job description, asks, a rate line or Rescore role; its CV can still be tailored, saved, downloaded and marked applied.</li><li>The brief says the fetch and the score take tens of seconds; the page&#x27;s own note says “a few seconds”, and nothing in the source measures it. The work starts by itself only when the Jobs link is followed over https, and otherwise from a button at the foot of the page.</li><li>The first score on the job description replaces the role&#x27;s own score, the one Jobs shows, and can move its tier, into Filtered too, which takes the role off the Jobs list. It is made once per version of the description and never again from this page, even after the prompt or the master CV changes.</li><li>The page prints CV match as a bare number, “CV match 86.”, where Jobs shows “86%”. The master&#x27;s tier is a chip beside the heading “The role”, and the copy&#x27;s is a sentence in its card. When the tier holds, nothing is said and the card score is not drawn.</li><li>A score made with an older prompt is flagged only on the master&#x27;s score, which is never made again from this page; the copy&#x27;s score prints its prompt version and is never flagged.</li><li>An ask is the scorer&#x27;s own wording, up to 25 from one advert. Nothing stored ties an ask to a sentence of the advert, flags a must-have or gives a reason, and the stored advert is plain lines with no headings or bullets.</li><li>No cost is stated before Rescore role is pressed, the button is always enabled, and several presses spend nothing and say so afterwards. The cost note prices the call at about 1.7 US cents, and at most about 6 cents for a reply that reaches its cap; the designs round it up to “about 2p”.</li><li>Rescore role lists the asks that changed only when the score before it had asks on the same description; after a card score it lists none.</li><li>Save CV&#x27;s name is made by the code and cannot be edited: a company the advert does not name is left out, long parts are cut so that the name stays within 150 characters, and each role keeps one saved copy, which the next save replaces.</li><li>Open the advert on LinkedIn sits among the role&#x27;s facts, away from Applied. Applied asks first only on this page: the Applied button on a Jobs row marks the role with no question.</li><li>Start again from master copies the master as it is now, which may be a later version than the copy was made from, and keeps the saved copy and every score.</li><li>Closed, expired, dismissed and acknowledged roles share one sentence, “not open”, with no date. An applied role&#x27;s page shows the saved copy as it was sent, has no undo, and is reached only by its address: the Applied list on Jobs does not link to it.</li><li>Typing is not stored until Rescore role or Save CV is pressed, and nothing labels unsaved edits but the browser&#x27;s leave-page prompt. After a fetch and score, a Rescore role, a Save CV or a Start again from master, the right-hand side is drawn again whole, so anything the browser alone had drawn there is lost.</li><li>Waits the brief does not mention, all held in memory and forgotten when the dashboard restarts: 10 minutes for every role after LinkedIn answers 429; 5 minutes for a role after a LinkedIn page that cannot be used; 5 minutes after a scorer&#x27;s reply that cannot be used; 20 seconds after a scorer error; at least 8 seconds between requests to LinkedIn; up to 150 seconds for a second click on the same role; and 30 minutes for work that was paid for but could not be stored. A wait the page reports is given as a duration, and nothing counts down.</li><li>Caps the brief does not mention: 4 CV lines cited for an ask, 240 characters of an ask, 200 of a pay quote and 20,000 of a stored description, which the page says when it cuts; a CV of 20,000 characters, 400 lines and 1,000 characters on a line; and one tailored copy per role, shared by every advert in its repost chain.</li><li>In the editor today a field in focus shows only a change of border colour and ground: the page&#x27;s focus outline is switched off inside the editor&#x27;s fields.</li><li>Both pages need JavaScript for every action; without it they show what is stored.</li></ul></section><section class="nt-sec" aria-labelledby="questions-heading"><h2 id="questions-heading">Questions</h2><h3 class="nt-h3">Questions that bear on the choice between A, B and C</h3><ol><li>How should the paper sit in the dark app: white, as the Word file prints (A), a dimmed grey with dark ink (B), or dark with a Paper preview switch (C)? The same choice holds on the CV page.</li><li>How should the asks show their evidence at 2560: one row per ask with the cited words left to the sheet (A), a grid that prints the cited words beside the sheet (B), or notes in the sheet&#x27;s margin (C)?</li><li>How small may the sheet be drawn to make room beside it? At 2560 A and C draw it at 100% and B at 80%; at 1280 A draws it at 80%, B at 75% and C at 100%.</li><li>At 1280, what should go one press away: the gates, the rate line and the advert (A: Score details and a tab beside Asks), the advert (B: a drawer), or the job description and the scores and steps (C: two drawers)? Should Rescore role and Save CV stay on screen at 1280 whichever is chosen?</li><li>Should one action be drawn filled as the page&#x27;s primary action: Mark applied, as A draws it, Save CV while there are unsaved changes, or none, as B and C draw it?</li><li>On a phone, should the CV be a reflowed reading view, as A&#x27;s CV tab and C draw it, or the A4 sheet scaled to the screen? B names a CV view on the phone and does not draw it.</li></ol><h3 class="nt-h3">Questions for one variation, if it is chosen</h3><p class="nt-intro">Three for each variation.</p><ol start="7"><li>In A, should the selected ask also print the words of its cited lines, under its row?</li><li>In A, the gate strip shows the master CV&#x27;s gates and says the copy passes the same four. Should it switch to the copy&#x27;s gates once the copy has been rescored?</li><li>In A, the selected ask&#x27;s lines and the asks that cite the line in focus can be lit at once. Should only the selected ask&#x27;s highlight show while an ask is selected?</li><li>In B, at 1280 and on a phone the gates show marks and names only. Should the scorer&#x27;s gate notes stay at every width, at the cost of fewer asks in view?</li><li>In B, on a phone, should Start again from master and Line numbers also be reachable from the Asks view, or is the CV view enough?</li><li>In B, the In the advert column is dropped at 1280, where the advert is a drawer. Should it stay there, at the cost of narrower columns?</li><li>In C, notes may stand above or below their line, whichever keeps the column nearest its lines; Word only moves comments down, which puts them further away. Which is wanted?</li><li>In C, should a stale ask move to “Not evidenced on the CV”, as drawn, or stay beside the reworded line marked “Stale, was met”?</li><li>In C, is “Tailor the copy”, a step whose button only moves the focus to the copy, worth keeping?</li></ol><h3 class="nt-h3">Questions that stand whichever is chosen</h3><ol start="16"><li>Should a selected ask stay selected while the copy is edited, as all three draw it, or should the highlight follow the pointer and the focus only, as built today?</li><li>Jobs says “Full job spec” (the tag) and these pages say “the job description” in sentences. Keep the split, or use one term on both pages?</li><li>Should the scorer return, and the product store, the advert sentence behind each ask (B and C draw it) and a reason under each partly or missing ask (C draws it)?</li><li>The brief asks for a stable number on every line; the build numbers lines by position and finds a cited line again by its words. Keep positions, or build a stable id for each line?</li><li>Undo and Redo do not exist today; A draws them in its toolbar on this page, and A and C on the CV page. Is a history of edits in the editor worth building?</li></ol></section><section class="nt-sec" aria-labelledby="frames-heading"><h2 id="frames-heading">Frames</h2><table class="nt-frames" aria-label="Frames of the Prepare application page"><thead><tr><th scope="col">Frame</th><th scope="col">What</th><th scope="col">Size</th><th scope="col">File</th></tr></thead><tbody><tr><th scope="row">prepare-A-2560</th><td>A, 2560 wide, annotated</td><td>2560 × 1837</td><td>prepare-A.html</td></tr><tr><th scope="row">prepare-A-1280</th><td>A, 1280 wide, annotated</td><td>1280 × 1565</td><td>prepare-A.html</td></tr><tr><th scope="row">prepare-A-phone</th><td>A, 390 wide, a phone, annotated</td><td>390 × 3444</td><td>prepare-A.html</td></tr><tr><th scope="row">prepare-A-states</th><td>A, states board</td><td>2560 × 4896</td><td>prepare-A-states.html</td></tr><tr><th scope="row">prepare-B-2560</th><td>B, 2560 wide, annotated</td><td>2560 × 1861</td><td>prepare-B.html</td></tr><tr><th scope="row">prepare-B-1280</th><td>B, 1280 wide, annotated</td><td>1280 × 1493</td><td>prepare-B.html</td></tr><tr><th scope="row">prepare-B-phone</th><td>B, 390 wide, a phone, annotated</td><td>390 × 3958</td><td>prepare-B.html</td></tr><tr><th scope="row">prepare-B-states</th><td>B, states board</td><td>2560 × 4088</td><td>prepare-B-states.html</td></tr><tr><th scope="row">prepare-C-2560</th><td>C, 2560 wide, annotated</td><td>2560 × 1881</td><td>prepare-C.html</td></tr><tr><th scope="row">prepare-C-1280</th><td>C, 1280 wide, annotated</td><td>1280 × 1493</td><td>prepare-C.html</td></tr><tr><th scope="row">prepare-C-phone</th><td>C, 390 wide, a phone, annotated</td><td>390 × 9070</td><td>prepare-C.html</td></tr><tr><th scope="row">prepare-C-states</th><td>C, states board</td><td>2560 × 4380</td><td>prepare-C-states.html</td></tr></tbody></table><p class="after-table">Each annotated frame is the screen, 1440px high from 1800px wide and 900px from 1024 to 1799px, with its legend under it; a phone frame is the whole page with its legend. A variation's 2560, 1280 and phone frames are one file at three widths, and its states board draws the eleven states of the spec at real size; A's board adds a twelfth panel for the phone's More menu and CV tab. This stage's own frames are notes-prepare (1280 × 13773), notes-cv (1280 × 12978) and system (1280 × 14442).</p></section></div>
+</body>
+</html>
