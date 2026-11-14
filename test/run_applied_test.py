@@ -2638,7 +2638,7 @@ def nothing_else_changes_checks() -> None:
     def squash(html: str) -> str:
         # The page's newest row id, and the Applied count in the link and the
         # Show menu, are the Applied view's business.
-        html = re.sub(r'"stamp": \d+', '"stamp": N', html)
+        html = re.sub(r'&quot;stamp&quot;: \d+', '&quot;stamp&quot;: N', html)
         return re.sub(r'Applied <span class="(group-count|chip-count)">\d+</span>',
                       r'Applied <span class="\1">N</span>', html)
 

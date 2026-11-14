@@ -6,6 +6,11 @@ this page against seeded data, and the proof queries are shown there to catch
 what they exist to catch. The `sqlite3` command line was not installed where
 they were written, so they were run through Python's `sqlite3`, not the CLI.
 
+Since the Jobs redesign (docs/box-checks-jobs-redesign.md) the Jobs page lists
+roles and draws the Applied and Prepare buttons only in the pane of the role
+that is open, so the two `data-apply="|data-prepare="` counts below read 0 and
+0 on a box that runs it. They are a check of the page from before it.
+
 What the deploy changes on the box:
 
 - a new table, `tailored_cvs`, and one nullable column, `score_history.cv_hash`,

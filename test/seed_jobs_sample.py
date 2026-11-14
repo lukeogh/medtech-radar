@@ -84,7 +84,7 @@ SOURCES = {"LinkedIn": "linkedin-alert", "Reed": "reed-alert",
 def day(text: str, hour: int = 9, minute: int = 0) -> str:
     """'21 Oct' as a stored timestamp, moved by SHIFT."""
     d, m = text.split()
-    moment = datetime(2026 if MONTHS[m] <= 11 or True else 2026, MONTHS[m], int(d),
+    moment = datetime(2026, MONTHS[m], int(d),
                       hour, minute, tzinfo=timezone.utc) + SHIFT
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -383,9 +383,11 @@ def seed(path: Path) -> dict:
                  ("Hartwell Infusion Ltd", day("30 Oct"), "comment",
                   "Commented on the Q3 hiring post", "Connection note to the VP Quality",
                   day("15 Nov")[:10], hartwell))
-    # The inbox ran on schedule this morning.
+    # The inbox ran on schedule: an hour before the seed, so the top bar reads
+    # as the design drew it whenever the seed is run.
+    ran = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     conn.execute("INSERT INTO runs (ts, workflow, mode, items_in, items_new, outcome)"
-                 " VALUES (?, 'inbox', 'live', 12, 4, 'ok')", (day("13 Nov", 9, 2),))
+                 " VALUES (?, 'inbox', 'live', 12, 4, 'ok')", (ran,))
     conn.commit()
     conn.close()
     return ids

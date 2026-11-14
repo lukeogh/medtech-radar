@@ -80,7 +80,6 @@ FRAME_CSS = """
 .appbar .bar-btn:hover{color:var(--text-1);background:var(--row-hover)}
 .appbar .menu-btn{display:none}
 .appbar .menu-panel{display:none}
-@media (max-width:959.98px){.appbar .appbar-tools .inbox-status{display:none}}
 @media (max-width:767.98px){
   .appbar{gap:16px}
   .appbar .nav,.appbar .appbar-tools,.appbar .brand-name{display:none}

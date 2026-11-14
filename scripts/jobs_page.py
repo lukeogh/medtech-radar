@@ -1119,7 +1119,7 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
              "unread": bool((face or {}).get("_unread")),
              "title": (face or {}).get("title") or "",
              "readAfter": READ_AFTER_MS, "stamp": model["stamp"]}
-    state_json = json.dumps(state).replace("<", "\\u003c")
+    state_json = esc(json.dumps(state))
     page = f"""<!doctype html>
 <html lang="en-GB">
 <head>
@@ -1130,7 +1130,7 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 <style>{page_frame.FRAME_CSS}{JOBS_CSS}</style>
 </head>
 <body>
-<div class="app" data-page="jobs" data-show="{view}" data-view="{"role" if face is not None else "list"}">
+<div class="app" data-page="jobs" data-show="{view}" data-view="{"role" if face is not None else "list"}" data-state="{state_json}">
 {SYMBOLS}
 {page_frame.appbar_html("jobs", bd.job_verdicts(data), "Jobs", help_button=True)}
 <div class="pagehead">
@@ -1149,12 +1149,12 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 <dialog class="keys" id="keys" aria-labelledby="keys-title">
 <h2 id="keys-title">Keyboard shortcuts</h2>
 <p class="keys-note">The keys work anywhere on this page except while you type in a field.</p>
+<p class="keys-toggle"><label><input type="checkbox" id="keys-on" checked> Single-key shortcuts on</label></p>
 {keymap_html()}
 <form method="dialog"><button type="submit" class="btn btn-secondary">Close</button></form>
 </dialog>
 <template id="no-selection">{no_selection_html(view)}</template>
 </div>
-<script type="application/json" id="jobs-state">{state_json}</script>
 <script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{JOBS_SCRIPT}</script>
 </body>
 </html>"""
@@ -1255,6 +1255,7 @@ a{color:inherit}
 .mk-nj{color:var(--neutral)}
 .mk-tip{display:none;position:absolute;right:-4px;bottom:calc(100% + 4px);z-index:6;width:max-content;max-width:min(400px,calc(100cqi - 32px));padding:1px 8px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface);box-shadow:var(--shadow-overlay);color:var(--text-1);font-size:12px;line-height:16px;font-weight:400;text-align:left;white-space:normal}
 .mk:hover .mk-tip,.mk:focus-visible .mk-tip{display:block}
+.mk.tip-off .mk-tip{display:none}
 .mk:focus-visible{outline-offset:1px}
 .row-applied{grid-template-rows:20px 16px;row-gap:4px;min-height:56px}
 .gates-head{display:flex;flex:none;margin-left:auto}
@@ -1338,6 +1339,9 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
 .keys::backdrop{background:rgba(0,0,0,.6)}
 .keys h2{font-size:18px;line-height:24px;font-weight:600}
 .keys-note{margin-top:4px;color:var(--text-2)}
+.keys-toggle{margin-top:12px}
+.keys-toggle label{display:inline-flex;align-items:center;gap:8px;min-height:32px;cursor:pointer}
+.keys-toggle input{width:18px;height:18px;accent-color:var(--accent)}
 .keys form{margin-top:16px}
 @media (max-width:1799.98px){.ph-tools{flex-basis:100%;margin-left:0}}
 @container queue (max-width:611.98px){
@@ -1383,7 +1387,7 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
 @media (max-width:1023.98px){
   .kbd{display:none}
   .app[data-view="role"] .queue{display:none}
-  .app[data-view="role"] .pagehead{position:absolute;width:1px;height:1px;min-height:0;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+  .app[data-view="role"] .pagehead{display:none}
   .app[data-view="list"] .role{display:none}
   .back{display:inline-flex;align-items:center;margin-bottom:8px}
   .prevnext{display:none}
@@ -1425,7 +1429,7 @@ JOBS_SCRIPT = """
 (function () {
   var app = document.querySelector('.app[data-page="jobs"]');
   if (!app) return;
-  var state = JSON.parse(document.getElementById('jobs-state').textContent);
+  var state = JSON.parse(app.dataset.state);
   var view = state.view;
   var qs = view === 'open' ? '' : '?show=' + view;
   var amp = view === 'open' ? '' : '&show=' + view;
@@ -1563,9 +1567,12 @@ JOBS_SCRIPT = """
     }
   }
   function markRead(info) {
-    if (!info || !info.unread) return;
-    info.unread = false;
-    post('read', info.id).then(function (j) { if (j && j.ok) clearNew(info); });
+    if (!info || !info.unread || info.reading) return;
+    info.reading = true;
+    post('read', info.id).then(function (j) {
+      info.reading = false;
+      if (j && j.ok) { info.unread = false; clearNew(info); }
+    }, function () { info.reading = false; });
   }
   function startRead(info) {
     clearTimeout(readTimer);
@@ -1596,9 +1603,11 @@ JOBS_SCRIPT = """
     var ready = (!row && view === 'open' && j.tier === 'reading') ? setReading(true) : Promise.resolve();
     ready.then(function () { markCurrent(j.key, !!opts.focusRow && !narrow.matches); });
     if (narrow.matches) {
+      // One screen at a time: the role replaces the list, so focus goes to
+      // its heading, whatever opened it.
       window.scrollTo(0, 0);
       var h = document.getElementById('role-title');
-      if (h && opts.focusTitle !== false) h.focus({ preventScroll: true });
+      if (h) h.focus({ preventScroll: true });
     }
     startRead(current);
   }
@@ -1634,10 +1643,17 @@ JOBS_SCRIPT = """
       if (link) link.focus({ preventScroll: true });
     }
   }
-  window.addEventListener('popstate', function (e) {
+  window.addEventListener('popstate', function () {
+    // A quote's link to the advert, or the skip link, moves only the hash,
+    // and the browser reports that as a step in history too. The role on
+    // screen is still the one the address names, so nothing is redrawn.
     var m = location.pathname.match(/^\\/jobs\\/(\\d+)/);
-    if (m) select(Number(m[1]), { push: false });
-    else showList(false);
+    if (m) {
+      if (current && current.id === Number(m[1])) return;
+      select(Number(m[1]), { push: false });
+    } else if (current) {
+      showList(false);
+    }
   });
 
   // ---- actions
@@ -1649,7 +1665,7 @@ JOBS_SCRIPT = """
     // Undo on an application forgets the day it was applied, and marking it
     // applied again records a new day, so it asks first.
     if (kind === 'unapply' && !window.confirm('Undo this application? The day you applied is '
-        + 'forgotten, and applying again records a new day.')) return Promise.resolve(false);
+        + 'forgotten, and applying again records a new day.')) return Promise.resolve('cancelled');
     var title = current && current.id === id ? current.title : (undoing && undoing.title) || '';
     var after = nextAfter();
     var buttons = role.querySelectorAll('[data-act]');
@@ -1657,8 +1673,10 @@ JOBS_SCRIPT = """
     return post(kind, id).then(function (j) {
       buttons.forEach(function (b) { b.disabled = false; b.removeAttribute('aria-busy'); });
       if (!j || j.ok === false) {
+        // The server answered and said no: the role is not in the state
+        // that action expects, so trying it again cannot help.
         say((j && j.note) || 'That did not stick. Try again.', true);
-        return false;
+        return 'refused';
       }
       if (!undoing && INVERSE[kind]) {
         var s = stack();
@@ -1680,24 +1698,31 @@ JOBS_SCRIPT = """
         }
         if (target === null) { showList(true); return; }
         return select(target, { focusRow: true, focusTitle: false });
-      }).then(function () { return true; }, function () { return true; });
+      }).then(function () { return 'ok'; }, function () { return 'ok'; });
     }, function () {
       buttons.forEach(function (b) { b.disabled = false; b.removeAttribute('aria-busy'); });
       say('No usable answer came back, so that may not have saved. Reload to check.', true);
-      return false;
+      return 'error';
     });
   }
   function keyOf(id) {
     var row = queue.querySelector('.row[data-id="' + id + '"]');
     return row ? row.dataset.key : '';
   }
+  var undoing = false;
   function undoLast() {
     var s = stack();
-    if (!s.length) return;
+    if (!s.length || undoing) return;
+    undoing = true;
+    undoBtn.disabled = true;
     var last = s.pop();
-    act(INVERSE[last.kind], last.id, last).then(function (ok) {
-      // The entry leaves the stack only once its undo has stuck.
-      if (ok) setStack(s);
+    act(INVERSE[last.kind], last.id, last).then(function (outcome) {
+      undoing = false;
+      // The entry leaves the stack once its undo has stuck, or once the
+      // server has refused it, as it would every time after. A network
+      // failure or a cancelled question keeps it, to try again.
+      if (outcome === 'ok' || outcome === 'refused') setStack(s);
+      else setStack(stack());
     });
   }
   undoBtn.addEventListener('click', undoLast);
@@ -1768,10 +1793,35 @@ JOBS_SCRIPT = """
   }
   var keysBtn = document.getElementById('keys-open');
   if (keysBtn) keysBtn.addEventListener('click', openKeys);
+  // The single-key shortcuts can be turned off in the list of keys, for
+  // speech input and anyone who presses them by accident (WCAG 2.1.4).
+  var keysToggle = document.getElementById('keys-on');
+  function keysOn() {
+    try { return localStorage.getItem('radar-jobs-keys') !== 'off'; } catch (e) { return true; }
+  }
+  if (keysToggle) {
+    keysToggle.checked = keysOn();
+    keysToggle.addEventListener('change', function () {
+      try { localStorage.setItem('radar-jobs-keys', keysToggle.checked ? 'on' : 'off'); } catch (e) {}
+    });
+  }
+  // Escape hides a gate mark's tooltip while it is hovered or focused
+  // (WCAG 1.4.13); it shows again the next time the mark is reached.
+  function hideTips() {
+    queue.querySelectorAll('.mk:hover, .mk:focus').forEach(function (m) { m.classList.add('tip-off'); });
+  }
+  ['mouseout', 'focusout'].forEach(function (type) {
+    queue.addEventListener(type, function (e) {
+      var m = e.target.closest && e.target.closest('.mk');
+      if (m) m.classList.remove('tip-off');
+    });
+  });
   document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') hideTips();
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
     if (typing(e.target) || keys.open) return;
     if (e.key === 'Escape' && !showList_.hidden) { setShow(false); showBtn.focus(); return; }
+    if (!keysOn()) return;
     if (e.key === '?') { e.preventDefault(); openKeys(); return; }
     if (e.shiftKey) return;
     var k = (e.key || '').toLowerCase();
@@ -1795,7 +1845,12 @@ JOBS_SCRIPT = """
     }).catch(function () {});
   }
   arrivals.addEventListener('click', function () {
-    refreshQueue().then(function () { say('The list is up to date.'); });
+    refreshQueue().then(function () {
+      say('The list is up to date.');
+      // The notice has gone, so focus goes to the top of the list.
+      var first = queue.querySelector('.r-link');
+      if (first) first.focus();
+    });
   });
   setInterval(checkArrivals, 120000);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) checkArrivals(); });
