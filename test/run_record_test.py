@@ -1204,9 +1204,12 @@ def history_semantics_checks() -> None:
               "the archive leaves the caller's transaction open, so rolling the caller "
               "back takes the history row with it")
 
-        # Each of the twelve things the history keeps counts as a different
-        # score. The last two arrived with Prepare application. The history
-        # calls the per-ask working "working", the row calls it score_working.
+        # Each of the thirteen things the history keeps counts as a different
+        # score. description_hash and working arrived with Prepare
+        # application, reasons with the quoted reasons. The history calls the
+        # per-ask working "working" and the reasons "reasons", the row calls
+        # them score_working and score_reasons. Reasons only count when they
+        # carry the date of the score they sit with, as these do.
         variations = {
             "scored_at": "2026-11-06T10:00:00Z", "score_basis": "spec",
             "prompt_version": "ffff0000", "score_model": "another-model",
@@ -1214,8 +1217,10 @@ def history_semantics_checks() -> None:
             "filter_reason": "something else", "one_line_why": "A different sentence.",
             "gate_location": 0, "description_hash": "0123456789ab",
             "working": '{"v": 1, "asks": []}',
+            "reasons": json.dumps({"v": 1, "scored_at": "2026-11-05T10:00:00Z",
+                                   "basis": "card", "reasons": [], "dropped": 0}),
         }
-        on_row = {"working": "score_working"}
+        on_row = {"working": "score_working", "reasons": "score_reasons"}
         check(set(variations) - {"gate_location"} | {"gates"} == set(radar_common._HISTORY_FIELDS),
               "the variations below cover every field the history keeps")
         missed = []
@@ -1238,7 +1243,7 @@ def history_semantics_checks() -> None:
             if len(history(conn, oid)) != 2:
                 missed.append(f"{column} change not kept")
         check(not missed,
-              f"a score is kept again when any one of its twelve fields differs ({missed})")
+              f"a score is kept again when any one of its thirteen fields differs ({missed})")
 
         # A filtered row keeps its reason.
         weak = seed(conn, **scored_row(role_key="weak", cv_match=30, gate_cv=0, tier="filtered",
@@ -1475,8 +1480,11 @@ def live_call_checks() -> None:
               "the live branch reports the stop reason and the model that answered")
         check(seen["temperature"] == 0 and seen["max_tokens"] == 1024
               and seen["model"] == "claude-asked-for"
-              and score_item.MAX_TOKENS == 1024,
-              "and still sends temperature 0, and MAX_TOKENS is the 1024 it was")
+              and score_item.MAX_TOKENS == 1024
+              and score_item.CARD_MAX_TOKENS == 2048,
+              "and still sends temperature 0, MAX_TOKENS is the 1024 it was, the "
+              "extractor's and the pay backfill's, and a card's score has "
+              "CARD_MAX_TOKENS, 2048, since its reply carries quoted reasons")
         sys.modules["anthropic"] = fake_module(types.SimpleNamespace(
             content=body, usage=usage, stop_reason=None))
         _, got = radar_common.claude_call("claude-asked-for", "s", "u")

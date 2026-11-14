@@ -13,6 +13,8 @@ score opportunities, so the logic lives in exactly one place. Responsibilities:
   on a parse failure, then give up with a note. A full description (Prepare
   application) is scored with one call and no retry, at its own ceiling, with
   the CV numbered so that the asks in the reply can cite and be checked.
+- Hold the quote of each reason a reply gives to the text that was scored,
+  the alert card or the full description, and keep only what is found there.
 
 Also runnable on its own for a spot check of one opportunity:
   python scripts/score_item.py --mock < opportunity.json
@@ -24,6 +26,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -40,30 +43,65 @@ PROMPTS_DIR = radar_common.PROMPTS_DIR
 PROFILE_DIR = REPO_ROOT / "config" / "profile"
 
 MAX_BODY_CHARS = 12000  # cost guardrail on extraction input
-MAX_TOKENS = 1024       # per the build conventions, extraction and scoring
+# The ceiling of the extractor, per the build conventions, and of the pay
+# backfill (backfill_pay.py), which passes no ceiling of its own to
+# _call_for_json and so gets this one.
+MAX_TOKENS = 1024
+
+# A card's score has a ceiling of its own, because its reply now carries up to
+# four reasons, each with a quote. Until then a card shared the extractor's
+# 1,024. The worst card reply the prompt allows is the gates and their notes at
+# the lengths the full description's count below gives them, 1,842 characters,
+# and four reasons of 20 words, each with a quote of 25, in words as long as an
+# advert's, 1,741 characters more. That is 3,583 characters, about 900 tokens at
+# four characters a token and 1,194 at a pessimistic three, which is more than
+# 1,024. At 2,048 the pessimistic count is under three quarters of the ceiling,
+# the room the full description's ceiling keeps. What is billed is what the
+# model writes, so the ceiling costs nothing until a reply reaches for it, and a
+# reply that runs out of it is thrown away, so the margin is the cheap part. A
+# typical card reply, 160 to 360 tokens before the reasons, is about 180 tokens
+# longer with them. The extractor and the pay backfill keep 1,024.
+# test/run_prepare_test.py builds the worst card reply and holds this ceiling
+# to it.
+CARD_MAX_TOKENS = 2048
 
 # The full description call writes more than a card does, because it returns
-# the per-ask working beside the gates. A card reply runs 160 to 360 tokens,
-# the extractor's and the card scorer's ceiling stays where it was, and this is
-# the ceiling for the one call that needs more. A reply that runs out of it is
-# thrown away after being paid for, so the margin is cheap, and the ceiling
-# costs nothing until a reply reaches for it, because what is billed is what
-# the model writes. The worst reply the prompt allows is 25 asks of 20 words each, up to
-# four CV lines apiece, beside the gates and the pay quote. That is about 55
-# tokens an ask and 500 for the rest, near 1,900 tokens, and about 2,800 when
-# counted at three characters a token, which is hard on JSON and on wording as
-# long as an advert's. There is no tokenizer here to count it exactly, so the
-# ceiling is set well over the pessimistic count. A typical advert has about
-# twelve asks, which is about 540 tokens beyond a card's reply.
-# test/run_prepare_test.py builds the worst reply and holds the ceiling to it,
-# so raising the caps without raising this fails a check.
-SPEC_MAX_TOKENS = 4096
+# the per-ask working beside the gates and the reasons, and this is the ceiling
+# for it. A reply that runs out of it is thrown away after being paid for, so
+# the margin is cheap, and the ceiling costs nothing until a reply reaches for
+# it, because what is billed is what the model writes. The worst reply the
+# prompt allows is 25 asks of 20 words each, up to four CV lines apiece, beside
+# the gates, the four reasons and the pay quote. That is 9,961 characters, about
+# 2,490 tokens at four characters a token and 3,320 at three, which is hard on
+# JSON and on wording as long as an advert's. Before the reasons it was 8,220
+# characters and 2,740 tokens at three, which 4,096 held under three quarters of
+# itself; with them the pessimistic count is 81 per cent of 4,096, so the
+# ceiling is 6,144, where it is 54 per cent. There is no tokenizer here to count
+# it exactly, so the ceiling is set well over the pessimistic count. A typical
+# advert has about twelve asks, which is about 540 tokens beyond a card's
+# reply. test/run_prepare_test.py builds the worst reply and holds the ceiling
+# to it, so raising the caps without raising this fails a check.
+SPEC_MAX_TOKENS = 6144
 SPEC_ATTEMPTS = 1       # one model call per click, no retry on a bad reply
 MAX_ASKS = 25           # the most asks kept from one advert
 ASK_TEXT_MAX = 240      # characters kept of one ask
 CV_LINES_PER_ASK = 4    # the most CV lines kept as evidence for one ask
 CV_LINE_TEXT_MAX = 240  # characters kept of a cited CV line
 ASK_STATUSES = ("met", "partly", "missing")
+
+# The reasons a score gives, on either path, and the quote each rests on.
+MAX_REASONS = 4         # the most reasons kept from one reply
+REASON_TEXT_MAX = 240   # characters kept of one reason
+QUOTE_WORDS_MAX = 25    # a quote of more words than this is not kept
+# The fields of an alert card a quote on the card path is held to, as the
+# scorer was given them. Each is searched on its own, so a quote cannot run
+# from the end of one field into the start of the next.
+CARD_QUOTE_FIELDS = ("title", "company", "location", "salary_rate")
+# Why a quote was not kept, recorded on its reason as quote_dropped: empty is
+# a quote missing, blank or with no letter or digit in it, not_text one that
+# is not a string, too_long one of more than QUOTE_WORDS_MAX words, and
+# not_found one that is not in the text word for word.
+QUOTE_DROPS = ("empty", "not_text", "too_long", "not_found")
 
 # The line in prompts/scorer.md under which the full description's part of the
 # rubric begins. A card is scored with the file above it, exactly as it always
@@ -521,6 +559,143 @@ def normalise_asks(raw, cv_lines: list[str]) -> tuple[list[dict], int]:
     return asks, dropped
 
 
+def quote_sources(opp: dict, basis: str = radar_common.SCORE_BASIS_CARD) -> list[str]:
+    """The text the quotes of a reply are held to, as the scorer was given it.
+
+    For a full description, the description, which is the stored
+    description_text the score is made on. For a card, the alert card's own
+    words, title, company, location and pay text, each field on its own, as
+    the scorer was given them. A re-score sends the row's own four fields, so
+    they are what it stores. The inbox stores the title, company and location
+    as the scorer's reply named them, so it holds the quotes kept here to the
+    words it stores as well (hold_reasons).
+    """
+    if basis == radar_common.SCORE_BASIS_SPEC:
+        return [str(opp.get("description") or "")]
+    return [str(opp.get(field) or "") for field in CARD_QUOTE_FIELDS]
+
+
+def _hold_quote(quote, sources: list[str]) -> tuple[str | None, str | None]:
+    """(the text's own words for a quote, None), or (None, why it was dropped).
+
+    The quote is found in one of the sources by radar_common.find_verbatim,
+    the rule the pay line of a full description is held to, with whole words
+    asked for as well: a quote that starts or ends part way through a word or
+    a figure of the text is not found. What is kept is that source's
+    characters. A quote with no letter or digit in it is dropped as empty. It
+    is checked for length before it is looked for, as the pay line is, so a
+    long quote is never searched for.
+    """
+    if quote is None or (isinstance(quote, str) and not quote.strip()):
+        return None, "empty"
+    if not isinstance(quote, str):
+        return None, "not_text"
+    flat = radar_common.flat_text(quote)
+    if not re.search(r"\w", flat):
+        return None, "empty"
+    if len(flat.split(" ")) > QUOTE_WORDS_MAX:
+        return None, "too_long"
+    for source in sources:
+        found = radar_common.find_verbatim(quote, source, whole_words=True)
+        if found:
+            return found, None
+    return None, "not_found"
+
+
+def normalise_reasons(raw, sources: list[str]) -> tuple[list[dict], int]:
+    """The reasons of a reply as they are kept, and how many were not.
+
+    A reason is its words, run through the voice rules like every free-text
+    field and cut at REASON_TEXT_MAX characters, with the quote the model gave
+    for it held to the text that was scored (quote_sources): kept only where it
+    is found there word for word, with case and runs of white space ignored and
+    its first and last words whole words of the text, and kept as that text's
+    own characters. A quote that is empty, is not text, has more than
+    QUOTE_WORDS_MAX words or is not found is dropped, its reason is kept, and
+    the reason's quote_dropped says which of those it was (QUOTE_DROPS). A
+    reason given as a bare string is kept, with no quote.
+    Anything else in the list, an entry with no words for its reason among it,
+    is left out and counted, and so is every reason past the first
+    MAX_REASONS, and so is a reasons field that is there and is not a list.
+    No reasons at all is no reasons, and not a failed score. Returns
+    (reasons, dropped).
+    """
+    if raw is None:
+        return [], 0
+    if not isinstance(raw, list):
+        return [], 1
+    reasons: list[dict] = []
+    # A list longer than any reply should hold is read no further than this.
+    dropped = max(0, len(raw) - 24)
+    sanitise = radar_common.sanitise_free_text
+    for item in raw[:24]:
+        if isinstance(item, str):
+            text, quote = item, None
+        elif isinstance(item, dict) and isinstance(item.get("reason"), str):
+            text, quote = item["reason"], item.get("quote")
+        else:
+            dropped += 1
+            continue
+        text = (sanitise(text.strip()) or "")[:REASON_TEXT_MAX].strip()
+        if not text or len(reasons) >= MAX_REASONS:
+            dropped += 1
+            continue
+        kept, why = _hold_quote(quote, sources)
+        reasons.append({"reason": text, "quote": kept, "quote_dropped": why})
+    return reasons, dropped
+
+
+def reasons_json(raw, sources: list[str], basis: str, scored_at: str,
+                 gates: dict | None = None) -> str:
+    """The reasons of a reply, checked, as the JSON stored beside its score.
+
+    {"v", "scored_at", "basis", "reasons", "dropped"}, and "gates" when given.
+    scored_at is the date of the score they belong to, which a reader checks
+    before it shows them (radar_common.reasons_record). gates are the four
+    gates of that score as the row stores them, sector, cv, location and rate,
+    so that a page can tell when code has judged them again since and say so
+    (radar_common.reasons_gates_moved). A reasons field that cannot be read
+    for any reason at all costs the score nothing: the score keeps no reasons
+    and the record counts one dropped.
+    """
+    try:
+        reasons, dropped = normalise_reasons(raw, sources)
+    except Exception:  # noqa: BLE001  the reasons never cost a score
+        reasons, dropped = [], 1
+    record = {"v": radar_common.REASONS_VERSION, "scored_at": scored_at,
+              "basis": basis, "reasons": reasons, "dropped": dropped}
+    if gates is not None:
+        record["gates"] = gates
+    return json.dumps(record, ensure_ascii=False)
+
+
+def hold_reasons(raw, sources: list[str]) -> str | None:
+    """Stored reasons, with every quote they kept held to sources as well.
+
+    For a writer that stores other words than the scorer was given, as the
+    inbox stores the title, company and location as the reply named them.
+    Each quote kept from the card as it was sent stays only where sources,
+    the words the row stores, hold it too, by the same rule, and where they
+    do not it is dropped as not_found and its reason is kept. A quote that
+    stays keeps the characters of the card it was found in, which are the
+    advert's. raw is the JSON reasons_json made, and None stays None. Never
+    raises: a record that cannot be read comes back as None, no reasons,
+    rather than as reasons whose quotes were not checked.
+    """
+    if raw is None:
+        return None
+    try:
+        record = json.loads(raw)
+        for item in record["reasons"]:
+            if item.get("quote") is not None:
+                found, why = _hold_quote(item["quote"], sources)
+                if found is None:
+                    item["quote"], item["quote_dropped"] = None, why
+        return json.dumps(record, ensure_ascii=False)
+    except Exception:  # noqa: BLE001  the reasons never cost a score
+        return None
+
+
 def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None,
                       floors: dict | None = None,
                       thresholds: dict | None = None,
@@ -543,6 +718,13 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
     the rubric the model actually saw. None is returned for a score that
     failed, including a reply that was cut off at max_tokens.
 
+    It also carries the reasons the reply gave, as score_reasons, the JSON a
+    writer stores beside the score: at most four, each quote held to the text
+    that was scored (quote_sources), the card's fields for a card and the
+    description for a full description, and dropped, with the drop recorded,
+    where it is not found there word for word. Reasons that cannot be read
+    never fail a score. A card is scored at CARD_MAX_TOKENS.
+
     A full description (basis spec) is one model call at SPEC_MAX_TOKENS and
     no retry, so the caller pays for one reply and no more. The reply carries
     the asks as well, and the dict then also carries them checked against the
@@ -559,7 +741,7 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
     parsed, usage, note = _call_for_json(
         config["claude_model_score"], system_blocks, user, mock_fn,
         refuse_cut_off=True, label=_advert_label(opp),
-        max_tokens=SPEC_MAX_TOKENS if spec else None,
+        max_tokens=SPEC_MAX_TOKENS if spec else CARD_MAX_TOKENS,
         attempts=SPEC_ATTEMPTS if spec else 2)
     if parsed is None:
         return None, usage, note
@@ -683,6 +865,14 @@ def _finish_score(parsed: dict, usage: dict, opp: dict, system_blocks,
         "engagement_type": engagement.normalise(parsed.get("engagement_type")),
         "engagement_note": sanitise(str(parsed.get("engagement_note") or "").strip()) or None,
     })
+    # The reasons, each quote held to the text that was scored, and stored
+    # with the date of this score so that a reader can tell they belong to it,
+    # and with its gates so that a page can tell when code has judged those
+    # again since.
+    scored["score_reasons"] = reasons_json(
+        parsed.get("reasons"), quote_sources(opp, basis), basis,
+        scored["scored_at"],
+        gates={name: scored[f"gate_{name}"] for name in radar_common.GATE_NAMES})
     if spec:
         # Whatever in the asks cannot be read is caught by score_opportunity,
         # which guards all of this as one, so it is not caught again here.

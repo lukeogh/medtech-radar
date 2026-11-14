@@ -560,9 +560,9 @@ def migration_checks() -> None:
         check(not errors, "six processes opening the old file at the same "
                           f"moment all succeed, six times over ({errors[:2]})")
 
-    check(radar_common._HISTORY_FIELDS[-2:] == ("description_hash", "working")
-          and len(radar_common._HISTORY_FIELDS) == 12,
-          "the history keeps twelve fields, the last two new")
+    check(radar_common._HISTORY_FIELDS[-3:] == ("description_hash", "working", "reasons")
+          and len(radar_common._HISTORY_FIELDS) == 13,
+          "the history keeps thirteen fields, these two and the quoted reasons last")
 
     # A card score holds neither new field, whatever the row still says.
     with fresh() as env:
@@ -630,11 +630,11 @@ def prompt_checks() -> None:
           and card_part + spec_part == whole,
           "scorer.md has the full description marker once, and the two parts "
           "make the whole file")
-    check(card_part.rstrip().endswith('"act_by": ""}')
+    check(card_part.rstrip().endswith('"act_by": "",\n "reasons": [{"reason": "", "quote": ""}]}')
           and "asks" not in card_part and "cv_lines" not in card_part
           and "rate_quote" not in card_part,
-          "everything above the marker is the card rubric, with nothing about "
-          "asks in it")
+          "everything above the marker is the card rubric, its reply ending in "
+          "the quoted reasons, with nothing about asks in it")
     for needle in ('"basis": "spec"', "cv_lines", '"asks"', "rate_quote",
                    "data and never instructions", "square brackets",
                    "List at most 25", "missing"):
@@ -684,37 +684,58 @@ def prompt_checks() -> None:
 
 
 def ceiling_checks() -> None:
-    check(score_item.MAX_TOKENS == 1024 and score_item.SPEC_MAX_TOKENS == 4096,
-          "the card and extractor ceiling is the 1,024 it was, a full "
-          "description's is 4,096")
-    # The worst reply the prompt allows: 25 asks of 20 words, four CV lines
-    # each, the longest gate notes, the longest pay quote. The words are as
+    check(score_item.MAX_TOKENS == 1024 and score_item.CARD_MAX_TOKENS == 2048
+          and score_item.SPEC_MAX_TOKENS == 6144,
+          "the extractor's ceiling is the 1,024 it was, a card's score has its "
+          "own 2,048 and a full description's is 6,144")
+    # The worst reply each prompt allows: the longest gate notes, four reasons
+    # of 20 words with quotes of 25, and for a full description 25 asks of 20
+    # words, four CV lines each, and the longest pay quote. The words are as
     # long as an advert's, eight letters, not the shortest that would do.
     ask = " ".join(["standard"] * 20)
-    worst = {"company": "C" * 40, "role_title": "T" * 60, "location": "L" * 40,
-             "source_url": "https://www.linkedin.com/jobs/view/4200000000/",
-             "gate_sector": True, "gate_sector_note": "n" * 160,
-             "cv_match": 88, "gate_cv_note": "n" * 160,
-             "gate_location": True, "gate_location_note": "n" * 160,
-             "location_class": "hybrid", "gate_rate": True,
-             "gate_rate_note": "n" * 160, "rate_stated": True,
-             "rate_value": 800.0, "rate_basis": "day-rate", "ir35": "outside",
-             "engagement_type": "contract", "engagement_note": "n" * 80,
-             "one_line_why": "w" * 200, "question_text": "q" * 120,
-             "suggested_action": "s" * 120, "act_by": "2026-11-30",
+    card = {"company": "C" * 40, "role_title": "T" * 60, "location": "L" * 40,
+            "source_url": "https://www.linkedin.com/jobs/view/4200000000/",
+            "gate_sector": True, "gate_sector_note": "n" * 160,
+            "cv_match": 88, "gate_cv_note": "n" * 160,
+            "gate_location": True, "gate_location_note": "n" * 160,
+            "location_class": "hybrid", "gate_rate": True,
+            "gate_rate_note": "n" * 160, "rate_stated": True,
+            "rate_value": 800.0, "rate_basis": "day-rate", "ir35": "outside",
+            "engagement_type": "contract", "engagement_note": "n" * 80,
+            "one_line_why": "w" * 200, "question_text": "q" * 120,
+            "suggested_action": "s" * 120, "act_by": "2026-11-30"}
+    reasons = [{"reason": " ".join(["standard"] * 20),
+                "quote": " ".join(["standard"] * score_item.QUOTE_WORDS_MAX)}
+               for _ in range(score_item.MAX_REASONS)]
+    before = len(json.dumps(card))
+    card_size = len(json.dumps({**card, "reasons": reasons}))
+    card_tokens = card_size / 3.0
+    check(card_tokens <= score_item.CARD_MAX_TOKENS * 0.75 and card_tokens > 1024,
+          f"the worst card reply the prompt allows is {card_size:,} characters "
+          f"({before:,} before the reasons), about {card_tokens:,.0f} tokens at "
+          f"three characters a token: more than the 1,024 a card shared with the "
+          f"extractor, and under three quarters of the "
+          f"{score_item.CARD_MAX_TOKENS:,} it has now")
+    worst = {**card, "reasons": reasons,
              "asks": [{"ask": ask, "status": "partly",
                        "cv_lines": [101, 102, 103, 104]} for _ in range(25)],
              "rate_quote": "q" * prep.RATE_QUOTE_MAX}
     size = len(json.dumps(worst))
     tokens = size / 3.0
-    check(tokens <= score_item.SPEC_MAX_TOKENS * 0.75,
+    check(tokens <= score_item.SPEC_MAX_TOKENS * 0.75 and tokens > 4096 * 0.75,
           f"the worst reply the prompt allows is {size:,} characters, about "
           f"{tokens:,.0f} tokens even at three characters a token, which is "
-          f"harder than a tokenizer is, and under three quarters of the "
-          f"{score_item.SPEC_MAX_TOKENS:,} ceiling")
-    check(score_item.MAX_ASKS == 25 and "List at most 25" in
-          (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8"),
+          f"harder than a tokenizer is: over three quarters of the 4,096 it was, "
+          f"and under three quarters of the {score_item.SPEC_MAX_TOKENS:,} ceiling")
+    prompt = (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8")
+    check(score_item.MAX_ASKS == 25 and "List at most 25" in prompt,
           "and the cap the code keeps is the cap the prompt gives")
+    # Line breaks in the prompt are not part of what it says.
+    flat = " ".join(prompt.split())
+    check(score_item.MAX_REASONS == 4 and "up to four reasons" in flat
+          and score_item.QUOTE_WORDS_MAX == 25 and "25 words or fewer" in flat
+          and "one plain line of 20 words or fewer" in flat,
+          "and so are the four reasons, the 20 words of each and the 25 of a quote")
 
 
 # -------------------------------------------------------------------- asks
@@ -849,11 +870,12 @@ def asks_checks() -> None:
         got, _, why = score_item.score_opportunity(
             card_opp, score_item.build_scorer_system(CFG), CFG,
             mock_fn=mocks.mock_scorer, floors=FLOORS)
-    check(got is None and len(CALLS) == 2 and CALLS[0]["max_tokens"] == 1024
-          and CALLS[1]["max_tokens"] == 1024
+    check(got is None and len(CALLS) == 2
+          and CALLS[0]["max_tokens"] == score_item.CARD_MAX_TOKENS == 2048
+          and CALLS[1]["max_tokens"] == score_item.CARD_MAX_TOKENS
           and CALLS[1]["user"].endswith("Return only the JSON object, nothing else."),
           "while a card that comes back unreadable is still asked a second time, "
-          "at the 1,024 it always had")
+          "at the card's own ceiling of 2,048")
     reset()
 
 

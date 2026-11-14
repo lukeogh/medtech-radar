@@ -228,6 +228,18 @@ _MIGRATIONS = (
     # nothing, and a stopped job could only show as a row that had grown old.
     # NULL on every row written before this, all of them runs that finished.
     ("runs", "outcome", "TEXT"),
+    # Quoted reasons. Up to four reasons the scorer gave for a score, each with
+    # the stretch of the advert it rests on, as JSON beside the score it was
+    # made with (score_item.normalise_reasons). A quote is kept only where code
+    # found it, word for word, in the text that was scored, the alert card or
+    # the stored description, and a quote it could not find is dropped with the
+    # drop recorded on its reason. Set in code when a score is made, on the
+    # card path and the full description path alike, and never by a migration:
+    # every row and every history row scored before this was kept stays NULL,
+    # because those scores were made without reasons and nothing is re-scored
+    # to give them some. The history keeps the same JSON as reasons.
+    ("opportunities", "score_reasons", "TEXT"),
+    ("score_history", "reasons", "TEXT"),
 )
 
 # What the score record says about a row scored before the record existed.
@@ -856,14 +868,124 @@ def job_health(conn: sqlite3.Connection, now: str | None = None) -> dict:
 PROMPTS_DIR = REPO_ROOT / "prompts"
 GATE_NAMES = ("sector", "cv", "location", "rate")
 
-# The fields of a score the history keeps, in the order of its columns. The
-# last two arrived with Prepare application: the version of the description a
-# score was made against, and its per-ask working. A card score holds neither,
-# so both read None for every score made before, and the comparison in
-# archive_score is unchanged for them.
+# The fields of a score the history keeps, in the order of its columns.
+# description_hash and working arrived with Prepare application: the version of
+# the description a score was made against, and its per-ask working. A card
+# score holds neither, so both read None for every score made before, and the
+# comparison in archive_score is unchanged for them. reasons arrived with the
+# quoted reasons, and reads None for every score made before them, card or
+# full description, for the same reason.
 _HISTORY_FIELDS = ("scored_at", "score_basis", "prompt_version", "score_model",
                    "cv_version", "cv_match", "gates", "tier", "filter_reason",
-                   "one_line_why", "description_hash", "working")
+                   "one_line_why", "description_hash", "working", "reasons")
+
+# The version of the JSON a score's reasons are kept in.
+REASONS_VERSION = 1
+
+
+def flat_text(text) -> str:
+    """Text with every run of white space made one space, and none at the ends."""
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def find_verbatim(quote, text, whole_words: bool = False) -> str | None:
+    """Where quote is in text word for word, as text has it, else None.
+
+    The one matching rule for a quote the scorer gives, which the pay line of
+    a full description (prepare_application.rate_line) and the quote of every
+    reason (score_item.normalise_reasons) both use. Case is ignored, and a run
+    of white space on either side counts as one space, so a quote is found
+    across a line break, a doubled space or a non-breaking space, but never
+    with a word added, dropped or changed, and never with a character of
+    punctuation that is not in the text. What is returned is the text's own
+    characters, never the quote's, so what a page shows is the advert's words.
+    None for an empty quote, and for one that is not there.
+
+    With whole_words, which the reasons ask for, a quote that begins or ends
+    with a letter or a digit is found only where that end is the edge of a
+    word in the text, so a word or a figure cut short is not the text word for
+    word: "£65" is not found in "£650 per day", nor "Senior Software Engineer"
+    in "Senior Software Engineering Manager". A quote with no letter or digit
+    in it at all is never found that way. The pay line is found without it, as
+    it always was.
+    """
+    wanted = flat_text(quote)
+    if not wanted:
+        return None
+    pattern = re.escape(wanted)
+    if whole_words:
+        if not re.search(r"\w", wanted):
+            return None
+        if re.match(r"\w", wanted):
+            pattern = r"(?<!\w)" + pattern
+        if re.search(r"\w\Z", wanted):
+            pattern += r"(?!\w)"
+    found = re.search(pattern, flat_text(text), re.IGNORECASE)
+    return found.group(0) if found else None
+
+
+def reasons_record(raw, scored_at) -> dict | None:
+    """The reasons kept beside a score, if they belong to that score, else None.
+
+    raw is the stored JSON, or the record itself. The reasons are kept beside
+    the score they were made with and mean nothing beside another, so they are
+    only returned when they carry the very date of the score they sit with. A
+    writer that replaces a score and knows nothing of the reasons, old code
+    after a rollback among them, cannot leave old reasons looking current. A
+    record that cannot be read is None too, and so is a score with no date.
+    """
+    if raw is None or not scored_at:
+        return None
+    record = raw
+    if isinstance(raw, (str, bytes)):
+        try:
+            record = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+    if (not isinstance(record, dict) or record.get("v") != REASONS_VERSION
+            or record.get("scored_at") != scored_at
+            or not isinstance(record.get("reasons"), list)):
+        return None
+    return record
+
+
+def reasons_gates_moved(record, row: dict) -> bool:
+    """Whether the gates a row holds now are not the ones its reasons came with.
+
+    record is what reasons_record returns, and it carries the four gates of
+    the score the reasons were given with. A re-tier by code, the regate or
+    the page checker's, judges the rate gate again and keeps the date of the
+    model's answer, so the reasons stay beside gates they were not given for,
+    and a page that shows them says so. False for no record, and for a record
+    without gates.
+    """
+    gates = record.get("gates") if isinstance(record, dict) else None
+    if not isinstance(gates, dict):
+        return False
+
+    def flag(value):
+        return None if value is None else int(bool(value))
+
+    return any(flag(gates.get(name)) != flag(row.get(f"gate_{name}"))
+               for name in GATE_NAMES)
+
+
+def score_reasons(raw, scored_at) -> list[dict]:
+    """The reasons of a score as a page shows them: each one's words, and the
+    quote where one was kept. Empty when the score has none of its own."""
+    record = reasons_record(raw, scored_at)
+    out = []
+    for item in (record or {}).get("reasons") or []:
+        if not isinstance(item, dict):
+            continue
+        reason = item.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            continue
+        quote = item.get("quote")
+        out.append({"reason": reason.strip(),
+                    "quote": quote.strip() if isinstance(quote, str)
+                    and quote.strip() else None})
+    return out
 
 
 def description_version(text) -> str | None:
@@ -920,7 +1042,7 @@ def _held_score(conn: sqlite3.Connection, opportunity_id: int) -> dict | None:
         "SELECT cv_match, want_match, combined, tier, one_line_why, scored_at,"
         " score_basis, prompt_version, score_model, cv_version, filter_reason,"
         " gate_sector, gate_cv, gate_location, gate_rate,"
-        " description_hash, score_working"
+        " description_hash, score_working, score_reasons"
         " FROM opportunities WHERE id = ?", (opportunity_id,)).fetchone()
     if raw is None:
         return None
@@ -940,6 +1062,13 @@ def _held_score(conn: sqlite3.Connection, opportunity_id: int) -> dict | None:
     if row["score_basis"] != SCORE_BASIS_SPEC:
         row["description_hash"] = None
         row["working"] = None
+    # The reasons go with any score, card or full description, but only the
+    # ones made with the score the row holds, which carry its date. A writer
+    # that replaced the score and left the reasons of the one before is not
+    # allowed to file them under a score they were not given for.
+    row["reasons"] = (row["score_reasons"]
+                      if reasons_record(row["score_reasons"], row["scored_at"])
+                      is not None else None)
     return {field: row[field] for field in _HISTORY_FIELDS}
 
 
@@ -1022,7 +1151,7 @@ def record_tailored_score(conn: sqlite3.Connection, opportunity_id: int,
                           now: str | None = None) -> None:
     """Write a score of a role's tailored CV to the history, marked tailored.
 
-    state carries the twelve fields the history keeps, as _held_score gives
+    state carries the thirteen fields the history keeps, as _held_score gives
     them for a role's own score, and cv_hash is the version of the copy the
     score was made against. Nothing on the opportunities row is read or
     written, because a tailored score is not the role's score. The caller
@@ -1102,6 +1231,11 @@ def add_usage(total: dict, usage: dict) -> dict:
     return total
 
 
+# Half of a UTF-16 pair on its own. json.loads gives one for an escape such as
+# "\ud83d" with no partner, and Python cannot encode it, so SQLite cannot take it.
+_LONE_SURROGATE = re.compile(r"[\ud800-\udfff]")
+
+
 def sanitise_free_text(text):
     """Make the voice rules mechanical for model-written free text.
 
@@ -1118,11 +1252,16 @@ def sanitise_free_text(text):
       out. "No action needed, the rate is less than half the floor.
             Renegotiation to £650 a day would change that."
 
+    A lone surrogate, which a reply can carry as a JSON escape and which
+    cannot be written as UTF-8, so not stored by SQLite, becomes the
+    replacement character, so that one stray character never costs the row
+    it is written with.
+
     None passes through untouched so optional columns stay NULL.
     """
     if text is None:
         return None
-    s = str(text)
+    s = _LONE_SURROGATE.sub("\ufffd", str(text))
     # Em dashes, spaced or not, read naturally as commas.
     s = re.sub(r"\s*—\s*", ", ", s)
     # A semicolon ends a sentence, so the next letter starts one.
