@@ -521,7 +521,16 @@ def collect(conn, config) -> dict:
     fresh = (run_row["any_runs"] == 0 and not all_opportunities
              and not signals and not threads)
 
+    # Each scheduled job by its own limits, the verdict /health gives. Home
+    # draws its lights from this and nothing else, so it cannot show green
+    # while /health says degraded.
+    jobs = radar_common.job_health(conn)
+    watched = radar_common.health_jobs(config)
+    for name, verdict in jobs.items():
+        verdict["watched"] = name in watched
+
     return {
+        "jobs": jobs,
         "threshold": threshold, "fast": fast, "floor": floor, "fresh": fresh,
         "opportunities": opportunities, "acknowledged": acknowledged,
         "applied": applied,
@@ -957,6 +966,9 @@ RESULT_WORDS = {
     "999": ("blocked by robots.txt", True),
     "robots-blocked": ("blocked by robots.txt", True),
     "0": ("unreachable", True), "403": ("blocks plain fetches", True),
+    # The watcher's check of the source raised or ran out of time, see the
+    # run's note. The source is tried again after its interval.
+    "error": ("the check failed", True),
 }
 
 
@@ -2259,6 +2271,51 @@ HOME_SCRIPT = """
 """
 
 
+# What each job state looks like on Home. The inbox has its own words because
+# what it measures is mail arriving, not a schedule kept.
+_JOB_DOTS = {"ok": "green", "partial": "amber", "late": "amber",
+             "failing": "amber", "stale": "red", "never": "red"}
+_JOB_WORDS = {"ok": "on schedule", "partial": "ran, with failures",
+              "late": "running late", "failing": "failing",
+              "stale": "stalled", "never": "never run"}
+_INBOX_WORDS = {"ok": "flowing", "late": "quiet", "stale": "stalled",
+                "never": "never run"}
+
+
+def job_verdicts(data: dict) -> dict:
+    """data["jobs"], or the inbox alone worked out from its timestamp.
+
+    collect() always fills jobs. A page built from a hand-made data dict,
+    as some tests build one, still gets an honest inbox light.
+    """
+    jobs = data.get("jobs")
+    if jobs:
+        return jobs
+    limits = radar_common.JOB_LIMITS["inbox"]
+    ts = data.get("inbox_ts")
+    hours = radar_common.hours_between(ts, datetime.now(timezone.utc))
+    state = ("never" if not ts else "stale" if hours is None
+             or hours > limits["stale"] else "late" if hours > limits["late"]
+             else "ok")
+    return {"inbox": {"label": "Inbox", "state": state, "last_run": ts,
+                      "hours_ago": hours, "watched": True}}
+
+
+def job_light(name: str, verdict: dict) -> tuple[str, str]:
+    """The dot class and the word for one job's verdict.
+
+    A job /health does not hold to account gets a grey dot, so Home never
+    shows red for a job that cannot turn /health degraded.
+    """
+    state = verdict.get("state", "never")
+    words = _INBOX_WORDS if name == "inbox" else _JOB_WORDS
+    word = words.get(state, _JOB_WORDS.get(state, state))
+    dot_cls = _JOB_DOTS.get(state, "grey")
+    if not verdict.get("watched", True):
+        dot_cls = "grey"
+    return dot_cls, word
+
+
 def telemetry_html(data: dict, config: dict) -> str:
     """The machine, the flow and board freshness, as one strip.
 
@@ -2329,30 +2386,53 @@ def telemetry_html(data: dict, config: dict) -> str:
             return "amber", "quiet lately"
         return "red", "gone silent"
 
-    # The inbox runs hourly when armed, so its light judges the schedule.
-    inbox_hours = hours_since(data["inbox_ts"])
-    if inbox_hours is None:
-        inbox_light, inbox_word = "red", "never run"
-    elif inbox_hours <= 2:
-        inbox_light, inbox_word = "green", "on schedule"
-    elif inbox_hours <= 6:
-        inbox_light, inbox_word = "amber", "running late"
-    else:
-        inbox_light, inbox_word = "red", "stalled"
+    # Each job by its own limits, the same verdict /health gives.
+    jobs = job_verdicts(data)
+    job_lines = []
+    for name in ("inbox", "signals", "check", "digest"):
+        verdict = jobs.get(name)
+        if not verdict:
+            continue
+        light, word = job_light(name, verdict)
+        extra = ""
+        if name == "signals" and verdict.get("mode") == "dry-run":
+            extra = ", phone push in dry run"
+        elif name == "check" and verdict.get("mode") == "dry-run":
+            extra = ", dry run, writes nothing"
+        elif name == "digest" and verdict.get("state") != "never":
+            extra = (f", last sent {fmt_day(verdict['last_sent'])}"
+                     if verdict.get("last_sent") else ", never sent")
+        if not verdict.get("watched", True):
+            extra += ", not watched by /health"
+        job_lines.append(
+            f"<li>{dot(light, word)}{esc(verdict['label'])} {esc(word)}"
+            f"{esc(extra)}"
+            + (f'<span class="li-age">{ago(verdict["hours_ago"])}</span>'
+               if verdict.get("hours_ago") is not None else "")
+            + "</li>")
+    failing_notes = [
+        f"{v['label']}: {v.get('failed_note') or 'no note'}"
+        for v in jobs.values() if v.get("state") in ("failing", "stale")
+        and v.get("failed_note")]
 
     dups = max(0, data["week_seen"] - data["week_new"])
     metrics = ['<div class="metrics">']
     metrics.append(
         '<div class="widget"><h4>The machine'
-        + info_tip("Green ran within two hours of the hourly schedule, "
-                   "amber within six, red stalled or never run. Failed "
-                   "emails are poison messages that hit the three-strike "
-                   "cap, the digest names them.")
+        + info_tip("Each job is judged by how it runs, the same verdict "
+                   "/health gives. The inbox is quiet after 12 hours with "
+                   "no email processed and stalled after a day. The signal "
+                   "watcher runs every two hours, late after 4 hours and "
+                   "stalled after 6. The advert checker runs daily, late "
+                   "after 26 hours and stalled after 50. The digest builds "
+                   "on Mondays and is stalled after eight days. A grey dot "
+                   "is a job /health is not told to watch. Failed emails "
+                   "are poison messages that hit the three-strike cap, the "
+                   "digest names them.")
         + "</h4><ul>"
-        + f"<li>{dot(inbox_light, inbox_word)}Inbox {inbox_word}"
-        + (f'<span class="li-age">{ago(inbox_hours)}</span>'
-           if inbox_hours is not None else "")
-        + "</li>"
+        + "".join(job_lines)
+        + "".join(f'<li class="board-note">{esc(n)}</li>'
+                  for n in failing_notes[:2])
         + f'<li><span class="num">{data["week_runs"]}</span>inbox '
         f'{"run" if data["week_runs"] == 1 else "runs"} this week</li>'
         + (f"<li>{dot('green', 'no failed emails')}No failed emails</li>"
@@ -2363,7 +2443,7 @@ def telemetry_html(data: dict, config: dict) -> str:
         + ('<li class="board-note">First move. Open n8n and read Radar '
            "Inbox's last execution. Active, failed, or absent tells you "
            "which fix it is.</li>"
-           if inbox_light in ("amber", "red") else "")
+           if jobs["inbox"].get("state") in ("stale", "never") else "")
         + "</ul></div>")
 
     counts = [c for _, c in data["daily_arrivals"]]
@@ -2462,26 +2542,25 @@ def render_home_page(data: dict, config: dict, db_label: str) -> str:
 <span class="card-sub">Scoring against {esc(cv_label)}</span></a>
 </div>"""
 
-    def hours_since(iso):
-        try:
-            then = datetime.strptime(str(iso)[:16], "%Y-%m-%dT%H:%M")
-        except (ValueError, TypeError):
-            return None
-        return max(0.0, (datetime.now(timezone.utc)
-                         - then.replace(tzinfo=timezone.utc)
-                         ).total_seconds() / 3600)
-
-    inbox_hours = hours_since(data["inbox_ts"])
-    if inbox_hours is None:
-        sync_dot, sync_word = "red", "never run"
-    elif inbox_hours <= 2:
-        sync_dot, sync_word = "green", "on schedule"
-    elif inbox_hours <= 6:
-        sync_dot, sync_word = "amber", "running late"
-    else:
-        sync_dot, sync_word = "red", "stalled"
-    sync_when = (f", last sync {fmt_day_time(data['inbox_ts'])}"
+    jobs = job_verdicts(data)
+    sync_dot, sync_word = job_light("inbox", jobs["inbox"])
+    sync_when = (f", last email {fmt_day_time(data['inbox_ts'])}"
                  if data["inbox_ts"] else "")
+    # One line for the whole machine, the answer /health gives, so Home can
+    # no longer show green while /health says degraded.
+    watched = [(n, v) for n, v in jobs.items() if v.get("watched", True)]
+    down = [f"{v['label']} {job_light(n, v)[1]}" for n, v in watched
+            if v.get("state") in ("stale", "never")]
+    shaky = [f"{v['label']} {job_light(n, v)[1]}" for n, v in watched
+             if v.get("state") in ("late", "failing", "partial")]
+    if down and all(v.get("state") == "never" for _, v in watched):
+        radar_dot, radar_word = "red", "Needs a look. Nothing has run yet"
+    elif down:
+        radar_dot, radar_word = "red", "Needs a look. " + ", ".join(down)
+    elif shaky:
+        radar_dot, radar_word = "amber", "Running. " + ", ".join(shaky)
+    else:
+        radar_dot, radar_word = "green", "Every job on schedule"
 
     wp = data["weekly_prospects"]
     this_wk = wp[-1][1] if wp else 0
@@ -2503,7 +2582,8 @@ def render_home_page(data: dict, config: dict, db_label: str) -> str:
     mp = data["month_prospects"]
 
     overview = f"""<div class="metrics">
-<div class="widget"><h4>Right now{info_tip("The inbox light judges its hourly schedule. Green ran within two hours, amber within six, red stalled or never run. The counts are the last seven days.")}</h4><ul>
+<div class="widget"><h4>Right now{info_tip("The first line is the answer /health gives, every job judged by its own limits. The machine, further down, has a line for each job. The inbox light measures mail arriving: flowing within 12 hours of the last email processed, quiet within a day, stalled after a day or never run. The counts are the last seven days.")}</h4><ul>
+<li><span class="dot dot-{radar_dot}" title="{esc(radar_word)}"></span>{esc(radar_word)}</li>
 <li><span class="dot dot-{sync_dot}" title="{esc(sync_word)}"></span>Inbox {esc(sync_word)}{esc(sync_when)}</li>
 <li><span class="num">{len(new_this_week)}</span>new {"job" if len(new_this_week) == 1 else "jobs"} this week</li>
 <li><span class="num">{data["week_new"]}</span>through the pipeline, {max(0, data["week_seen"] - data["week_new"])} duplicates skipped</li>
@@ -3138,8 +3218,11 @@ def render_company_page(conn, company_id: int, config: dict,
     state = radar_common.company_state(conn, company_id)
 
     events = []
+    # cv_match is the score every page shows. combined is the additive score
+    # the scorer stopped writing on 3 August, NULL on every row since, which
+    # is why this timeline read "Score unscored" for roles with a CV match.
     for r in conn.execute(
-            "SELECT id, first_seen, title, company, combined, rate_band,"
+            "SELECT id, first_seen, title, company, cv_match, rate_band,"
             " source, source_url, buying_window, acknowledged_at"
             " FROM opportunities WHERE company_id = ?", (company_id,)):
         events.append({"when": r["first_seen"], "kind": "advert", "row": r})
@@ -3148,10 +3231,11 @@ def render_company_page(conn, company_id: int, config: dict,
             " source_url, playbook_step, status FROM signals"
             " WHERE company_id = ?", (company_id,)):
         events.append({"when": r["first_seen"], "kind": "insight", "row": r})
+    # Every column, outcome among them. The query named its columns and left
+    # outcome out, so the line below always read "none" whatever was set.
+    # SELECT * also keeps an older database that has no outcome yet readable.
     for r in conn.execute(
-            "SELECT id, touched_at, channel, note, next_action,"
-            " next_action_date FROM touches WHERE company_id = ?",
-            (company_id,)):
+            "SELECT * FROM touches WHERE company_id = ?", (company_id,)):
         events.append({"when": r["touched_at"], "kind": "touch", "row": r})
     events.sort(key=lambda e: e["when"] or "", reverse=True)
 
@@ -3199,8 +3283,9 @@ def render_company_page(conn, company_id: int, config: dict,
                 f'<li><span class="col-when">{esc(when)}</span>'
                 f'<span class="row-title">{esc(r["title"] or "Untitled role")}</span>'
                 f'{chip}<span class="row-sub">Advert via {esc(via(r["source"]))}. '
-                f'Score {r["combined"] if r["combined"] is not None else "unscored"}. '
-                f'Rate {esc(r["rate_band"] or "unstated")}.</span></li>')
+                + (f'CV match {int(r["cv_match"])}%. ' if r["cv_match"] is not None
+                   else 'CV match unscored. ')
+                + f'Rate {esc(r["rate_band"] or "unstated")}.</span></li>')
         elif e["kind"] == "insight":
             timeline.append(
                 f'<li><span class="col-when">{esc(when)}</span>'

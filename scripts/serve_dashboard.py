@@ -97,6 +97,7 @@ STATIC = {
 
 ARGS = None
 WATCH_LOCK = threading.Lock()
+WATCH_TIMEOUT = 600        # seconds Check now waits for the watcher
 
 
 def render(page_name: str = "archive") -> bytes:
@@ -407,6 +408,13 @@ def health_payload() -> tuple[int, dict]:
     Degraded rather than dead is a real state and gets its own answer. The
     database being reachable while the inbox has not run for a day is not
     an outage, it is a fact worth a nudge.
+
+    Each job is judged by its own limits, radar_common.JOB_LIMITS, the same
+    verdict Home shows, and jobs holds all of them. A job named in
+    health_jobs (all four unless config/radar.yaml says otherwise) that is
+    stale or has never run makes the answer degraded. A job that is failing
+    but still inside its limits does not, one bad run is a blip. The two
+    old pairs of keys stay as they were for whatever already reads them.
     """
     out = {"database": "unreachable", "inbox_last_run": None,
            "signals_last_run": None, "status": "down"}
@@ -415,12 +423,7 @@ def health_payload() -> tuple[int, dict]:
         conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         try:
-            for key, workflow in (("inbox_last_run", "inbox"),
-                                  ("signals_last_run", "signals")):
-                row = conn.execute(
-                    "SELECT MAX(ts) t FROM runs WHERE workflow = ?",
-                    (workflow,)).fetchone()
-                out[key] = row["t"] if row else None
+            jobs = radar_common.job_health(conn)
             out["opportunities"] = conn.execute(
                 "SELECT COUNT(*) n FROM opportunities").fetchone()["n"]
             out["signals"] = conn.execute(
@@ -432,28 +435,24 @@ def health_payload() -> tuple[int, dict]:
         out["note"] = f"{type(err).__name__}"
         return 503, out
 
-    now = datetime.now(timezone.utc)
-    def hours_since(iso):
-        if not iso:
-            return None
-        try:
-            when = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        return round((now - when).total_seconds() / 3600, 1)
-
-    out["inbox_hours_ago"] = hours_since(out["inbox_last_run"])
-    out["signals_hours_ago"] = hours_since(out["signals_last_run"])
-    # The schedules are hourly and two-hourly. Triple them before calling
-    # anything wrong, because one missed run is a blip and a watchdog that
-    # cries at blips gets muted.
-    stale = [name for name, hrs, limit in
-             (("inbox", out["inbox_hours_ago"], 3),
-              ("signals", out["signals_hours_ago"], 6))
-             if hrs is None or hrs > limit]
+    try:
+        watched = radar_common.health_jobs(radar_common.load_config())
+    except Exception:                              # noqa: BLE001
+        watched = radar_common.HEALTH_JOBS_DEFAULT
+    for name in ("inbox", "signals"):
+        out[f"{name}_last_run"] = jobs[name]["last_run"]
+        out[f"{name}_hours_ago"] = jobs[name]["hours_ago"]
+    for name, verdict in jobs.items():
+        verdict["watched"] = name in watched
+    out["jobs"] = jobs
+    stale = [name for name in watched
+             if jobs[name]["state"] in ("stale", "never")]
     out["status"] = "ok" if not stale else "degraded"
     if stale:
         out["stale"] = stale
+    failing = [name for name, v in jobs.items() if v["state"] == "failing"]
+    if failing:
+        out["failing"] = failing
     return (200 if out["status"] == "ok" else 503), out
 
 
@@ -1040,12 +1039,15 @@ def run_watcher() -> dict:
     if not WATCH_LOCK.acquire(blocking=False):
         return {"ok": False, "note": "a check is already running"}
     try:
+        # The run is given less time than the kill below, so it stops
+        # itself, with its row in runs, rather than being killed without.
         cmd = [sys.executable, str(SCRIPT_DIR / "check_signals.py"),
-               "--push" if ARGS.push else "--dry-run"]
+               "--push" if ARGS.push else "--dry-run",
+               "--budget", str(WATCH_TIMEOUT - 60)]
         if ARGS.db:
             cmd += ["--db", ARGS.db]
         proc = subprocess.run(cmd, capture_output=True, text=True,
-                              encoding="utf-8", timeout=600,
+                              encoding="utf-8", timeout=WATCH_TIMEOUT,
                               cwd=str(REPO_ROOT))
         ok = proc.returncode == 0
         summary = {}

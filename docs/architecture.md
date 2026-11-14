@@ -812,11 +812,18 @@ note when it does. A file written this morning is a photograph of a database
 that has moved on, and two surfaces disagreeing is worse than having one.
 
 `GET /health` returns JSON for something else to watch, last inbox run, last
-signals run, database reachability and row counts, with a 200 when fresh and a
-503 when the database is unreachable or a pipeline has gone quiet for more than
-triple its schedule. It exists so that silence means quiet rather than broken,
-because nobody opens a dashboard at three in the morning and a pipeline that
-stopped at midnight looks exactly like one with nothing to say.
+signals run, database reachability and row counts, and under `jobs` a verdict
+for each scheduled job, with a 200 when fresh and a 503 when the database is
+unreachable or a job named in `health_jobs` has gone stale. Each job has its own
+limits in `radar_common.JOB_LIMITS`, because the jobs do not run alike: the
+inbox writes a row only when an email arrives, so it is stale after a day with
+none, the signal watcher after six hours, the advert checker after two days and
+the digest after eight. Home draws its lights from the same verdicts. The
+watcher and the advert checker write their runs row however a run ends, with an
+outcome of ok, partial or failed, so a job that keeps failing shows as failing
+rather than as silence. It exists so that silence means quiet rather than
+broken, because nobody opens a dashboard at three in the morning and a pipeline
+that stopped at midnight looks exactly like one with nothing to say.
 
 ## The fallback
 

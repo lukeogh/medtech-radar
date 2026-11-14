@@ -374,12 +374,17 @@ def main(argv=None) -> int:
     # send cannot be marked digested unseen.
     token = (datetime.now(timezone.utc).strftime("dg%Y%m%d%H%M%S")
              + secrets.token_hex(3))
+    # Only what the email shows is marked digested. Since 3 August the email
+    # is the role counts and a link, and the roles behind those counts are
+    # the opp_ids. Nothing from the signals table is on it, so no signal is
+    # in the set: marking them told the database they had been seen when
+    # they had not, and a digested signal can no longer take "I did it". If
+    # the email lists signals again, put the ones it lists back here.
     pending = {
         "opp_ids": sorted({o["id"] for o in data["inbound"]}
                           | {s["id"] for s in data["signals"]
                              if s["kind"] == "opportunity"}),
-        "sig_ids": sorted({s["id"] for s in data["signals"]
-                           if s["kind"] == "signal"}),
+        "sig_ids": [],
         "built_at": now,
     }
     prune_pending(conn)

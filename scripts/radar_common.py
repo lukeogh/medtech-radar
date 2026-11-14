@@ -16,11 +16,14 @@ the rules in one place:
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
 import re
 import sqlite3
+import string
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -219,6 +222,12 @@ _MIGRATIONS = (
     # copy is scored once. NULL on every other score. The copies themselves
     # are the table tailored_cvs in schema.sql.
     ("score_history", "cv_hash", "TEXT"),
+    # How a run ended: ok, partial (it finished, but a source or an item
+    # failed on the way) or failed (it stopped before the end). A run used to
+    # write its row only as its last step, so a run that died part-way left
+    # nothing, and a stopped job could only show as a row that had grown old.
+    # NULL on every row written before this, all of them runs that finished.
+    ("runs", "outcome", "TEXT"),
 )
 
 # What the score record says about a row scored before the record existed.
@@ -699,19 +708,147 @@ def url_hash(url: str) -> str:
     return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
 
 
+RUN_OUTCOMES = ("ok", "partial", "failed")
+
+
 def log_run(conn: sqlite3.Connection, workflow: str, mode: str = "live",
             items_in: int = 0, items_new: int = 0, model: str | None = None,
-            usage: dict | None = None, note: str | None = None) -> None:
+            usage: dict | None = None, note: str | None = None,
+            outcome: str | None = None) -> None:
+    """One row in runs for one execution.
+
+    outcome is ok, partial or failed, for a job that says how it ended, and
+    is left NULL by the jobs that do not. A NULL reads as a run that finished.
+    """
+    if outcome is not None and outcome not in RUN_OUTCOMES:
+        raise ValueError(f"unknown run outcome {outcome!r}")
     usage = usage or {}
     conn.execute(
         "INSERT INTO runs (ts, workflow, mode, items_in, items_new, model,"
-        " input_tokens, output_tokens, cache_read_tokens, note)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?)",
+        " input_tokens, output_tokens, cache_read_tokens, note, outcome)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (now_iso(), workflow, mode, items_in, items_new, model,
          usage.get("input_tokens", 0), usage.get("output_tokens", 0),
-         usage.get("cache_read_tokens", 0), note),
+         usage.get("cache_read_tokens", 0), note, outcome),
     )
     conn.commit()
+
+
+# ------------------------------------------------------------- job health
+
+# How long each scheduled job may go without a finished run before it reads
+# as late, a word on Home, and then as stale, a fault: /health answers
+# degraded. Hours. One figure for every job cannot be right, because the
+# jobs do not run alike.
+#
+# - The inbox has no schedule of its own that writes anything. n8n polls
+#   Gmail hourly, but a row is written only when an email is processed, and
+#   alert mail arrives unevenly through the day, so a quiet night is normal.
+#   A day with no email at all is not: the trigger, the Gmail credential or
+#   the alert subscriptions have stopped.
+# - The signal watcher runs every two hours. Late is two runs missed in a
+#   row, stale is three, the six hours /health has always allowed it.
+# - The advert checker runs once a day and takes up to about 45 minutes.
+#   Late is a day missed, stale is two.
+# - The digest builds every Monday at 07:30. Late is a Monday missed by two
+#   hours, stale is a Monday and a day.
+JOB_LIMITS = {
+    "inbox": {"label": "Inbox", "late": 12, "stale": 24},
+    "signals": {"label": "Signal watcher", "late": 4, "stale": 6},
+    "check": {"label": "Advert checker", "late": 26, "stale": 50},
+    "digest": {"label": "Monday digest", "late": 7 * 24 + 2, "stale": 8 * 24},
+}
+# The jobs /health holds to account unless config/radar.yaml names others
+# under health_jobs. The rest are still reported, they just never turn the
+# answer to degraded.
+HEALTH_JOBS_DEFAULT = ("inbox", "signals", "check", "digest")
+
+
+def health_jobs(config: dict | None) -> tuple:
+    """The jobs whose lateness makes /health degraded, from health_jobs."""
+    named = (config or {}).get("health_jobs")
+    if not isinstance(named, (list, tuple)):
+        return HEALTH_JOBS_DEFAULT
+    return tuple(str(n) for n in named if str(n) in JOB_LIMITS)
+
+
+def hours_between(earlier: str | None, now: datetime) -> float | None:
+    if not earlier:
+        return None
+    try:
+        when = datetime.fromisoformat(str(earlier).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return round(max(0.0, (now - when).total_seconds()) / 3600, 1)
+
+
+def job_health(conn: sqlite3.Connection, now: str | None = None) -> dict:
+    """Each scheduled job's last runs and what they say, one dict per job.
+
+    For /health and for Home, so the two can never disagree. Reads only, and
+    works on a read-only connection and on a database whose runs table has
+    not had its outcome column added yet.
+
+    last_run is the newest run that finished, ok or partial, and the ages
+    and the state go by it. A failed run is a row too, so a job that keeps
+    failing shows as failing, with its last note, rather than as nothing.
+    state is never, ok, partial, late, failing or stale. mode is the mode
+    the last finished run ran in, live or dry-run for the jobs that have
+    both. The digest also says when an email was last confirmed sent.
+    """
+    moment = (datetime.fromisoformat(now.replace("Z", "+00:00")) if now
+              else datetime.now(timezone.utc))
+    have = {r[1] for r in conn.execute("PRAGMA table_info(runs)")}
+    outcome = "outcome" if "outcome" in have else "NULL"
+    out = {}
+    for name, limits in JOB_LIMITS.items():
+        done = conn.execute(
+            f"SELECT ts, mode, note, {outcome} AS outcome FROM runs"
+            f" WHERE workflow = ? AND COALESCE({outcome}, 'ok') <> 'failed'"
+            " ORDER BY ts DESC, id DESC LIMIT 1", (name,)).fetchone()
+        since = done[0] if done else ""
+        failed = conn.execute(
+            f"SELECT COUNT(*), MAX(ts) FROM runs WHERE workflow = ?"
+            f" AND {outcome} = 'failed' AND ts > ?", (name, since)).fetchone()
+        failed_note = None
+        if failed[0]:
+            failed_note = conn.execute(
+                f"SELECT note FROM runs WHERE workflow = ? AND {outcome} = 'failed'"
+                " ORDER BY ts DESC, id DESC LIMIT 1", (name,)).fetchone()[0]
+        hours = hours_between(done[0], moment) if done else None
+        if done is None and not failed[0]:
+            state = "never"
+        elif done is None or hours is None or hours > limits["stale"]:
+            state = "stale"
+        elif failed[0]:
+            state = "failing"
+        elif hours > limits["late"]:
+            state = "late"
+        elif done[3] == "partial":
+            state = "partial"
+        else:
+            state = "ok"
+        verdict = {
+            "label": limits["label"], "state": state,
+            "last_run": done[0] if done else None, "hours_ago": hours,
+            "late_hours": limits["late"], "stale_hours": limits["stale"],
+            "mode": done[1] if done else None,
+            "outcome": (done[3] or "ok") if done else None,
+            "note": done[2] if done else None,
+        }
+        if failed[0]:
+            verdict["failed_runs"] = failed[0]
+            verdict["last_failed"] = failed[1]
+            verdict["failed_note"] = failed_note
+        if name == "digest":
+            sent = conn.execute(
+                "SELECT MAX(ts) FROM runs WHERE workflow = 'digest'"
+                " AND mode = 'commit'").fetchone()[0]
+            verdict["last_sent"] = sent
+        out[name] = verdict
+    return out
 
 
 # -------------------------------------------------------------- score record
@@ -1478,6 +1615,63 @@ def extract_json(text: str) -> dict:
 
 _ROBOTS_CACHE: dict[str, list[str]] = {}
 
+FETCH_TIMEOUT = 30          # seconds any one socket operation may wait
+FETCH_BODY_SECONDS = 90     # seconds a whole body may take, however it trickles
+FETCH_MAX_BYTES = 2_000_000
+
+
+def request_url(url: str) -> str:
+    """The URL as a request line can carry it.
+
+    http.client refuses a space or a control character in a URL and cannot
+    encode anything outside ASCII, and both raise errors that are not network
+    errors. A link scraped off a page can hold either, and one such link on a
+    watched page used to stop the whole watcher run. Anything unsafe is
+    percent-encoded the way urllib encodes a redirect, the escapes already
+    there are kept, a non-ASCII host name goes to its IDNA form and the
+    fragment, which never leaves the browser, is dropped. The URL that is
+    stored and hashed is not this one, only the one asked for.
+    """
+    parts = urllib.parse.urlsplit(url.strip())
+    netloc = parts.netloc
+    if not netloc.isascii():
+        try:
+            netloc = netloc.encode("idna").decode("ascii")
+        except UnicodeError:
+            pass
+    safe = string.punctuation
+    return urllib.parse.urlunsplit((
+        parts.scheme, netloc, urllib.parse.quote(parts.path, safe=safe),
+        urllib.parse.quote(parts.query, safe=safe), ""))
+
+
+def read_capped(resp, limit: int, seconds: float) -> bytes:
+    """Read a response body, at most limit bytes and at most seconds long.
+
+    The socket timeout bounds each wait for data, not the whole read, so a
+    server that trickles a byte every few seconds could hold a plain read
+    open for ever, and with it the run that asked. read1 makes one call on
+    the socket at a time, so the clock is looked at between every arrival.
+    """
+    read = getattr(resp, "read1", None) or resp.read
+    deadline = time.monotonic() + seconds
+    chunks, total = [], 0
+    while total < limit:
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"the body took over {seconds:g} seconds")
+        chunk = read(min(65536, limit - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+    return b"".join(chunks)
+
+
+# What a fetch can raise that says the page could not be had: the network,
+# the server's reply, or a URL the request could not be made from.
+FETCH_ERRORS = (urllib.error.URLError, http.client.HTTPException,
+                TimeoutError, OSError, ValueError)
+
 
 def _robots_disallows(base: str, ua: str) -> list[str]:
     """Fetch and minimally parse robots.txt for a host. Cached per process."""
@@ -1485,10 +1679,10 @@ def _robots_disallows(base: str, ua: str) -> list[str]:
         return _ROBOTS_CACHE[base]
     disallows: list[str] = []
     try:
-        req = urllib.request.Request(base + "/robots.txt",
+        req = urllib.request.Request(request_url(base + "/robots.txt"),
                                      headers={"User-Agent": ua})
         with urllib.request.urlopen(req, timeout=20) as resp:
-            body = resp.read(200_000).decode("utf-8", "replace")
+            body = read_capped(resp, 200_000, 30).decode("utf-8", "replace")
         applies = False
         for line in body.splitlines():
             line = line.split("#", 1)[0].strip()
@@ -1518,27 +1712,33 @@ def robots_allowed(url: str, ua: str) -> bool:
 
 def http_get(url: str, config: dict | None = None,
              etag: str | None = None, last_modified: str | None = None):
-    """Polite GET. Returns (status, headers_dict, body_text). 304 gives empty body."""
+    """Polite GET. Returns (status, headers_dict, body_text). 304 gives empty body.
+
+    Status 0 is every way the page could not be had, with the reason in
+    headers["error"]: the network, a reply that broke off, a body that took
+    too long or a URL no request could be made from. None of them raises, so
+    one bad page costs its caller one answer and never the run.
+    """
     config = config or load_config()
     ua = config.get("fetch_user_agent", "MedTechRadar/1.0")
-    if not robots_allowed(url, ua):
-        return 999, {}, ""  # 999 means blocked by robots.txt, caller records it
-    headers = {"User-Agent": ua, "Accept": "text/html,application/xhtml+xml,application/xml,*/*"}
-    if etag:
-        headers["If-None-Match"] = etag
-    if last_modified:
-        headers["If-Modified-Since"] = last_modified
-    req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = resp.read(2_000_000).decode("utf-8", "replace")
-            return resp.status, dict(resp.headers), body
+        if not robots_allowed(url, ua):
+            return 999, {}, ""  # 999 means blocked by robots.txt, caller records it
+        headers = {"User-Agent": ua, "Accept": "text/html,application/xhtml+xml,application/xml,*/*"}
+        if etag:
+            headers["If-None-Match"] = etag
+        if last_modified:
+            headers["If-Modified-Since"] = last_modified
+        req = urllib.request.Request(request_url(url), headers=headers)
+        with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
+            body = read_capped(resp, FETCH_MAX_BYTES, FETCH_BODY_SECONDS)
+            return resp.status, dict(resp.headers), body.decode("utf-8", "replace")
     except urllib.error.HTTPError as err:
         if err.code == 304:
             return 304, dict(err.headers), ""
         return err.code, dict(err.headers), ""
-    except (urllib.error.URLError, TimeoutError, OSError) as err:
-        return 0, {"error": str(err)}, ""
+    except FETCH_ERRORS as err:
+        return 0, {"error": f"{type(err).__name__}: {err}"}, ""
 
 
 class _TextExtractor(HTMLParser):

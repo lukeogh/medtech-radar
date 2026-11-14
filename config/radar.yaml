@@ -68,6 +68,15 @@ dashboard_allowed_hosts:
   # else on the LAN that reaches the dashboard by IP sends this as Host.
   - "192.168.1.100"
 
+# The jobs /health holds to account. Each is judged by its own limits, set
+# in radar_common.JOB_LIMITS by how the job runs: the inbox is stale after a
+# day with no email processed, the signal watcher after six hours with no
+# finished run, the advert checker after two days and the digest after eight.
+# A job named here that is stale or has never run turns /health to degraded
+# and its 503. A job left off is still reported in /health's jobs and on
+# Home, it just never turns the answer. Read on each /health request.
+health_jobs: [inbox, signals, check, digest]
+
 # Send the Monday email even when there is nothing to report. A quiet week
 # then sends a short digest saying so, because silence should mean breakage
 # and nothing else. Set false to hold the email on genuinely empty weeks.
