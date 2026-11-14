@@ -204,7 +204,8 @@ def render_jobs(selected: int | None, query: dict) -> tuple[int, bytes, str]:
         db_label = dbp.relative_to(REPO_ROOT).as_posix()
     except ValueError:
         db_label = str(dbp)
-    model = jobs_page.build_model(data)
+    loc = jobs_page.parse_loc((query.get("loc") or [""])[0])
+    model = jobs_page.build_model(data, loc=loc)
     current = _query_int(query, "current")
     current_key = None
     if current is not None:
@@ -226,7 +227,7 @@ def render_jobs(selected: int | None, query: dict) -> tuple[int, bytes, str]:
         return 200, json.dumps(payload).encode(), "application/json"
     reading = (query.get("reading") or ["0"])[0] == "1"
     status, page = jobs_page.render(data, config, db_label, selected, view,
-                                    reading)
+                                    reading, loc)
     return status, page.encode("utf-8"), "text/html; charset=utf-8"
 
 

@@ -670,6 +670,50 @@ def page_checks(tmp: Path) -> None:
           "the bar marks the page it is on")
 
 
+def location_checks(tmp: Path) -> None:
+    db = tmp / "loc.sqlite"
+    conn = rc.get_db(db)
+    local = put(conn, "Local Role", "Q Co", region="Local")
+    uk = put(conn, "UK Role", "R Co", region="UK", tier="question", gate_rate=0,
+             failed_gates='["rate"]', question_text="Would they move")
+    europe = put(conn, "Europe Role", "S Co", region="Europe")
+    remote = put(conn, "Remote Role", "T Co", region="Elsewhere", location_class="remote")
+    conn.close()
+    data = collect(db)
+
+    def shown(loc, view="open"):
+        html = build_dashboard.render_jobs_page(data, CFG, "t", None, view, True, loc)
+        return set(rows_of(html)), html
+
+    every, html = shown(())
+    check(every == {local, uk, europe, remote}
+          and all(f'data-loc="{k}" aria-pressed="false">' in html
+                  for k in ("local", "uk", "europe", "elsewhere", "remote"))
+          and '<div class="chips" role="group" aria-label="Location">' in html,
+          "the five location chips are there, none chosen, and every role shows")
+    one, html = shown(("uk",))
+    check(one == {uk} and 'data-loc="uk" aria-pressed="true">UK</button>' in html
+          and f'href="/jobs/{uk}?loc=uk"' in html,
+          "UK shows the UK role alone, the chip is pressed, and a role's link keeps it")
+    two, html = shown(("europe", "remote"))
+    check(two == {europe, remote}
+          and re.search(r'id="group-top">Top prospects<span class="group-count">2 of 3', html)
+          and '<span data-count="top">3 Top prospects</span>' in html,
+          "two chips show either, a group counts what it shows of its whole, and the "
+          "header still counts every role")
+    check(jobs_page.parse_loc("remote, UK,bogus") == ("uk", "remote")
+          and jobs_page.view_query("applied", ("uk",)) == "?show=applied&loc=uk",
+          "the address takes the chips in any order, drops unknown ones, and the views keep them")
+    with pointed_at(db):
+        status, body, _t = serve_dashboard.render_jobs(None, {"part": ["queue"], "loc": ["remote"]})
+        page_status, page_body, _t = serve_dashboard.render_jobs(None, {"loc": ["local"]})
+        pane_status, pane_body, _t = serve_dashboard.render_jobs(local, {"part": ["role"], "loc": ["local"]})
+    check(status == 200 and set(rows_of(json.loads(body)["html"])) == {remote}
+          and page_status == 200 and set(rows_of(page_body.decode())) == {local}
+          and json.loads(pane_body)["url"] == f"/jobs/{local}?loc=local",
+          "the served page and its fragments read the chips from the address")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Jobs page checks")
     ap.add_argument("--db", help="accepted for suite symmetry, unused")
@@ -678,7 +722,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         tmp_path = Path(tmp)
         for section in (migration_checks, read_checks, queue_checks, pane_checks,
-                        route_checks, page_checks):
+                        route_checks, page_checks, location_checks):
             try:
                 section(tmp_path)
             except Exception as err:  # noqa: BLE001  one section stopping is a failure

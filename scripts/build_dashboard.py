@@ -2885,13 +2885,13 @@ SOURCE_SCRIPT = """
 
 def render_jobs_page(data: dict, config: dict, db_label: str,
                      selected: int | None = None, view: str = "open",
-                     reading: bool = False) -> str:
+                     reading: bool = False, loc: tuple = ()) -> str:
     """The Jobs page, from the round-2 design: the queue, the role and the
     advert. Drawn by jobs_page.py, which this keeps the old name for. selected
     is a row id to open, view one of open, acknowledged, filtered, applied."""
     import jobs_page
     data["serve"] = True
-    return jobs_page.render(data, config, db_label, selected, view, reading)[1]
+    return jobs_page.render(data, config, db_label, selected, view, reading, loc)[1]
 
 
 def opp_head_html() -> str:

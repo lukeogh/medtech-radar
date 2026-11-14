@@ -383,6 +383,20 @@ def seed(path: Path) -> dict:
                  ("Hartwell Infusion Ltd", day("30 Oct"), "comment",
                   "Commented on the Q3 hiring post", "Connection note to the VP Quality",
                   day("15 Nov")[:10], hartwell))
+    # Where each company is, from its advert's location, so the region pass
+    # places it as enrichment would; and a remote advert is marked remote.
+    abroad = {"amsterdam": "Netherlands", "leuven": "Belgium"}
+    for cid, loc in conn.execute(
+            "SELECT company_id, MIN(location) FROM opportunities"
+            " WHERE company_id IS NOT NULL GROUP BY company_id").fetchall():
+        place = str(loc or "").split("(")[0].split(",")[0].strip()
+        city = None if place.lower() == "remote" else place
+        country = abroad.get((city or "").lower(), "United Kingdom")
+        conn.execute("UPDATE companies SET city = ?, country = ? WHERE id = ?",
+                     (city, country, cid))
+    conn.execute("UPDATE opportunities SET location_class = 'remote'"
+                 " WHERE location LIKE 'Remote%'")
+    radar_common.recompute_regions(conn, radar_common.load_config(), force=True)
     # The inbox ran on schedule: an hour before the seed, so the top bar reads
     # as the design drew it whenever the seed is run.
     ran = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
