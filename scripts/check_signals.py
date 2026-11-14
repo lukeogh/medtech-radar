@@ -12,6 +12,13 @@ Safety posture:
   per source per check, etag and last-modified honoured, min interval enforced.
 - Idempotent. Signals dedupe on url_hash before any scoring call, so re-runs
   never duplicate rows or re-spend tokens.
+- One source cannot stop the rest. A source whose check raises, or that is
+  still going after SOURCE_SECONDS, is recorded as failed in source_state and
+  the run notes, and the run moves on to the next source. An item whose
+  scoring raises is kept unscored for rescore.py, never dropped.
+- Every run leaves its row in runs, however it ends: ok, partial when a
+  source or an item failed, failed when the run itself stopped, a stop from
+  outside (SIGTERM) included. A failed run exits 1, so n8n marks it failed.
 
 Flags:
   --dry-run        explicit dry run (also the default when no flag is given)
@@ -21,15 +28,22 @@ Flags:
                    then body) as if it came from a source. No network. Repeatable.
   --mock           force RADAR_MOCK=1, score with test/mocks_signals.py
   --db PATH        alternate database for test isolation
+  --budget S       seconds the run may take, default 6000, after which it
+                   starts no further source and ends with its record
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import re
+import signal
 import sys
+import threading
+import time
+import traceback
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
@@ -52,6 +66,26 @@ MAX_SEEN_IDS = 200               # rolling memory per source
 # sized to hold all of it. Cheap, a few hundred urls is tens of kilobytes.
 MAX_SITEMAP_IDS = 5000
 MAX_ITEM_TEXT = 4000             # chars of body text sent to the scorer
+# A source's whole check, the listing, up to five article fetches and up to
+# five scoring calls, normally takes under a minute. Ten minutes means it is
+# stuck, and the source is let go so the sources after it still get checked.
+SOURCE_SECONDS = 600
+# The schedule is every two hours. A run still going at 100 minutes starts no
+# further source, so it ends before the next run starts beside it.
+RUN_SECONDS = 100 * 60
+
+
+class SourceTimeout(BaseException):
+    """A source ran past SOURCE_SECONDS.
+
+    A BaseException so that nothing on the way down, http_get's error net
+    included, can mistake it for a failed fetch and carry on with the source.
+    Only run_source catches it.
+    """
+
+
+class RunStopped(BaseException):
+    """The run was stopped from outside, SIGTERM. Ends the run, with its row."""
 
 
 # ------------------------------------------------------------------ watchlist
@@ -604,6 +638,128 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
     })
 
 
+@contextlib.contextmanager
+def time_limit(seconds: float | None):
+    """Raise SourceTimeout inside the block once seconds have passed.
+
+    By SIGALRM, which interrupts a socket wait the per-fetch limits cannot
+    reach, a reply that trickles its headers or a scoring call that hangs.
+    POSIX and the main thread only. Elsewhere, Windows and a test's thread,
+    it does nothing and http_get's own limits are the bound.
+    """
+    usable = (bool(seconds) and hasattr(signal, "setitimer")
+              and threading.current_thread() is threading.main_thread())
+    if not usable:
+        yield
+        return
+
+    def expired(signum, frame):
+        raise SourceTimeout(f"still going after {seconds:g} seconds")
+
+    previous = signal.signal(signal.SIGALRM, expired)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def keep_unscored(conn, item: dict, why: str) -> bool:
+    """Store an item that could not be scored, so that it is not lost.
+
+    By the time an item is scored its source has been marked as read past
+    it, so an item dropped here would never be found again. It is stored the
+    way an unparseable reply is, relevance NULL, which puts it in the
+    digest's Needs review and in the next rescore.py pass. An item already
+    stored is left as it is. Returns whether a row was added.
+    """
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO signals (url_hash, first_seen, source_id,"
+        " company, headline, summary, source_url, relevance, why,"
+        " playbook_step) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (rc.url_hash(item["url"]), rc.now_iso(), item["source_id"], None,
+         item["headline"], (item.get("text") or "")[:500], item["url"],
+         None, f"{why}, review by hand", None))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def process_guarded(item: dict, conn, config: dict, system_blocks: list,
+                    mock_fn, push_live: bool, result: dict) -> None:
+    """process_item, with a failure costing this item's score and no more.
+
+    A scoring call that raises, an outage or a refused request, used to end
+    the whole run. Now the item is kept unscored and the run goes on.
+    SourceTimeout and RunStopped are not Exceptions and pass straight up.
+    """
+    try:
+        process_item(item, conn, config, system_blocks, mock_fn,
+                     push_live, result)
+    except Exception as err:                       # noqa: BLE001
+        conn.rollback()
+        result["errors"] += 1
+        result["notes"].append(f"{item['source_id']}: {item['url']} failed "
+                               f"part-way, {type(err).__name__}: {err}")
+        # A failure after the row was stored, in the drafts or the push,
+        # leaves the scored row as it is, and nothing is counted as kept.
+        if keep_unscored(conn, item, f"scoring failed, {type(err).__name__}"):
+            result["items_unscored"] += 1
+
+
+def check_source(source: dict, state: dict | None, config: dict, conn,
+                 notes: list) -> list:
+    """The one check of a source, by its method. Returns its new items."""
+    if source.get("method") == "rss" and source.get("rss_url"):
+        return check_rss(source, state, config, conn, notes)
+    if source.get("method") == "sitemap":
+        return check_sitemap(source, state, config, conn, notes)
+    return check_diff(source, state, config, conn, notes)
+
+
+def run_source(source: dict, state: dict | None, conn, config: dict,
+               system_blocks: list, mock_fn, push_live: bool, result: dict,
+               seconds: float | None = SOURCE_SECONDS) -> None:
+    """Check one source and score what it found, without risking the run.
+
+    Whatever goes wrong stays with this source. A check that raises, or is
+    still going after seconds, is stamped error in source_state, so the
+    sources table on Insights says the check failed and the source waits its
+    interval like any failed fetch, and the run moves on to the next source.
+    Before 14 Nov 2026 one source that raised or hung ended the run there,
+    with no record, and every source after it in the file went unchecked
+    until it stopped. Items the check had already read past are kept
+    unscored. Only RunStopped gets past this.
+    """
+    items: list = []
+    done = 0
+    fetched = False
+    try:
+        with time_limit(seconds):
+            items = check_source(source, state, config, conn, result["notes"])
+            fetched = True
+            for item in items:
+                process_guarded(item, conn, config, system_blocks, mock_fn,
+                                push_live, result)
+                done += 1
+    except (Exception, SourceTimeout) as err:      # noqa: BLE001
+        conn.rollback()
+        result["errors"] += 1
+        why = (str(err) if isinstance(err, SourceTimeout)
+               else f"{type(err).__name__}: {err}")
+        result["failed_sources"].append(f"{source['id']} ({why})")
+        result["notes"].append(f"{source['id']}: the check failed, {why}")
+        if not fetched:
+            # The check never reached its own save, so nothing says it was
+            # tried. Stamp it, or every run would try it again first thing.
+            _save_state(conn, source, last_checked=rc.now_iso(),
+                        last_status="error")
+        for item in items[done:]:
+            if keep_unscored(conn, item, "not scored, the source's check "
+                             "failed before it was reached"):
+                result["items_unscored"] += 1
+
+
 def catch_up_pushes(conn, config: dict, result: dict) -> None:
     """Push-mode only. Retry unpushed hot signals from the last 24 hours.
 
@@ -658,6 +814,11 @@ def main(argv=None) -> int:
                     help="score a local announcement file instead of fetching")
     ap.add_argument("--mock", action="store_true", help="force mock scoring")
     ap.add_argument("--db", metavar="PATH", help="alternate database path")
+    ap.add_argument("--budget", type=float, default=RUN_SECONDS, metavar="S",
+                    help="seconds the run may take before it starts no "
+                         f"further source, default {RUN_SECONDS}. Check now "
+                         "passes less than its own timeout, so the run ends "
+                         "itself, with its record, before it is killed")
     args = ap.parse_args(argv)
 
     if args.dry_run and args.push:
@@ -693,19 +854,18 @@ def main(argv=None) -> int:
         "mode": "mock" if mock_fn else ("push" if push_live else "dry-run"),
         "sources_checked": 0, "items_in": 0, "items_new": 0,
         "duplicates": 0, "pushed": 0, "payloads": [], "notes": [],
-        "usage": {},
+        "usage": {}, "errors": 0, "failed_sources": [],
+        "items_unscored": 0, "left_for_next_run": 0,
     }
 
     if args.inject:
-        for file_arg in args.inject:
-            try:
-                item = parse_announcement_file(Path(file_arg))
-            except (OSError, ValueError) as err:
-                print(f"Cannot inject {file_arg}: {err}", file=sys.stderr)
-                return 2
-            process_item(item, conn, config, system_blocks, mock_fn,
-                         push_live, result)
+        try:
+            items = [parse_announcement_file(Path(f)) for f in args.inject]
+        except (OSError, ValueError) as err:
+            print(f"Cannot inject: {err}", file=sys.stderr)
+            return 2
     else:
+        items = []
         sources = load_watchlist()
         if args.source:
             sources = [s for s in sources if s.get("id") == args.source]
@@ -713,41 +873,92 @@ def main(argv=None) -> int:
                 print(f"No fetchable watchlist source with id {args.source!r}.",
                       file=sys.stderr)
                 return 2
-        for source in sources:
-            if source.get("method") == "email":
-                continue
-            if source.get("status") != "live" and not args.source:
-                result["notes"].append(f"{source['id']}: skipped, status "
-                                       f"{source.get('status')}")
-                continue
-            state = _get_state(conn, source["id"])
-            if not args.source and not _due(source, state, config):
-                continue
-            result["sources_checked"] += 1
-            if source.get("method") == "rss" and source.get("rss_url"):
-                items = check_rss(source, state, config, conn, result["notes"])
-            elif source.get("method") == "sitemap":
-                items = check_sitemap(source, state, config, conn,
-                                      result["notes"])
-            else:
-                items = check_diff(source, state, config, conn, result["notes"])
+
+    # From here on the run always ends with its row in runs. A stop from
+    # outside, SIGTERM when n8n or the container goes down, becomes
+    # RunStopped so that the row is still written on the way out.
+    failure = None
+    main_thread = threading.current_thread() is threading.main_thread()
+    previous_term = signal.SIG_DFL
+    started = time.monotonic()
+    try:
+        if main_thread:
+            previous_term = (signal.signal(signal.SIGTERM, _stop_from_outside)
+                             or signal.SIG_DFL)
+        if args.inject:
             for item in items:
-                process_item(item, conn, config, system_blocks, mock_fn,
-                             push_live, result)
+                process_guarded(item, conn, config, system_blocks, mock_fn,
+                                push_live, result)
+        else:
+            for source in sources:
+                if source.get("method") == "email":
+                    continue
+                if source.get("status") != "live" and not args.source:
+                    result["notes"].append(f"{source['id']}: skipped, status "
+                                           f"{source.get('status')}")
+                    continue
+                state = _get_state(conn, source["id"])
+                if not args.source and not _due(source, state, config):
+                    continue
+                left = args.budget - (time.monotonic() - started)
+                if left <= 0:
+                    # Due, but the run has used its time. It stays due and
+                    # is first in the queue for the next run.
+                    result["left_for_next_run"] += 1
+                    continue
+                result["sources_checked"] += 1
+                run_source(source, state, conn, config, system_blocks,
+                           mock_fn, push_live, result,
+                           seconds=min(SOURCE_SECONDS, max(left, 1)))
 
-    if push_live:
-        catch_up_pushes(conn, config, result)
+        if push_live:
+            catch_up_pushes(conn, config, result)
+    except BaseException as err:                   # noqa: BLE001
+        failure = err
+    finally:
+        if main_thread:
+            signal.signal(signal.SIGTERM, previous_term)
 
-    rc.log_run(
-        conn, "signals",
-        mode="mock" if mock_fn else ("live" if push_live else "dry-run"),
-        items_in=result["items_in"], items_new=result["items_new"],
-        model=config.get("claude_model_score"), usage=result["usage"],
-        note=f"sources={result['sources_checked']} inject={bool(args.inject)}",
-    )
+    outcome = ("failed" if failure is not None else
+               "partial" if result["errors"] or result["left_for_next_run"]
+               else "ok")
+    result["outcome"] = outcome
+    note = f"sources={result['sources_checked']} inject={bool(args.inject)}"
+    if result["failed_sources"]:
+        note += (f", {len(result['failed_sources'])} failed: "
+                 + "; ".join(result["failed_sources"]))
+    if result["items_unscored"]:
+        note += f", {result['items_unscored']} kept unscored"
+    if result["left_for_next_run"]:
+        note += f", {result['left_for_next_run']} left for the next run"
+    if failure is not None:
+        result["failure"] = f"{type(failure).__name__}: {failure}"
+        note += f", stopped: {result['failure']}"
+        traceback.print_exception(type(failure), failure,
+                                  failure.__traceback__, file=sys.stderr)
+        try:
+            conn.rollback()
+        except Exception:                          # noqa: BLE001
+            pass
+    try:
+        rc.log_run(
+            conn, "signals",
+            mode="mock" if mock_fn else ("live" if push_live else "dry-run"),
+            items_in=result["items_in"], items_new=result["items_new"],
+            model=config.get("claude_model_score"), usage=result["usage"],
+            note=note[:1000], outcome=outcome,
+        )
+    except Exception as err:                       # noqa: BLE001
+        # The record is the point of all this, but failing to write it must
+        # not hide why the run itself failed.
+        print(f"The run record could not be written: {err}", file=sys.stderr)
 
     print(json.dumps(result, indent=2))
-    return 0
+    return 1 if failure is not None else 0
+
+
+def _stop_from_outside(signum, frame):
+    raise RunStopped(f"stopped from outside by signal {signum}")
 
 
 if __name__ == "__main__":

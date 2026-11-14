@@ -36,6 +36,8 @@ Safety posture:
 - Honest verdicts. Body text, JSON-LD and the bare HTTP status each
   mislead on their own, the study showed it, so none of them decides
   anything alone. The default verdict is unknown.
+- Every run leaves its row in runs, ok or failed. A run that raises
+  part-way still writes it, with what it got through, and exits 1.
 
 Flags:
   --dry-run   fetch and classify, write nothing (also the default)
@@ -55,6 +57,7 @@ import random
 import re
 import sys
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -156,11 +159,14 @@ def fetch_job_page(url: str) -> tuple[int, str, str]:
     })
     try:
         with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
-            body = resp.read(3_000_000).decode("utf-8", "replace")
-            return resp.status, resp.geturl(), body
+            body = rc.read_capped(resp, 3_000_000, rc.FETCH_BODY_SECONDS)
+            return resp.status, resp.geturl(), body.decode("utf-8", "replace")
     except urllib.error.HTTPError as err:
         return err.code, getattr(err, "url", None) or url, ""
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except rc.FETCH_ERRORS:
+        # A reply that broke off part-way raises http.client's own errors,
+        # which are not OSErrors. They are the network, the same as a
+        # timeout, and used to end the run with no record.
         return 0, url, ""
 
 
@@ -475,19 +481,9 @@ def due_candidates(conn, now: str | None = None) -> list[dict]:
 
 # ----------------------------------------------------------------- the run
 
-def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
-               only_id: int | None = None, now: str | None = None,
-               pause=None, backoff: float = BACKOFF_SECONDS,
-               wait=None) -> dict:
-    """Fetch, classify and (in live mode) stamp one capped batch.
-
-    backoff is the wait in seconds after a 429, wait is the function that
-    performs it. Tests pass a recorder and zero.
-    """
-    now = now or rc.now_iso()
-    pause = pause or _pause
-    wait = wait or _backoff
-    result = {
+def new_result(write: bool) -> dict:
+    """The run's tally before anything has happened."""
+    return {
         "mode": "live" if write else "dry-run",
         "due": 0, "due_never_read": 0, "checked": 0, "closed": 0,
         "rate_limited": 0, "backoff_seconds": 0, "rate_limits": [],
@@ -495,6 +491,23 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
         "pages_read": 0, "types_set": 0, "siblings_set": 0, "pay_set": 0,
         "tier_moves": {}, "page_reads": [],
     }
+
+
+def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
+               only_id: int | None = None, now: str | None = None,
+               pause=None, backoff: float = BACKOFF_SECONDS,
+               wait=None, result: dict | None = None) -> dict:
+    """Fetch, classify and (in live mode) stamp one capped batch.
+
+    backoff is the wait in seconds after a 429, wait is the function that
+    performs it. Tests pass a recorder and zero. result, when given, is the
+    tally to fill, so that a run that fails part-way still has its counts.
+    """
+    now = now or rc.now_iso()
+    pause = pause or _pause
+    wait = wait or _backoff
+    if result is None:
+        result = new_result(write)
     floors = None
     thresholds = None
     config = None
@@ -719,13 +732,28 @@ def main(argv=None) -> int:
         print("No mode flag given, defaulting to dry run.", file=sys.stderr)
 
     conn = rc.get_db(Path(args.db)) if args.db else rc.get_db()
-    result = run_checks(conn, cap=args.cap, write=write, only_id=args.id,
-                        backoff=args.backoff)
-    if args.id is None:
-        # The expiry pass rides on the daily run, never on a spot check.
-        expiry = expire_stale(conn, write=write)
-        result["expired"] = expiry["expired"]
-        result["expired_sample"] = expiry["sample"]
+    # The row in runs is written however the run ends. It used to be the
+    # last step, so a run that raised part-way, a database locked past its
+    # timeout or a page nobody expected, left no trace, and a checker that
+    # failed every day looked the same as one that was never scheduled.
+    result = new_result(write)
+    failure = None
+    try:
+        run_checks(conn, cap=args.cap, write=write, only_id=args.id,
+                   backoff=args.backoff, result=result)
+        if args.id is None:
+            # The expiry pass rides on the daily run, never on a spot check.
+            expiry = expire_stale(conn, write=write)
+            result["expired"] = expiry["expired"]
+            result["expired_sample"] = expiry["sample"]
+    except BaseException as err:                   # noqa: BLE001
+        failure = err
+        traceback.print_exception(type(failure), failure,
+                                  failure.__traceback__, file=sys.stderr)
+        try:
+            conn.rollback()
+        except Exception:                          # noqa: BLE001
+            pass
 
     verdicts = ", ".join(f"{v} {k}" for k, v in sorted(
         result["verdicts"].items(), key=lambda kv: -kv[1]))
@@ -749,12 +777,19 @@ def main(argv=None) -> int:
         note += f", {result['due_never_read']} never read"
     if result.get("expired"):
         note += f", {result['expired']} expired"
-    rc.log_run(conn, "check", mode=result["mode"],
-               items_in=result["checked"], items_new=result["closed"],
-               note=note)
+    if failure is not None:
+        result["failure"] = f"{type(failure).__name__}: {failure}"
+        note += f", stopped: {result['failure']}"
+    result["outcome"] = "failed" if failure is not None else "ok"
+    try:
+        rc.log_run(conn, "check", mode=result["mode"],
+                   items_in=result["checked"], items_new=result["closed"],
+                   note=note[:1000], outcome=result["outcome"])
+    except Exception as err:                       # noqa: BLE001
+        print(f"The run record could not be written: {err}", file=sys.stderr)
 
     print(json.dumps(result, indent=2))
-    return 0
+    return 1 if failure is not None else 0
 
 
 if __name__ == "__main__":

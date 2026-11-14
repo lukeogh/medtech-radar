@@ -165,7 +165,11 @@ CREATE TABLE IF NOT EXISTS runs (
   input_tokens     INTEGER DEFAULT 0,
   output_tokens    INTEGER DEFAULT 0,
   cache_read_tokens INTEGER DEFAULT 0,
-  note             TEXT
+  note             TEXT,
+  -- ok | partial | failed, for a job that says how it ended (the signal
+  -- watcher and the advert checker), NULL for the jobs that do not. A
+  -- failed run writes its row too, so a stopped job shows as failing.
+  outcome          TEXT
 );
 
 -- The scores an opportunity has held, oldest first, so a later change to the

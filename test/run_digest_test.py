@@ -242,9 +242,13 @@ def main() -> int:
     orvala = conn.execute("SELECT status FROM opportunities"
                           " WHERE company = 'Orvala Health'").fetchone()["status"]
     check(orvala == "new", "the ageing row keeps its status, it was not in the send")
+    # The email shows role counts and nothing from the signals table, so a
+    # send marks no signal digested. A digested signal could no longer take
+    # "I did it" on Insights, for a signal the email never showed.
     signal = conn.execute("SELECT status FROM signals"
                           " WHERE company = 'Lumivance Dx'").fetchone()["status"]
-    check(signal == "digested", "the sent signal is marked digested")
+    check(signal == "new",
+          "a signal the email does not show stays new after the send")
     meta = conn.execute("SELECT value FROM meta"
                         " WHERE key = 'last_digest_ts'").fetchone()["value"]
     check(meta > iso(now - timedelta(days=1)), "last_digest_ts stamped by commit")
