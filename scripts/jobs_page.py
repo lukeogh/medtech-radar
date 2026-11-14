@@ -96,12 +96,42 @@ def _clean(text) -> str:
     return str(text or "").strip().rstrip(".").strip()
 
 
-def view_query(view: str) -> str:
-    return "" if view == "open" else f"?show={view}"
+# The location chips. Local, UK, Europe and Elsewhere are where the company
+# is (the region enrichment mirrors onto each row); Remote is the advert's own
+# location class, as the location filter on the page before had it.
+LOCATIONS = (("local", "Local"), ("uk", "UK"), ("europe", "Europe"),
+             ("elsewhere", "Elsewhere"), ("remote", "Remote"))
+LOCATION_KEYS = tuple(k for k, _w in LOCATIONS)
 
 
-def role_url(item_id, view: str) -> str:
-    return f"/jobs/{int(item_id)}{view_query(view)}"
+def parse_loc(raw) -> tuple:
+    """The chips an address names, in the chips' own order, unknown ones
+    dropped. "uk,remote" and "remote,uk" are the same selection."""
+    asked = {p.strip().lower() for p in str(raw or "").split(",") if p.strip()}
+    return tuple(k for k in LOCATION_KEYS if k in asked)
+
+
+def loc_matches(o: dict, loc: tuple) -> bool:
+    """A role shows under the chips when its region is one chosen, or Remote
+    is chosen and its advert is remote. No chip chosen shows every role."""
+    if not loc:
+        return True
+    region = str(o.get("region") or "").strip().lower()
+    remote = str(o.get("location_class") or "").strip().lower() == "remote"
+    return region in loc or ("remote" in loc and remote)
+
+
+def view_query(view: str, loc: tuple = ()) -> str:
+    params = []
+    if view != "open":
+        params.append(f"show={view}")
+    if loc:
+        params.append("loc=" + ",".join(loc))
+    return ("?" + "&".join(params)) if params else ""
+
+
+def role_url(item_id, view: str, loc: tuple = ()) -> str:
+    return f"/jobs/{int(item_id)}{view_query(view, loc)}"
 
 
 def _sorted(faces: list) -> list:
@@ -113,7 +143,7 @@ def _sorted(faces: list) -> list:
 
 # -------------------------------------------------------------------- model
 
-def build_model(data: dict, now: str | None = None) -> dict:
+def build_model(data: dict, now: str | None = None, loc: tuple = ()) -> dict:
     """Every list the page draws, from one collect().
 
     The open roles are one collapse across every tier (one row per role, its
@@ -121,7 +151,9 @@ def build_model(data: dict, now: str | None = None) -> dict:
     match first and then freshness. Acknowledged roles collapse the same way.
     Applied roles are the first stamp on each applied chain, newest first.
     A role is new until any advert on its chain has been read; with read
-    tracking not yet migrated every role reads as read.
+    tracking not yet migrated every role reads as read. loc is the location
+    chips chosen: the lists drawn hold the roles they match, and the counts
+    in the header stay those of every role.
     """
     now = now or radar_common.now_iso()
     read_keys = data.get("read_keys")
@@ -160,15 +192,29 @@ def build_model(data: dict, now: str | None = None) -> dict:
     for o in tiers["filtered"]:
         reason = o.get("filter_reason") or "filtered"
         filtered_reasons[reason] = filtered_reasons.get(reason, 0) + 1
+    loc = tuple(loc or ())
+    all_lists = {
+        "open": tiers["top"] + tiers["question"] + tiers["reading"],
+        "acknowledged": acknowledged, "filtered": tiers["filtered"],
+        "applied": applied,
+    }
+    totals = {"top": len(tiers["top"]), "question": len(tiers["question"]),
+              "reading": len(tiers["reading"]), "filtered": len(tiers["filtered"]),
+              "acknowledged": len(acknowledged), "applied": len(applied)}
+    shown = {t: [o for o in rows if loc_matches(o, loc)] for t, rows in tiers.items()}
+    acknowledged_shown = [o for o in acknowledged if loc_matches(o, loc)]
+    applied_shown = [o for o in applied if loc_matches(o, loc)]
     model = {
-        "now": now, "tiers": tiers, "unscored": unscored,
-        "acknowledged": acknowledged, "applied": applied,
+        "now": now, "loc": loc, "tiers": shown, "totals": totals,
+        "unscored": unscored,
+        "acknowledged": acknowledged_shown, "applied": applied_shown,
         "filtered_reasons": filtered_reasons,
+        "all_lists": all_lists,
         "lists": {
-            "open": tiers["top"] + tiers["question"] + tiers["reading"],
-            "acknowledged": acknowledged,
-            "filtered": tiers["filtered"],
-            "applied": applied,
+            "open": shown["top"] + shown["question"] + shown["reading"],
+            "acknowledged": acknowledged_shown,
+            "filtered": shown["filtered"],
+            "applied": applied_shown,
         },
         "open_total": sum(len(v) for v in tiers.values()) + len(unscored),
         "new": sum(1 for t in OPEN_TIERS for o in tiers[t] if o["_unread"]),
@@ -194,7 +240,7 @@ def find_role(data: dict, model: dict, item_id: int):
         return None, None
     key = role_key(row)
     for view in ("open", "acknowledged", "applied", "filtered"):
-        for face in model["lists"][view]:
+        for face in model["all_lists"][view]:
             if role_key(face) == key:
                 return face, view
     for face in model["unscored"]:
@@ -323,7 +369,8 @@ def first_seen(o: dict) -> str:
     return o.get("_first") or chain.get("first") or o.get("first_seen") or ""
 
 
-def row_html(o: dict, view: str, current_key: str | None, now: str) -> str:
+def row_html(o: dict, view: str, current_key: str | None, now: str,
+             loc: tuple = ()) -> str:
     """One role in the queue. The title is the link that opens it; the rest
     of the row describes it. The New word, the CV match, the first-seen date,
     the company, place, pay as stated, contract or permanent and the source,
@@ -353,15 +400,15 @@ def row_html(o: dict, view: str, current_key: str | None, now: str) -> str:
         return (f'<div class="{" ".join(classes)} row-applied" data-id="{oid}" '
                 f'data-key="{esc(key)}">'
                 f'<span class="r1"><a class="r-link" id="rt-{oid}" '
-                f'href="{role_url(oid, view)}"{" aria-current=" + chr(34) + "true" + chr(34) if current else ""} '
+                f'href="{role_url(oid, view, loc)}"{" aria-current=" + chr(34) + "true" + chr(34) if current else ""} '
                 f'aria-describedby="rm-{oid}"><span class="r-title">{esc(title)}</span></a>{cv}</span>'
                 f'<span class="r2"><span class="r-meta" id="rm-{oid}">{meta}</span></span>'
                 '</div>')
     pay = o.get("salary_rate") or "Rate not stated"
     meta_bits = [esc(o.get("company") or "Unknown company")]
-    loc = location_text(o)
-    if loc:
-        meta_bits.append(esc(loc))
+    place = location_text(o)
+    if place:
+        meta_bits.append(esc(place))
     meta_bits.append(f'<span class="r-rate">{esc(pay)}</span>')
     word = engagement_word(o)
     if word:
@@ -381,7 +428,7 @@ def row_html(o: dict, view: str, current_key: str | None, now: str) -> str:
         f'<div class="{" ".join(classes)}" data-id="{oid}" data-key="{esc(key)}" '
         f'data-tier="{esc(o.get("tier") or "")}" data-region="{esc(region)}" '
         f'data-remote="{remote}">'
-        f'<span class="r1"><a class="r-link" id="rt-{oid}" href="{role_url(oid, view)}"'
+        f'<span class="r1"><a class="r-link" id="rt-{oid}" href="{role_url(oid, view, loc)}"'
         f'{" aria-current=" + chr(34) + "true" + chr(34) if current else ""} '
         f'aria-describedby="rm-{oid} rl-{oid}">{new}'
         f'<span class="r-title">{esc(title)}</span></a>{cv}'
@@ -400,7 +447,7 @@ def band_of(o: dict) -> str:
     return f"CV match {low}–{low + 9}" if low < 90 else "CV match 90–100"
 
 
-def rows_html(faces: list, view: str, current_key, now: str) -> str:
+def rows_html(faces: list, view: str, current_key, now: str, loc: tuple = ()) -> str:
     """Rows with a divider opening each ten-point CV band."""
     out, band = [], None
     for o in faces:
@@ -408,7 +455,7 @@ def rows_html(faces: list, view: str, current_key, now: str) -> str:
         if view != "applied" and b != band:
             out.append(f'<div class="band">{esc(b)}</div>')
             band = b
-        out.append(row_html(o, view, current_key, now))
+        out.append(row_html(o, view, current_key, now, loc))
     return "".join(out)
 
 
@@ -420,7 +467,7 @@ GATES_HEAD = ('<span class="gates-head"><span class="visually-hidden">Gate marks
               + '</span></span>')
 
 
-def group_html(gid: str, title: str, count: int, new: int, body: str,
+def group_html(gid: str, title: str, count, new: int, body: str,
                fold: str | None = None, gates: bool = True,
                lazy: bool = False) -> str:
     """One group: a sticky header with its title, count, new count and gate
@@ -450,6 +497,16 @@ def queue_inner_html(model: dict, view: str, current_key: str | None,
     """Everything inside the queue for one view."""
     now = model["now"]
     tiers = model["tiers"]
+    loc = model.get("loc") or ()
+    totals = model.get("totals") or {}
+
+    def count(group, shown):
+        total = totals.get(group, shown)
+        return f"{shown} of {total}" if loc and shown != total else shown
+
+    def rows(faces, v):
+        return rows_html(faces, v, current_key, now, loc)
+
     out = ['<p class="queue-note">Scores are from the advert card unless tagged '
            'Full job spec.</p>']
     if view == "open":
@@ -457,41 +514,45 @@ def queue_inner_html(model: dict, view: str, current_key: str | None,
             out.append('<p class="empty-note">Nothing scored yet. The inbox '
                        'workflow fills this page once radar-inbox is armed.</p>')
         top = tiers["top"]
-        body = (rows_html(top, view, current_key, now) if top else
-                '<p class="empty-note">Nothing to get excited about this week.</p>')
-        out.append(group_html("top", "Top prospects", len(top),
+        body = (rows(top, view) if top else
+                '<p class="empty-note">Nothing to get excited about this week.</p>'
+                if not loc else '<p class="empty-note">No Top prospect here.</p>')
+        out.append(group_html("top", "Top prospects", count("top", len(top)),
                               sum(o["_unread"] for o in top), body))
         question = tiers["question"]
-        body = (rows_html(question, view, current_key, now) if question else
+        body = (rows(question, view) if question else
                 '<p class="empty-note">No role is one question away.</p>')
-        out.append(group_html("question", "One question away", len(question),
+        out.append(group_html("question", "One question away",
+                              count("question", len(question)),
                               sum(o["_unread"] for o in question), body))
         reading = tiers["reading"]
-        if reading:
+        if reading or (loc and totals.get("reading")):
             # Reading folds. Its rows are drawn now when it is open, which it
             # is when the selected role is in it, and otherwise load when it
             # is opened, so the page does not carry hundreds of rows unasked.
             show = reading_open or any(role_key(o) == current_key for o in reading)
-            body = rows_html(reading, view, current_key, now) if show else ""
-            out.append(group_html("reading", "Reading", len(reading),
+            body = ((rows(reading, view) if reading else
+                     '<p class="empty-note">No Reading role here.</p>') if show else "")
+            out.append(group_html("reading", "Reading", count("reading", len(reading)),
                                   sum(o["_unread"] for o in reading), body,
                                   fold="open" if show else "closed",
                                   lazy=not show))
         # Applied is always linked, at zero too, as the way to the view;
         # Acknowledged once there is something behind it.
-        links = [("applied", "Applied", len(model["applied"]))]
+        links = [("applied", "Applied", count("applied", len(model["applied"])))]
         if model["acknowledged"]:
-            links.append(("acknowledged", "Acknowledged", len(model["acknowledged"])))
-        for key, label, count in links:
-            out.append(f'<p class="view-link"><a class="link" href="/jobs?show={key}">'
-                       f'{label} <span class="group-count">{count}</span></a></p>')
+            links.append(("acknowledged", "Acknowledged",
+                          count("acknowledged", len(model["acknowledged"]))))
+        for key, label, n in links:
+            out.append(f'<p class="view-link"><a class="link" href="/jobs{view_query(key, loc)}">'
+                       f'{label} <span class="group-count">{n}</span></a></p>')
         filtered = tiers["filtered"]
         if filtered:
             roll = ", ".join(f"{n} {r}" for r, n in sorted(
                 model["filtered_reasons"].items(), key=lambda kv: -kv[1]))
             out.append(f'<p class="filtered">Filtered, {len(filtered)} '
                        f'{"role" if len(filtered) == 1 else "roles"}. {esc(roll)}. '
-                       '<a class="link" href="/jobs?show=filtered">Show them</a></p>')
+                       f'<a class="link" href="/jobs{view_query("filtered", loc)}">Show them</a></p>')
         if model["unscored"]:
             n = len(model["unscored"])
             out.append(f'<p class="filtered">{n} {"role is" if n == 1 else "roles are"} '
@@ -514,23 +575,23 @@ def queue_inner_html(model: dict, view: str, current_key: str | None,
         empty = {"applied": "No applications recorded yet.",
                  "acknowledged": "No acknowledged roles.",
                  "filtered": "No filtered roles."}[view]
-        body = (rows_html(faces, view, current_key, now) if faces else
+        body = (rows(faces, view) if faces else
                 f'<p class="empty-note">{empty}</p>')
-        out.append(group_html(view, GROUP_WORDS[view], len(faces), new, body,
+        out.append(group_html(view, GROUP_WORDS[view], count(view, len(faces)), new, body,
                               gates=view != "applied"))
-        out.append('<p class="view-link"><a class="link" href="/jobs">Back to the '
-                   'open roles</a></p>')
+        out.append(f'<p class="view-link"><a class="link" href="/jobs{view_query("open", loc)}">'
+                   'Back to the open roles</a></p>')
     return "".join(out)
 
 
 def counts_html(model: dict) -> str:
     """The header's counts, each a part the page script can update."""
-    tiers = model["tiers"]
+    totals = model["totals"]
     bits = [f'<span data-count="open">{model["open_total"]} open</span>',
-            f'<span data-count="top">{len(tiers["top"])} Top prospects</span>',
-            f'<span data-count="question">{len(tiers["question"])} one question away</span>',
-            f'<span data-count="reading">{len(tiers["reading"])} reading</span>',
-            f'<span data-count="filtered">{len(tiers["filtered"])} filtered</span>']
+            f'<span data-count="top">{totals["top"]} Top prospects</span>',
+            f'<span data-count="question">{totals["question"]} one question away</span>',
+            f'<span data-count="reading">{totals["reading"]} reading</span>',
+            f'<span data-count="filtered">{totals["filtered"]} filtered</span>']
     if model["unscored"]:
         bits.append(f'<span data-count="unscored">{len(model["unscored"])} not scored</span>')
     bits.append(f'<span data-count="new" data-n="{model["new"]}">{model["new"]} new</span>')
@@ -994,12 +1055,12 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
             return (f'<span class="btn btn-secondary prevnext is-disabled" '
                     f'aria-disabled="true">{label}<kbd class="kbd" aria-hidden="true">'
                     f'{key}</kbd></span>')
-        return (f'<a class="btn btn-secondary prevnext" href="{role_url(target, view)}" '
+        return (f'<a class="btn btn-secondary prevnext" href="{role_url(target, view, model["loc"])}" '
                 f'rel="{rel}" data-step="{rel}" data-id="{target}" '
                 f'aria-keyshortcuts="{key}">{label}<kbd class="kbd" aria-hidden="true">'
                 f'{key}</kbd></a>')
 
-    back = (f'<a class="link back" href="/jobs{view_query(view if view != "retired" else "open")}" '
+    back = (f'<a class="link back" href="/jobs{view_query(view if view != "retired" else "open", model["loc"])}" '
             'data-back>Back to Jobs</a>')
     head = (f'<header class="detail-head">{back}<div class="dh-grid">'
             f'<h2 class="dh-title" id="role-title" tabindex="-1">{esc(title)}</h2>'
@@ -1052,7 +1113,7 @@ def role_payload(data: dict, model: dict, item_id: int, view: str) -> dict | Non
             "tier": face.get("tier") or "", "view": shown,
             "title": face.get("title") or "Untitled role",
             "unread": bool(face.get("_unread")),
-            "url": role_url(face["id"], view),
+            "url": role_url(face["id"], view, model["loc"]),
             "html": role_inner_html(data, model, face, shown)}
 
 
@@ -1065,17 +1126,17 @@ def queue_payload(model: dict, view: str, current_key: str | None,
 
 def reading_payload(model: dict, current_key: str | None) -> dict:
     return {"html": rows_html(model["tiers"]["reading"], "open", current_key,
-                              model["now"])}
+                              model["now"], model["loc"])}
 
 
 def show_menu_html(model: dict, view: str) -> str:
-    counts = {"open": model["open_total"] - len(model["tiers"]["filtered"])
-              - len(model["unscored"]),
-              "acknowledged": len(model["acknowledged"]),
-              "filtered": len(model["tiers"]["filtered"]),
-              "applied": len(model["applied"])}
+    totals = model["totals"]
+    counts = {"open": model["open_total"] - totals["filtered"] - len(model["unscored"]),
+              "acknowledged": totals["acknowledged"],
+              "filtered": totals["filtered"],
+              "applied": totals["applied"]}
     items = "".join(
-        f'<li><a href="/jobs{view_query(v)}"'
+        f'<li><a href="/jobs{view_query(v, model["loc"])}"'
         f'{" aria-current=" + chr(34) + "page" + chr(34) if v == view else ""}>'
         f'{VIEW_WORDS[v]} <span class="chip-count">{counts[v]}</span></a></li>'
         for v in VIEWS)
@@ -1087,13 +1148,22 @@ def show_menu_html(model: dict, view: str) -> str:
             f'<ul class="show-list" id="show-list" hidden>{items}</ul></div>')
 
 
+def chips_html(loc: tuple) -> str:
+    """The location chips, each a toggle. Choosing none shows every role."""
+    return ('<div class="chips" role="group" aria-label="Location">' + "".join(
+        f'<button type="button" class="chip{" is-selected" if key in loc else ""}" '
+        f'data-loc="{key}" aria-pressed="{"true" if key in loc else "false"}">{word}</button>'
+        for key, word in LOCATIONS) + '</div>')
+
+
 def render(data: dict, config: dict, db_label: str, selected: int | None = None,
-           view: str = "open", reading: bool = False) -> tuple[int, str]:
+           view: str = "open", reading: bool = False, loc: tuple = ()) -> tuple[int, str]:
     """(status, the whole page). 404 when the address names no row. reading
     draws the Reading rows now rather than when the group is opened."""
     if view not in VIEWS:
         view = "open"
-    model = build_model(data)
+    loc = parse_loc(",".join(loc)) if loc else ()
+    model = build_model(data, loc=loc)
     status = 200
     face, where = (find_role(data, model, selected) if selected is not None
                    else (None, None))
@@ -1118,7 +1188,7 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
              "key": current_key, "tier": (face or {}).get("tier") or "",
              "unread": bool((face or {}).get("_unread")),
              "title": (face or {}).get("title") or "",
-             "readAfter": READ_AFTER_MS, "stamp": model["stamp"]}
+             "readAfter": READ_AFTER_MS, "stamp": model["stamp"], "loc": list(loc)}
     state_json = esc(json.dumps(state))
     page = f"""<!doctype html>
 <html lang="en-GB">
@@ -1137,6 +1207,7 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 <div class="ph-title"><h1>Jobs</h1><p class="counts" id="counts">{counts_html(model)}</p></div>
 <div class="ph-tools">
 <div class="arrivals" role="status"><button type="button" class="btn btn-secondary" id="arrivals" hidden></button></div>
+{chips_html(loc)}
 {show_menu_html(model, view)}
 <button type="button" class="btn btn-ghost undo-last" id="undo-last" disabled>Undo last</button>
 </div>
@@ -1194,6 +1265,8 @@ a{color:inherit}
 .chip-count{color:var(--text-3);font-weight:400;font-variant-numeric:tabular-nums}
 .chip.is-selected{background:var(--accent-tint);border-color:var(--accent);color:var(--accent)}
 .chip-facet{padding-right:8px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip.is-selected:hover{color:var(--accent-hover)}
 .tag{display:inline-flex;align-items:center;gap:4px;flex:none;height:20px;padding:0 8px;border-radius:var(--radius-2);font-size:12px;line-height:16px;font-weight:600;white-space:nowrap}
 .tag-neutral{background:var(--neutral-tint);color:var(--neutral)}
 .tag-caution{background:var(--caution-tint);color:var(--caution)}
@@ -1410,6 +1483,7 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .company .link,.with-icon{display:inline-flex;align-items:center;min-height:44px}
   .evidence{position:relative;display:inline-block;padding:6px 0}
   .show-list{left:0;right:auto}
+  .chips{display:contents}
 }
 @media (pointer:coarse){
   .btn,.chip{height:44px}
@@ -1431,8 +1505,19 @@ JOBS_SCRIPT = """
   if (!app) return;
   var state = JSON.parse(app.dataset.state);
   var view = state.view;
-  var qs = view === 'open' ? '' : '?show=' + view;
-  var amp = view === 'open' ? '' : '&show=' + view;
+  var loc = state.loc || [];
+  var LOCS = ['local', 'uk', 'europe', 'elsewhere', 'remote'];
+  var qs = '', amp = '';
+  // The view and the location chips travel in every address the page makes,
+  // so a reload, a role's link and the back button keep both.
+  function setQuery() {
+    var params = [];
+    if (view !== 'open') params.push('show=' + view);
+    if (loc.length) params.push('loc=' + loc.join(','));
+    qs = params.length ? '?' + params.join('&') : '';
+    amp = params.length ? '&' + params.join('&') : '';
+  }
+  setQuery();
   var queue = document.getElementById('queue');
   var role = document.getElementById('role');
   var counts = document.getElementById('counts');
@@ -1521,7 +1606,7 @@ JOBS_SCRIPT = """
     if (!open) { rows.hidden = true; return Promise.resolve(); }
     var load = Promise.resolve();
     if (rows.dataset.lazy === '1') {
-      load = json('/jobs?part=reading' + (current ? '&current=' + current.id : '')).then(function (j) {
+      load = json('/jobs?part=reading' + amp + (current ? '&current=' + current.id : '')).then(function (j) {
         rows.innerHTML = j.html;
         rows.dataset.lazy = '0';
       });
@@ -1643,7 +1728,55 @@ JOBS_SCRIPT = """
       if (link) link.focus({ preventScroll: true });
     }
   }
+  function locFromAddress() {
+    var m = location.search.match(/[?&]loc=([^&]*)/);
+    var asked = m ? decodeURIComponent(m[1]).split(',') : [];
+    return LOCS.filter(function (k) { return asked.indexOf(k) >= 0; });
+  }
+  function showChips() {
+    document.querySelectorAll('[data-loc]').forEach(function (b) {
+      var on = loc.indexOf(b.dataset.loc) >= 0;
+      b.setAttribute('aria-pressed', String(on));
+      b.classList.toggle('is-selected', on);
+    });
+  }
+  function applyLoc(next, push) {
+    loc = next;
+    setQuery();
+    showChips();
+    // The Show menu's views keep the chips too.
+    document.querySelectorAll('#show-list a').forEach(function (a) {
+      var m = a.getAttribute('href').match(/show=([a-z]+)/);
+      var params = m ? ['show=' + m[1]] : [];
+      if (loc.length) params.push('loc=' + loc.join(','));
+      a.setAttribute('href', '/jobs' + (params.length ? '?' + params.join('&') : ''));
+    });
+    var path = current ? '/jobs/' + current.id : '/jobs';
+    if (push) history.pushState(current ? { id: current.id } : {}, '', path + qs + location.hash);
+    return refreshQueue().then(function () {
+      // The role stays open; its Previous and Next follow the chips.
+      if (current) return select(current.id, { push: false });
+    });
+  }
+  document.querySelectorAll('[data-loc]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var k = b.dataset.loc;
+      var next = loc.indexOf(k) >= 0 ? loc.filter(function (x) { return x !== k; })
+                                      : LOCS.filter(function (x) { return x === k || loc.indexOf(x) >= 0; });
+      applyLoc(next, true);
+    });
+  });
   window.addEventListener('popstate', function () {
+    var asked = locFromAddress();
+    if (asked.join(',') !== loc.join(',')) {
+      // Back or forward across a change of chips: the list follows.
+      var m0 = location.pathname.match(/^\\/jobs\\/(\\d+)/);
+      if (!m0 && current) showList(false);
+      applyLoc(asked, false).then(function () {
+        if (m0 && (!current || current.id !== Number(m0[1]))) select(Number(m0[1]), { push: false });
+      });
+      return;
+    }
     // A quote's link to the advert, or the skip link, moves only the hash,
     // and the browser reports that as a step in history too. The role on
     // screen is still the one the address names, so nothing is redrawn.
