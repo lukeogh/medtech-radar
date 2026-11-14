@@ -240,6 +240,14 @@ _MIGRATIONS = (
     # to give them some. The history keeps the same JSON as reasons.
     ("opportunities", "score_reasons", "TEXT"),
     ("score_history", "reasons", "TEXT"),
+    # The Jobs page's New. When a human first opened a role, or acted on it.
+    # A role is read when any advert on its chain carries the stamp, so a
+    # repost of a role already read arrives read (mark_read stamps the chain
+    # as it stands, and the page asks the chain, see role_read_keys). Set only
+    # by the Jobs page through POST /read and the verdict routes, never by a
+    # model or a pipeline. Every row on file when the column arrives is
+    # stamped once, below, so the switch-on shows nothing as new.
+    ("opportunities", "read_at", "TEXT"),
 )
 
 # What the score record says about a row scored before the record existed.
@@ -330,6 +338,19 @@ def _migrate(conn: sqlite3.Connection) -> None:
                              " WHERE id = ?", (key, row["id"]))
         conn.execute("INSERT OR IGNORE INTO meta (key, value)"
                      " VALUES ('migrated_role_key', '1')")
+    # The Jobs page's New. Every row on file when read_at arrives is stamped
+    # read, once per database ever, behind its flag, so switching it on shows
+    # nothing as new and only roles that arrive afterwards are. Without the
+    # flag this would run on every open and read every role as it landed.
+    # Stamped with the moment of the migration, not a guess at when each
+    # role was looked at.
+    done_read = conn.execute(
+        "SELECT value FROM meta WHERE key = 'migrated_read_at'").fetchone()
+    if not done_read:
+        conn.execute("UPDATE opportunities SET read_at = ? WHERE read_at IS NULL",
+                     (now_iso(),))
+        conn.execute("INSERT OR IGNORE INTO meta (key, value)"
+                     " VALUES ('migrated_read_at', '1')")
     # Score record-keeping. Every scored row that carries no basis gets the
     # honest label for a score made before the record was kept. That is the
     # card, because it is all any scorer has been given, a prompt version of
@@ -427,6 +448,37 @@ APPLIED_SQL = (
     " (SELECT role_key FROM opportunities"
     " WHERE applied_at IS NOT NULL AND role_key IS NOT NULL)))")
 NOT_APPLIED_SQL = "NOT " + APPLIED_SQL
+
+
+def mark_read(conn, opportunity_id: int, key=None) -> int:
+    """Stamp read_at on a role's chain where it is not stamped. The caller
+    commits. Returns the rows stamped, 0 when the role was read already.
+
+    The chain is every advert sharing the role_key, as the verdicts reach
+    them; a row without a key is stamped alone. key is the row's role_key
+    when the caller has read it already.
+    """
+    if key is None:
+        found = conn.execute("SELECT role_key FROM opportunities WHERE id = ?",
+                             (opportunity_id,)).fetchone()
+        key = found[0] if found else None
+    cur = conn.execute(
+        "UPDATE opportunities SET read_at = ? WHERE read_at IS NULL"
+        " AND (id = ? OR (role_key IS NOT NULL AND role_key = ?))",
+        (now_iso(), opportunity_id, key))
+    return cur.rowcount
+
+
+def role_read_keys(conn) -> set | None:
+    """The roles that have been read, as the Jobs page keys them: the
+    role_key, or row-<id> for a row with none. None when the database has no
+    read_at column yet, which reads as every role read, the state a migration
+    would leave it in."""
+    have = {r[1] for r in conn.execute("PRAGMA table_info(opportunities)")}
+    if "read_at" not in have:
+        return None
+    return {r[0] or f"row-{r[1]}" for r in conn.execute(
+        "SELECT role_key, id FROM opportunities WHERE read_at IS NOT NULL")}
 
 
 def applied_role_keys(conn) -> set:

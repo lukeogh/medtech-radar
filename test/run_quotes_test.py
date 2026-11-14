@@ -1426,8 +1426,10 @@ def page_checks() -> None:
         card = env.rows()[0]["id"]
         spec = env.role(title="Head of Software", company="Theta Diagnostics")
         env.prepare(spec)
+        # The reasons are in the role pane the Jobs page draws for each role.
         with pointed_at(env.db):
-            jobs = serve_dashboard.render("jobs").decode("utf-8")
+            jobs = "".join(serve_dashboard.render_jobs(oid, {})[1].decode("utf-8")
+                           for oid in (card, spec))
             archive = serve_dashboard.render("archive").decode("utf-8")
         jt = page_text(jobs)
         check(jobs.count('class="reasons"') == 2
@@ -1831,7 +1833,9 @@ def box_query_checks() -> None:
             page = build_dashboard.render_prepare_page(c, b, CFG, "box.sqlite")
         finally:
             c.close()
-        check(page.count('class="reasons"') == 2 and jobs.count('class="reasons"') >= 1,
+        with pointed_at(old):
+            opened = serve_dashboard.render_jobs(b, {})[1].decode("utf-8")
+        check(page.count('class="reasons"') == 2 and opened.count('class="reasons"') >= 1,
               "the Prepare page the curl line reads lists two sets of reasons, the "
               "master score's and the tailored copy's, and the Jobs page at least one")
         out = run_kept_check(old)

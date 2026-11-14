@@ -2015,7 +2015,8 @@ def history_checks() -> None:
                 jobs = serve_dashboard.render("jobs").decode("utf-8")
             finally:
                 serve_dashboard.ARGS = saved_args
-            check('<span class="col-cv">80%</span>' in jobs and "90%" not in jobs,
+            check('<span class="visually-hidden">CV match </span>80%</span>' in jobs
+                  and "90%" not in jobs,
                   "the Jobs page shows the master CV's score, 80, and not the tailored 90")
 
 
@@ -3868,7 +3869,7 @@ def static_checks() -> None:
     importers = sorted(p.name for p in scripts if p.name != "prepare_application.py"
                        and re.search(r"^\s*(import|from)\s+prepare_application\b",
                                      p.read_text(encoding="utf-8"), re.M))
-    check(importers == ["build_dashboard.py", "serve_dashboard.py"],
+    check(importers == ["build_dashboard.py", "jobs_page.py", "serve_dashboard.py"],
           f"only the dashboard imports it ({importers})")
     light = {}
     for name in ("cv_doc.py", "cv_page.py", "tailored_cv.py", "cv_word.py"):

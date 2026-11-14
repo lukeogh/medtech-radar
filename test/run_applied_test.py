@@ -342,9 +342,29 @@ def post(port, path, payload, headers=None, timeout=10):
     return status, parsed, got
 
 
+APPLIED_MARK = "\n<!-- the Applied view follows -->\n"
+
+
 def jobs_html(db) -> str:
+    """The Jobs page's open roles, Reading drawn, then its Applied view.
+
+    The round-2 Jobs page shows applied roles in a view of their own,
+    /jobs?show=applied, so the two pages are read together and
+    split_applied takes them apart again."""
     with pointed_at(db):
-        return serve_dashboard.render("jobs").decode("utf-8")
+        _s, open_page, _t = serve_dashboard.render_jobs(None, {"reading": ["1"]})
+        _s, applied_page, _t = serve_dashboard.render_jobs(None, {"show": ["applied"]})
+    return open_page.decode("utf-8") + APPLIED_MARK + applied_page.decode("utf-8")
+
+
+def role_pane(db, item_id, view="open") -> str:
+    """The role pane the Jobs page draws for one row, its HTML alone."""
+    query = {"part": ["role"]}
+    if view != "open":
+        query["show"] = [view]
+    with pointed_at(db):
+        status, body, _t = serve_dashboard.render_jobs(item_id, query)
+    return json.loads(body)["html"] if status == 200 else ""
 
 
 def home_html(db) -> str:
@@ -353,17 +373,15 @@ def home_html(db) -> str:
 
 
 def split_applied(html: str) -> tuple[str, str]:
-    """(the page before the Applied section, the Applied section)."""
-    at = html.find("<h2>Applied</h2>")
-    if at < 0:
-        return html, ""
-    start = html.rfind("<details", 0, at)
-    end = html.find("</details>", at) + len("</details>")
-    return html[:start] + html[end:], html[start:end]
+    """(the open roles page, the Applied view's queue)."""
+    tiers, _mark, applied = html.partition(APPLIED_MARK)
+    if 'id="queue"' in applied:
+        applied = applied.split('id="queue"', 1)[1].split('id="role"', 1)[0]
+    return tiers, applied
 
 
 def row_titles(html: str) -> list[str]:
-    return re.findall(r'<span class="row-title">(.*?)</span>', html)
+    return re.findall(r'<span class="r-title">(.*?)</span>', html)
 
 
 # ---------------------------------------------------------------- migration
@@ -1187,7 +1205,7 @@ def repost_checks() -> None:
         check(QD[0] not in tiers and RD[0] in tiers,
               "the Jobs page's open tiers carry the other role and never the "
               "applied one, repost included")
-        check(tiers.count(f"d-o") >= 1 and row_titles(tiers).count(RD[0]) == 1,
+        check(row_titles(tiers).count(RD[0]) == 1,
               "and the other role's two adverts are one row (the collapse)")
         check(row_titles(applied) == [QD[0]],
               "the Applied section lists the role once")
@@ -2314,59 +2332,61 @@ def page_checks() -> None:
 
         jobs = jobs_html_now(db)
         tiers, applied = split_applied(jobs)
-        check(applied.startswith("<details") and " open" not in applied.split(">")[0],
-              "the Applied section is a folded details element")
-        check(jobs.index("<h2>Applied</h2>") > jobs.index("Reading")
-              and jobs.rfind("<h2>", 0, jobs.index("<h2>Applied</h2>")) > 0
-              and jobs.index("<h2>Applied</h2>") > jobs.index("One question away")
-              and jobs.index("<h2>Applied</h2>") > jobs.index("Top prospects"),
-              "and it sits below the open tiers")
-        check('<span class="section-count">3</span>' in applied,
-              "its count is three, one per role")
+        link = '<a class="link" href="/jobs?show=applied">Applied <span class="group-count">3</span></a>'
+        check(link in tiers,
+              "the Applied roles are a view of their own, linked from the open "
+              "roles with their count")
+        check(tiers.index(link) > tiers.index('id="group-reading"')
+              > tiers.index('id="group-question"') > tiers.index('id="group-top"'),
+              "and the link sits below the open tiers")
+        check('id="group-applied">Applied<span class="group-count">3' in applied,
+              "the view's count is three, one per role")
         check(row_titles(applied) == ["Auditor &lt;b&gt;", "Head of QA", QD[0]],
               "it lists the roles newest application first, titles escaped")
         check("Kordis Medical" in applied and "Mentis &amp; Co" in applied
               and QD[1] in applied,
               "with the company on each row, escaped")
-        check(f"Applied {build_dashboard.fmt_day(at(10))}, "
-              "10 days ago" in applied,
-              "each row says the day it was applied and the days since")
-        check(f"Applied {build_dashboard.fmt_day(at(1))}, "
-              "yesterday" in applied
-              and f"Applied {build_dashboard.fmt_day(at(0))}, "
-              "today" in applied,
-              "the day before reads yesterday and the same day reads today")
-        check("Via Reed alert." in applied and "Via LinkedIn alert." in applied
-              and "Via email alert." in applied,
+        check(all(f"Applied {build_dashboard.fmt_day(at(n))} · " in applied
+                  for n in (10, 1, 0)),
+              "each row leads with the day it was applied")
+        check(" · Reed</span>" in applied and " · LinkedIn</span>" in applied
+              and " · Email alert</span>" in applied,
               "the source each advert came through, by its name")
-        check('href="https://www.reed.co.uk/jobs/qd/1"' in applied
-              and 'href="https://www.linkedin.com/jobs/view/123456/"' in applied
-              and "javascript:" not in applied,
-              "a link to each advert, and a link that is not http or https is "
-              "dropped")
-        check(applied.count("View the advert") == 2,
-              "the two that have a safe link say View the advert")
-        check(all(f'data-unapply="{i}"' in applied for i in (a1, a2, a3))
-              and "data-apply=" not in applied,
-              "each row has an Undo button and no Applied button")
-        check('aria-label="Undo applied for Head of QA"' in applied
-              and 'aria-label="Undo applied for Auditor &lt;b&gt;"' in applied,
-              "and each Undo button names its role for a screen reader, escaped")
+        panes = {i: role_pane(db, i, "applied") for i in (a1, a2, a3)}
+        check('href="https://www.reed.co.uk/jobs/qd/1"' in panes[a1]
+              and 'href="https://www.linkedin.com/jobs/view/123456/"' in panes[a2]
+              and "javascript:" not in panes[a3]
+              and "Open the advert" not in panes[a3],
+              "each role's pane links to its advert, and a link that is not "
+              "http or https is dropped")
+        check(all(f'data-act="unapply" data-id="{i}"' in panes[i] for i in panes)
+              and not any('data-act="apply"' in p for p in panes.values()),
+              "each applied role's pane has Undo applied and no Mark applied")
+        check('id="role-title" tabindex="-1">Head of QA</h2>' in panes[a2]
+              and 'id="role-title" tabindex="-1">Auditor &lt;b&gt;</h2>' in panes[a3]
+              and f"Applied {build_dashboard.fmt_day(at(1))}. Applied roles stay"
+              in panes[a2],
+              "and its Undo sits under the role's own heading, escaped, with "
+              "the day it was applied")
 
         # The open tiers.
-        check(all(f'data-apply="{i}"' in tiers for i in (o1, o2, o3)),
-              "every open row on the Jobs page has an Applied button")
-        check(not any(f'data-apply="{i}"' in tiers for i in (a1, a2, a3)),
-              "and no applied role is in the tiers to have one")
-        check("Applied, sent it" in tiers,
-              "labelled as the other verdicts are")
-        # Beside Acknowledge, Closed and Dismiss.
-        one = tiers.split(f'data-apply="{o1}"')[1].split("</button>")[0]
-        order = [tiers.index(f'data-ack="{o1}"'), tiers.index(f'data-apply="{o1}"'),
-                 tiers.index(f'data-close="{o1}"'), tiers.index(f'data-dismiss="{o1}"')]
-        check(order == sorted(order) and "Applied" in one,
-              "the button sits among Acknowledge, Closed and Dismiss in the "
-              "expanded row")
+        open_panes = {i: role_pane(db, i) for i in (o1, o2, o3)}
+        check(all(f'data-act="apply" data-id="{i}"' in open_panes[i]
+                  for i in open_panes),
+              "every open role's pane on the Jobs page has Mark applied")
+        check(not any(f'data-id="{i}"' in tiers for i in (a1, a2, a3)),
+              "and no applied role is in the open tiers to have one")
+        one = open_panes[o1]
+        check(">Mark applied<kbd" in one,
+              "labelled as the other verdicts are, with its key")
+        # Beside Acknowledge, Dismiss and Close role.
+        order = [one.index(f'data-act="ack" data-id="{o1}"'),
+                 one.index(f'data-act="dismiss" data-id="{o1}"'),
+                 one.index(f'data-act="close" data-id="{o1}"'),
+                 one.index(f'data-act="apply" data-id="{o1}"')]
+        check(order == sorted(order),
+              "the button sits after Acknowledge, Dismiss and Close role in "
+              "the role pane")
 
         home = home_html(db)
         check("data-apply=" not in home and "<h2>Applied</h2>" not in home,
@@ -2397,10 +2417,9 @@ def page_checks() -> None:
         s2 = role(c3, QD, applied_at=at(2))
         c3.close()
         _t, a_two = split_applied(jobs_html_now(two))
-        check(a_two.count('class="applied-row"') == 1
-              and f'data-unapply="{s1}"' in a_two
-              and f"Applied {build_dashboard.fmt_day(at(9))}, 9 days ago"
-              in a_two,
+        check(a_two.count('<div class="row ') == 1
+              and f'data-id="{s1}"' in a_two
+              and f"Applied {build_dashboard.fmt_day(at(9))} · " in a_two,
               "a chain with two stamps is one entry, on the earlier one")
         with pointed_at(two):
             check(serve_dashboard.set_applied(s2, False)["ok"], "Undo on it works")
@@ -2416,10 +2435,11 @@ def page_checks() -> None:
         role(c2, RD)
         c2.close()
         e_tiers, e_applied = split_applied(jobs_html_now(empty))
-        check('<span class="section-count">0</span>' in e_applied
+        check('id="group-applied">Applied<span class="group-count">0' in e_applied
               and "No applications recorded yet." in e_applied
-              and "details" in e_applied.split(">")[0],
-              "with nothing applied for the section is still there, folded, "
+              and 'href="/jobs?show=applied">Applied <span class="group-count">0'
+              in e_tiers,
+              "with nothing applied for the view is still there, and linked, "
               "at zero")
 
         # Applied roles with no role key, no company or no title, which is
@@ -2436,21 +2456,23 @@ def page_checks() -> None:
                   applied_at=at(5))
         c4.close()
         _t, a_thin = split_applied(jobs_html_now(thin))
-        check(a_thin.count('class="applied-row"') == 3
-              and '<span class="section-count">3</span>' in a_thin
-              and all(f'data-unapply="{i}"' in a_thin for i in (k1, k2, k3)),
+        check(a_thin.count('<div class="row ') == 3
+              and 'id="group-applied">Applied<span class="group-count">3' in a_thin
+              and all(f'data-id="{i}"' in a_thin for i in (k1, k2, k3)),
               "applied roles with no role key are three entries and not one, "
-              "each with its own Undo")
+              "each with its own row")
         check(row_titles(a_thin) == ["Lone title", "Untitled role",
                                      "Untitled role"]
-              and a_thin.count("Unknown company.") == 2
-              and "Anon Ltd." in a_thin and "None" not in a_thin,
+              and a_thin.count("Unknown company") == 2
+              and "Anon Ltd" in a_thin and "None" not in a_thin,
               "a missing title reads Untitled role, a missing company reads "
               "Unknown company, and nothing reads None")
-        check(a_thin.count("View the advert") == 1
-              and a_thin.count('aria-label="Undo applied for Untitled role"')
-              == 2 and "Via unknown source." in a_thin,
-              "a missing link means no link, a missing source says so")
+        thin_panes = [role_pane(thin, i, "applied") for i in (k1, k2, k3)]
+        check(sum("Open the advert" in p for p in thin_panes) == 1
+              and all('data-act="unapply"' in p for p in thin_panes)
+              and "Unknown source" in thin_panes[0],
+              "a missing link means no link, a missing source says so, and "
+              "each keeps its Undo")
 
 
 def applied_days_checks() -> None:
@@ -2614,8 +2636,11 @@ def nothing_else_changes_checks() -> None:
     """The Jobs page with a role applied reads the same as the Jobs page
     without that role, apart from the Applied section and the clock."""
     def squash(html: str) -> str:
-        # The masthead names the database file and the minute it was made.
-        return re.sub(r"Generated [^<]*?\.sqlite\.", "Generated T from DB.", html)
+        # The page's newest row id, and the Applied count in the link and the
+        # Show menu, are the Applied view's business.
+        html = re.sub(r'"stamp": \d+', '"stamp": N', html)
+        return re.sub(r'Applied <span class="(group-count|chip-count)">\d+</span>',
+                      r'Applied <span class="\1">N</span>', html)
 
     with tempfile.TemporaryDirectory() as tmp:
         def build(name, applied):
@@ -2647,7 +2672,7 @@ def nothing_else_changes_checks() -> None:
               "everything else on the Jobs page are byte for byte the page "
               "without that role")
         check(row_titles(a_with) == [QD[0]] and row_titles(a_plain) == [],
-              "and only the Applied section differs")
+              "and only the Applied view differs")
 
 
 # ------------------------------------------------------------- the static scan
@@ -2705,6 +2730,11 @@ EXCEPTIONS = {
         "labels scores made before the record existed, once",
     ("radar_common.py", "_migrate", "SET role_key = ?"):
         "gives a row its role key when it has none, the same key every time",
+    ("radar_common.py", "_migrate", "SET read_at = ?"):
+        "stamps every role on file read when the column arrives, once",
+    ("radar_common.py", "mark_read", "SET read_at = ?"):
+        "the Jobs page's read stamp says a role was opened and changes no "
+        "state, so an applied role can be read like any other",
     # ---- picks that only list rows
     ("touch.py", "flip_opportunity", "SELECT id, company, title, acknowledged_at"):
         "lists the rows to mark, and the loop that follows leaves an applied "
@@ -2930,11 +2960,12 @@ def box_query_checks() -> None:
         # Applied section once and one button for each open role. Done here
         # with the same two patterns the box's grep uses.
         page = jobs_html(db)
-        seen = re.findall(r'<h2>Applied</h2>|data-apply="', page)
-        check(seen.count("<h2>Applied</h2>") == 1
-              and seen.count('data-apply="') == 1,   # only RD is still open
-              "the page check in the box block finds the Applied section once "
-              "and one button for each open role")
+        tiers, applied = split_applied(page)
+        check(tiers.count('<a class="link" href="/jobs?show=applied">Applied') == 1
+              and tiers.count('<div class="row ') == 1    # only RD is still open
+              and applied.count('<div class="row ') == 2,
+              "the Jobs page links the Applied view once, lists the one open "
+              "role, and the view lists the applied ones")
         # Every query runs through the sqlite3 command line too, if it is here.
         cli = shutil.which("sqlite3")
         if cli:

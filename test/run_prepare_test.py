@@ -2438,28 +2438,43 @@ def jobs_page_checks() -> None:
                          acknowledged_at="2026-11-11T09:00:00Z")
         chain_a = env.role(title="Director G", company="Eta Diagnostics")
         chain_b = env.role(title="Director G", company="Eta Diagnostics")
+        # The links live in the role pane the page draws for one role.
+        panes = {}
         with pointed_at(env.db):
-            jobs = serve_dashboard.render("jobs").decode("utf-8")
+            jobs = serve_dashboard.render_jobs(None, {"reading": ["1"]})[1].decode("utf-8")
+            applied_view = serve_dashboard.render_jobs(
+                None, {"show": ["applied"]})[1].decode("utf-8")
             home = serve_dashboard.render("home").decode("utf-8")
             archive = serve_dashboard.render("archive").decode("utf-8")
-        found = re.findall(r'<a class="act-btn" data-prepare="(\d+)" '
-                           r'href="/prepare/(\d+)\?go=1">Prepare application</a>', jobs)
-        ids = {int(a) for a, _b in found}
-        check(all(a == b for a, b in found) and len(found) == len(ids)
-              and top in ids and question in ids and reading in ids
-              and len(ids & {chain_a, chain_b}) == 1
-              and not ids & {filtered, applied, acked},
-              "every open role on the Jobs page has a Prepare application link to "
-              "its own page, a repost chain has one, and a Filtered, an applied "
-              f"and an acknowledged role have none ({sorted(ids)})")
-        check(jobs.count('data-prepare="') == jobs.count('data-apply="') == 4,
-              "so the count of links is the count of Applied buttons, one for each "
-              "open role, the same pair of patterns the box check greps for")
+            for oid in (top, question, reading, filtered, applied, acked,
+                        chain_a, chain_b):
+                status, body, _t = serve_dashboard.render_jobs(oid, {"part": ["role"]})
+                panes[oid] = json.loads(body)["html"] if status == 200 else ""
+
+        def links(html):
+            out = []
+            for tag in re.findall(r'<a [^>]*data-prepare="\d+"[^>]*>', html):
+                href = re.search(r'href="/prepare/(\d+)\?go=1"', tag)
+                out.append((int(re.search(r'data-prepare="(\d+)"', tag).group(1)),
+                            int(href.group(1)) if href else None))
+            return out
+
+        own = {oid: links(pane) for oid, pane in panes.items()}
+        check(all(own[oid] and all(a == b for a, b in own[oid])
+                  for oid in (top, question, reading, filtered))
+              and {a for a, _b in own[top]} == {top},
+              "every open role's pane, a Filtered one's included, has Prepare "
+              "application linked to its own page")
+        check(own[chain_a] and own[chain_a] == own[chain_b]
+              and {a for a, _b in own[chain_a]} <= {chain_a, chain_b},
+              "a repost chain is one role, and either advert opens its one pane")
+        check(not own[applied] and not own[acked],
+              "an applied and an acknowledged role have none, as Prepare "
+              "application will not touch them")
+        check('data-prepare="' not in jobs and 'data-prepare="' not in applied_view,
+              "the queue itself carries none, only the pane of the role opened")
         check('data-prepare="' not in home and 'data-prepare="' not in archive,
               "and the Home and archive pages, which draw the same rows, have none")
-        applied_section = jobs[jobs.find("<h2>Applied</h2>"):]
-        check('data-prepare="' not in applied_section.split("</details>")[0],
-              "nor has the Applied section")
 
 
 # -------------------------------------------------------------- the server
@@ -2786,7 +2801,8 @@ def static_checks() -> None:
                      if p.name != "prepare_application.py"
                      and re.search(r"^\s*(import|from)\s+prepare_application\b",
                                    p.read_text(encoding="utf-8"), re.MULTILINE))
-    check(imports == ["build_dashboard.py", "serve_dashboard.py"]
+    check(imports == ["build_dashboard.py", "jobs_page.py", "serve_dashboard.py"]
+          or imports == ["build_dashboard.py", "serve_dashboard.py"]
           or imports == ["serve_dashboard.py"],
           f"and only the dashboard imports the module ({imports})")
     scheduled = [p.name for p in sorted((REPO_ROOT / "workflows").glob("*.json"))
