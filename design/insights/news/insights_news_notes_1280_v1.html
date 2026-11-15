@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Insights news notes</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500;600&display=swap"><style>
+:root{
+  color-scheme:dark;
+  --canvas:#0e1215; --surface:#151a1e; --surface-sunken:#1c2226;
+  --row-hover:#192024; --row-selected:#0f3237;
+  --text-1:#e6ebee; --text-2:#b3bec6; --text-3:#93a0a9;
+  --border-subtle:#262e34; --border-strong:#6f7c86;
+  --accent:#5cc3cf; --accent-hover:#82d3dc; --accent-tint:#0f3237; --on-accent:#071114;
+  --positive:#74d39b; --positive-tint:#12291c; --caution:#f0c46a; --caution-tint:#2c2311;
+  --negative:#ff9b8f; --negative-tint:#33191a; --neutral:#b3bec6; --neutral-tint:#1f262b;
+  --focus:#ffd447; --shadow-overlay:0 8px 24px rgba(0,0,0,.5);
+  --font-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --radius-2:2px; --radius-4:4px; --dur:120ms;
+  /* Type scale: size and line height in pairs, on a 4px grid. */
+  --fs-12:12px; --lh-12:16px; --fs-14:14px; --lh-14:20px; --fs-15:15px; --lh-15:24px;
+  --fs-16:16px; --lh-16:24px; --fs-18:18px; --lh-18:24px; --fs-20:20px; --lh-20:28px;
+  /* Spacing, a 4px grid. */
+  --sp-2:2px; --sp-4:4px; --sp-8:8px; --sp-12:12px; --sp-16:16px; --sp-20:20px;
+  --sp-24:24px; --sp-32:32px; --sp-48:48px;
+  /* The older pages' own names, pointed at the same palette. */
+  --paper:#0e1215; --surface-sunk:#1c2226;
+  --ink-1:#e6ebee; --ink-2:#b3bec6; --ink-3:#93a0a9;
+  --hairline:#262e34; --hairline-strong:#3d474e;
+  --accent-quiet:#2f6e76; --accent-wash:#0f3237;
+  --fail:#ff9b8f; --settled:#74d39b;
+  --tint-blue:#131b20; --tint-sand:#1a1a17; --tint-sage:#141b17;
+  --tint-clay:#1c1716; --tint-stone:#161b1f;
+  --panel-rule:rgba(230,235,238,.10);
+}
+@media (prefers-reduced-motion:reduce){:root{--dur:0ms}}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--focus-gap,var(--surface))}
+@media (forced-colors:active){:focus-visible{outline-color:Highlight}}
+.visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+.skip-link{position:absolute;left:8px;top:-60px;z-index:50;padding:8px 12px;background:var(--surface);color:var(--text-1);border:1px solid var(--border-strong);border-radius:var(--radius-2);font:600 14px/20px var(--font-sans)}
+.skip-link:focus{top:8px}
+.appbar{position:relative;z-index:20;display:flex;align-items:center;gap:24px;min-width:0;height:48px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);color:var(--text-1);font:400 14px/20px var(--font-sans);letter-spacing:0}
+.appbar .brand{display:flex;align-items:center;gap:12px;flex:none;color:var(--text-1);text-decoration:none}
+.appbar .brand-mark{display:block;width:51px;height:24px;flex:none}
+.appbar .brand-name{font-size:14px;line-height:20px;font-weight:600;white-space:nowrap}
+.appbar .appbar-page{display:none;font-size:16px;line-height:24px;font-weight:600}
+.appbar .nav{display:flex;align-self:stretch;gap:12px;margin:0 0 0 -4px;padding:0;list-style:none}
+.appbar .nav a{display:flex;align-items:center;height:100%;padding:2px 6px 0;border-bottom:2px solid transparent;color:var(--text-2);text-decoration:none;white-space:nowrap;transition:color var(--dur) ease-out}
+.appbar .nav a:hover{color:var(--text-1)}
+.appbar .nav a[aria-current="page"]{color:var(--text-1);border-bottom-color:var(--accent)}
+.appbar .nav a:focus-visible{outline-offset:-4px;box-shadow:none}
+.appbar .appbar-tools{display:flex;align-items:center;gap:16px;min-width:0;margin-left:auto}
+.appbar .inbox-status{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;line-height:16px;color:var(--text-3);white-space:nowrap}
+.appbar .inbox-status svg{flex:none}
+.appbar .inbox-status.is-warn{color:var(--caution)}
+.appbar .inbox-status.is-bad{color:var(--negative)}
+.appbar .bar-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;min-width:32px;padding:0 8px;border:1px solid transparent;border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 14px/20px var(--font-sans);cursor:pointer;text-decoration:none}
+.appbar .bar-btn:hover{color:var(--text-1);background:var(--row-hover)}
+.appbar .menu-btn{display:none}
+.appbar .menu-panel{display:none}
+@media (max-width:767.98px){
+  .appbar{gap:16px}
+  .appbar .nav,.appbar .appbar-tools,.appbar .brand-name{display:none}
+  .appbar .appbar-page{display:block}
+  .appbar .menu-btn{display:inline-flex;width:44px;height:44px;margin:0 -8px 0 auto}
+  .appbar .menu-btn:focus-visible{outline-offset:-2px;box-shadow:none}
+  .appbar.menu-open .menu-panel{display:block;position:absolute;top:48px;left:0;right:0;padding:8px 16px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);box-shadow:var(--shadow-overlay)}
+  .appbar .menu-panel ul{margin:0;padding:0;list-style:none}
+  .appbar .menu-panel a{display:flex;align-items:center;min-height:44px;color:var(--text-1);text-decoration:none;font-size:16px;line-height:24px}
+  .appbar .menu-panel a[aria-current="page"]{font-weight:600;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:6px}
+  .appbar .menu-panel .inbox-status{display:flex;margin-top:8px}
+}
+@media (pointer:coarse){.appbar .bar-btn{min-width:44px;height:44px}}
+/* A page whose body is still the older one: its own heading row keeps what it
+   says and loses the controls the bar now holds. */
+.page > .masthead{padding-top:0}
+
+:root{--font-serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;--gutter:16px;--rail-w:320px}
+*,*::before,*::after{box-sizing:border-box}
+html{background:var(--canvas)}
+body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15px/24px var(--font-sans);
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+a{color:var(--accent)}
+a:hover{color:var(--accent-hover)}
+h1,h2,h3,h4,p,ol,ul,dl,dd{margin:0}
+ol,ul{padding:0;list-style:none}
+button{font:inherit}
+.page{margin:0 auto;padding:0 var(--gutter) 64px;max-width:var(--page-max,1280px)}
+@media (min-width:768px){:root{--gutter:24px}}
+@media (min-width:1920px){:root{--gutter:48px;--rail-w:400px}}
+
+/* The page's own heading */
+.masthead{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 24px;padding:24px 0 16px;
+  border-bottom:1px solid var(--border-subtle)}
+.masthead h1{font:600 28px/36px var(--font-sans)}
+.edition{color:var(--text-2);font-size:14px;line-height:20px}
+.edition b{color:var(--text-1);font-weight:600}
+.tally{flex-basis:100%;color:var(--text-3);font-size:14px;line-height:20px}
+.tally a{color:var(--text-2)}
+
+/* Notices */
+.notice{display:flex;gap:12px;margin:16px 0 0;padding:16px;border:1px solid var(--border-strong);
+  border-left-width:4px;border-radius:var(--radius-2);background:var(--surface)}
+.notice svg{flex:none;margin-top:2px}
+.notice h2{font:600 16px/24px var(--font-sans)}
+.notice p{color:var(--text-2);font-size:14px;line-height:20px;margin-top:4px;max-width:96ch}
+.notice.is-bad{border-color:var(--negative);background:var(--negative-tint)}
+.notice.is-bad svg{color:var(--negative)}
+.notice.is-quiet{border-color:var(--border-strong);border-left-color:var(--text-3)}
+
+/* Section headings: the label, a rule above it, and a count */
+.sec-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding-top:12px;
+  border-top:2px solid var(--text-1);margin-bottom:16px}
+.sec-head h2{font:600 20px/28px var(--font-sans)}
+.sec-head .count{color:var(--text-3);font-size:14px;line-height:20px}
+.sec-head .all{margin-left:auto;font-size:14px;line-height:20px}
+
+/* The story card */
+.story{position:relative;display:flex;flex-direction:column;gap:8px;min-width:0}
+.kicker{color:var(--text-3);font-size:12px;line-height:16px}
+.story-line{color:var(--text-3);font-size:13px;line-height:20px;overflow-wrap:anywhere}
+.story-line .co{color:var(--text-2);font-weight:600}
+.story-line .sep{padding:0 4px}
+.story-h{font:500 20px/26px var(--font-serif);letter-spacing:-.005em;overflow-wrap:anywhere}
+.story-h a{color:var(--text-1);text-decoration:none}
+.story-h a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px}
+.story-h a::after{content:"";position:absolute;inset:0;z-index:0}
+.story-sum{color:var(--text-2);font-size:15px;line-height:22px;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.story-meta{color:var(--text-3);font-size:13px;line-height:20px}
+.story-meta .rel{color:var(--text-2)}
+.story-meta a,.story-actions{position:relative;z-index:1}
+.story-meta a{color:var(--accent);white-space:nowrap}
+.story-meta a svg{vertical-align:-1px;margin-left:3px}
+.story-actions{display:flex;flex-wrap:wrap;gap:8px 12px;margin-top:auto;padding-top:4px}
+.story-actions>.btn.quiet:first-child{margin-left:-8px}
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid var(--border-strong);
+  border-radius:var(--radius-2);background:transparent;color:var(--text-1);font:500 13px/20px var(--font-sans);
+  cursor:pointer;text-decoration:none;white-space:nowrap}
+.btn:hover{background:var(--row-hover);color:var(--text-1)}
+.btn.quiet{border-color:transparent;color:var(--text-2);padding:0 8px}
+.btn.quiet:hover{color:var(--text-1)}
+.on-list{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0;color:var(--positive);
+  font:500 13px/20px var(--font-sans);text-decoration:none;white-space:nowrap}
+.on-list:hover{color:var(--positive);text-decoration:underline;text-underline-offset:3px}
+.many{display:inline-flex;align-items:center;gap:4px;color:var(--text-2)}
+@media (pointer:coarse){.btn,.on-list{height:44px}.story-meta a{display:inline-flex;align-items:center;min-height:44px}}
+.story-lead .story-h{font-size:34px;line-height:42px;font-weight:500}
+.story-lead .story-sum{font-size:17px;line-height:26px;-webkit-line-clamp:3}
+.story-small .story-h{font-size:20px;line-height:26px}
+
+/* Most relevant this week */
+.ranked h2{font:600 18px/24px var(--font-sans);padding-top:12px;border-top:2px solid var(--text-1)}
+.ranked .sub{color:var(--text-3);font-size:13px;line-height:20px;margin:4px 0 8px}
+.ranked ol{counter-reset:rank}
+.ranked li{counter-increment:rank;display:grid;grid-template-columns:40px 1fr;gap:0 8px;padding:12px 0;
+  border-bottom:1px solid var(--border-subtle)}
+.ranked li::before{content:counter(rank);grid-row:span 2;font:500 28px/32px var(--font-serif);color:var(--accent)}
+.ranked a{color:var(--text-1);text-decoration:none;font:500 16px/22px var(--font-serif)}
+.ranked a:hover{text-decoration:underline;text-underline-offset:3px}
+.ranked .meta{color:var(--text-3);font-size:13px;line-height:20px}
+
+/* Earlier weeks, inside a section */
+.earlier{margin-top:20px}
+.earlier h3{font:600 14px/20px var(--font-sans);color:var(--text-2);margin-bottom:4px}
+.earlier li{padding:8px 0;border-top:1px solid var(--border-subtle)}
+.earlier li a{color:var(--text-1);text-decoration:none;font:500 15px/22px var(--font-serif)}
+.earlier li a:hover{text-decoration:underline;text-underline-offset:3px}
+.earlier .meta{display:block;color:var(--text-3);font-size:13px;line-height:20px}
+.more-link{display:inline-block;margin-top:8px;font-size:14px;line-height:20px}
+.empty-line{color:var(--text-3);font-size:14px;line-height:20px;padding:4px 0 8px}
+
+/* More stories, folded */
+.fold{margin-top:48px;border-top:1px solid var(--border-strong)}
+.fold h2{font:inherit}
+.fold-btn{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;width:100%;min-height:56px;padding:12px 0;border:0;
+  background:none;color:var(--text-1);text-align:left;cursor:pointer}
+.fold-btn .t{font:600 20px/28px var(--font-sans);white-space:nowrap}
+.fold-btn .s{color:var(--text-3);font-size:14px;line-height:20px}
+.fold-btn .chev{margin-left:auto;transition:transform var(--dur)}
+.fold-btn[aria-expanded="true"] .chev{transform:rotate(180deg)}
+.fold-list{columns:var(--fold-cols,1);column-gap:32px;padding-bottom:8px}
+.fold-list li{break-inside:avoid;padding:8px 0;border-top:1px solid var(--border-subtle)}
+.fold-list a{color:var(--text-1);text-decoration:none;font:400 15px/22px var(--font-serif)}
+.fold-list a:hover{text-decoration:underline}
+.fold-list .meta{display:block;color:var(--text-3);font-size:13px;line-height:20px}
+.fold-foot{padding:8px 0 0;color:var(--text-3);font-size:14px;line-height:20px}
+@media (min-width:1024px){:root{--fold-cols:2}}
+@media (min-width:1920px){:root{--fold-cols:3}}
+
+/* Footnote */
+.page-foot{margin-top:32px;padding-top:16px;border-top:1px solid var(--border-subtle);color:var(--text-3);
+  font-size:13px;line-height:20px}
+.page-foot p+p{margin-top:4px}
+
+/* The toast that confirms Hide and Add to Watchlist, with Undo */
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:40;display:flex;align-items:center;
+  gap:16px;max-width:calc(100% - 32px);padding:12px 16px;border:1px solid var(--border-strong);
+  border-radius:var(--radius-4);background:var(--surface-sunken);box-shadow:var(--shadow-overlay);
+  color:var(--text-1);font-size:14px;line-height:20px}
+.toast:not(.show){width:1px;height:1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%);box-shadow:none}
+.toast:not(.show) .btn{display:none}
+.hidden-slot .btn{flex:none}
+.hidden-slot .hl{color:var(--text-1);font-family:var(--font-serif)}
+.toast .btn{flex:none}
+
+/* Top stories on a phone: one row that scrolls sideways, with a count and arrows */
+.top-head{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.top-head h2{font:600 20px/28px var(--font-sans)}
+.top-count{color:var(--text-2);font-size:14px;line-height:20px}
+.top-nav{display:none;margin-left:auto;gap:8px}
+.top-nav .btn{width:44px;height:44px;padding:0;justify-content:center}
+.top-nav .btn[aria-disabled="true"]{opacity:.45;cursor:default}
+.top-count{display:none}
+@media (max-width:767.98px){
+  .top-count{display:block}
+  .top-nav{display:flex}
+  .top-row{display:flex!important;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
+    margin:0 calc(var(--gutter) * -1);padding:0 var(--gutter) 4px;scroll-padding:0 var(--gutter);
+    scrollbar-width:none}
+  .top-row::-webkit-scrollbar{display:none}
+  .top-row>li{flex:0 0 calc(100% - 40px);scroll-snap-align:start}
+  .top-row>li>.story{height:100%}
+  .story-lead .story-h{font-size:24px;line-height:30px}
+  .story-lead .story-sum{font-size:15px;line-height:22px}
+  .masthead h1{font-size:24px;line-height:32px}
+}
+
+/* Story page */
+.crumbs{padding:16px 0 0;font-size:14px;line-height:20px;color:var(--text-3)}
+.crumbs ol{display:flex;flex-wrap:wrap;gap:4px 8px}
+.crumbs li+li::before{content:"/";margin-right:8px;color:var(--text-3)}
+.crumbs [aria-current]{color:var(--text-2)}
+.article{max-width:760px}
+.article .story-line{font-size:14px;margin-top:24px}
+.article h1{margin-top:8px;font:500 40px/48px var(--font-serif);letter-spacing:-.01em}
+.article .facts-line{margin-top:12px;color:var(--text-3);font-size:14px;line-height:20px}
+.article .facts-line .rel{color:var(--text-1);font-weight:600}
+.article .story-actions{margin-top:16px;padding-top:0}
+.article h2{margin-top:32px;font:600 18px/24px var(--font-sans)}
+.article .s-body{margin-top:8px;font:400 18px/30px var(--font-serif);color:var(--text-1)}
+.article .src-note{margin-top:8px;color:var(--text-3);font-size:13px;line-height:20px}
+.article .why{margin-top:8px;font-size:17px;line-height:28px;color:var(--text-1)}
+.reports li{padding:12px 0;border-top:1px solid var(--border-subtle)}
+.reports li:last-child{border-bottom:1px solid var(--border-subtle)}
+.reports .src{font-weight:600;color:var(--text-1);font-size:15px}
+.reports .as{display:block;margin-top:2px;font:400 16px/24px var(--font-serif);color:var(--text-2)}
+.reports .meta{display:block;margin-top:4px;color:var(--text-3);font-size:13px;line-height:20px}
+.company h2{font:600 18px/24px var(--font-sans);padding-top:12px;border-top:2px solid var(--text-1)}
+.company dl{display:grid;grid-template-columns:96px 1fr;gap:8px 12px;margin-top:12px;font-size:14px;line-height:20px}
+.company dt{color:var(--text-3)}
+.company dd{color:var(--text-1)}
+.company dd.nk{color:var(--text-3)}
+.company h3{margin-top:24px;font:600 15px/20px var(--font-sans)}
+.company ul li{padding:8px 0;border-top:1px solid var(--border-subtle);font-size:14px;line-height:20px}
+.company ul li a{font-weight:500}
+.company .meta{display:block;color:var(--text-3);font-size:13px;line-height:20px}
+.company .rec{display:block;margin-top:12px;font-size:14px;line-height:20px}
+.back{display:inline-block;margin-top:32px;font-size:14px}
+@media (max-width:767.98px){
+  .article h1{font-size:28px;line-height:36px}
+  .article .s-body{font-size:17px;line-height:28px}
+}
+
+/* States board and notes */
+.board{padding:32px 40px 64px;max-width:none}
+.board>h1{font:600 28px/36px var(--font-sans)}
+.board .intro{max-width:110ch;margin-top:8px;color:var(--text-2)}
+.state{margin-top:40px;padding-top:16px;border-top:2px solid var(--text-1)}
+.state h2{font:600 22px/28px var(--font-sans)}
+.state .what{max-width:120ch;margin-top:8px;color:var(--text-2)}
+.state .what li{list-style:disc;margin-left:20px}
+.shots{display:flex;gap:32px;align-items:flex-start;margin-top:16px}
+.shot{margin:0}
+.shot figcaption{color:var(--text-3);font-size:13px;line-height:20px;margin-bottom:6px}
+.shot iframe{display:block;border:1px solid var(--border-strong);background:var(--canvas)}
+.cards-states{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;margin-top:16px}
+.cs{margin:0}
+.cs figcaption{color:var(--text-3);font-size:13px;line-height:20px;margin-bottom:8px}
+.cs figcaption b{color:var(--text-1);font-weight:600}
+.force-focus .story-h a{outline:2px solid var(--focus);outline-offset:2px}
+.hidden-slot{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:16px;border:1px dashed var(--border-strong);
+  border-radius:var(--radius-4);color:var(--text-2);font-size:14px;line-height:20px}
+.toast.static{position:static;transform:none;display:flex;margin-top:12px}
+
+.notes{max-width:1100px;padding:32px 0 64px}
+.notes h1{font:600 30px/38px var(--font-sans)}
+.notes .lede{margin-top:8px;color:var(--text-2);font-size:16px;line-height:26px;max-width:90ch}
+.notes h2{margin-top:40px;padding-top:12px;border-top:2px solid var(--text-1);font:600 22px/28px var(--font-sans)}
+.notes h3{margin-top:24px;font:600 17px/24px var(--font-sans)}
+.notes p,.notes li{color:var(--text-2);max-width:96ch}
+.notes p{margin-top:8px}
+.notes ul{margin-top:8px}
+.notes li{list-style:disc;margin-left:20px;margin-top:4px}
+.notes ol.q{counter-reset:q}
+.notes ol.q>li{list-style:decimal;margin-left:24px;margin-top:8px}
+.notes strong{color:var(--text-1)}
+.notes .var{display:grid;grid-template-columns:1fr 1fr;gap:16px 32px;margin-top:12px}
+.notes .var h4{font:600 14px/20px var(--font-sans);color:var(--text-1)}
+.notes table{margin-top:12px;border-collapse:collapse;font-size:14px;line-height:20px}
+.notes th,.notes td{padding:6px 12px 6px 0;border-bottom:1px solid var(--border-subtle);text-align:left;color:var(--text-2)}
+.notes th{color:var(--text-1);font-weight:600}
+.notes .sw{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:-1px;border:1px solid var(--border-strong)}
+.notes code{font:400 13px/20px var(--font-mono);color:var(--text-1)}
+</style></head><body><a class="skip-link" href="#main">Skip to the page</a><header class="appbar"><a class="brand" href="/" aria-label="MedTech Radar, Home"><svg class="brand-mark" viewBox="0 0 36 17" width="51" height="24" fill="none" aria-hidden="true" focusable="false"><path d="M4 15a14 14 0 0 1 28 0" stroke="var(--text-3)" stroke-width="1.2"/><path d="M8.5 15a9.5 9.5 0 0 1 19 0" stroke="var(--text-2)" stroke-width="1.2"/><path d="M13 15a5 5 0 0 1 10 0Z" fill="var(--text-1)"/><path d="M0 15h36" stroke="var(--text-1)" stroke-width="1.5"/></svg><span class="brand-name">MedTech Radar</span><span class="appbar-page" aria-hidden="true">Insights</span></a><nav class="nav" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights" aria-current="page">Insights</a><a href="/cv">CV</a></nav><div class="appbar-tools"><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div><button type="button" class="bar-btn menu-btn" aria-expanded="false" aria-controls="menu-panel">Menu</button><div class="menu-panel" id="menu-panel"><nav aria-label="Pages, menu"><ul><li><a href="/">Home</a></li><li><a href="/jobs">Jobs</a></li><li><a href="/insights" aria-current="page">Insights</a></li><li><a href="/cv">CV</a></li></ul></nav><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div></header><main id="main" class="page va" tabindex="-1"><div class="notes"><h1>Insights as a news page: notes</h1><p class="lede">Three variations of one news model for the Insights page, for a weekly read. They share the story card, the story page, Most relevant and the More stories fold, and differ in how a week is laid out. These are proposals; none is recommended over the others. Drawn dark, in the frame built on claude/jobs-redesign (<code>scripts/page_frame.py</code>), with the invented sample world of round 1. “Now” is Friday 13 Nov 2026, 09:14, UK time.</p><h2>What all three share</h2><ul><li><strong>The story card.</strong> Company and source line, serif headline linking to the story page, a two-line summary of why it matters, relevance and the date found, Read the announcement (opens in a new tab), then Add to Watchlist and Hide. Once the company is on the Watchlist the button becomes “On your Watchlist”, a link to its record. No suggestions and no I did it.</li><li><strong>Top stories.</strong> The highest-scoring stories of the week at 40 or more: a lead and three or four smaller, all visible on desktop. On a phone the row scrolls sideways with a “1 of 5” count and previous and next buttons. Nothing moves by itself.</li><li><strong>Sections.</strong> Hiring and buying windows, Funding, Spin-offs and accelerators, Regulation and market news. Each holds the rest of the week at 40 or more, then up to three stories from earlier weeks, then one link to the whole section, worded the same in all three.</li><li><strong>Most relevant this week.</strong> Numbered 1 to 10 by relevance, any score, since Monday.</li><li><strong>More stories.</strong> Everything this week under 40, folded at the foot behind one button.</li><li><strong>The story page.</strong> The summary in the source’s words, why it matters with a caveat on how it was written, every source that reported it, the company’s facts, its Watchlist record, its roles on Jobs and its other stories. At 2560 Most relevant sits beside it in A and C; B keeps to the story and the company.</li><li><strong>Hide.</strong> The card gives way to a one-line note with Undo, which takes focus. The story stays on file. Add to Watchlist confirms in a message at the foot of the window, also with Undo.</li><li><strong>No pictures.</strong> Hierarchy comes from type size (40 to 48 px lead, 20 to 24 px smaller stories, 15 to 16 px lists), the section label with its rule, and the source line.</li></ul><h2>The three variations</h2><h3>A. Front page: the familiar news homepage</h3><p>Boxed story cards on the surface colour. The lead takes half the width with four smaller stories beside it in a two-by-two. Each section puts its cards on the left and its earlier weeks on the right, and Most relevant is a rail beside the sections, where a news site puts its most-read list. At 2560 the page widens to 2,240 px of content: the lead and all four smaller stories sit in one row, and each section grid holds four cards beside its earlier weeks. On a phone, Most relevant comes after the sections.</p><div class="var"><div><h4>Gains</h4><ul><li>The most familiar shape: it reads like a news homepage straight away.</li><li>Boxes make each story an obvious target and keep Add to Watchlist and Hide visibly attached to their story.</li><li>Earlier weeks beside each section&#x27;s cards fill the width in a thin week.</li></ul></div><div><h4>Costs</h4><ul><li>Boxes cost height: a section with one story still takes a full card&#x27;s height.</li><li>In a thin week the card grids still look sparse, with one or two cards and a gap beside them.</li><li>The lead&#x27;s box is as tall as two rows of smaller stories, so it has room to spare when its text is short.</li></ul></div></div><h3>B. Broadsheet: a newspaper's columns and rules</h3><p>No boxes: stories are separated by thin rules, and the page title is set in the serif. The lead takes the left of Top stories with the four smaller stories in a two-by-two beside it. At 1280 the sections run in two balanced columns with Most relevant beside them; at 2560 Most relevant moves up beside Top stories in two columns of five, and the four sections sit side by side, so a whole week fits in about one and a half screens. On a phone, Most relevant follows Top stories, as a news app&#x27;s most-read list does.</p><div class="var"><div><h4>Gains</h4><ul><li>The densest: the most stories per screen, and at 2560 the whole week is close to one view.</li><li>Rules instead of boxes leave the type to carry the hierarchy.</li><li>Sections side by side invite comparing them: a busy Funding column next to an empty Hiring one says something.</li></ul></div><div><h4>Costs</h4><ul><li>At 2560 each section is its own column, so the columns end at different heights, more so in a busy week.</li><li>Without boxes, the actions belong to their story only by position and the rule above them.</li><li>Most relevant moves between widths: beside the sections at 1280, beside Top stories at 2560.</li></ul></div></div><h3>C. Edition: rows per section, with a section bar</h3><p>A bar under the heading names every section that has stories, with its count, and jumps to it; it stays at the top of the window. Top stories is a single row: the lead and three smaller at 1280, where the fourth smaller story becomes the first card in its section and the counts follow, and the lead and four at 2560. Each section is one row of cards, three at 1280 and five at 2560, filled with stories from earlier weeks when the week is thin; what does not fit is listed as headlines. At 2560 the section&#x27;s name and count stand in a column to the left of its row. Most relevant is a rail beside the sections.</p><div class="var"><div><h4>Gains</h4><ul><li>Predictable: every section is the same shape, so the week scans as a set of rows.</li><li>The section bar tells you how the week went before you scroll, and gets you to a section in one step.</li><li>A busy week cannot make the page much longer: the overflow is one line per story.</li></ul></div><div><h4>Costs</h4><ul><li>Most chrome of the three: a section bar that stays at the top of the window.</li><li>Stories past the row lose their summary and their actions until you open them.</li><li>Top stories holds four at 1280 and five at 2560, so the same week looks a little different at each width.</li></ul></div></div><h2>Keyboard and screen readers</h2><ul><li>Skip link to the page, then the heading, the section bar (C), Top stories in order, the sections, Most relevant and the More stories button. Every control is a link or a button; nothing needs a mouse. Nothing but C’s section bar stays fixed while scrolling, and the page keeps 56 px clear under it so a focused item is never covered.</li><li>Headings: the page is h1, Top stories, each section, Most relevant and More stories are h2, each headline is h3. The ranked list and Top stories are ordered lists.</li><li>On a phone, tabbing into Top stories scrolls each story into view; the arrow buttons are 44 px and say which way they go. The count (“Showing story 2 of 5”) is a polite live region, so the arrows are heard as well as seen.</li><li>Add to Watchlist and Hide carry the company or headline in their accessible names (“Add to Watchlist: Vantage Bio”), and each Read the announcement link names its source and company, so a list of links or buttons makes sense out of context. After Hide, focus moves to the Undo in the card’s place. Confirmations go to a live region that is always present, so they are announced.</li><li>The watcher notice uses words, an icon and colour. Focus is the shared yellow ring. Reduced motion turns off the fold’s turn and the smooth scroll.</li></ul><h2>Contrast</h2><p>WCAG 2.2 AA asks 4.5:1 for text and 3:1 for large text, icons and control borders. Every pair used passes on every ground it appears on.</p><table><thead><tr><th>Colour</th><th>Used for</th><th>on canvas</th><th>on surface</th><th>on surface-sunken</th><th>on negative-tint</th></tr></thead><tbody><tr><td><span class="sw" style="background:#e6ebee"></span>text-1 #e6ebee</td><td>Headlines, body</td><td>15.7:1</td><td>14.6:1</td><td>13.4:1</td><td>13.5:1</td></tr><tr><td><span class="sw" style="background:#b3bec6"></span>text-2 #b3bec6</td><td>Summaries, company name</td><td>9.9:1</td><td>9.3:1</td><td>8.5:1</td><td>8.6:1</td></tr><tr><td><span class="sw" style="background:#93a0a9"></span>text-3 #93a0a9</td><td>Source line, meta, counts</td><td>7.0:1</td><td>6.5:1</td><td>6.0:1</td><td>6.1:1</td></tr><tr><td><span class="sw" style="background:#5cc3cf"></span>accent #5cc3cf</td><td>Links, rank numbers</td><td>9.1:1</td><td>8.5:1</td><td>7.8:1</td><td>7.8:1</td></tr><tr><td><span class="sw" style="background:#74d39b"></span>positive #74d39b</td><td>On your Watchlist</td><td>10.3:1</td><td>9.6:1</td><td>8.8:1</td><td>8.9:1</td></tr><tr><td><span class="sw" style="background:#ff9b8f"></span>negative #ff9b8f</td><td>Watcher notice icon and rule</td><td>9.3:1</td><td>8.6:1</td><td>7.9:1</td><td>8.0:1</td></tr><tr><td><span class="sw" style="background:#ffd447"></span>focus #ffd447</td><td>Focus ring</td><td>13.2:1</td><td>12.3:1</td><td>11.3:1</td><td>11.4:1</td></tr><tr><td><span class="sw" style="background:#6f7c86"></span>border-strong #6f7c86</td><td>Button border</td><td>4.4:1</td><td>4.1:1</td><td>3.8:1</td><td>3.8:1</td></tr></tbody></table><h2>Open questions</h2><ol class="q"><li><strong>Sections need a story type that nothing stores today.</strong> The data has no field for funding, spin-off, accelerator, regulation or hiring; only hiring can be told apart, by its source. The mock-ups use the type the round-1 sample proposes. The scorer could return one of eight types with the score (buying window, first hire, funding round, spin-off launch, accelerator entry, regulation, market news, other news), which map onto the four sections. Until it does, the four sections cannot be filled honestly.</li><li><strong>One story per event is also new.</strong> Today each report is its own item, so one spin-off reported by three sources is three cards. The mock-ups group them by event, with the highest-scoring report leading. Grouping needs a rule (same company, same week, similar headline) and a way to undo a wrong grouping.</li><li><strong>Regulation and market news has no sources and no score band.</strong> No regulator is read today and the rubric scores rule changes under 40. The stories in that section are proposals, as in round 1. Should the section wait until there is a source for it?</li><li><strong>Summaries are clamped to two lines.</strong> The why-it-matters line runs to 170 characters, so on a card it is cut with an ellipsis (the whole line is still read out and is on the story page). A separate summary of about 90 characters from the scorer would remove the cut.</li><li><strong>The Watchlist page does not exist yet.</strong> Add to Watchlist, On your Watchlist and the story page&#x27;s link to the record all assume it. The shared frame leaves Watchlist out of the bar until the page is built, so the mock-ups do too.</li><li><strong>Removing I did it and the suggestions moves the contact log.</strong> Today the only way to log a contact from the web is I did it on a card. With it gone, logging has to happen on the Watchlist. The comment and connection-note drafts written at 75 and over also lose their place; the story page could hold them, or the Watchlist record.</li><li><strong>Hide is today&#x27;s Dismiss under a new name.</strong> The mock-ups keep its behaviour: the story leaves the page, stays on file and keeps blocking a re-import. A one-line note with Undo takes the card&#x27;s place until the page is next loaded. After that there is no way back from the front page: is a Hidden list wanted, as today&#x27;s Dismissed fold?</li><li><strong>The week runs Monday to Sunday.</strong> Today&#x27;s “fresh” is a rolling seven days. A news page reads better by calendar week, but on a Monday morning the page is nearly empty. Rolling seven days is the other choice.</li><li><strong>Dates are the day the watcher found a story.</strong> The publication date is not stored. “Found 12 Nov” is honest; “Published” would need a new field.</li><li><strong>The buying-window headline is rewritten.</strong> The stored line is a label (“Buying window. Company is hiring”). The mock-ups build a headline from the role title instead. The scorer could write it.</li><li><strong>More stories holds this week only.</strong> This week&#x27;s 23 stories under 40 are folded; the 85 older ones are one more link away, on the page with every story on file.</li><li><strong>The serif is an exception to the design system.</strong> Design system v4 bans serif type and labels set in capitals. The brief keeps the serif headline, so these use IBM Plex Serif with Plex Sans for everything else, and the company and source line is in sentence case rather than today&#x27;s capitals. The built page loads no web fonts today; it would need Plex Serif self-hosted or Georgia as the fallback.</li></ol><h2>Frames</h2><p>For each variation, under <code>design/insights/news/&lt;a|b|c&gt;/</code>: the front page at 2560, 1280 and phone (a typical week); the story page at 2560, 1280 and phone (the Selwick Photonics spin-off, three sources, a busy week); the story page at 1280 for a company with a role on Jobs (Hartwell Infusion Ltd); and the states board. Each has a PNG of the whole page, the HTML and its CSS.</p></div></main><script>
+(function () {
+  var bar = document.querySelector('.appbar');
+  if (!bar) return;
+  var menu = bar.querySelector('.menu-btn');
+  function setMenu(open) {
+    bar.classList.toggle('menu-open', open);
+    if (menu) menu.setAttribute('aria-expanded', String(open));
+  }
+  if (menu) menu.addEventListener('click', function () {
+    setMenu(menu.getAttribute('aria-expanded') !== 'true');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && bar.classList.contains('menu-open')) {
+      setMenu(false);
+      if (menu) menu.focus();
+    }
+  });
+  document.addEventListener('click', function (e) {
+    if (bar.classList.contains('menu-open') && !bar.contains(e.target)) setMenu(false);
+  });
+  // The inbox time is written in UTC by the server and shown in the
+  // reader's own time here, today's as a time and older ones with the day.
+  bar.querySelectorAll('time[data-local]').forEach(function (t) {
+    var when = new Date(t.getAttribute('datetime'));
+    if (isNaN(when)) return;
+    var now = new Date();
+    var hm = ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2);
+    var sameDay = when.toDateString() === now.toDateString();
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    t.textContent = sameDay ? hm : when.getDate() + ' ' + months[when.getMonth()] + ' ' + hm;
+  });
+})();
+
+(function(){
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var toast=document.querySelector('.toast'), msg=toast&&toast.querySelector('.toast-msg'),
+      undoBtn=toast&&toast.querySelector('.toast-undo'), closeBtn=toast&&toast.querySelector('.toast-close'),
+      undoFn=null, timer=null;
+  // Words for a screen reader only: the region is always rendered, so it is announced.
+  function announce(text){ if(!msg) return; msg.textContent=''; window.requestAnimationFrame(function(){ msg.textContent=text; }); }
+  function closeToast(){ if(!toast) return; toast.classList.remove('show'); undoFn=null; clearTimeout(timer); }
+  function arm(){ clearTimeout(timer); timer=setTimeout(function(){
+      if(toast.matches(':hover')||toast.contains(document.activeElement)) { arm(); return; } closeToast(); },10000); }
+  function say(text, undo){ if(!toast) return; announce(text); undoFn=undo||null;
+    if(undoBtn) undoBtn.hidden=!undo; toast.classList.add('show'); arm(); }
+  if(undoBtn) undoBtn.addEventListener('click',function(){ var f=undoFn; closeToast(); if(f) f(); });
+  if(closeBtn) closeBtn.addEventListener('click',closeToast);
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&toast&&toast.classList.contains('show')) closeToast(); });
+
+  function hiddenSlot(headline, onUndo){
+    var slot=document.createElement('div'); slot.className='hidden-slot';
+    var t=document.createElement('span'); t.appendChild(document.createTextNode('Hidden: '));
+    var h=document.createElement('span'); h.className='hl'; h.textContent=headline; t.appendChild(h);
+    t.appendChild(document.createTextNode('. It stays on file.')); slot.appendChild(t);
+    var b=document.createElement('button'); b.type='button'; b.className='btn'; b.textContent='Undo';
+    var v=document.createElement('span'); v.className='visually-hidden'; v.textContent=' hiding this story'; b.appendChild(v);
+    b.addEventListener('click',function(){ slot.remove(); onUndo(); announce('Story back on the page.'); });
+    slot.appendChild(b); return slot;
+  }
+
+  document.addEventListener('click',function(e){
+    var b=e.target.closest('button[data-act]'); if(!b) return;
+    var card=b.closest('[data-story]'); if(!card) return;
+    if(b.dataset.act==='watch'){
+      var name=b.dataset.company, a=document.createElement('a');
+      a.className='on-list'; a.href='/watchlist/'+encodeURIComponent(b.dataset.cid);
+      a.innerHTML='<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+      a.appendChild(document.createTextNode('On your Watchlist'));
+      var vh=document.createElement('span'); vh.className='visually-hidden'; vh.textContent=': '+name+', open its record'; a.appendChild(vh);
+      b.replaceWith(a); a.focus();
+      say(name+' is on your Watchlist.', function(){ a.replaceWith(b); b.focus(); announce(name+' is off your Watchlist.'); });
+    } else if(b.dataset.act==='hide'){
+      var link=card.querySelector('.story-h a, h1'), headline=link?link.textContent:'This story';
+      // On the story page the article stays; only its actions give way to the note.
+      var target=card.classList.contains('article')?b.closest('.story-actions'):card;
+      var slot=hiddenSlot(headline,function(){ target.hidden=false; var f=target.querySelector('.story-h a, button[data-act="hide"]'); if(f) f.focus(); });
+      target.parentNode.insertBefore(slot,target); target.hidden=true;
+      slot.querySelector('button').focus();
+      announce('Story hidden. Undo is next to where it was.');
+    }
+  });
+
+  document.querySelectorAll('.fold-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var open=btn.getAttribute('aria-expanded')!=='true'; btn.setAttribute('aria-expanded',String(open));
+      document.getElementById(btn.getAttribute('aria-controls')).hidden=!open;
+    });
+  });
+
+  var row=document.getElementById('top-row');
+  if(row){
+    var pos=document.querySelector('[data-pos]'), prev=document.querySelector('.top-nav [data-dir="-1"]'),
+        next=document.querySelector('.top-nav [data-dir="1"]');
+    function items(){ return [].slice.call(row.children).filter(function(li){ return li.getClientRects().length; }); }
+    function current(){ var its=items(), best=0, d=1e9, left=row.getBoundingClientRect().left;
+      its.forEach(function(li,i){ var x=Math.abs(li.getBoundingClientRect().left-left-(parseFloat(getComputedStyle(row).paddingLeft)||0)); if(x<d){d=x;best=i;} });
+      return best; }
+    var last=-1;
+    function update(){ var i=current(), n=items().length; if(i===last) return; last=i;
+      if(pos) pos.textContent=i+1;
+      if(prev) prev.setAttribute('aria-disabled',String(i===0));
+      if(next) next.setAttribute('aria-disabled',String(i>=n-1)); }
+    var tick=null;
+    row.addEventListener('scroll',function(){ clearTimeout(tick); tick=setTimeout(update,120); },{passive:true});
+    [prev,next].forEach(function(btn){ if(!btn) return; btn.addEventListener('click',function(){
+      if(btn.getAttribute('aria-disabled')==='true') return;
+      var its=items(), i=current()+Number(btn.dataset.dir); if(!its[i]) return;
+      row.scrollTo({left:its[i].offsetLeft-its[0].offsetLeft,behavior:reduce?'auto':'smooth'});
+    }); });
+    row.addEventListener('focusin',function(e){ var li=e.target.closest('#top-row > li');
+      if(li) li.scrollIntoView({block:'nearest',inline:'start',behavior:'auto'}); });
+    update();
+  }
+})();
+</script></body></html>

@@ -55,7 +55,9 @@ undone. `home_round-2_states_v1` holds the quiet day, the first week, no applica
 The welcome reads "Good morning, Alex", the mockups' fictional identity; the live page would use the owner's
 first name. These frames had one review pass (two reviewers) and its findings were fixed.
 
-**Counts.** 123 frames exported (369 files). 4 older versions could
+**Update, 15 Nov.** A second study for Insights, as a news front page for a weekly read: three variations (A Front page, B Broadsheet, C Edition), each drawn at 2560, 1280 and phone, with a story page and a states board (a quiet week, a busy week, the watcher failing), plus a shared notes frame with rationale, trade-offs and open questions. They are hand-drawn HTML in the dark frame built on `claude/jobs-redesign`, not Superdesign drafts, and sit under [insights/news](#insightsnews). No winner is picked.
+
+**Counts.** 148 frames exported (444 files), the 25 in insights/news among them. 4 older versions could
 not be exported; they are listed under jobs with the reason. All sample data is fictional. Round one's
 direction notes address the owner by first name.
 
@@ -486,7 +488,7 @@ C, Status sentence and inbox: one sentence answers, and items stay until marked 
 
 ## insights
 
-Insights: 3 variations, 36 files.
+Insights: 3 variations, 36 files, plus the news study under insights/news: 3 variations, 25 frames, 75 files.
 
 ### insights/a
 
@@ -544,6 +546,59 @@ C, Signals table: one table, viewed by signal or by company.
 | [insights_c_states_v1.png](insights/c/insights_c_states_v1.png) | v1 | current | unreviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-7eafd3e3-2d76-4663-9e4f-97354842b1cc) · [preview](https://p.superdesign.dev/draft/7eafd3e3-2d76-4663-9e4f-97354842b1cc) |
 | [insights_c_states_v1.html](insights/c/insights_c_states_v1.html) | v1 | current | unreviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-7eafd3e3-2d76-4663-9e4f-97354842b1cc) · [preview](https://p.superdesign.dev/draft/7eafd3e3-2d76-4663-9e4f-97354842b1cc) |
 | [insights_c_states_v1.css](insights/c/insights_c_states_v1.css) | v1 | current | unreviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-7eafd3e3-2d76-4663-9e4f-97354842b1cc) · [preview](https://p.superdesign.dev/draft/7eafd3e3-2d76-4663-9e4f-97354842b1cc) |
+
+### insights/news
+
+Round 1, 15 Nov: Insights as a news front page for a weekly read, in the style of a news site's homepage, dark only, in the frame built on `claude/jobs-redesign` (`scripts/page_frame.py`). Three variations of one news model, all **reviewed** (one review pass: brief and wording, accessibility and keyboard, layout at each width; its findings were fixed, or kept and named as trade-offs in the notes). Hand-drawn HTML, not Superdesign drafts, so there are no canvas links. No winner is picked.
+
+Shared by all three: the story card (company and source line, serif headline, two-line why it matters, relevance and the date found, Read the announcement, then Add to Watchlist, which becomes On your Watchlist, and Hide; no suggestions, no I did it); Top stories as a lead and four smaller, scrolling sideways on a phone with a count and arrows; four sections (Hiring and buying windows, Funding, Spin-offs and accelerators, Regulation and market news); Most relevant this week, 1 to 10; everything under 40 folded under More stories; and a story page with the summary, why it matters, every source, the company's facts, its Watchlist record and its roles on Jobs.
+
+The notes frame, [insights_news_notes_1280_v1.png](insights/news/insights_news_notes_1280_v1.png) (1280x3971, with [HTML](insights/news/insights_news_notes_1280_v1.html)), holds each variation's rationale and trade-offs, keyboard behaviour, a contrast table and twelve open questions. The ones that block a build: nothing stores a story type today, so the sections need the scorer to return one; one story per event (grouping several reports) is new; no source or score band covers regulation; the Watchlist page does not exist yet; and removing I did it leaves the contact log and the 75-and-over drafts without a home.
+
+#### insights/news/a
+
+A, Front page: boxed story cards; the lead with four smaller beside it; sections as card grids; Most relevant in a rail beside the sections. At 2560 the lead and all four sit in one row and each section grid holds five cards.
+
+| Frame | Size | Files |
+|---|---|---|
+| Front page at 2560, a typical week | 2560x2506 | [png](insights/news/a/insights_news-a_2560_v1.png) · [html](insights/news/a/insights_news-a_2560_v1.html) · [css](insights/news/a/insights_news-a_2560_v1.css) |
+| Front page at 1280, a typical week | 1280x3326 | [png](insights/news/a/insights_news-a_1280_v1.png) · [html](insights/news/a/insights_news-a_1280_v1.html) · [css](insights/news/a/insights_news-a_1280_v1.css) |
+| Front page on a phone (390), a typical week | 390x5843 | [png](insights/news/a/insights_news-a_phone_v1.png) · [html](insights/news/a/insights_news-a_phone_v1.html) · [css](insights/news/a/insights_news-a_phone_v1.css) |
+| Story page at 2560: one event, three sources (busy week) | 2560x1342 | [png](insights/news/a/insights_news-a_2560-story_v1.png) · [html](insights/news/a/insights_news-a_2560-story_v1.html) · [css](insights/news/a/insights_news-a_2560-story_v1.css) |
+| Story page at 1280: one event, three sources (busy week) | 1280x1342 | [png](insights/news/a/insights_news-a_1280-story_v1.png) · [html](insights/news/a/insights_news-a_1280-story_v1.html) · [css](insights/news/a/insights_news-a_1280-story_v1.css) |
+| Story page on a phone: one event, three sources | 390x2124 | [png](insights/news/a/insights_news-a_phone-story_v1.png) · [html](insights/news/a/insights_news-a_phone-story_v1.html) · [css](insights/news/a/insights_news-a_phone-story_v1.css) |
+| Story page at 1280 for a company with a role on Jobs | 1280x1014 | [png](insights/news/a/insights_news-a_1280-story-roles_v1.png) · [html](insights/news/a/insights_news-a_1280-story-roles_v1.html) · [css](insights/news/a/insights_news-a_1280-story-roles_v1.css) |
+| States board: a quiet week, a busy week, the watcher failing, and the story card's states | 1800x6410 | [png](insights/news/a/insights_news-a_states_v1.png) · [html](insights/news/a/insights_news-a_states_v1.html) · [css](insights/news/a/insights_news-a_states_v1.css) |
+
+#### insights/news/b
+
+B, Broadsheet: no boxes, column rules and a serif page title; the lead, a column of four and Most relevant in one band; the four sections as columns side by side, all four at 2560.
+
+| Frame | Size | Files |
+|---|---|---|
+| Front page at 2560, a typical week | 2560x2164 | [png](insights/news/b/insights_news-b_2560_v1.png) · [html](insights/news/b/insights_news-b_2560_v1.html) · [css](insights/news/b/insights_news-b_2560_v1.css) |
+| Front page at 1280, a typical week | 1280x2772 | [png](insights/news/b/insights_news-b_1280_v1.png) · [html](insights/news/b/insights_news-b_1280_v1.html) · [css](insights/news/b/insights_news-b_1280_v1.css) |
+| Front page on a phone (390), a typical week | 390x5598 | [png](insights/news/b/insights_news-b_phone_v1.png) · [html](insights/news/b/insights_news-b_phone_v1.html) · [css](insights/news/b/insights_news-b_phone_v1.css) |
+| Story page at 2560: one event, three sources (busy week) | 2560x1358 | [png](insights/news/b/insights_news-b_2560-story_v1.png) · [html](insights/news/b/insights_news-b_2560-story_v1.html) · [css](insights/news/b/insights_news-b_2560-story_v1.css) |
+| Story page at 1280: one event, three sources (busy week) | 1280x1692 | [png](insights/news/b/insights_news-b_1280-story_v1.png) · [html](insights/news/b/insights_news-b_1280-story_v1.html) · [css](insights/news/b/insights_news-b_1280-story_v1.css) |
+| Story page on a phone: one event, three sources | 390x2108 | [png](insights/news/b/insights_news-b_phone-story_v1.png) · [html](insights/news/b/insights_news-b_phone-story_v1.html) · [css](insights/news/b/insights_news-b_phone-story_v1.css) |
+| Story page at 1280 for a company with a role on Jobs | 1280x1538 | [png](insights/news/b/insights_news-b_1280-story-roles_v1.png) · [html](insights/news/b/insights_news-b_1280-story-roles_v1.html) · [css](insights/news/b/insights_news-b_1280-story-roles_v1.css) |
+| States board: a quiet week, a busy week, the watcher failing, and the story card's states | 1800x6304 | [png](insights/news/b/insights_news-b_states_v1.png) · [html](insights/news/b/insights_news-b_states_v1.html) · [css](insights/news/b/insights_news-b_states_v1.css) |
+
+#### insights/news/c
+
+C, Edition: a section bar with counts that stays at the top; Top stories as one row; each section one row of cards with the rest as headline links; Most relevant in a rail down the page. At 2560 each section's name stands in a column to the left of its row.
+
+| Frame | Size | Files |
+|---|---|---|
+| Front page at 2560, a typical week | 2560x2950 | [png](insights/news/c/insights_news-c_2560_v1.png) · [html](insights/news/c/insights_news-c_2560_v1.html) · [css](insights/news/c/insights_news-c_2560_v1.css) |
+| Front page at 1280, a typical week | 1280x3581 | [png](insights/news/c/insights_news-c_1280_v1.png) · [html](insights/news/c/insights_news-c_1280_v1.html) · [css](insights/news/c/insights_news-c_1280_v1.css) |
+| Front page on a phone (390), a typical week | 390x7102 | [png](insights/news/c/insights_news-c_phone_v1.png) · [html](insights/news/c/insights_news-c_phone_v1.html) · [css](insights/news/c/insights_news-c_phone_v1.css) |
+| Story page at 2560: one event, three sources (busy week) | 2560x1342 | [png](insights/news/c/insights_news-c_2560-story_v1.png) · [html](insights/news/c/insights_news-c_2560-story_v1.html) · [css](insights/news/c/insights_news-c_2560-story_v1.css) |
+| Story page at 1280: one event, three sources (busy week) | 1280x1342 | [png](insights/news/c/insights_news-c_1280-story_v1.png) · [html](insights/news/c/insights_news-c_1280-story_v1.html) · [css](insights/news/c/insights_news-c_1280-story_v1.css) |
+| Story page on a phone: one event, three sources | 390x2125 | [png](insights/news/c/insights_news-c_phone-story_v1.png) · [html](insights/news/c/insights_news-c_phone-story_v1.html) · [css](insights/news/c/insights_news-c_phone-story_v1.css) |
+| Story page at 1280 for a company with a role on Jobs | 1280x1014 | [png](insights/news/c/insights_news-c_1280-story-roles_v1.png) · [html](insights/news/c/insights_news-c_1280-story-roles_v1.html) · [css](insights/news/c/insights_news-c_1280-story-roles_v1.css) |
+| States board: a quiet week, a busy week, the watcher failing, and the story card's states | 1800x6411 | [png](insights/news/c/insights_news-c_states_v1.png) · [html](insights/news/c/insights_news-c_states_v1.html) · [css](insights/news/c/insights_news-c_states_v1.css) |
 
 ## watchlist
 
