@@ -168,7 +168,13 @@ backup from step 2 the way `scripts/backup_radar.sh` describes.
 
 ## The font
 
-The headlines ask for IBM Plex Serif from `static/fonts/` and fall back to
-Georgia when the files are not there, so the page works without them. The
-three files (`IBMPlexSerif-Regular.woff2`, `-Medium`, `-SemiBold`) are IBM's,
-under the SIL Open Font License, and are added in their own commit.
+The headlines are set in IBM Plex Serif from `static/fonts/`, and fall back to
+Georgia if a file is missing. The three files (`IBMPlexSerif-Regular.woff2`,
+`-Medium`, `-SemiBold`, 69 to 73 KB each) are IBM's, from `@ibm/plex-serif`
+2.0.0 (`fonts/complete/woff2`), under the SIL Open Font License, whose text is
+`static/fonts/OFL.txt`. They arrive with the pull, as the dashboard serves them
+from the checkout. To check after step 8 (expect `200 font/woff2` three times):
+
+```bash
+for f in Regular Medium SemiBold; do curl -s -m 15 -o /dev/null -w '%{http_code} %{content_type}\n' http://192.168.1.100:8787/static/fonts/IBMPlexSerif-$f.woff2; done
+```
