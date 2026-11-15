@@ -77,6 +77,11 @@ def touched_companies(conn) -> set[str]:
             if normalise_company(r["company"])}
 
 
+# The words every buying-window headline ends with, so the phone push and the
+# tests can tell one from any other hiring story.
+BUYING_WINDOW_MARK = "a first hire at a company you have been in touch with"
+
+
 def record_buying_window(conn, company: str, title: str, url: str,
                          h: str, now: str, company_id=None) -> bool:
     """Write the buying-window insight for one advert. True if written.
@@ -97,22 +102,31 @@ def record_buying_window(conn, company: str, title: str, url: str,
         "SELECT company FROM signals WHERE source_id = 'job-advert'")}
     if key in seen:
         return False
-    headline = radar_common.sanitise_free_text(
-        f"Buying window. {company} is hiring")
+    # Written in code from the advert's title, in the headline style the
+    # Insights page uses, since no model reads this advert as news.
+    role = (title or "a role").split(",")[0].strip() or "a role"
+    article = "" if role == "a role" else ("an " if role[:1].lower() in "aeiou" else "a ")
+    headline = radar_common.clean_headline(
+        f"{company} advertises for {article}{role}, {BUYING_WINDOW_MARK}")
+    card_summary = radar_common.clean_card_summary(
+        "A first quality, regulatory or software hire at a company you have "
+        "already contacted.")
     why = radar_common.sanitise_free_text(
         f"They advertised {title or 'a role'}, and the playbook reads the "
         "first QA, regulatory or software hire at a company already touched "
         "as the week the standards stop being abstract.")
-    conn.execute(
+    cur = conn.execute(
         "INSERT OR IGNORE INTO signals"
         " (url_hash, first_seen, source_id, company, headline, summary,"
         "  source_url, relevance, why, playbook_step, pushed, status,"
-        "  company_id)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,0,'new',?)",
+        "  company_id, story_type, card_summary)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,0,'new',?,'buying-window',?)",
         (h, now, "job-advert", company, headline, None, url or "",
          BUYING_WINDOW_RELEVANCE, why,
          radar_common.sanitise_free_text(BUYING_WINDOW_STEP),
-         company_id))
+         company_id, card_summary))
+    if cur.rowcount:
+        radar_common.assign_event_key(conn, cur.lastrowid)
     return True
 
 
@@ -174,25 +188,29 @@ def fire_tripwire(conn, company: str, title: str, url: str, h: str,
             relevance = max(0, min(100, int(parsed.get("relevance", 0))))
         except (TypeError, ValueError):
             relevance = 0
-        conn.execute(
+        cur = conn.execute(
             "INSERT OR IGNORE INTO signals"
             " (url_hash, first_seen, source_id, company, headline, summary,"
             "  source_url, relevance, why, playbook_step, pushed, status,"
-            "  company_id, region)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,0,'new',?,?)",
+            "  company_id, region, story_type, card_summary)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,0,'new',?,?,'first-hire',?)",
             # The advert names the company outright, so that is what is
             # stored. The scorer is reading a headline this code wrote and
             # its guess at the company cannot be better than the fact.
             (sig_hash, now, tripwire.SOURCE_ID, company,
-             radar_common.sanitise_free_text(
-                 str(parsed.get("headline") or item["headline"])),
+             radar_common.clean_headline(parsed.get("headline") or item["headline"]),
              item["text"][:500], url or "", relevance,
              radar_common.sanitise_free_text(str(parsed.get("why") or "")),
              radar_common.sanitise_free_text(str(parsed.get("playbook_step") or "")),
              company_id,
              conn.execute("SELECT region FROM companies WHERE id=?",
                           (company_id,)).fetchone()["region"]
-             if company_id else None))
+             if company_id else None,
+             radar_common.clean_card_summary(parsed.get("card_summary"))))
+        # A first hire is a hiring story whatever the scorer called it: the
+        # code read it off a job advert.
+        if cur.rowcount:
+            radar_common.assign_event_key(conn, cur.lastrowid)
         out["fired"] = True
         out["relevance"] = relevance
         return out

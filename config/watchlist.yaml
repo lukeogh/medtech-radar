@@ -495,6 +495,52 @@ sources:
       two dozen items, verified 5 November 2026. This is the feed that would
       have carried the 25 September Nanopore rapid brain tumour test story.
 
+  # ---- Tier 2 additions, 15 November 2026. Regulation, for the Insights
+  # page's Regulation and market news section. Not verified yet: each is
+  # status unverified, so normal runs skip it. Spot-check with
+  #   python scripts/check_signals.py --dry-run --source <id>
+  # and switch to live only when it answers and the items it finds are the
+  # regulator's own news. The rubric scores rule changes for device software
+  # 40 to 74 (prompts/signal-scorer.md, v1.2).
+  - id: mhra-news
+    name: MHRA news and guidance
+    tier: 2
+    url: "https://www.gov.uk/government/organisations/medicines-and-healthcare-products-regulatory-agency"
+    method: rss
+    rss_url: "https://www.gov.uk/search/news-and-communications.atom?organisations%5B%5D=medicines-and-healthcare-products-regulatory-agency"
+    check_interval_hours: 24
+    status: unverified
+    notes: >
+      GOV.UK publishes an Atom feed for any search. This one is the MHRA's
+      news and communications, which carries device guidance, consultations
+      and the software and AI as a medical device programme alongside its
+      medicines news. Most items will score low; that is expected.
+
+  - id: eu-mdcg-guidance
+    name: EU medical device guidance (MDCG)
+    tier: 2
+    url: "https://health.ec.europa.eu/medical-devices-sector/new-regulations/guidance-mdcg-endorsed-documents-and-other-guidance_en"
+    method: diff
+    check_interval_hours: 24
+    status: unverified
+    notes: >
+      The European Commission's list of MDCG endorsed documents, where new
+      guidance under the MDR and IVDR appears, software qualification and
+      cybersecurity among it. No feed was looked for yet. A diff of the
+      listing should see a new document as a new link.
+
+  - id: team-nb-news
+    name: Team-NB news
+    tier: 2
+    url: "https://www.team-nb.org/news/"
+    method: diff
+    check_interval_hours: 24
+    status: unverified
+    notes: >
+      The European association of notified bodies. Its position papers and
+      news cover certification capacity and how notified bodies read the
+      rules for device software, which is market news the section wants.
+
 # ---- Tier 3. Email-borne. Informational only, never fetched by check_signals.py.
 # These land in the aggregator inbox and travel through the radar-inbox workflow.
 email_sources:

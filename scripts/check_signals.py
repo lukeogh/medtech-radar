@@ -561,7 +561,9 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
         return
 
     company = str(parsed.get("company") or "").strip() or "Unknown company"
-    headline = str(parsed.get("headline") or item["headline"]).strip()
+    headline = rc.clean_headline(parsed.get("headline") or item["headline"])
+    story_type = rc.clean_story_type(parsed.get("type"))
+    card_summary = rc.clean_card_summary(parsed.get("card_summary"))
     why = rc.sanitise_free_text(str(parsed.get("why") or "").strip())
     playbook_step = rc.sanitise_free_text(
         str(parsed.get("playbook_step") or "").strip())
@@ -578,15 +580,18 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
                       (company_id,)).fetchone() if company_id else None
     region = rc.region_for(co["country"], co["city"], config) if co else \
         rc.region_group_names(config)[-1]
-    conn.execute(
+    cur = conn.execute(
         "INSERT INTO signals (url_hash, first_seen, source_id, company,"
         " headline, summary, source_url, relevance, why, playbook_step,"
-        " company_id, region)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " company_id, region, story_type, card_summary)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (h, rc.now_iso(), item["source_id"], company, headline,
          (item.get("text") or "")[:500], item["url"], relevance,
-         why, playbook_step, company_id, region),
+         why, playbook_step, company_id, region, story_type, card_summary),
     )
+    # One event, however many sources report it: the Insights page shows
+    # the reports of an event as one story. Set in code, never by the model.
+    rc.assign_event_key(conn, cur.lastrowid)
     conn.commit()
     result["items_new"] += 1
 
