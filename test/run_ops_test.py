@@ -768,9 +768,10 @@ def home_checks(tmp: Path) -> None:
     page = home(lambda c: fresh(c, inbox_hours=5))
     check("Every job on schedule" in page and "Inbox flowing" in page,
           "a quiet night reads flowing and every job on schedule")
-    check(last_lights == {"inbox": "On time", "signals": "Dry run", "check": "Dry run",
+    check(last_lights == {"inbox": "On time", "signals": "On time", "check": "On time",
                           "digest": "Dry run", "push": "Dry run"},
-          f"and Home's lights say On time for the inbox and Dry run for the rest ({last_lights})")
+          "and Home's lights say Dry run for the digest and the push alone; the watcher and "
+          f"the checker in dry run say their state ({last_lights})")
     check("Signal watcher on schedule, phone push in dry run" in page,
           "the watcher's line says the phone push is in dry run")
     check("Advert checker on schedule, dry run, writes nothing" in page,
@@ -781,7 +782,7 @@ def home_checks(tmp: Path) -> None:
     page = home(lambda c: fresh(c, inbox_hours=13))
     check("Running. Inbox quiet" in page and 'dot-amber" title="Running.' in page,
           "half a day without an email is amber and quiet, not a fault")
-    check(last_lights.get("inbox") == "Late", f"and Home's inbox light says Late ({last_lights})")
+    check(last_lights.get("inbox") == "Quiet", f"and Home's inbox light says Quiet ({last_lights})")
 
     page = home(lambda c: (seed_run(c, ago(1), "inbox"),
                            seed_run(c, ago(1), "signals", "live", "ok")),

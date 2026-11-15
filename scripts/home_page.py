@@ -13,7 +13,8 @@ What is on it, top to bottom:
   signals, new Top prospects, new One question away roles and application
   follow-ups due. Threads due joins when the Watchlist page is built.
 - Radar's five jobs as lights, a mark in a ring, a colour and a word (On time,
-  Late, Stale, Off or Dry run), from radar_common.job_health, the verdict
+  Late, Stale, Off, Dry run or, for the inbox, Quiet), from
+  radar_common.job_health, the verdict
   /health gives. The phone push has no run of its own: it rides on the signal
   watcher, so its light is worked out from the watcher's runs and the ntfy
   address in radar.yaml (push_light).
@@ -70,11 +71,25 @@ CHANNEL_WORDS = {"comment": "comment", "connection-note": "connection note",
 JOBS = (("inbox", "Inbox"), ("signals", "Signal watcher"),
         ("check", "Advert checker"), ("digest", "Monday digest"),
         ("push", "Phone push"))
-# The words each light can say, with its colour class and its mark, so the
-# colour never stands alone.
-LIGHTS = {"On time": ("is-pos", "st-pos"), "Late": ("is-cau", "st-cau"),
+# The words each light can say, with its colour class and its mark, each word
+# its own mark, so neither the colour nor the shape stands alone. Quiet is the
+# inbox's alone: alert mail arrives unevenly, so a gap under its stale limit is
+# normal, not a fault.
+LIGHTS = {"On time": ("is-pos", "st-pos"), "Late": ("is-cau", "st-late"),
           "Dry run": ("is-cau", "st-cau"), "Stale": ("is-neg", "st-neg"),
-          "Off": ("is-neu", "st-neu")}
+          "Off": ("is-neu", "st-neu"), "Quiet": ("is-neu", "st-quiet")}
+# A light that is a fault, and so an item under Radar in Needs you today and a
+# part of the sentence. Dry run is the box as it is set up, and Quiet is normal.
+FAULTS = ("Late", "Stale", "Off")
+# Only these say Dry run (decision 5, 15 Nov): the digest is built and not
+# sent, the push is written to a file. The signal watcher and the advert
+# checker in dry run still read and store, so their lights are their state.
+DRY_JOBS = ("digest", "push")
+# The marks the lights add to the page's symbols.
+SYMBOLS = """<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+<symbol id="st-late" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 4.8V8l2.2 1.5" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+<symbol id="st-quiet" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.2 2.2"/></symbol>
+</svg>"""
 SCHEDULE = {"inbox": "Each alert email, as n8n finds it in the inbox",
             "signals": "Every two hours", "check": "Once a day",
             "digest": "Mondays at 07:30", "push": "With the signal watcher"}
@@ -83,11 +98,6 @@ DOES = {"inbox": "Reads job alert emails, then stores and scores the roles.",
         "check": "Opens each advert's page to see whether the role is still open.",
         "digest": "Builds Monday's email of the week's roles and signals.",
         "push": "Sends a signal at 75 or more to the phone, as the watcher stores it."}
-DRY_WORDS = {"inbox": "In a dry run nothing is stored.",
-             "signals": "In a dry run nothing is pushed to the phone.",
-             "check": "In a dry run nothing is closed or expired.",
-             "digest": "In a dry run the digest is built and not sent.",
-             "push": "In a dry run the pushes are written to a file, not sent."}
 ENDED = {"ok": "Finished", "partial": "Finished, with failures", "failed": "Failed"}
 GROUPS = (("radar", "Radar"), ("urgent", "Urgent signals"),
           ("top", "Top prospects"), ("question", "One question away"),
@@ -170,27 +180,30 @@ def _dry(name: str, verdict: dict) -> bool:
 
 def job_light(name: str, verdict: dict | None) -> dict:
     """One job's light from its job_health verdict: never is Off, stale is
-    Stale, late or failing is Late, and a job on time whose last run was a dry
-    run says Dry run."""
+    Stale, late, failing or partial (a run that finished with failures) is
+    Late, except the inbox's late, which is Quiet; and the digest on time
+    whose last build was a dry run says Dry run."""
     v = dict(verdict or {"state": "never"})
     state = v.get("state") or "never"
     if state == "never":
         word = "Off"
     elif state == "stale":
         word = "Stale"
-    elif state in ("late", "failing"):
+    elif state == "late" and name == "inbox":
+        word = "Quiet"
+    elif state in ("late", "failing", "partial"):
         word = "Late"
     else:
-        word = "Dry run" if _dry(name, v) else "On time"
+        word = "Dry run" if name in DRY_JOBS and _dry(name, v) else "On time"
     return {"name": name, "word": word, "verdict": v, "state": state}
 
 
 def push_light(jobs: dict, config: dict, last_push) -> dict:
     """The phone push has no run of its own, so its light is worked out from
     what is stored: Off when radar.yaml names no ntfy address or the watcher
-    has never run, Dry run while the watcher runs in dry run (it then writes
-    its pushes to a file), and otherwise the watcher's own light, since a push
-    goes only when the watcher runs."""
+    has never run, then the watcher's own Stale or Late, since a push goes
+    only when the watcher runs, then Dry run while the watcher runs in dry run
+    (it writes its pushes to a file), and otherwise On time."""
     watcher = jobs.get("signals") or {"state": "never"}
     v = {"state": watcher.get("state"), "mode": watcher.get("mode"),
          "last_run": watcher.get("last_run"), "hours_ago": watcher.get("hours_ago"),
@@ -203,10 +216,11 @@ def push_light(jobs: dict, config: dict, last_push) -> dict:
     if (watcher.get("state") or "never") == "never":
         return {"name": "push", "word": "Off", "verdict": v, "state": "never",
                 "why": "The signal watcher has never run, so nothing has been pushed."}
-    if _dry("signals", watcher):
-        return {"name": "push", "word": "Dry run", "verdict": v, "state": watcher.get("state")}
+    # The watcher's state first: a push goes only when the watcher runs.
     light = job_light("signals", watcher)
     light.update(name="push", verdict=v)
+    if light["word"] == "On time" and _dry("signals", watcher):
+        light["word"] = "Dry run"
     return light
 
 
@@ -294,7 +308,8 @@ def week_model(data: dict, history: list, now: datetime) -> dict:
       out, as the digest leaves it out.
     - A signal at 40 or more is a story (the reports sharing an event_key),
       counted once, in the week it was first found, when its best report
-      scored 40 or more. Hidden stories and hiring stories count too.
+      scored 40 or more. Hidden stories count too; a hiring story (a buying
+      window or a first hire) does not, as Insights leaves hiring out.
     Weeks are UK calendar weeks from Monday; this week runs Monday to now. The
     chart starts on the week Radar's first advert or signal arrived, so a week
     before Radar was listening is never drawn as a quiet one.
@@ -329,16 +344,18 @@ def week_model(data: dict, history: list, now: datetime) -> dict:
         key = s.get("event_key") or f"e{s.get('id')}"
         found = _when(s.get("first_seen"))
         best = s.get("relevance") or 0
+        kind = s.get("story_type") or CODE_TYPES.get(s.get("source_id")) or "other"
         have = stories.get(key)
         if have is None:
-            stories[key] = [found, best]
+            stories[key] = [found, best, kind]
         else:
             if found and (have[0] is None or found < have[0]):
                 have[0] = found
-            have[1] = max(have[1], best)
+            if best > have[1]:
+                have[1], have[2] = best, kind   # the best report says what the story is
     sigs: dict = {}
-    for found, best in stories.values():
-        if found is not None and best >= SIGNAL_BAR:
+    for found, best, kind in stories.values():
+        if found is not None and best >= SIGNAL_BAR and kind not in HIRING:
             wk = _monday(found.date())
             sigs[wk] = sigs.get(wk, 0) + 1
 
@@ -432,7 +449,9 @@ def _due_tag(due, now: datetime) -> tuple[str, str]:
 
 
 def step_title(a: dict) -> str:
-    """What waits, in words: Radar's Follow up names the company."""
+    """What waits, in words: Radar's Follow up names the company. An
+    application with an interview and no step is on the tile's Waiting on you,
+    as on the board, and never an item or a figure."""
     company = a.get("company") or "the company"
     step = a.get("next_step")
     if step == ap.FOLLOW_UP:
@@ -446,11 +465,10 @@ def build_items(data: dict, config: dict, conn, now: datetime, light_list: list,
                 jmodel: dict, bmodel: dict, push_on: bool = False) -> list:
     """Every item Home would list, Done or not, most urgent group first."""
     items = []
-    # ---- Radar: a job whose light is not On time.
+    # ---- Radar: a job whose light is a fault (Late, Stale or Off).
     for light in light_list:
-        if light["word"] == "On time":
-            continue
-        items.append(_radar_item(light, conn, config, now, push_on))
+        if light["word"] in FAULTS:
+            items.append(_radar_item(light, conn, config, now, push_on))
     # ---- Urgent signals: a story at the fast bar or over, found this week.
     fast = int(data.get("fast") or config.get("fast_signal_threshold", 75))
     since = uk(now) - timedelta(days=URGENT_DAYS)
@@ -459,8 +477,15 @@ def build_items(data: dict, config: dict, conn, now: datetime, light_list: list,
                if s["relevance"] >= fast and not s["closed"]
                and (_when(s["found"]) or since) > since]
     stories.sort(key=lambda s: (-s["relevance"], "".join(chr(0x7e - ord(c)) for c in s["found"])))
+    new_roles = {jp.role_key(o) for tier in ("top", "question")
+                 for o in jmodel["tiers"][tier] if o.get("_unread")}
     for s in stories:
-        items.append(_signal_item(s, arrivals, now))
+        item = _signal_item(s, arrivals, now)
+        # A buying window read from an advert that is listed already, as a new
+        # Top prospect or One question away role, is not listed twice.
+        if item.get("role") is not None and jp.role_key(item["role"]) in new_roles:
+            continue
+        items.append(item)
     # ---- New Top prospects and One question away roles: read nowhere yet.
     for tier, group in (("top", "top"), ("question", "question")):
         for o in jmodel["tiers"][tier]:
@@ -492,16 +517,16 @@ def _radar_item(light: dict, conn, config: dict, now: datetime, push_on: bool) -
             title = f"{label} is late: its last run failed"
             lead = (f"The last run that finished was {_hours(hours)} ago. "
                     f"{_n(v.get('failed_runs') or 1, 'run')} failed since.")
+        elif light["state"] == "partial":
+            title = f"{label} is late: its last run finished with failures"
+            lead = (f"Its last run, {_hours(hours)} ago, finished with failures"
+                    + (f": {str(v.get('note'))[:200]}" if v.get("note") else ".")
+                    if hours is not None else "Its last run finished with failures.")
         else:
             title = f"{label} is late, {_hours(hours)} since its last run"
             lead = (f"Last finished {_hours(hours)} ago. Late after "
                     f"{_n(v.get('late_hours') or 0, 'hour')}, stale after {_n(v.get('stale_hours') or 0, 'hour')}.")
         tag = "Late"
-    elif word == "Dry run":
-        title = f"{label} is in dry run"
-        ran = v.get("last_run")
-        lead = (f"Its last run, {day_time(ran)}, was a dry run. " if ran else "") + DRY_WORDS[name]
-        tag = "Dry run"
     else:
         title = f"{label} is off"
         lead = light.get("why") or f"The {label.lower()} has never run."
@@ -511,7 +536,10 @@ def _radar_item(light: dict, conn, config: dict, now: datetime, push_on: bool) -
                "is-pos": "positive"}[cls]
     runs = last_runs(conn, "signals" if name == "push" else name)
     return {"kind": "radar", "group": "radar", "id": f"radar-{name}",
-            "key": f"radar:{name}:{word.lower().replace(' ', '-')}",
+            # The episode is in the key: the last finished run, which a fault
+            # keeps until a new run finishes. Done holds for this episode, and
+            # the next fault is a new item.
+            "key": f"radar:{name}:{word.lower()}:{v.get('last_run') or 'never'}",
             "title": title, "fig": "", "seen": seen_words(v.get("last_run"), now),
             "seen_label": "Last ran", "meta": SCHEDULE[name],
             "tag": f'<span class="tag tag-{tag_cls}">{_use(sym)}{esc(tag)}</span>',
@@ -551,7 +579,9 @@ def _signal_item(s: dict, arrivals: dict, now: datetime) -> dict:
 def _role_item(o: dict, group: str, now: datetime) -> dict:
     cv = o.get("cv_match")
     return {"kind": "role", "group": group, "id": f"role-{int(o['id'])}",
-            "key": f"role:{jp.role_key(o)}", "title": o.get("title") or "Untitled role",
+            # The group is in the key, so a role Done as One question away
+            # comes back when it becomes a Top prospect.
+            "key": f"role:{group}:{jp.role_key(o)}", "title": o.get("title") or "Untitled role",
             "fig": f"{int(cv)}%" if cv is not None else "–", "fig_label": "CV match ",
             "seen": seen_words(jp.first_seen(o), now), "seen_label": "First seen ",
             "meta": _role_meta(o), "tag": jp.spec_tag(o) + jp.lifecycle_tag(o, rc.now_iso()),
@@ -620,14 +650,14 @@ def build_model(conn, data: dict, config: dict, now=None, item: str | None = Non
 
 # ================================================================ the welcome
 
-FIGURES = (("urgent", "urgent signal", "urgent signals", "/insights"),
+FIGURES = (("urgent", "urgent signal", "urgent signals", "#group-urgent"),
            ("top", "new Top prospect", "new Top prospects", "/jobs#group-top"),
            ("question", "new One question away", "new One question away", "/jobs#group-question"),
            ("apps", "application follow-up due", "application follow-ups due",
             "/jobs?show=applied"))
 JOB_PHRASES = {"inbox": "the inbox", "signals": "the signal watcher", "check": "the advert checker",
                "digest": "the Monday digest", "push": "the phone push"}
-FAULT_WORDS = {"Stale": "is stale", "Late": "is late", "Dry run": "is in dry run", "Off": "is off"}
+FAULT_WORDS = {"Stale": "is stale", "Late": "is late", "Off": "is off"}
 
 
 def greeting(now: datetime, name: str | None) -> str:
@@ -805,7 +835,10 @@ def apps_tile(model: dict) -> str:
 def funnel_tile(model: dict) -> str:
     j = model["jmodel"]
     t = j["totals"]
-    new = {tier: sum(1 for o in j["tiers"][tier] if o.get("_unread")) for tier in jp.OPEN_TIERS}
+    # New Top and One question away are the figures' counts, so a role Done
+    # on Home is not new here either; Reading's new are Jobs' own.
+    new = {"reading": sum(1 for o in j["tiers"]["reading"] if o.get("_unread")),
+           "question": model["counts"]["question"], "top": model["counts"]["top"]}
     steps = (("all", "All open", j["open_total"], 0, "/jobs"),
              ("reading", "Reading", t["reading"], new["reading"], "/jobs?reading=1#group-reading"),
              ("question", "One question away", t["question"], new["question"], "/jobs#group-question"),
@@ -841,8 +874,9 @@ def funnel_tile(model: dict) -> str:
 # The tile's small print: exactly what each bar counts (week_model has the rest).
 WEEK_NOTE = ("Weeks start on Monday; this week runs Monday to now. A bar counts the roles first "
              "scored Top that week, from the score record, a role you applied for left out, and "
-             "the stories found that week that scored 40 or more. Each row has its own scale, so "
-             "compare the figures, not the bar heights across rows.")
+             "the stories found that week that scored 40 or more, hiring stories left out as on "
+             "Insights. Each row has its own scale, so compare the figures, not the bar heights "
+             "across rows.")
 
 
 def trend_tile(model: dict) -> str:
@@ -911,14 +945,15 @@ def trend_tile(model: dict) -> str:
 
 # ================================================================ Needs you today
 
-def row_html(i: dict, selected: bool) -> str:
+def row_html(i: dict, selected: bool, done_view: bool = False) -> str:
     fig = (f'<span class="r-cv"><span class="visually-hidden">{esc(i.get("fig_label", ""))}</span>'
            f'{esc(i["fig"])}</span>' if i.get("fig") else "")
     seen = (f'<span class="r-seen"><span class="visually-hidden">{esc(i.get("seen_label", ""))}</span>'
             f'{esc(i["seen"])}</span>' if i.get("seen") else "")
     current = ' aria-current="true"' if selected else ""
     return (f'<a class="row row-3{" is-unread" if i["kind"] == "role" else ""}" id="row-{esc(i["id"])}" '
-            f'href="/?item={esc(i["id"])}" data-item="{esc(i["id"])}" data-key="{esc(i["key"])}"'
+            f'href="/?item={esc(i["id"])}{"&amp;show=done" if done_view else ""}" '
+            f'data-item="{esc(i["id"])}" data-key="{esc(i["key"])}"'
             f'{current}><span class="r1"><span class="r-title">{esc(i["title"])}</span>{fig}{seen}</span>'
             f'<span class="r2"><span class="r-meta">{esc(i["meta"])}</span>{i.get("tag", "")}</span>'
             f'<span class="r3"><span class="r-lead">{esc(i.get("lead") or "")}</span>'
@@ -960,7 +995,8 @@ def list_html(model: dict) -> str:
         members = [i for i in items if i["group"] == group]
         if not members:
             continue
-        rows = "".join(row_html(i, sel is not None and i["id"] == sel["id"]) for i in members)
+        rows = "".join(row_html(i, sel is not None and i["id"] == sel["id"], model["show"] == "done")
+                       for i in members)
         parts.append(f'<section class="ny-group" aria-labelledby="group-{group}">'
                      f'{group_head(group, members, model)}{rows}</section>')
     return "".join(parts)
@@ -1000,18 +1036,14 @@ def _body_radar(i: dict, uid: str) -> str:
     paras = [f'<p class="ny-para">{esc(i["lead"])}</p>']
     if v.get("failed_note"):
         paras.append(f'<p class="ny-para">The last failed run said: {esc(str(v["failed_note"])[:300])}</p>')
-    if light["word"] == "Dry run":
-        paras.append('<p class="ny-para">A dry run is a setting on the box, not a fault. Done takes '
-                     'this off Home until the job runs live or its state changes.</p>')
-    out = [_sec(f"{uid}-wrong", "What is wrong" if light["word"] in ("Stale", "Late", "Off")
-                else "What this means", "".join(paras))]
+    out = [_sec(f"{uid}-wrong", "What is wrong", "".join(paras))]
     runs = i["runs"]
     if runs:
         trs = "".join(
             f'<tr><td>{esc(day_time(r["ts"]))}</td><td>{esc((r["mode"] or "").replace("-", " ").capitalize())}</td>'
             f'<td>{esc(ENDED.get(r["outcome"] or "ok", "Finished"))}{": " + esc(str(r["note"])[:160]) if r.get("note") else ""}</td></tr>'
             for r in runs)
-        name = "the signal watcher" if i["light"]["name"] == "push" else i["light"]["label"].lower()
+        name = JOB_PHRASES["signals" if i["light"]["name"] == "push" else i["light"]["name"]]
         out.append(f'<div class="ny-runs"><h4 class="sec-h" id="{uid}-runs">Last runs'
                    f'<span class="group-count"> {len(runs)}</span></h4>'
                    f'<div class="table-wrap" role="region" aria-labelledby="{uid}-runs" tabindex="0">'
@@ -1251,8 +1283,8 @@ def detail_html(i: dict, model: dict, prev_id, next_id) -> str:
                     f'data-title="{esc(i["title"])}" aria-keyshortcuts="E">Done'
                     '<kbd class="kbd" aria-hidden="true">E</kbd></button>')
         if i["kind"] == "radar":
-            note = ("Done takes this off Home until the job's state changes, and Undo last puts it "
-                    "back. Radar's health still reports it.")
+            note = ("Done takes this off Home until this fault ends, and Undo last puts it back. "
+                    "Radar's health still reports it.")
         elif i["kind"] == "role":
             note = "Done takes this off Home, and Undo last puts it back. The role stays open and new on Jobs."
         elif i["kind"] == "app":
@@ -1382,7 +1414,7 @@ def render(conn, data: dict, config: dict, item: str | None = None, show: str = 
 </head>
 <body>
 <div class="app" data-page="home" data-state="{esc(json.dumps(state))}">
-{jp.SYMBOLS}
+{jp.SYMBOLS}{SYMBOLS}
 {page_frame.appbar_html("home", model["jobs"], "Home", help_button=True)}
 <main class="content hf" id="main">{main_html(model)}</main>
 <p class="toast" id="toast" role="status" aria-live="polite"></p>
@@ -1754,13 +1786,16 @@ a{color:inherit}
   .hf-bento > .ht-apps-tile{grid-column:1 / -1}
 }
 @container app (min-width:1024px){.hf-bento{grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr)}.hf-bento > .ht-apps-tile{grid-column:auto}}
-/* 768 to 1799: the page scrolls as one, and the list block is one screen high when it reaches the top, its list and detail scrolling inside it. */
-@container app (min-width:768px) and (max-width:1799.98px){
+/* From 768: the page scrolls as one, and the list block is one screen high when it reaches the top, its list and detail scrolling inside it. */
+@container app (min-width:768px){
   .hf{grid-template-rows:auto auto 100%;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-snap-type:y proximity;scroll-padding-top:16px}
   .hf > .ny{scroll-snap-align:start}
 }
-/* From 1800px everything fits, and the list block takes the rest of the height. */
-@container app (min-width:1800px){.hf{grid-template-rows:auto auto minmax(0,1fr);min-height:0;overflow:hidden}}
+/* From 1800px wide and 1300px tall everything fits, and the list block takes the rest of the
+   height. A wide screen that is not that tall (1920 by 1080) scrolls as above. */
+@media (min-height:1300px){
+  @container app (min-width:1800px){.hf{grid-template-rows:auto auto minmax(0,1fr);min-height:0;overflow:hidden;scroll-snap-type:none}.hf > .ny{scroll-snap-align:none}}
+}
 @container app (min-width:768px){
   .ny-list{overflow:auto}
 }
@@ -1821,7 +1856,17 @@ HOME_SCRIPT = r"""
         return { ok: false, note: 'No usable answer came back, so that may not have saved. Reload to check.' };
       }); });
   }
+  // The toast stays about eight seconds, its Undo with it, or until the next
+  // J, K or click on the page.
+  var toastTimer = null;
+  function hush() {
+    if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+    toast.textContent = '';
+    toast.classList.remove('is-bad');
+  }
   function say(text, bad, undo) {
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(hush, 8000);
     toast.textContent = '';
     toast.classList.toggle('is-bad', !!bad);
     var span = document.createElement('span');
@@ -1889,6 +1934,9 @@ HOME_SCRIPT = r"""
     });
     place();
     try { history.replaceState(null, '', '/' + query(id)); } catch (e) {}
+    var name = row.querySelector('.r-title');
+    if (name) document.title = name.textContent + ' \u00b7 ' + (state.show === 'done' ? 'Done on Home' : 'Home')
+      + ' \u00b7 MedTech Radar';
     var d = detailFor(id);
     if (d) {
       var scroller = d.querySelector('.ny-scroll');
@@ -1897,9 +1945,21 @@ HOME_SCRIPT = r"""
     if (focus) row.focus({ preventScroll: true });
     row.scrollIntoView({ block: 'nearest' });
   }
+  // Where the page scrolls as one (768 to 1799, or a screen under 1300 tall),
+  // the first J or K brings Needs you today to the top before it moves, so
+  // the row and its detail are in view. Not on a phone, where the page is a
+  // document and the row is scrolled to as it is.
+  function bringUp() {
+    var ny = el('ny');
+    if (!ny || inline() || !(main.scrollHeight > main.clientHeight + 1)) return;
+    var gap = ny.getBoundingClientRect().top - main.getBoundingClientRect().top;
+    if (gap > 1) ny.scrollIntoView({ block: 'start' });
+  }
   function step(by) {
+    hush();
     var r = rows();
     if (!r.length) return;
+    bringUp();
     var i = r.findIndex(function (x) { return x.dataset.item === state.item; });
     var n = Math.min(r.length - 1, Math.max(0, (i < 0 ? 0 : i + by)));
     select(r[n].dataset.item, true);
@@ -1990,6 +2050,9 @@ HOME_SCRIPT = r"""
   }
 
   // ---- clicks
+  document.addEventListener('click', function (e) {
+    if (toast.textContent && !(e.target.closest && e.target.closest('#toast'))) hush();
+  }, true);
   main.addEventListener('click', function (e) {
     if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     var row = e.target.closest('.ny-list .row[data-item]');

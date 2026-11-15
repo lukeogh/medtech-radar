@@ -190,18 +190,18 @@ class Seed:
 
 def seed_home(path: Path, variant: str = "typical") -> dict:
     """The design's world. variant: typical, quiet, first (Radar a few days
-    old), noapps (no applications) or fault (the watcher stale, the checker in
-    dry run, the push off)."""
+    old), noapps (no applications) or fault (the watcher stale and the push
+    with it, the checker late, the digest in dry run and the inbox quiet)."""
     s = Seed(path)
     ids = s.ids
     first_week = variant == "first"
     old = 1.0 if first_week else 30.0
     # ---- the runs: every job on time and live, but the fault's
-    s.run("inbox", 0.2)
-    s.run("signals", 22 if variant == "fault" else 1.0,
-          "dry-run" if variant == "fault" else "live")
-    s.run("check", 7, "dry-run" if variant == "fault" else "live")
-    s.run("digest", 50, "build")
+    fault = variant == "fault"
+    s.run("inbox", 15 if fault else 0.2)
+    s.run("signals", 22 if fault else 1.0, "dry-run" if fault else "live")
+    s.run("check", 30 if fault else 7)
+    s.run("digest", 50, "dry-run" if fault else "build")
     # ---- the open roles
     ids["hartwell_role"] = s.role("Head of Software Quality, Class II infusion pumps",
                                   "Hartwell Infusion Ltd", "top", 86, first=min(old, 4),
@@ -392,31 +392,58 @@ def light_checks(tmp: Path) -> None:
     def v(state, mode="live", **kw):
         return {"state": state, "mode": mode, "last_run": ago(hours=1), "hours_ago": 1.0,
                 "late_hours": 4, "stale_hours": 6, **kw}
-    words = {s: hp.job_light("signals", v(s))["word"] for s in
+    words = {st: hp.job_light("signals", v(st))["word"] for st in
              ("ok", "partial", "late", "failing", "stale", "never")}
-    check(words == {"ok": "On time", "partial": "On time", "late": "Late", "failing": "Late",
+    check(words == {"ok": "On time", "partial": "Late", "late": "Late", "failing": "Late",
                     "stale": "Stale", "never": "Off"},
-          f"each verdict has its word ({words})")
-    check(hp.job_light("check", v("ok", "dry-run"))["word"] == "Dry run"
-          and hp.job_light("digest", v("ok", "dry-run"))["word"] == "Dry run"
+          f"each verdict has its word, a run finished with failures Late ({words})")
+    check(hp.job_light("inbox", v("late"))["word"] == "Quiet"
+          and hp.job_light("inbox", v("stale"))["word"] == "Stale"
+          and hp.job_light("inbox", v("partial"))["word"] == "Late",
+          "the inbox under its stale limit is Quiet, a sixth word; stale is still Stale")
+    check(hp.job_light("signals", v("ok", "dry-run"))["word"] == "On time"
+          and hp.job_light("check", v("ok", "dry-run"))["word"] == "On time",
+          "the signal watcher and the advert checker in dry run say their state, never Dry run")
+    check(hp.job_light("digest", v("ok", "dry-run"))["word"] == "Dry run"
           and hp.job_light("digest", v("ok", "build"))["word"] == "On time"
           and hp.job_light("digest", v("ok", "commit"))["word"] == "On time",
-          "a job on time whose last run was a dry run says Dry run; the digest's build and commit are live")
-    check(hp.job_light("check", v("stale", "dry-run"))["word"] == "Stale",
-          "a stale job says Stale, dry run or not")
+          "the digest on time in dry run says Dry run; its build and commit are live")
+    check(hp.job_light("digest", v("stale", "dry-run"))["word"] == "Stale",
+          "a stale digest says Stale, dry run or not")
     marks = {w: sym for w, (_c, sym) in hp.LIGHTS.items()}
-    check(len(set(marks.values())) == 4 and marks["Late"] == marks["Dry run"] == "st-cau",
-          "each word has a mark as well as a colour (Late and Dry run share the half-filled ring)")
+    check(len(set(marks.values())) == len(marks) == 6,
+          f"each of the six words has its own mark as well as a colour ({marks})")
+    check(marks["Late"] != marks["Dry run"], "Late and Dry run differ in shape, not only in words")
     jobs = {"signals": v("ok", "live")}
     check(hp.push_light(jobs, {"ntfy_url": "", "ntfy_topic_radar": "x"}, None)["word"] == "Off",
           "the push is Off when radar.yaml names no ntfy address")
     check(hp.push_light({"signals": {"state": "never"}}, CFG, None)["word"] == "Off",
           "and Off when the watcher has never run")
+    check(hp.push_light({"signals": v("stale", "dry-run")}, CFG, None)["word"] == "Stale"
+          and hp.push_light({"signals": v("late", "dry-run")}, CFG, None)["word"] == "Late",
+          "the watcher's state comes first: Stale or Late, in dry run or not")
     check(hp.push_light({"signals": v("ok", "dry-run")}, CFG, None)["word"] == "Dry run",
-          "Dry run while the watcher runs in dry run")
-    check(hp.push_light(jobs, CFG, None)["word"] == "On time"
-          and hp.push_light({"signals": v("stale")}, CFG, None)["word"] == "Stale",
-          "and otherwise the watcher's own light, since it pushes when the watcher runs")
+          "then Dry run while the watcher runs in dry run")
+    check(hp.push_light(jobs, CFG, None)["word"] == "On time",
+          "and On time with a live watcher on time")
+    db = tmp / "dry.sqlite"
+    seed_home(db)
+    conn = rc.get_db(db)
+    conn.execute("DELETE FROM runs")
+    for workflow, hours, mode in (("inbox", 15, "live"), ("signals", 1, "dry-run"),
+                                  ("check", 7, "dry-run"), ("digest", 50, "dry-run")):
+        conn.execute("INSERT INTO runs (ts, workflow, mode, outcome) VALUES (?,?,?,'ok')",
+                     (ago(hours=hours), workflow, mode))
+    conn.commit()
+    conn.close()
+    m = model_of(db)
+    said = {light["name"]: light["word"] for light in m["lights"]}
+    check(said == {"inbox": "Quiet", "signals": "On time", "check": "On time",
+                   "digest": "Dry run", "push": "Dry run"},
+          f"the box as it is set up: a quiet inbox, the digest and the push in dry run ({said})")
+    check(not [i for i in m["todo"] if i["group"] == "radar"]
+          and "dry run" not in hp.status_sentence(m) and "quiet" not in hp.status_sentence(m).lower(),
+          "and none of it is an item or a part of the sentence: Dry run and Quiet are not faults")
 
 
 # ================================================================ 3. the model
@@ -591,6 +618,178 @@ def done_checks(tmp: Path) -> None:
     check(not bad, f"anything that is not an item key is refused ({bad})")
 
 
+# ================================================================ 4b. what the review asked
+
+def set_runs(db: Path, *runs) -> None:
+    """Replace the runs with these (workflow, hours ago, mode, outcome)."""
+    conn = rc.get_db(db)
+    conn.execute("DELETE FROM runs")
+    for workflow, hours, mode, outcome in runs:
+        conn.execute("INSERT INTO runs (ts, workflow, mode, outcome) VALUES (?,?,?,?)",
+                     (ago(hours=hours), workflow, mode, outcome))
+    conn.commit()
+    conn.close()
+
+
+def episode_checks(tmp: Path) -> None:
+    """Done on a Radar item holds for that fault only: Late, Done, recovered,
+    Late again later, and the item is back."""
+    db = tmp / "episode.sqlite"
+    seed_home(db)
+    base = (("inbox", 0.2, "live", "ok"), ("check", 7, "live", "ok"), ("digest", 50, "build", "ok"))
+    set_runs(db, *base, ("signals", 5, "live", "ok"))
+    m = model_of(db)
+    late = next((i for i in m["todo"] if i["id"] == "radar-signals"), None)
+    check(late is not None and late["light"]["word"] == "Late", "the watcher five hours on is Late")
+    conn = rc.get_db(db)
+    hp.mark_done(conn, late["key"], late["title"])
+    conn.close()
+    m = model_of(db)
+    check(all(i["id"] != "radar-signals" for i in m["todo"]) and "watcher" not in hp.status_sentence(m),
+          "Done takes it off the list and out of the sentence")
+    set_runs(db, *base, ("signals", 5, "live", "ok"), ("signals", 1, "live", "ok"))
+    m = model_of(db)
+    check(all(i["id"] != "radar-signals" for i in m["todo"])
+          and next(l for l in m["lights"] if l["name"] == "signals")["word"] == "On time",
+          "it recovers: On time, no item")
+    # Later, the watcher misses its runs again: a new episode.
+    set_runs(db, *base, ("signals", 9, "live", "ok"), ("signals", 4.5, "live", "ok"))
+    m = model_of(db)
+    again = next((i for i in m["todo"] if i["id"] == "radar-signals"), None)
+    check(again is not None and again["key"] != late["key"]
+          and "the signal watcher is late" in hp.status_sentence(m),
+          "Late again later is back in the list and the sentence, under a new key")
+
+
+def review_checks(tmp: Path) -> None:
+    db = tmp / "review.sqlite"
+    ids = seed_home(db)
+    m = model_of(db)
+    page = page_of(db)
+    check('id="figure-urgent" href="#group-urgent"' in page and 'id="group-urgent"' in page,
+          "the urgent figure opens its own group of the list")
+    # A role Done as One question away comes back as a new Top prospect.
+    q = next(i for i in m["todo"] if i["group"] == "question")
+    check(q["key"].startswith("role:question:"), f"a role's key names its group ({q['key']})")
+    conn = rc.get_db(db)
+    hp.mark_done(conn, q["key"], q["title"])
+    conn.close()
+    m2 = model_of(db)
+    check(m2["counts"]["question"] == 1 and all(i["key"] != q["key"] for i in m2["todo"]),
+          "Done on a One question away role takes it off Home")
+    funnel = hp.funnel_tile(m2)
+    check('id="funnel-question"' in funnel and "1 new" in funnel.split('id="funnel-question"')[1].split("</li>")[0],
+          "and Open roles says 1 new, agreeing with the figure")
+    conn = rc.get_db(db)
+    conn.execute("UPDATE opportunities SET tier = 'top' WHERE id = ?", (q["role"]["id"],))
+    conn.commit()
+    conn.close()
+    m3 = model_of(db)
+    back = next((i for i in m3["todo"] if i["group"] == "top" and i["role"]["id"] == q["role"]["id"]), None)
+    check(back is not None and m3["counts"]["top"] == 4,
+          "promoted to Top prospect it comes back, as a new Top prospect")
+    # A buying window whose role is a new Top prospect is listed once.
+    conn = rc.get_db(db)
+    conn.execute("UPDATE opportunities SET read_at = NULL WHERE id = ?", (ids["hartwell_role"],))
+    conn.commit()
+    conn.close()
+    m4 = model_of(db)
+    tops = [i["role"]["id"] for i in m4["todo"] if i["group"] == "top"]
+    check(ids["hartwell_role"] in tops and m4["counts"]["urgent"] == 0
+          and "urgent signal" not in hp.status_sentence(m4),
+          "a buying window read from an advert listed as a new Top prospect is not listed again")
+    # The tile's Waiting on you names an interview with no step.
+    conn = rc.get_db(db)
+    conn.execute("UPDATE applications SET next_step = NULL, next_step_due = NULL, next_step_by = NULL,"
+                 " interview_at = ? WHERE id = ?", (uk_day(2) + "T10:00", ids["severn_app"]))
+    conn.commit()
+    conn.close()
+    m5 = model_of(db)
+    tile = hp.apps_tile(m5)
+    check("Interview with Severn Renal Systems" in tile
+          and all("Severn" not in i["title"] for i in m5["todo"]) and m5["counts"]["apps"] == 1,
+          "an interview with no step is on the tile's Waiting on you, and never an item or a figure")
+    # Done-view rows keep the view in their address.
+    conn = rc.get_db(db)
+    first = model_of(db)["todo"][0]
+    hp.mark_done(conn, first["key"], first["title"])
+    conn.close()
+    done_page = page_of(db, show="done")
+    check(f'href="/?item={first["id"]}&amp;show=done"' in done_page,
+          "a row in the Done view links with show=done")
+    # The fill layout only on a screen tall enough.
+    css = hp.HOME_CSS
+    fill = css[css.index("@media (min-height:1300px)"):]
+    check("@container app (min-width:1800px)" in fill.split("}}")[0] and "overflow:hidden" in fill.split("}}")[0],
+          "from 1800px the list block fills the rest only when the screen is 1300px tall or more")
+    # The first name can be cleared from Settings.
+    with prefs("keywords: a\nfirst_name: Sam\n") as cfg:
+        stored = rc.update_pref_line("first_name", "", cfg)
+        text = (rc.REPO_ROOT / cfg["prefs_file"]).read_text(encoding="utf-8")
+        check(stored == "" and re.search(r"^first_name:$", text, re.M) and rc.read_first_name(cfg) is None,
+              "Settings can clear the first name: the line stays, empty, and Home greets without one")
+        try:
+            rc.update_pref_line("keywords", "", cfg)
+            refused = False
+        except ValueError:
+            refused = True
+        check(refused, "every other line still refuses an empty value")
+
+
+def greeting_page_checks(tmp: Path) -> None:
+    db = tmp / "greet.sqlite"
+    seed_home(db, "quiet")
+    with prefs("day_rate_floor_gbp: 700\nfirst_name: Sam\n") as cfg:
+        page = page_of(db, cfg)
+    check(re.search(r'id="welcome-h"><span class="visually-hidden">Home. </span>'
+                    r'Good (morning|afternoon|evening), Sam</h1>', page) is not None,
+          "a preferences file with first_name: Sam greets Sam on the page")
+    with prefs("day_rate_floor_gbp: 700\n") as cfg:
+        page = page_of(db, cfg)
+    check(re.search(r'</span>Good (morning|afternoon|evening)\.</h1>', page) is not None
+          and "Sam" not in page, "and none greets without a name")
+
+
+def week_exact_checks(tmp: Path) -> None:
+    """The week chart on fixed dates, with exact counts: a two-advert repost
+    chain counts once, two reports of one story count once, a role Top in the
+    history and Reading now counts in its week, and an applied role, a hiring
+    story and a story under 40 do not."""
+    db = tmp / "weeks.sqlite"
+    s = Seed(db)
+    at = lambda d, h=12: f"2026-{d}T{h:02d}:00:00Z"  # noqa: E731
+    s.role("Repost Role", "Orrin Medical", "top", 80, first_seen=at("11-03"), last_seen=at("11-03"),
+           scored_at=at("11-03"))
+    s.role("Repost Role", "Orrin Medical", "top", 80, first_seen=at("11-10"), last_seen=at("11-10"),
+           scored_at=at("11-10"))
+    s.role("This Week Role", "Kinross Optics", "top", 80, first_seen=at("11-10"), last_seen=at("11-10"),
+           scored_at=at("11-10"))
+    was = s.role("Once Top Role", "Brandt Cardio", "reading", 60, first_seen=at("10-27"),
+                 last_seen=at("10-27"), scored_at=at("11-06"))
+    s.conn.execute("INSERT INTO score_history (opportunity_id, recorded_at, event, writer, scored_at, tier)"
+                   " VALUES (?,?,?,?,?,?)", (was, at("11-06"), "replaced", "rescore", at("10-27"), "top"))
+    s.role("Applied Top Role", "Ashdown Diagnostics", "top", 85, first_seen=at("11-04"),
+           last_seen=at("11-04"), scored_at=at("11-04"), applied_at=at("11-05"))
+    s.signal("One story, first report", "Orrin Medical", 50, 0, first_seen=at("11-05"), event_key="ev-shared")
+    s.signal("One story, second report", "Orrin Medical", 30, 0, first_seen=at("11-04"), event_key="ev-shared")
+    s.signal("A story this week", "Orrin Medical", 45, 0, first_seen=at("11-10"))
+    s.signal("A buying window", "Hartwell Infusion Ltd", 90, 0, kind="buying-window", source="job-advert",
+             first_seen=at("11-10"))
+    s.signal("Under the bar", "Orrin Medical", 39, 0, first_seen=at("11-10"))
+    s.signal("Hidden, early", "Orrin Medical", 41, 0, first_seen=at("10-20"), acknowledged_at=at("10-21"))
+    s.conn.commit()
+    s.close()
+    conn = reader(db)
+    data = bd.collect(conn, CFG)
+    w = hp.week_model(data, hp.top_history(conn), datetime(2026, 11, 11, 12, tzinfo=timezone.utc))
+    conn.close()
+    got = [(str(x["week"]), x["top"], x["signals"]) for x in w["weeks"]]
+    check(got == [("2026-10-19", 0, 1), ("2026-10-26", 1, 0), ("2026-11-02", 1, 1), ("2026-11-09", 1, 1)],
+          f"each week's Top prospects and signals at 40 or more, exactly ({got})")
+    check(w["this"] == w["weeks"][-1] and w["last"]["top"] == 1 and not w["first_week"],
+          "this week and last week are the last two weeks")
+
+
 # ================================================================ 5. the page
 
 def page_checks(tmp: Path) -> None:
@@ -691,17 +890,19 @@ def state_checks(tmp: Path) -> None:
     m = model_of(db)
     html = page_of(db)
     words = {l["name"]: l["word"] for l in m["lights"]}
-    check(words["signals"] == "Stale" and words["check"] == "Dry run" and words["push"] == "Dry run",
+    check(words == {"inbox": "Quiet", "signals": "Stale", "check": "Late", "digest": "Dry run",
+                    "push": "Stale"},
           f"a Radar fault: the strip names each job's state in a word ({words})")
     radar = [i for i in m["todo"] if i["group"] == "radar"]
     check([i["id"] for i in radar] == ["radar-signals", "radar-check", "radar-push"]
           and m["selected"]["id"] == "radar-signals",
-          "the faults head the list, the first selected")
+          "the faults head the list, the first selected; the quiet inbox and the digest in dry run are not there")
     check("Signal watcher is stale, 22 hours since its last run" in html
           and "3 of 5 jobs need a look" in html and "Stale after 6 hours" in html,
           "the stale watcher is named with its age and its limit")
-    check("the signal watcher is stale, the advert checker is in dry run and the phone push is in dry run"
-          in hp.status_sentence(m), "and the sentence names the faults after the four counts")
+    check(hp.status_sentence(m).endswith(
+          "the signal watcher is stale, the advert checker is late and the phone push is stale."),
+          f"and the sentence names the faults after the four counts ({hp.status_sentence(m)})")
     check("Check now" in html and "Signals as of" in html,
           "the watcher's item offers Check now, and the trend says how old its signals are")
     check('<table class="table">' in html and "<caption" in html,
@@ -802,6 +1003,23 @@ def script_checks(tmp: Path) -> None:
     check("test/run_home_test.py" in run_all, "run_all.sh runs this file")
 
 
+def harness_checks(tmp: Path) -> None:
+    """Home's own script, driven in node by test/home_script_harness.js."""
+    node = shutil.which("node")
+    if not node:
+        print("NOTE  node is not installed, the script harness is skipped")
+        return
+    path = tmp / "home_script.js"
+    path.write_text(hp.HOME_SCRIPT, encoding="utf-8")
+    out = subprocess.run([node, str(TEST_DIR / "home_script_harness.js"), str(path)],
+                         capture_output=True, text=True, timeout=120)
+    lines = [ln for ln in out.stdout.splitlines() if ln.startswith(("PASS", "FAIL"))]
+    for ln in lines:
+        check(ln.startswith("PASS"), "the Home script: " + ln[6:])
+    check(out.returncode == 0 and len(lines) >= 15,
+          f"the Home script runs its keys, Done, Undo and the toast in node ({out.stderr.strip()[:200]})")
+
+
 # ================================================================ 9. the box checks
 
 def box_doc_checks(tmp: Path) -> None:
@@ -813,8 +1031,9 @@ def box_doc_checks(tmp: Path) -> None:
         check(name in doc, f"the box checks have {name[3:]}")
     rollback = doc[doc.index("## Rollback"):]
     check("backup" in rollback and "restore" not in rollback.replace("is not restored", "")
-          and 'reset --hard "$(cat .git/rollback-home-final)"' in rollback,
-          "the rollback goes back to the saved commit and never restores the backup")
+          and 'reset --hard "$(cat .git/rollback-home-final)"' in rollback
+          and "docker restart medtech-radar" in rollback,
+          "the rollback goes back to the saved commit, restarts the dashboard and never restores the backup")
     check("first_name:" in doc and "preferences.md" in doc, "the box checks say how to add the first name")
     gits = re.findall(r"(?:^|[;&|{(] *)(git) ", "\n".join(blocks), re.M)
     check(not gits, "every git in the blocks runs as radar")
@@ -832,6 +1051,8 @@ def box_doc_checks(tmp: Path) -> None:
         except sqlite3.Error as err:
             bad.append(f"{q[:60]}: {err}")
     conn.close()
+    check("That item is no longer on Home" in doc and "?item=" in doc,
+          "AFTER looks for the item's row, or the line that says it is gone, at an item's address")
     check(len(queries) >= 6 and not bad,
           f"every query in the box checks runs on a seeded database ({len(queries)}; bad: {bad})")
     snippets = re.findall(r'python -c "(.*?)"(?:;| &&| \)|$|\s*\|)', doc, re.M)
@@ -843,6 +1064,8 @@ def box_doc_checks(tmp: Path) -> None:
             broken.append(f"{code[:50]}: {err}")
     check(len(snippets) >= 2 and not broken,
           f"every python -c in them compiles ({len(snippets)}; broken: {broken})")
+    shell = [c[:40] for c in snippets if "$" in c or "`" in c]
+    check(not shell, f"no python -c carries a $ or a backtick the shell would expand ({shell})")
     look = [c for c in snippets if "home_page as hp" in c]
     ran = []
     for code in look:
@@ -870,8 +1093,9 @@ def main() -> int:
         return 0
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         tmp_path = Path(tmp)
-        for section in (name_checks, light_checks, model_checks, done_checks, page_checks,
-                        state_checks, route_checks, script_checks, box_doc_checks):
+        for section in (name_checks, light_checks, model_checks, done_checks, episode_checks,
+                        review_checks, greeting_page_checks, week_exact_checks, page_checks,
+                        state_checks, route_checks, script_checks, harness_checks, box_doc_checks):
             try:
                 section(tmp_path)
             except Exception as err:  # noqa: BLE001  one section stopping is a failure

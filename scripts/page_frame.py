@@ -157,8 +157,10 @@ ICON_BAD = ('<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" 
             'stroke="currentColor" stroke-width="1.8"/></svg>')
 
 # The inbox verdict in the bar's words. The states are job_health's.
+# The inbox's late is quiet: alert mail arrives unevenly, so a gap under a day
+# is normal (Home's light says Quiet, with no warning).
 INBOX_WORDS = {"ok": "on schedule", "partial": "ran, with failures",
-               "late": "running late", "failing": "failing",
+               "late": "quiet", "failing": "failing",
                "stale": "stalled", "never": "never run"}
 
 
@@ -190,7 +192,7 @@ def inbox_status_html(jobs: dict | None) -> str:
     state = verdict.get("state") or "never"
     words = INBOX_WORDS.get(state, state)
     cls, icon = "", ""
-    if state in ("late", "partial", "failing"):
+    if state in ("partial", "failing"):
         cls, icon = " is-warn", ICON_WARN
     elif state in ("stale", "never"):
         cls, icon = " is-bad", ICON_BAD

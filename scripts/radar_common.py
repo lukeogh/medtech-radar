@@ -1688,7 +1688,9 @@ def update_pref_line(key: str, value: str,
     if key not in PREF_EDITABLE:
         raise ValueError(f"{key} is not a dashboard-editable line.")
     value = " ".join(str(value or "").split())[:200]
-    if not value:
+    # The first name may be cleared: the line stays, empty, and Home greets
+    # without a name. Every other line is a setting the scorer needs.
+    if not value and key != "first_name":
         raise ValueError("An empty value would delete the line. Type "
                          "something, or edit the file by hand to remove it.")
     if PREF_EDITABLE[key] == "number":
@@ -1704,7 +1706,7 @@ def update_pref_line(key: str, value: str,
     if not path.exists():
         raise ValueError(f"No preferences file at {path} to edit.")
     text = path.read_text(encoding="utf-8")
-    line = f"{key}: {value}"
+    line = f"{key}: {value}" if value else f"{key}:"
     pattern = re.compile(rf"^{re.escape(key)}:.*$",
                          re.IGNORECASE | re.MULTILINE)
     if pattern.search(text):
