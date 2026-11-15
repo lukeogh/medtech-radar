@@ -736,7 +736,9 @@ OTHER_WRITERS = {
     ("scripts/radar_common.py", "mark_read"),        # read_at, the Jobs page's New
     ("scripts/radar_common.py", "recompute_regions"),
     ("scripts/serve_dashboard.py", "set_acknowledged"),
-    ("scripts/serve_dashboard.py", "set_applied"),    # applied_at, applied_cv
+    # applied_at, applied_cv: Mark applied, its Undo and the board's moves
+    ("scripts/applications.py", "stamp_applied"),
+    ("scripts/applications.py", "clear_applied"),
     ("scripts/serve_dashboard.py", "set_lifecycle"),
     ("scripts/touch.py", "cmd_mark.flip_opportunity"),
 }
