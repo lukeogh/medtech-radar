@@ -134,7 +134,10 @@ def build_model(conn, config: dict | None = None, now: str | None = None) -> dic
     events: dict = {}
     for r in rows:
         events.setdefault(r.get("event_key") or f"e{r['id']}", []).append(r)
-    stories = [_story(reps, names, companies) for reps in events.values()]
+    # Hiring is the Jobs page's, so a story led by a hiring report is not shown
+    # anywhere on Insights: not in a list, not in the hidden fold, not as a page.
+    stories = [s for s in (_story(reps, names, companies) for reps in events.values())
+               if s["type"] not in radar_common.HIRING_TYPES]
     for s in stories:
         s["this_week"] = s["found"] >= week_from or any(
             (r["first_seen"] or "") >= week_from for r in s["reports"])
@@ -639,7 +642,8 @@ def foot_html(model: dict) -> str:
         extra = (f'<p>{model["unscored"]} {"item is" if model["unscored"] == 1 else "items are"} waiting for a score '
                  f'and not shown; scripts/rescore.py clears them.</p>')
     return ('<footer class="page-foot"><p>Times are shown in your own time zone. A story is one event; when several '
-            'sources report it, the highest-scoring report leads and every report is on the story page.</p><p>'
+            'sources report it, the highest-scoring report leads and every report is on the story page. Hiring '
+            'is not news here: job adverts and first hires are on <a href="/jobs">Jobs</a>.</p><p>'
             'Headlines, summaries and the lines on why a story matters are written by the scoring model from the '
             f'sources. Check the source before you act on one.</p>{extra}</footer>')
 

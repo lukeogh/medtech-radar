@@ -16,6 +16,10 @@ What the change touches on the box:
   design/insights/news), with /insights/story/<id>, /insights/section/<key>,
   and six new guarded POST routes: /story/hide, /story/show, /story/split,
   /watchlist/add, /watchlist/remove and /touch/log. /archive is unchanged.
+  Hiring is not news: a story led by a buying window or a first hire (the
+  tripwire's rows) appears nowhere on Insights, in no list, fold or page.
+  Those roles are on Jobs, and the page's foot says so. The sections are
+  Funding, Spin-offs and accelerators, and Regulation and market news.
 - Four new nullable columns, added on first open: `signals.story_type`,
   `signals.card_summary`, `signals.event_key` and `companies.watched_at`.
   Nothing is stamped by the migration.
@@ -61,6 +65,11 @@ counts for AFTER.
 
 ## The deploy, one block at a time
 
+If steps 2 to 6 already ran for 053cf7b (they did on 15 Nov), the change that
+takes hiring off Insights needs only steps 3, 4, 7 and 8: fetch and see the
+one new commit, pull, then the backfill and the restart. Steps 5 and 6 are
+safe to repeat; a second dry run gives no new keys.
+
 1. Run BEFORE.
 
 2. Back up first.
@@ -89,8 +98,9 @@ counts for AFTER.
    cd /opt/biz-admin/medtech-radar && { pgrep -af 'process_email|check_jobs|check_signals|build_digest|rescore|regate|backfill' && echo 'wait, something is running, the database was not opened' || sudo -u radar /opt/biz-admin/radar-venv/bin/python -c "import sys; sys.path.insert(0, 'scripts'); import radar_common; radar_common.get_db().close(); print('opened')"; }
    ```
 
-6. Group the stories already on file, free, and see how many the paid pass
-   would read. Nothing is sent to the model.
+6. Group the stories already on file and see how many the paid pass would
+   read. Nothing is sent to the model, but this does write: every signal gets
+   its story key, and the inbox's hiring rows get their type.
 
    ```bash
    cd /opt/biz-admin/medtech-radar && sudo -u radar /opt/biz-admin/radar-venv/bin/python scripts/backfill_stories.py
@@ -99,12 +109,31 @@ counts for AFTER.
    It prints how many signals make how many stories and how many rows were
    given a key (a second run gives none), how many hiring signals were typed
    in code, and "Dry run: N signals from the last 90 days have no
-   type". N times about one cent is the cost of step 7.
+   type". N times about one cent is the cost of step 7 (215 on 15 Nov, about
+   $1.50 to $3).
 
 7. Your call: type and summarise the last 90 days. Without it, those stories
    all file under Regulation and market news until they age out, and their
    cards show the longer why-it-matters line. New stories are typed as they
    arrive either way.
+
+   First check the venv can make a scoring call. `radar_common.claude_call`
+   sends `temperature`, which anthropic 1.0.0 and later refuse, so the repo
+   pins 0.120.x; on 10 Nov this venv had 2.5.0, and with it every call in
+   this step fails. Expect `0.120.` something:
+
+   ```bash
+   sudo -u radar /opt/biz-admin/radar-venv/bin/python -c "import anthropic; print(anthropic.__version__)"
+   ```
+
+   If it prints anything else, put the pin into the venv and check again:
+
+   ```bash
+   sudo -u radar /opt/biz-admin/radar-venv/bin/pip install 'anthropic>=0.120.2,<0.121' && sudo -u radar /opt/biz-admin/radar-venv/bin/python -c "import anthropic; print(anthropic.__version__)"
+   ```
+
+   Start it when nothing is running and not just before an inbox or watcher
+   run; 215 calls take a while.
 
    ```bash
    cd /opt/biz-admin/medtech-radar && sudo -u radar /opt/biz-admin/radar-venv/bin/python scripts/backfill_stories.py --live
