@@ -555,6 +555,31 @@ Shared by all three: the story card (company and source line, serif headline, tw
 
 The notes frame, [insights_news_notes_1280_v1.png](insights/news/insights_news_notes_1280_v1.png) (1280x3971, with [HTML](insights/news/insights_news_notes_1280_v1.html)), holds each variation's rationale and trade-offs, keyboard behaviour, a contrast table and twelve open questions. The ones that block a build: nothing stores a story type today, so the sections need the scorer to return one; one story per event (grouping several reports) is new; no source or score band covers regulation; the Watchlist page does not exist yet; and removing I did it leaves the contact log and the 75-and-over drafts without a home.
 
+**Decisions for building B, 15 Nov.** The open questions in the notes frame, settled:
+
+1. Story type: the scorer returns one of eight types with each score (buying window, first hire, funding round,
+   spin-off launch, accelerator entry, regulation, market news, other news), mapped onto the four sections. Recent
+   stories are rescored once to fill it.
+2. Grouping: reports are grouped automatically into one story when they share a company, fall within seven days
+   and have similar headlines. The highest-scoring report leads, and a "Not the same story" link on the story
+   page splits a wrong grouping.
+3. Watchlist: Insights B is built first. Add to Watchlist saves the company straight away; until the Watchlist page
+   exists, "On your Watchlist" links to the existing company page. The Watchlist page is the next piece of work.
+4. Contact log and drafts: the story page holds the comment and connection-note drafts (with Copy) and a "Log a
+   contact" control; both move to the Watchlist record when that page is built.
+5. Week: a rolling seven days, as "fresh" works today.
+6. Hidden stories: a closed "Hidden this week (N)" fold at the foot, each with Show again.
+7. Card summary: the scorer also writes a one-sentence summary of about 90 characters for cards; the full
+   why-it-matters line stays on the story page. It comes with the story-type change.
+8. Regulation and market news: the section stays. Regulator and standards sources are added, with a score band
+   for rule changes that affect device software; until they land the section reads "Nothing this week".
+9. Serif: IBM Plex Serif is served from the dashboard itself, with Georgia as the fallback, and recorded as an
+   approved exception for Insights headlines in the design system.
+
+Two smaller points taken without a question: the scorer writes the buying-window headline along with the type and
+summary (the frames build it from the role title), and dates stay as the day a story was found ("Found 12 Nov"),
+since the publication date is not stored.
+
 #### insights/news/a
 
 A, Front page (not taken): boxed story cards; the lead with four smaller beside it in a two-by-two; each section's cards with its earlier weeks beside them; Most relevant in a rail beside the sections. At 2560 the lead and all four sit in one row and each section grid holds four cards.
