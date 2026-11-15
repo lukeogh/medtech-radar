@@ -55,7 +55,7 @@ undone. `home_round-2_states_v1` holds the quiet day, the first week, no applica
 The welcome reads "Good morning, Alex", the mockups' fictional identity; the live page would use the owner's
 first name. These frames had one review pass (two reviewers) and its findings were fixed.
 
-**Update, 15 Nov.** A second study for Insights, as a news front page for a weekly read: three variations (A Front page, B Broadsheet, C Edition), each drawn at 2560, 1280 and phone, with a story page and a states board (a quiet week, a busy week, the watcher failing), plus a shared notes frame with rationale, trade-offs and open questions. They are hand-drawn HTML in the dark frame built on `claude/jobs-redesign`, not Superdesign drafts, and sit under [insights/news](#insightsnews). No winner is picked.
+**Update, 15 Nov.** A second study for Insights, as a news front page for a weekly read: three variations (A Front page, B Broadsheet, C Edition), each drawn at 2560, 1280 and phone, with a story page and a states board (a quiet week, a busy week, the watcher failing), plus a shared notes frame with rationale, trade-offs and open questions. They are hand-drawn HTML in the dark frame built on `claude/jobs-redesign`, not Superdesign drafts, and sit under [insights/news](#insightsnews). **B, Broadsheet, is the pick** (15 Nov); A and C stay beside it as the options not taken.
 
 **Counts.** 148 frames exported (444 files), the 25 in insights/news among them. 4 older versions could
 not be exported; they are listed under jobs with the reason. All sample data is fictional. Round one's
@@ -549,7 +549,7 @@ C, Signals table: one table, viewed by signal or by company.
 
 ### insights/news
 
-Round 1, 15 Nov: Insights as a news front page for a weekly read, in the style of a news site's homepage, dark only, in the frame built on `claude/jobs-redesign` (`scripts/page_frame.py`). Three variations of one news model, all **reviewed** (one review pass: brief and wording, accessibility and keyboard, layout at each width; its findings were fixed, or kept and named as trade-offs in the notes). Hand-drawn HTML, not Superdesign drafts, so there are no canvas links. No winner is picked.
+Round 1, 15 Nov: Insights as a news front page for a weekly read, in the style of a news site's homepage, dark only, in the frame built on `claude/jobs-redesign` (`scripts/page_frame.py`). Three variations of one news model, all **reviewed** (one review pass: brief and wording, accessibility and keyboard, layout at each width; its findings were fixed, or kept and named as trade-offs in the notes). Hand-drawn HTML, not Superdesign drafts, so there are no canvas links. **Picked: B, Broadsheet** (15 Nov). A and C are kept as the options not taken. The open questions in the notes still stand for B, and the sections need a story type from the scorer before B can be built.
 
 Shared by all three: the story card (company and source line, serif headline, two-line why it matters, relevance and the date found, Read the announcement, then Add to Watchlist, which becomes On your Watchlist, and Hide; no suggestions, no I did it); Top stories as a lead and four smaller, scrolling sideways on a phone with a count and arrows; four sections (Hiring and buying windows, Funding, Spin-offs and accelerators, Regulation and market news); Most relevant this week, 1 to 10; everything under 40 folded under More stories; and a story page with the summary, why it matters, every source, the company's facts, its Watchlist record and its roles on Jobs.
 
@@ -557,7 +557,7 @@ The notes frame, [insights_news_notes_1280_v1.png](insights/news/insights_news_n
 
 #### insights/news/a
 
-A, Front page: boxed story cards; the lead with four smaller beside it; sections as card grids; Most relevant in a rail beside the sections. At 2560 the lead and all four sit in one row and each section grid holds five cards.
+A, Front page (not taken): boxed story cards; the lead with four smaller beside it in a two-by-two; each section's cards with its earlier weeks beside them; Most relevant in a rail beside the sections. At 2560 the lead and all four sit in one row and each section grid holds four cards.
 
 | Frame | Size | Files |
 |---|---|---|
@@ -572,7 +572,7 @@ A, Front page: boxed story cards; the lead with four smaller beside it; sections
 
 #### insights/news/b
 
-B, Broadsheet: no boxes, column rules and a serif page title; the lead, a column of four and Most relevant in one band; the four sections as columns side by side, all four at 2560.
+B, Broadsheet (**picked**): no boxes, column rules and a serif page title; the lead with four smaller in a two-by-two beside it. At 1280 the sections run in two balanced columns with Most relevant beside them; at 2560 Most relevant sits beside Top stories in two columns of five and the four sections stand side by side.
 
 | Frame | Size | Files |
 |---|---|---|
@@ -587,7 +587,7 @@ B, Broadsheet: no boxes, column rules and a serif page title; the lead, a column
 
 #### insights/news/c
 
-C, Edition: a section bar with counts that stays at the top; Top stories as one row; each section one row of cards with the rest as headline links; Most relevant in a rail down the page. At 2560 each section's name stands in a column to the left of its row.
+C, Edition (not taken): a section bar with counts that stays at the top; Top stories as one row (the lead and three at 1280, four at 2560); each section one row of cards, filled with earlier weeks when thin, with the rest as headline links; Most relevant in a rail beside the sections. At 2560 each section's name stands in a column to the left of its row.
 
 | Frame | Size | Files |
 |---|---|---|
