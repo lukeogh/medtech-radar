@@ -368,6 +368,10 @@ def route_checks(tmp: Path) -> None:
         check(call(port, "GET", "/static/fonts/../../db/radar.sqlite")[0] == 404
               and call(port, "GET", "/static/fonts/other.woff2")[0] == 404,
               "the font route serves only the three named files")
+        fonts = [call(port, "GET", f"/static/fonts/{name}") for name in insights_page.FONT_FILES]
+        check(all(st == 200 and body[:4] == b"wOF2" for st, body in fonts)
+              and call(port, "GET", "/static/fonts/OFL.txt")[0] == 404,
+              "the three IBM Plex Serif files are in the repo and served as woff2, the licence beside them is not")
         st, _ = call(port, "POST", "/story/hide", {"id": ids[0]}, header=False)
         check(st == 403, "a write without the header is refused by the guard")
         check(call(port, "POST", "/story/hide", {"id": True})[0] == 400, "an id that is not an integer is refused")
