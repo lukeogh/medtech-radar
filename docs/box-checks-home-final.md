@@ -8,8 +8,9 @@ What the change touches on the box:
 
 - The dashboard's Home, at `/`, is rebuilt from design/home/final: the
   welcome (the date, the greeting, one sentence, four figures), Radar's five
-  jobs as lights (On time, Late, Stale, Off or Dry run, each with its own
-  mark), the Applications, Open roles and Week by week tiles, and Needs you
+  jobs as lights (On time, Late, Stale, Off, Dry run and, for the inbox alone,
+  Quiet, each word with its own mark), the Applications, Open roles and Week
+  by week tiles, and Needs you
   today with the selected item beside the list (under its row on a phone).
   Every item has its own address, `/?item=<id>`; the items taken off Home are
   at `/?show=done`; `/?part=main` is a read only fragment for the page's
@@ -32,14 +33,17 @@ No migration of data, no n8n workflow, no scheduled job, no write-guard
 setting and no radar.yaml change.
 
 **What Home will show on the first day.** The digest and the signal watcher
-run in dry run on the box, so their lights say Dry run (the phone push's too,
-since it rides on the watcher), and each is an item under Radar in Needs you
-today until you press Done on it; it comes back if its state changes. The
-status sentence names them after the four counts. Step 6 prints what the page
-will list before you restart.
+run in dry run on the box. The Monday digest's light and the phone push's say
+Dry run, and nothing more: dry run is how the box is set up, not a fault, so
+neither is an item in Needs you today or a part of the sentence. The signal
+watcher and the advert checker in dry run still read and store, so their
+lights say their own state. The inbox says Quiet when no alert email has come
+for a while but less than a day, also not a fault. Only Late, Stale and Off
+are items under Radar; Done on one holds until that fault ends, and the next
+fault is a new item. Step 6 prints what the page will list before you restart.
 
-Don't press Done on Home between step 4 and step 8: the old dashboard is still
-serving and has no such button, and its Home is the old page.
+Until the restart in step 8, Home is the old page: the old dashboard is still
+serving, so there is no Done to press, and `/radar` is a 404.
 
 ## BEFORE
 
@@ -108,8 +112,8 @@ Done on.
 
    Expect the greeting (without a name until step 7), the sentence, five
    lights, the group counts and up to four weeks of Top prospects and
-   signals. Dry run on the digest, the watcher and the phone push is the box
-   as it is, not a fault of this change.
+   signals. Dry run on the digest and the phone push, and Quiet on the
+   inbox, are in the lights and not in the groups.
 
 7. The first name for the welcome. Open the preferences file and add one line
    at the end, your first name after `first_name:`, for example
@@ -149,13 +153,14 @@ echo '--- what was pressed Done, newest first'; Q "SELECT item_key, done_at, tit
 echo '--- the row counts, the same as BEFORE (Done writes no other table)'; Q "SELECT (SELECT COUNT(*) FROM opportunities) AS roles, (SELECT COUNT(*) FROM signals) AS signals, (SELECT COUNT(*) FROM applications) AS applications, (SELECT COUNT(*) FROM touches) AS touches;"
 echo '--- the first_name line'; grep -n '^first_name:' config/profile/preferences.md || echo 'no first_name line, Home greets without a name'
 echo '--- /health, the same verdict as BEFORE'; curl -s -m 15 -w '\n%{http_code}\n' $B/health
-echo '--- Home, one item, Done and the fragment (expect 200 1, 200, 200, 200)'; curl -s -m 15 -o /dev/null -w '%{http_code}\n' $B/; curl -s -m 15 $B/ | grep -c 'id="welcome-h"'; curl -s -m 15 -o /dev/null -w '%{http_code}\n' "$B/?show=done"; curl -s -m 15 -o /dev/null -w '%{http_code}\n' "$B/?item=radar-signals"; curl -s -m 15 -o /dev/null -w '%{http_code}\n' "$B/?part=main"
+echo '--- Home, Done and the fragment (expect 200 1, 200, 200)'; curl -s -m 15 -o /dev/null -w '%{http_code}\n' $B/; curl -s -m 15 $B/ | grep -c 'id="welcome-h"'; curl -s -m 15 -o /dev/null -w '%{http_code}\n' "$B/?show=done"; curl -s -m 15 -o /dev/null -w '%{http_code}\n' "$B/?part=main"
+echo '--- an item address: its row selected, or the line that says it is gone (expect 1)'; curl -s -m 15 "$B/?item=radar-signals" | grep -c -E 'id="row-radar-signals"[^>]*aria-current="true"|That item is no longer on Home'
 echo '--- Radar health and Settings (expect 200 1, 200 1)'; curl -s -m 15 -o /dev/null -w '%{http_code}\n' $B/radar; curl -s -m 15 $B/radar | grep -c 'Board freshness'; curl -s -m 15 -o /dev/null -w '%{http_code}\n' $B/cv; curl -s -m 15 $B/cv | grep -c 'id="pref-first_name"'
 echo '--- the guard is in front of the new routes (enforce: 403; warn: 400, nothing written)'; curl -s -m 15 -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' -d '{"key": "not a key"}' $B/home/done
 ```
 
 Expect `1` and as many rows as you pressed Done on; the same row counts as
-BEFORE; your `first_name` line; `200 1`, `200`, `200`, `200`; `200 1`,
+BEFORE; your `first_name` line; `200 1`, `200`, `200`; `1`; `200 1`,
 `200 1`; and `403` (enforce) or `400` (warn).
 
 ## Rollback
