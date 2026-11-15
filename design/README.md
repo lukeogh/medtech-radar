@@ -55,15 +55,22 @@ undone. `home_round-2_states_v1` holds the quiet day, the first week, no applica
 The welcome reads "Good morning, Alex", the mockups' fictional identity; the live page would use the owner's
 first name. These frames had one review pass (two reviewers) and its findings were fixed.
 
+**Update, 15 Nov: Home final and the board's v2.** Variation C was picked. `home/final/` holds the finished
+Home at 2560, 1280 and phone and its states board: a fifth large figure counts application follow-ups due
+today, so the five figures match the sentence; no map; the funnel counts each tier on its own; follow-ups due
+today stay in Needs you today. `jobs/applied-board/` gains v2: no dragging (the Move to menu and the keys
+only), the 21-day rule closes without asking (it warns from day 14 and can be undone), and the Jobs header's
+Applied count covers Preparing to Offer, not Closed. One review pass, findings fixed.
+
 **Update, 15 Nov.** A second study for Insights, as a news front page for a weekly read: three variations (A Front page, B Broadsheet, C Edition), each drawn at 2560, 1280 and phone, with a story page and a states board (a quiet week, a busy week, the watcher failing), plus a shared notes frame with rationale, trade-offs and open questions. They are hand-drawn HTML in the dark frame built on `claude/jobs-redesign`, not Superdesign drafts, and sit under [insights/news](#insightsnews). **B, Broadsheet, is the pick** (15 Nov); A and C stay beside it as the options not taken.
 
-**Counts.** 148 frames exported (444 files), the 25 in insights/news among them. 4 older versions could
+**Counts.** 154 frames exported (462 files), the 25 in insights/news among them. 4 older versions could
 not be exported; they are listed under jobs with the reason. All sample data is fictional. Round one's
 direction notes address the owner by first name.
 
 ## jobs
 
-Jobs: 6 variations, 108 files.
+Jobs: 6 variations, 114 files.
 
 4 older versions are listed as not exported. Superdesign serves only a draft's current
 version, so an older one can be exported only from the file it was imported from. These were small import
@@ -175,16 +182,22 @@ Round 2, the chosen direction: A's triage queue with B's row content, dark first
 
 ### jobs/applied-board
 
-The applications board: the Applied view laid out as a Board, six columns from Preparing to Closed, drawn at 2560 and on a phone. Reviewed, waiting for sign-off.
+The applications board: the Applied view laid out as a Board, six columns from Preparing to Closed, drawn at 2560 and on a phone. v2 (15 Nov, final) has no dragging (the Move to menu and keys only), the 21-day rule closing without asking (warned from day 14, undoable), and the Applied count covering Preparing to Offer (10), not Closed. v1 sits beside it.
 
 | File | Version | Current | Status | Canvas |
 |---|---|---|---|---|
-| [jobs_applied-board_2560_v1.png](jobs/applied-board/jobs_applied-board_2560_v1.png) | v1 | current | reviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-0b903011-c778-43f7-872b-05a3af7bd47c) · [preview](https://p.superdesign.dev/draft/0b903011-c778-43f7-872b-05a3af7bd47c) |
-| [jobs_applied-board_2560_v1.html](jobs/applied-board/jobs_applied-board_2560_v1.html) | v1 | current | reviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-0b903011-c778-43f7-872b-05a3af7bd47c) · [preview](https://p.superdesign.dev/draft/0b903011-c778-43f7-872b-05a3af7bd47c) |
-| [jobs_applied-board_2560_v1.css](jobs/applied-board/jobs_applied-board_2560_v1.css) | v1 | current | reviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-0b903011-c778-43f7-872b-05a3af7bd47c) · [preview](https://p.superdesign.dev/draft/0b903011-c778-43f7-872b-05a3af7bd47c) |
-| [jobs_applied-board_phone_v1.png](jobs/applied-board/jobs_applied-board_phone_v1.png) | v1 | current | reviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-5eacec63-ea28-48cb-8d1c-ae53b8f362be) · [preview](https://p.superdesign.dev/draft/5eacec63-ea28-48cb-8d1c-ae53b8f362be) |
-| [jobs_applied-board_phone_v1.html](jobs/applied-board/jobs_applied-board_phone_v1.html) | v1 | current | reviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-5eacec63-ea28-48cb-8d1c-ae53b8f362be) · [preview](https://p.superdesign.dev/draft/5eacec63-ea28-48cb-8d1c-ae53b8f362be) |
-| [jobs_applied-board_phone_v1.css](jobs/applied-board/jobs_applied-board_phone_v1.css) | v1 | current | reviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-5eacec63-ea28-48cb-8d1c-ae53b8f362be) · [preview](https://p.superdesign.dev/draft/5eacec63-ea28-48cb-8d1c-ae53b8f362be) |
+| [jobs_applied-board_2560_v2.png](jobs/applied-board/jobs_applied-board_2560_v2.png) | v2 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-fc36414f-ecad-4ab1-acdc-ad8b3962f0e0) · [preview](https://p.superdesign.dev/draft/fc36414f-ecad-4ab1-acdc-ad8b3962f0e0) |
+| [jobs_applied-board_2560_v2.html](jobs/applied-board/jobs_applied-board_2560_v2.html) | v2 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-fc36414f-ecad-4ab1-acdc-ad8b3962f0e0) · [preview](https://p.superdesign.dev/draft/fc36414f-ecad-4ab1-acdc-ad8b3962f0e0) |
+| [jobs_applied-board_2560_v2.css](jobs/applied-board/jobs_applied-board_2560_v2.css) | v2 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-fc36414f-ecad-4ab1-acdc-ad8b3962f0e0) · [preview](https://p.superdesign.dev/draft/fc36414f-ecad-4ab1-acdc-ad8b3962f0e0) |
+| [jobs_applied-board_2560_v1.png](jobs/applied-board/jobs_applied-board_2560_v1.png) | v1 | older | reviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-0b903011-c778-43f7-872b-05a3af7bd47c) · [preview](https://p.superdesign.dev/draft/0b903011-c778-43f7-872b-05a3af7bd47c) |
+| [jobs_applied-board_2560_v1.html](jobs/applied-board/jobs_applied-board_2560_v1.html) | v1 | older | reviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-0b903011-c778-43f7-872b-05a3af7bd47c) · [preview](https://p.superdesign.dev/draft/0b903011-c778-43f7-872b-05a3af7bd47c) |
+| [jobs_applied-board_2560_v1.css](jobs/applied-board/jobs_applied-board_2560_v1.css) | v1 | older | reviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-0b903011-c778-43f7-872b-05a3af7bd47c) · [preview](https://p.superdesign.dev/draft/0b903011-c778-43f7-872b-05a3af7bd47c) |
+| [jobs_applied-board_phone_v2.png](jobs/applied-board/jobs_applied-board_phone_v2.png) | v2 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-41e429eb-5b88-4ccb-908b-0114740c8404) · [preview](https://p.superdesign.dev/draft/41e429eb-5b88-4ccb-908b-0114740c8404) |
+| [jobs_applied-board_phone_v2.html](jobs/applied-board/jobs_applied-board_phone_v2.html) | v2 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-41e429eb-5b88-4ccb-908b-0114740c8404) · [preview](https://p.superdesign.dev/draft/41e429eb-5b88-4ccb-908b-0114740c8404) |
+| [jobs_applied-board_phone_v2.css](jobs/applied-board/jobs_applied-board_phone_v2.css) | v2 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-41e429eb-5b88-4ccb-908b-0114740c8404) · [preview](https://p.superdesign.dev/draft/41e429eb-5b88-4ccb-908b-0114740c8404) |
+| [jobs_applied-board_phone_v1.png](jobs/applied-board/jobs_applied-board_phone_v1.png) | v1 | older | reviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-5eacec63-ea28-48cb-8d1c-ae53b8f362be) · [preview](https://p.superdesign.dev/draft/5eacec63-ea28-48cb-8d1c-ae53b8f362be) |
+| [jobs_applied-board_phone_v1.html](jobs/applied-board/jobs_applied-board_phone_v1.html) | v1 | older | reviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-5eacec63-ea28-48cb-8d1c-ae53b8f362be) · [preview](https://p.superdesign.dev/draft/5eacec63-ea28-48cb-8d1c-ae53b8f362be) |
+| [jobs_applied-board_phone_v1.css](jobs/applied-board/jobs_applied-board_phone_v1.css) | v1 | older | reviewed | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-5eacec63-ea28-48cb-8d1c-ae53b8f362be) · [preview](https://p.superdesign.dev/draft/5eacec63-ea28-48cb-8d1c-ae53b8f362be) |
 
 ### jobs/round-1-before
 
@@ -382,7 +395,29 @@ C, Margin notes: one page column, with tabs for history, preferences and the Wor
 
 ## home
 
-Home: 4 variations, 69 files.
+Home: 5 variations, 81 files.
+
+### home/final
+
+The final Home: round-2 variation C, welcome hero and bento, with a fifth large figure for application follow-ups due today, at 2560, 1280 and phone, plus its states board. Final.
+
+| File | Version | Current | Status | Canvas |
+|---|---|---|---|---|
+| [home_final_1280_v1.png](home/final/home_final_1280_v1.png) | v1 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-634b445d-ce49-4158-9f35-a591ef9f01a7) · [preview](https://p.superdesign.dev/draft/634b445d-ce49-4158-9f35-a591ef9f01a7) |
+| [home_final_1280_v1.html](home/final/home_final_1280_v1.html) | v1 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-634b445d-ce49-4158-9f35-a591ef9f01a7) · [preview](https://p.superdesign.dev/draft/634b445d-ce49-4158-9f35-a591ef9f01a7) |
+| [home_final_1280_v1.css](home/final/home_final_1280_v1.css) | v1 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-634b445d-ce49-4158-9f35-a591ef9f01a7) · [preview](https://p.superdesign.dev/draft/634b445d-ce49-4158-9f35-a591ef9f01a7) |
+| [home_final_2560_v1.png](home/final/home_final_2560_v1.png) | v1 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-c84edd50-1e0d-49f5-ba60-35a7e0c8de81) · [preview](https://p.superdesign.dev/draft/c84edd50-1e0d-49f5-ba60-35a7e0c8de81) |
+| [home_final_2560_v1.html](home/final/home_final_2560_v1.html) | v1 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-c84edd50-1e0d-49f5-ba60-35a7e0c8de81) · [preview](https://p.superdesign.dev/draft/c84edd50-1e0d-49f5-ba60-35a7e0c8de81) |
+| [home_final_2560_v1.css](home/final/home_final_2560_v1.css) | v1 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-c84edd50-1e0d-49f5-ba60-35a7e0c8de81) · [preview](https://p.superdesign.dev/draft/c84edd50-1e0d-49f5-ba60-35a7e0c8de81) |
+| [home_final_phone_v1.png](home/final/home_final_phone_v1.png) | v1 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-f359a7f1-3b61-4d06-8b82-cd0d1e01458d) · [preview](https://p.superdesign.dev/draft/f359a7f1-3b61-4d06-8b82-cd0d1e01458d) |
+| [home_final_phone_v1.html](home/final/home_final_phone_v1.html) | v1 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-f359a7f1-3b61-4d06-8b82-cd0d1e01458d) · [preview](https://p.superdesign.dev/draft/f359a7f1-3b61-4d06-8b82-cd0d1e01458d) |
+| [home_final_phone_v1.css](home/final/home_final_phone_v1.css) | v1 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-f359a7f1-3b61-4d06-8b82-cd0d1e01458d) · [preview](https://p.superdesign.dev/draft/f359a7f1-3b61-4d06-8b82-cd0d1e01458d) |
+| [home_final_states_v1.png](home/final/home_final_states_v1.png) | v1 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-0cb11fb9-60b7-4703-bc1f-ad8fdacd0b89) · [preview](https://p.superdesign.dev/draft/0cb11fb9-60b7-4703-bc1f-ad8fdacd0b89) |
+| [home_final_states_v1.html](home/final/home_final_states_v1.html) | v1 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-0cb11fb9-60b7-4703-bc1f-ad8fdacd0b89) · [preview](https://p.superdesign.dev/draft/0cb11fb9-60b7-4703-bc1f-ad8fdacd0b89) |
+| [home_final_states_v1.css](home/final/home_final_states_v1.css) | v1 | current | final | [canvas](https://superdesign.dev/teams/2140dc78-b239-499a-ac98-8022c63d00c3/projects/0db15a19-3516-4453-a7e9-67ecc19e8823?node=draft-variant-0cb11fb9-60b7-4703-bc1f-ad8fdacd0b89) · [preview](https://p.superdesign.dev/draft/0cb11fb9-60b7-4703-bc1f-ad8fdacd0b89) |
+
+- `home_final_1280_v1`: from 1024 to 1799 the page scrolls to Needs you today; `home_final_1280-scrolled-to-list_v1.png` (a local render, not a canvas frame) shows the 900px screen scrolled there.
+- `home_final_states_v1`: four whole Home screens at 1280 (a quiet day, the first week, no applications yet, a Radar fault), then the quiet day and the fault on a phone.
 
 ### home/round-2
 
