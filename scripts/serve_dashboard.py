@@ -80,6 +80,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import radar_common
 import build_dashboard
 import jobs_page
+import insights_page
 import page_frame
 import cv_doc
 import cv_page
@@ -247,6 +248,140 @@ def render_company(company_id: int):
     finally:
         conn.close()
     return page.encode("utf-8") if page else None
+
+
+_MIGRATED = False
+FONT_DIR = REPO_ROOT / "static" / "fonts"
+
+
+def _insights_conn():
+    """A read-only connection for the Insights pages. The first view after a
+    start opens the file once for writing, which runs the migrations, so a
+    page never reads a database that lacks the story columns."""
+    global _MIGRATED
+    dbp = db_path()
+    if not _MIGRATED or not dbp.exists():
+        radar_common.get_db(dbp).close()
+        _MIGRATED = True
+    conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def render_insights(kind: str, arg=None):
+    """The Insights front page, one story or one section, as bytes, or None
+    when the story or the section does not exist."""
+    config = radar_common.load_config()
+    conn = _insights_conn()
+    try:
+        if kind == "story":
+            page = insights_page.render_story(conn, arg, config)
+        elif kind == "section":
+            page = insights_page.render_section(conn, arg, config)
+        else:
+            page = insights_page.render_front(conn, config)
+    finally:
+        conn.close()
+    return page.encode("utf-8") if page is not None else None
+
+
+def _write(fn):
+    """Run fn(conn) on a writable connection with the dashboard's manners: a
+    busy database is a note, not a crash."""
+    try:
+        conn = radar_common.get_db(db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    try:
+        return fn(conn)
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "note": f"database busy, try again. {err}"}
+    finally:
+        conn.close()
+
+
+def _event_ids(conn, signal_id: int) -> list:
+    row = conn.execute("SELECT COALESCE(event_key, 'e' || id) FROM signals WHERE id = ?",
+                       (signal_id,)).fetchone()
+    if row is None:
+        return []
+    return [r[0] for r in conn.execute(
+        "SELECT id FROM signals WHERE COALESCE(event_key, 'e' || id) = ?", (row[0],))]
+
+
+def set_story_hidden(signal_id: int, on: bool) -> dict:
+    """Hide or show one story: every report of its event, so a story never
+    comes back through a second source. Hidden is acknowledged_at, the same
+    stamp the old Dismiss set: out of sight, never out of the database."""
+    def go(conn):
+        ids = _event_ids(conn, signal_id)
+        if not ids:
+            return {"ok": False, "note": f"no story with signal {signal_id}"}
+        marks = ",".join("?" * len(ids))
+        if on:
+            cur = conn.execute(f"UPDATE signals SET acknowledged_at = ? WHERE id IN ({marks})"
+                               " AND acknowledged_at IS NULL", (radar_common.now_iso(), *ids))
+        else:
+            cur = conn.execute(f"UPDATE signals SET acknowledged_at = NULL WHERE id IN ({marks})"
+                               " AND acknowledged_at IS NOT NULL", ids)
+        conn.commit()
+        if cur.rowcount == 0:
+            word = "hidden" if on else "on the page"
+            return {"ok": False, "note": f"that story is already {word}, maybe from another tab"}
+        return {"ok": True, "id": signal_id, "reports": cur.rowcount}
+    return _write(go)
+
+
+def split_story(signal_id: int) -> dict:
+    """Not the same story: take one report out of its event for good. Its key
+    starts "solo-", which nothing ever groups again."""
+    def go(conn):
+        cur = conn.execute("UPDATE signals SET event_key = ? WHERE id = ?",
+                           (f"solo-{signal_id}", signal_id))
+        conn.commit()
+        if cur.rowcount == 0:
+            return {"ok": False, "note": f"no signal {signal_id}"}
+        return {"ok": True, "id": signal_id}
+    return _write(go)
+
+
+def set_watched(company_id: int, on: bool) -> dict:
+    """Add a company to the Watchlist, or take it off (the Undo)."""
+    def go(conn):
+        row = conn.execute("SELECT id, watched_at FROM companies WHERE id = ?",
+                           (company_id,)).fetchone()
+        if row is None:
+            return {"ok": False, "note": f"no company {company_id}"}
+        if on and row["watched_at"]:
+            return {"ok": True, "id": company_id, "already": True}
+        conn.execute("UPDATE companies SET watched_at = ? WHERE id = ?",
+                     (radar_common.now_iso() if on else None, company_id))
+        conn.commit()
+        return {"ok": True, "id": company_id}
+    return _write(go)
+
+
+LOG_CHANNELS = ("comment", "connection-note", "engagement", "artefact", "other")
+
+
+def log_contact(company_id: int, channel: str, note) -> dict:
+    """Log a contact from a story page: one touch, by a human, nothing booked."""
+    if channel not in LOG_CHANNELS:
+        return {"ok": False, "note": f"{channel!r} is not a channel the log knows"}
+    text = radar_common.sanitise_free_text(str(note or "").strip())[:500] or None
+
+    def go(conn):
+        row = conn.execute("SELECT display_name FROM companies WHERE id = ?",
+                           (company_id,)).fetchone()
+        if row is None:
+            return {"ok": False, "note": f"no company {company_id}"}
+        conn.execute("INSERT INTO touches (company, touched_at, channel, note, company_id)"
+                     " VALUES (?,?,?,?,?)",
+                     (row["display_name"], radar_common.now_iso(), channel,
+                      text or "Logged from the Insights story page.", company_id))
+        conn.commit()
+        return {"ok": True, "id": company_id}
+    return _write(go)
 
 
 def render_prepare(item_id: int, go: bool = False):
@@ -1557,7 +1692,40 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(status, body, ctype)
             return
-        if path in ("/insights", "/archive"):
+        if path == "/insights" or path.startswith("/insights/"):
+            rest = path[len("/insights"):].strip("/")
+            parts = rest.split("/") if rest else []
+            if not parts:
+                kind, arg = "front", None
+            elif len(parts) == 2 and parts[0] == "story" and parts[1].isdigit():
+                kind, arg = "story", int(parts[1])
+            elif len(parts) == 2 and parts[0] == "section":
+                kind, arg = "section", parts[1]
+            else:
+                self._send(404, b"Nothing here. Insights is at /insights.",
+                           "text/plain; charset=utf-8")
+                return
+            try:
+                body = render_insights(kind, arg)
+            except Exception as err:  # noqa: BLE001
+                self._send(500, f"Render failed. {type(err).__name__}: {err}"
+                           .encode(), "text/plain; charset=utf-8")
+                return
+            if body is None:
+                self._send(404, b"No such story or section. It may have been split or removed.",
+                           "text/plain; charset=utf-8")
+                return
+            self._send(200, body, "text/html; charset=utf-8")
+            return
+        if path.startswith("/static/fonts/"):
+            name = path[len("/static/fonts/"):]
+            target = FONT_DIR / name
+            if name in insights_page.FONT_FILES and target.is_file():
+                self._send(200, target.read_bytes(), "font/woff2")
+            else:
+                self._send(404, b"No such font here.", "text/plain; charset=utf-8")
+            return
+        if path == "/archive":
             try:
                 self._send(200, render(path.lstrip("/")),
                            "text/html; charset=utf-8")
@@ -1837,6 +2005,36 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(422, json.dumps(
                     {"ok": False, "note": str(err)}).encode(),
                     "application/json")
+            return
+        if path in ("/story/hide", "/story/show", "/story/split"):
+            body = self._read_json_body()
+            item_id = body.get("id") if isinstance(body, dict) else None
+            if (not isinstance(item_id, int) or isinstance(item_id, bool)
+                    or not -2 ** 63 <= item_id < 2 ** 63):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            if path == "/story/split":
+                result = split_story(item_id)
+            else:
+                result = set_story_hidden(item_id, path == "/story/hide")
+            self._send(200 if result["ok"] else 409,
+                       json.dumps(result).encode(), "application/json")
+            return
+        if path in ("/watchlist/add", "/watchlist/remove", "/touch/log"):
+            body = self._read_json_body()
+            cid = body.get("company_id") if isinstance(body, dict) else None
+            if (not isinstance(cid, int) or isinstance(cid, bool)
+                    or not -2 ** 63 <= cid < 2 ** 63):
+                self._send(400, b'{"ok": false, "note": "company_id must be an integer"}',
+                           "application/json")
+                return
+            if path == "/touch/log":
+                result = log_contact(cid, str(body.get("channel") or ""), body.get("note"))
+            else:
+                result = set_watched(cid, path == "/watchlist/add")
+            self._send(200 if result["ok"] else 409,
+                       json.dumps(result).encode(), "application/json")
             return
         if path in ("/sig/done", "/sig/ack", "/sig/unack"):
             body = self._read_json_body()

@@ -248,6 +248,20 @@ _MIGRATIONS = (
     # model or a pipeline. Every row on file when the column arrives is
     # stamped once, below, so the switch-on shows nothing as new.
     ("opportunities", "read_at", "TEXT"),
+    # Insights as a news page (design/insights/news, B). What kind of story a
+    # signal is, one of STORY_TYPES, and a one-sentence card summary of about
+    # 90 characters, both from the signal scorer, or set in code for the
+    # hiring signals the code writes itself. NULL on a row scored before them
+    # until scripts/backfill_stories.py fills it. event_key ties together the
+    # reports of one event (same company, within seven days, similar headline),
+    # set in code at store time by event_key_for and never by a model; a key
+    # starting "solo-" was split off by a human and is never regrouped.
+    ("signals", "story_type", "TEXT"),
+    ("signals", "card_summary", "TEXT"),
+    ("signals", "event_key", "TEXT"),
+    # The Watchlist. When a human added the company, NULL when it is not on
+    # the list. Set by Add to Watchlist on Insights and cleared by its Undo.
+    ("companies", "watched_at", "TEXT"),
 )
 
 # What the score record says about a row scored before the record existed.
@@ -914,6 +928,119 @@ def job_health(conn: sqlite3.Connection, now: str | None = None) -> dict:
         out[name] = verdict
     return out
 
+
+
+# ------------------------------------------------------------- news stories
+
+# The kinds of story the Insights page files into its four sections. The
+# signal scorer returns one of the first six; the code sets the two hiring
+# kinds on the signals it writes itself (process_email's buying window, the
+# tripwire's first hire). Anything else a model returns reads as "other".
+STORY_TYPES = ("buying-window", "first-hire", "funding", "spin-off",
+               "accelerator", "regulation", "market", "other")
+STORY_SECTIONS = (
+    ("hiring", "Hiring and buying windows", ("buying-window", "first-hire")),
+    ("funding", "Funding", ("funding",)),
+    ("spinoffs", "Spin-offs and accelerators", ("spin-off", "accelerator")),
+    ("market", "Regulation and market news", ("regulation", "market", "other")),
+)
+# How far apart two reports of one event can be found, and how alike their
+# headlines must be (the share of meaningful words they have in common).
+EVENT_WINDOW_DAYS = 7
+EVENT_SIMILARITY = 0.3
+CARD_SUMMARY_MAX = 140
+_EVENT_STOP = frozenset("""a an and the of for to in on at by with from its it is as into new
+    has have will be this that their than over after out up our we via per""".split())
+
+
+def clean_story_type(value) -> str:
+    """One of STORY_TYPES from whatever a model wrote, "other" when unsure."""
+    word = re.sub(r"[^a-z]+", "-", str(value or "").strip().lower()).strip("-")
+    aliases = {"spinoff": "spin-off", "spin-out": "spin-off", "spinout": "spin-off",
+               "funding-round": "funding", "accelerator-entry": "accelerator",
+               "market-news": "market", "regulatory": "regulation",
+               "first-hire-advert": "first-hire", "hiring": "first-hire"}
+    word = aliases.get(word, word)
+    return word if word in STORY_TYPES else "other"
+
+
+def clean_card_summary(value) -> str | None:
+    """The card's one sentence: plain, at most CARD_SUMMARY_MAX characters,
+    cut at a word and closed with a full stop. None when there is nothing."""
+    text = sanitise_free_text(str(value or "")).strip()
+    text = re.sub(r"\s+", " ", text)
+    if not text:
+        return None
+    if len(text) > CARD_SUMMARY_MAX:
+        text = text[:CARD_SUMMARY_MAX].rsplit(" ", 1)[0].rstrip(",;: ")
+    if text[-1] not in ".?":
+        text += "."
+    return text
+
+
+def clean_headline(value) -> str:
+    """A headline in the page's one style: plain, no closing full stop."""
+    text = re.sub(r"\s+", " ", sanitise_free_text(str(value or ""))).strip()
+    return text[:-1] if text.endswith(".") and not text.endswith("..") else text
+
+
+def headline_words(text) -> frozenset:
+    words = re.findall(r"[a-z0-9£€$][a-z0-9.£€$-]*", str(text or "").lower())
+    return frozenset(w.strip(".-") for w in words
+                     if w.strip(".-") and w.strip(".-") not in _EVENT_STOP)
+
+
+def headline_similarity(a, b) -> float:
+    """Words in common over words in either, 0 to 1."""
+    wa, wb = headline_words(a), headline_words(b)
+    if not wa or not wb:
+        return 0.0
+    return len(wa & wb) / len(wa | wb)
+
+
+def event_key_for(conn, signal_id: int, company_id, headline, first_seen) -> str:
+    """The event a new signal belongs to: the key of an earlier signal about
+    the same company, found within EVENT_WINDOW_DAYS of this one, whose
+    headline is at least EVENT_SIMILARITY alike, or its own new key. A
+    signal with no company, or about "Unknown company", stands alone. A key
+    a human split off ("solo-") is never joined."""
+    own = f"e{signal_id}"
+    if not company_id:
+        return own
+    name = conn.execute("SELECT norm_name FROM companies WHERE id = ?",
+                        (company_id,)).fetchone()
+    if name is None or normalise_company("Unknown company") == name[0]:
+        return own
+    try:
+        when = datetime.fromisoformat(str(first_seen).replace("Z", "+00:00"))
+    except ValueError:
+        return own
+    lo = (when - timedelta(days=EVENT_WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    hi = (when + timedelta(days=EVENT_WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    best, best_score = None, 0.0
+    for row in conn.execute(
+            "SELECT id, headline, event_key FROM signals WHERE company_id = ?"
+            " AND id <> ? AND first_seen >= ? AND first_seen <= ?"
+            " AND event_key IS NOT NULL AND event_key NOT LIKE 'solo-%'"
+            " ORDER BY first_seen, id", (company_id, signal_id, lo, hi)):
+        score = headline_similarity(headline, row[1])
+        if score >= EVENT_SIMILARITY and score > best_score:
+            best, best_score = row[2], score
+    return best or own
+
+
+def assign_event_key(conn, signal_id: int) -> str:
+    """Work out and store one signal's event key. For the writers, right
+    after the INSERT, so the row's own id is known."""
+    row = conn.execute("SELECT company_id, headline, first_seen, event_key"
+                       " FROM signals WHERE id = ?", (signal_id,)).fetchone()
+    if row is None:
+        return ""
+    if row[3] and str(row[3]).startswith("solo-"):
+        return row[3]
+    key = event_key_for(conn, signal_id, row[0], row[1], row[2])
+    conn.execute("UPDATE signals SET event_key = ? WHERE id = ?", (key, signal_id))
+    return key
 
 # -------------------------------------------------------------- score record
 

@@ -1350,7 +1350,7 @@ def signals_checks() -> None:
         sent, rows = sweep(db)
         check(done and day_one == ["qa-tripwire"]
               and [r["source_id"] for r in rows] == ["qa-tripwire"]
-              and not any(s[1].startswith("Buying window.") for s in sent),
+              and not any(process_email.BUYING_WINDOW_MARK in s[1] for s in sent),
               "a role whose first advert fired a tripwire gets no buying "
               "window for its repost either")
 
@@ -1364,7 +1364,7 @@ def signals_checks() -> None:
               "another role at the touched company still opens its buying "
               "window")
         check(len(sent) == 1 and sent[0][0] == "Radar signal. Veltrix Diagnostics"
-              and sent[0][1].startswith("Buying window.")
+              and process_email.BUYING_WINDOW_MARK in sent[0][1]
               and rows[0]["pushed"] == 1,
               "and the push sweep sends it")
         check("role already applied for" not in inbox_note(db),
@@ -2741,6 +2741,8 @@ EXCEPTIONS = {
         "role alone with a line that says so",
     ("build_dashboard.py", "render_company_page", "acknowledged_at"):
         "the company page is the history of everything on file, applied or not",
+    ("insights_page.py", "company_html", "SELECT id, title, tier, applied_at"):
+        "a story page lists the company's roles as links, and an applied one says Applied",
 }
 LIFECYCLE = ("acknowledged_at", "closed_at", "dismissed_at", "expired_at")
 WRITES = re.compile(r"\b(UPDATE|DELETE FROM)\s+opportunities\b")

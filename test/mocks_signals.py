@@ -84,9 +84,30 @@ def mock_signal_scorer(user_content: str) -> str:
         why = "Not a medtech signal. No regulated software angle here."
         playbook_step = "None. Ignore it."
 
+    # The kind of story, by the same kind of keyword reading, so the
+    # Insights sections have something honest to file under offline.
+    if re.search(r"spin-off|spin-out|spinout|spinoff|spins out", lowered):
+        story_type = "spin-off"
+    elif re.search(r"accelerator|cohort", lowered):
+        story_type = "accelerator"
+    elif re.search(r"seed round|series a|series b|funding|raises|raised|grant", lowered):
+        story_type = "funding"
+    elif re.search(r"guidance|regulation|consultation|standard|notified body", lowered):
+        story_type = "regulation"
+    elif re.search(r"advertises|hiring|vacancy|first quality", lowered):
+        story_type = "first-hire"
+    else:
+        story_type = "other"
+    card_summary = {True: "Early company, regulated software ahead, no software lead named.",
+                    False: "Right sector, no buying window yet."}[score >= 75]
+    if score < 40:
+        card_summary = "Not a medtech signal."
+
     return json.dumps({
         "company": company,
+        "type": story_type,
         "headline": headline,
+        "card_summary": card_summary,
         "relevance": score,
         "why": why,
         "playbook_step": playbook_step,
