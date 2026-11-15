@@ -78,6 +78,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import radar_common
+import applications
 import build_dashboard
 import jobs_page
 import insights_page
@@ -180,7 +181,9 @@ def render_jobs(selected: int | None, query: dict) -> tuple[int, bytes, str]:
 
     show picks the view. part asks for a fragment: role (the role pane for
     selected), queue (the queue and the counts, reading=1 with the Reading
-    rows drawn), reading (the Reading rows) or stamp (see jobs_new_since).
+    rows drawn), reading (the Reading rows), board (the applications board,
+    board_page.board_payload) or stamp (see jobs_new_since). layout=list
+    draws the Applied view as the List instead of the Board.
     current names the open role, so a fragment marks it. All read only.
     """
     view = (query.get("show") or ["open"])[0]
@@ -226,9 +229,15 @@ def render_jobs(selected: int | None, query: dict) -> tuple[int, bytes, str]:
     if part == "reading":
         payload = jobs_page.reading_payload(model, current_key)
         return 200, json.dumps(payload).encode(), "application/json"
+    if part == "board":
+        import board_page
+        payload = board_page.board_payload(data, loc)
+        return 200, json.dumps(payload).encode(), "application/json"
     reading = (query.get("reading") or ["0"])[0] == "1"
+    # The Applied view is a Board unless the address asks for the List.
+    layout = "list" if (query.get("layout") or [""])[0] == "list" else "board"
     status, page = jobs_page.render(data, config, db_label, selected, view,
-                                    reading, loc)
+                                    reading, loc, layout)
     return status, page.encode("utf-8"), "text/html; charset=utf-8"
 
 
@@ -881,6 +890,17 @@ def set_lifecycle(item_id: int, action: str) -> dict:
 CV_REFERENCE_MAX = 200
 
 
+def move_application(app_id: int, to, reason=None, expect=None) -> dict:
+    """The applications board's Move to: the owner moves one application. See
+    applications.move for what each column means for the role."""
+    return _write(lambda conn: applications.move(conn, app_id, to, reason, expect))
+
+
+def set_application_next(app_id: int, text, due, interview) -> dict:
+    """The owner sets, changes or clears an application's next step."""
+    return _write(lambda conn: applications.set_next(conn, app_id, text, due, interview))
+
+
 def clean_cv_reference(value) -> str | None:
     """The saved CV reference a request names, or None for no reference.
 
@@ -939,29 +959,29 @@ def set_applied(item_id: int, on: bool, cv: str | None = None) -> dict:
             (item_id,)).fetchone()
         if target is None:
             return {"ok": False, "note": f"no opportunity {item_id}"}
+        now = radar_common.now_iso()
         if on:
             if radar_common.role_is_applied(conn, item_id):
                 return {"ok": False,
                         "note": "that role is already marked applied"}
-            cur = conn.execute(
-                "UPDATE opportunities SET applied_at = ?, applied_cv = ("
-                "SELECT saved_name FROM tailored_cvs WHERE role_ref = ?"
-                " AND saved_text IS NOT NULL)"
-                " WHERE id = ? AND acknowledged_at IS NULL"
-                " AND closed_at IS NULL AND dismissed_at IS NULL"
-                " AND expired_at IS NULL AND " + radar_common.NOT_APPLIED_SQL,
-                (radar_common.now_iso(), tailored_cv.role_ref(target), item_id))
-            # Acting on a role is reading it (the Jobs page's New).
-            if cur.rowcount:
-                radar_common.mark_read(conn, item_id, target["role_key"])
+            radar_common.begin_write(conn)
+            count = applications.stamp_applied(conn, item_id, target["role_key"], now)
+            # Radar fills Applied on the applications board.
+            if count:
+                applications.on_applied(conn, item_id, now)
         else:
-            cur = conn.execute(
-                "UPDATE opportunities SET applied_at = NULL, applied_cv = NULL"
-                " WHERE (id = ? OR (role_key IS NOT NULL AND role_key = ?))"
-                " AND applied_at IS NOT NULL",
-                (item_id, target["role_key"]))
+            # Once the owner has moved the application on, the board is
+            # where it moves back, so Undo here is refused.
+            radar_common.begin_write(conn)
+            why = applications.unapply_refusal(conn, target)
+            if why:
+                conn.rollback()
+                return {"ok": False, "note": why}
+            count = applications.clear_applied(conn, item_id, target["role_key"])
+            if count:
+                applications.on_unapplied(conn, target, now)
         conn.commit()
-        if cur.rowcount == 0:
+        if count == 0:
             return _refused(conn, item_id)
         return {"ok": True, "id": item_id, "applied": bool(on)}
     except sqlite3.OperationalError as err:
@@ -1898,6 +1918,29 @@ class Handler(BaseHTTPRequestHandler):
             result = set_applied(item_id, path == "/apply", cv)
             self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
+            return
+        if path in ("/application/move", "/application/next"):
+            body = self._read_json_body()
+            app_id = body.get("id") if isinstance(body, dict) else None
+            # The same id rule as /apply: a real integer that SQLite can hold.
+            if (not isinstance(app_id, int) or isinstance(app_id, bool)
+                    or not -2 ** 63 <= app_id < 2 ** 63):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            if path == "/application/move":
+                to, reason, expect = (body.get("to"), body.get("reason"), body.get("from"))
+                if not all(v is None or isinstance(v, str) for v in (to, reason, expect)):
+                    self._send(400, b'{"ok": false, "note": "to, reason and from must be text"}',
+                               "application/json")
+                    return
+                result = move_application(app_id, to, reason, expect)
+            else:
+                result = set_application_next(app_id, body.get("text"), body.get("due"),
+                                              body.get("interview"))
+            status = (200 if result.get("ok") else
+                      400 if result.get("invalid") else 409)
+            self._send(status, json.dumps(result).encode(), "application/json")
             return
         if path == "/prepare":
             body = self._read_json_body()

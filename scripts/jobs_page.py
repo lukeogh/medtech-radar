@@ -184,9 +184,14 @@ def build_model(data: dict, now: str | None = None, loc: tuple = ()) -> dict:
         tiers[tier] = _sorted(tiers[tier])
     acknowledged = _sorted(faces_of(data.get("acknowledged")))
     applied = []
+    import applications
+    stages = {a["role_ref"]: a for a in data.get("applications") or []}
     for row in data.get("applied") or []:
         face = dict(row)
         face["_unread"] = False
+        board_app = stages.get(applications.role_ref(face))
+        face["_stage"] = board_app["stage"] if board_app else "applied"
+        face["_reason"] = board_app.get("closed_reason") if board_app else None
         applied.append(face)
     filtered_reasons: dict = {}
     for o in tiers["filtered"]:
@@ -217,12 +222,20 @@ def build_model(data: dict, now: str | None = None, loc: tuple = ()) -> dict:
             "applied": applied_shown,
         },
         "open_total": sum(len(v) for v in tiers.values()) + len(unscored),
+        # The Applied count in the header and the Show menu: the board's
+        # Preparing to Offer, not Closed.
+        "applied_open": _applied_open(data),
         "new": sum(1 for t in OPEN_TIERS for o in tiers[t] if o["_unread"]),
         "stamp": max([int(o.get("id") or 0) for o in
                       (data.get("arrivals") or []) + (data.get("retired_roles") or [])]
                      or [0]),
     }
     return model
+
+
+def _applied_open(data: dict) -> int:
+    import board_page
+    return board_page.open_count(data)
 
 
 def find_role(data: dict, model: dict, item_id: int):
@@ -394,7 +407,13 @@ def row_html(o: dict, view: str, current_key: str | None, now: str,
                '&ndash;</span>')
     if view == "applied":
         when = f"Applied {_day(o.get('applied_at'))}"
+        stage = o.get("_stage") or "applied"
+        import applications
+        where = (applications.STAGE_WORDS[stage] if stage != "closed" else
+                 "Closed, " + applications.REASON_WORDS.get(o.get("_reason"), "closed").lower())
+        # Where the application stands on the board, once it has moved on.
         meta_bits = [when, o.get("company") or "Unknown company",
+                     where if stage != "applied" else None,
                      o.get("salary_rate"), board(o.get("source"))]
         meta = " · ".join(esc(b) for b in meta_bits if b)
         return (f'<div class="{" ".join(classes)} row-applied" data-id="{oid}" '
@@ -539,7 +558,7 @@ def queue_inner_html(model: dict, view: str, current_key: str | None,
                                   lazy=not show))
         # Applied is always linked, at zero too, as the way to the view;
         # Acknowledged once there is something behind it.
-        links = [("applied", "Applied", count("applied", len(model["applied"])))]
+        links = [("applied", "Applied", model["applied_open"])]
         if model["acknowledged"]:
             links.append(("acknowledged", "Acknowledged",
                           count("acknowledged", len(model["acknowledged"]))))
@@ -1134,17 +1153,21 @@ def show_menu_html(model: dict, view: str) -> str:
     counts = {"open": model["open_total"] - totals["filtered"] - len(model["unscored"]),
               "acknowledged": totals["acknowledged"],
               "filtered": totals["filtered"],
-              "applied": totals["applied"]}
+              "applied": model["applied_open"]}
     items = "".join(
         f'<li><a href="/jobs{view_query(v, model["loc"])}"'
         f'{" aria-current=" + chr(34) + "page" + chr(34) if v == view else ""}>'
-        f'{VIEW_WORDS[v]} <span class="chip-count">{counts[v]}</span></a></li>'
+        f'{VIEW_WORDS[v]} <span class="chip-count"'
+        f'{" data-applied-count" if v == "applied" else ""}>{counts[v]}</span></a></li>'
         for v in VIEWS)
     return ('<div class="show-menu">'
             '<button type="button" class="chip chip-facet'
             f'{" is-selected" if view != "open" else ""}" id="show-btn" '
             'aria-expanded="false" aria-controls="show-list">'
-            f'Show: {VIEW_WORDS[view]}{_use("ic-down", 16)}</button>'
+            f'Show: {VIEW_WORDS[view]}'
+            + (f' <span class="chip-count" data-applied-count>{counts["applied"]}</span>'
+               if view == "applied" else "")
+            + f'{_use("ic-down", 16)}</button>'
             f'<ul class="show-list" id="show-list" hidden>{items}</ul></div>')
 
 
@@ -1157,12 +1180,18 @@ def chips_html(loc: tuple) -> str:
 
 
 def render(data: dict, config: dict, db_label: str, selected: int | None = None,
-           view: str = "open", reading: bool = False, loc: tuple = ()) -> tuple[int, str]:
+           view: str = "open", reading: bool = False, loc: tuple = (),
+           layout: str = "board") -> tuple[int, str]:
     """(status, the whole page). 404 when the address names no row. reading
-    draws the Reading rows now rather than when the group is opened."""
+    draws the Reading rows now rather than when the group is opened. layout is
+    for the Applied view, board (the default) or list; a role named in the
+    address is always shown in the list, beside its role pane."""
     if view not in VIEWS:
         view = "open"
     loc = parse_loc(",".join(loc)) if loc else ()
+    if view == "applied" and selected is None and layout != "list":
+        return 200, render_board(data, config, loc)
+    layout = "list"
     model = build_model(data, loc=loc)
     status = 200
     face, where = (find_role(data, model, selected) if selected is not None
@@ -1188,7 +1217,8 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
              "key": current_key, "tier": (face or {}).get("tier") or "",
              "unread": bool((face or {}).get("_unread")),
              "title": (face or {}).get("title") or "",
-             "readAfter": READ_AFTER_MS, "stamp": model["stamp"], "loc": list(loc)}
+             "readAfter": READ_AFTER_MS, "stamp": model["stamp"], "loc": list(loc),
+             "layout": layout}
     state_json = esc(json.dumps(state))
     page = f"""<!doctype html>
 <html lang="en-GB">
@@ -1209,6 +1239,7 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 <div class="arrivals" role="status"><button type="button" class="btn btn-secondary" id="arrivals" hidden></button></div>
 {chips_html(loc)}
 {show_menu_html(model, view)}
+{layout_switch(view, loc)}
 <button type="button" class="btn btn-ghost undo-last" id="undo-last" disabled>Undo last</button>
 </div>
 </div>
@@ -1230,6 +1261,61 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 </body>
 </html>"""
     return status, page
+
+
+def layout_switch(view: str, loc: tuple, layout: str = "list") -> str:
+    if view != "applied":
+        return ""
+    import board_page
+    return board_page.layout_switch_html(layout, loc)
+
+
+def render_board(data: dict, config: dict, loc: tuple = ()) -> str:
+    """The Applied view as a Board: the same header, the board for the queue
+    and the role, and its own script. See board_page.py."""
+    import board_page
+    model = build_model(data, loc=loc)
+    bmodel = board_page.board_model(data, loc=loc)
+    state = {"view": "applied", "layout": "board", "loc": list(loc)}
+    state_json = esc(json.dumps(state))
+    return f"""<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Applications board · Jobs · MedTech Radar</title>
+<link rel="icon" href="{bd.FAVICON}">
+<style>{page_frame.FRAME_CSS}{JOBS_CSS}{board_page.BOARD_CSS}</style>
+</head>
+<body>
+<div class="app" data-page="jobs" data-show="applied" data-layout="board" data-state="{state_json}">
+{SYMBOLS}{board_page.SYMBOLS}
+{page_frame.appbar_html("jobs", bd.job_verdicts(data), "Jobs", help_button=True)}
+<div class="pagehead">
+<div class="ph-title"><h1>Jobs</h1><p class="counts" id="counts">{counts_html(model)}</p></div>
+<div class="ph-tools">
+{chips_html(loc)}
+{show_menu_html(model, "applied")}
+{board_page.layout_switch_html("board", loc)}
+<button type="button" class="btn btn-ghost undo-last" id="undo-last" disabled>Undo last</button>
+</div>
+</div>
+<main class="content content-board" id="main">
+<section class="board" id="board" aria-label="Applications board">{board_page.board_inner_html(bmodel)}</section>
+</main>
+<div class="move-menu" id="move-menu" role="menu" hidden></div>
+<p class="toast" id="toast" role="status" aria-live="polite"></p>
+<dialog class="keys" id="keys" aria-labelledby="keys-title">
+<h2 id="keys-title">Keyboard shortcuts</h2>
+<p class="keys-note">The keys work anywhere on the board except while you type in a field. Inside Move to, its own keys work while it is open.</p>
+<p class="keys-toggle"><label><input type="checkbox" id="keys-on" checked> Single-key shortcuts on</label></p>
+{board_page.keymap_html()}
+<form method="dialog"><button type="submit" class="btn btn-secondary">Close</button></form>
+</dialog>
+</div>
+<script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{board_page.BOARD_SCRIPT}</script>
+</body>
+</html>"""
 
 
 # --------------------------------------------------------------- the styles
@@ -1514,6 +1600,7 @@ JOBS_SCRIPT = """
     var params = [];
     if (view !== 'open') params.push('show=' + view);
     if (loc.length) params.push('loc=' + loc.join(','));
+    if (view === 'applied') params.push('layout=list');
     qs = params.length ? '?' + params.join('&') : '';
     amp = params.length ? '&' + params.join('&') : '';
   }
@@ -1532,7 +1619,7 @@ JOBS_SCRIPT = """
   var INVERSE = { ack: 'unack', dismiss: 'undismiss', close: 'unclose', apply: 'unapply', unack: 'ack' };
   var DONE = { ack: 'Acknowledged', dismiss: 'Dismissed', close: 'Closed', apply: 'Marked applied',
                unack: 'Back in the open roles', undismiss: 'Dismiss undone', unclose: 'Close undone',
-               unapply: 'Application undone' };
+               unapply: 'Application undone', move: 'Moved' };
   var narrow = window.matchMedia('(max-width: 1023.98px)');
 
   function json(url) {
@@ -1849,7 +1936,19 @@ JOBS_SCRIPT = """
     undoing = true;
     undoBtn.disabled = true;
     var last = s.pop();
-    act(INVERSE[last.kind], last.id, last).then(function (outcome) {
+    // A move made on the board is undone here too, by moving it back.
+    var undo = last.kind === 'move'
+      ? fetch('/application/move', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: last.id, to: last.from, reason: last.fromReason || null,
+                                     from: last.to }) })
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            if (!j || j.ok === false) { say((j && j.note) || 'That did not stick.', true); return 'refused'; }
+            say('Moved back \\u201c' + last.title + '\\u201d.');
+            return refreshQueue().then(function () { return 'ok'; });
+          }, function () { say('No usable answer came back. Reload to check.', true); return 'error'; })
+      : act(INVERSE[last.kind], last.id, last);
+    undo.then(function (outcome) {
       undoing = false;
       // The entry leaves the stack once its undo has stuck, or once the
       // server has refused it, as it would every time after. A network

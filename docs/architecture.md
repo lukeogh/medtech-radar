@@ -459,6 +459,45 @@ condition nor is named, with a reason, in its list of exceptions. It reads the
 strings that name the table, so a statement put together out of variables is
 beyond it.
 
+### The applications board
+
+Built from design/jobs/applied-board v2 (15 Nov 2026). Jobs' Applied view is a
+Board by default (`/jobs?show=applied`), with the List a switch away
+(`&layout=list`); a role's own address always shows the List beside its pane.
+`scripts/applications.py` keeps the store and the rules, `scripts/board_page.py`
+draws the board and holds its script.
+
+Each application is a row of `applications`, keyed on the role as
+`tailored_cvs` is, with its stage (Preparing, Applied, In conversation,
+Interviewing, Offer, Closed), who put it there and when, the owner's last
+movement, its next step with a due date, and an interview time. Every change is
+a row of `application_events`, with when and who (radar or owner). Radar fills
+Preparing when Save CV stores a tailored CV and Applied when a role is marked
+applied; Undo applied on Jobs takes it back, and is refused once the owner has
+moved the item on. Every later move is the owner's, through POST
+`/application/move` (the Move to menu and its keys, never a drag), and next
+steps go through POST `/application/next`. A move out of Preparing into an
+applied column stamps the role as Mark applied does (`applications.stamp_applied`,
+which `set_applied` shares), and the Undo of that move clears it.
+
+A closed application is not a closed advert. Nothing here sets `closed_at`, the
+expiry or the page checker's columns, and `applied_at` stays on the role in
+every stage, so `APPLIED_SQL` keeps protecting it on the board, Closed included.
+
+The 21-day rule and Radar's Follow up run as the first step of the signals run
+(`check_signals.py`, every two hours), `applications.run_rules`: an Applied
+item with no movement for 21 days (a stage change, a next step, or a touch
+logged with its company) closes as no reply, by Radar; from day 14 the board
+says when. An application the one-time migration made is never closed sooner
+than 7 days after it, so the first runs after the deploy close nothing
+unwarned. Seven days into a stay in Applied the run adds a "Follow up" next
+step due that day, unless the owner set one. The run's record notes what it did.
+The migration itself runs once, behind `migrated_applications`: applied roles
+to Applied dated from `applied_at`, saved CVs to Preparing dated from
+`saved_at`; the scheduled run makes any application something else left out.
+`test/run_board_test.py` checks it, and `docs/box-checks-applications-board.md`
+is the deploy.
+
 ## Prepare application
 
 The Prepare application link in an expanded Jobs row opens `GET /prepare/<id>`,

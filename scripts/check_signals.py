@@ -55,6 +55,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import draft_outreach
 import radar_common as rc  # noqa: E402
+import applications  # noqa: E402
 
 WATCHLIST_PATH = REPO_ROOT / "config" / "watchlist.yaml"
 RUBRIC_PATH = REPO_ROOT / "prompts" / "signal-scorer.md"
@@ -903,6 +904,18 @@ def main(argv=None) -> int:
                 process_guarded(item, conn, config, system_blocks, mock_fn,
                                 push_live, result)
         else:
+            # The applications board's 21-day rule and Radar's Follow up ride
+            # on this run, every two hours, because it is the scheduled job
+            # that writes the database in its everyday mode. No model call.
+            # A fault here is noted and the sources are still checked. A spot
+            # check of one source leaves it alone.
+            if not args.source:
+                try:
+                    result["applications"] = applications.run_rules(conn)
+                except Exception as err:            # noqa: BLE001
+                    result["errors"] += 1
+                    result["notes"].append(f"applications board rule: "
+                                           f"{type(err).__name__}: {err}")
             for source in sources:
                 if source.get("method") == "email":
                     continue
@@ -937,6 +950,10 @@ def main(argv=None) -> int:
                else "ok")
     result["outcome"] = outcome
     note = f"sources={result['sources_checked']} inject={bool(args.inject)}"
+    board = result.get("applications")
+    if board and (board["closed"] or board["follow_ups"] or board["made"]):
+        note += (f", board: {board['closed']} closed as no reply, "
+                 f"{board['follow_ups']} follow-ups added, {board['made']} made")
     if result["failed_sources"]:
         note += (f", {len(result['failed_sources'])} failed: "
                  + "; ".join(result["failed_sources"]))
