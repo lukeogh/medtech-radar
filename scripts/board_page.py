@@ -199,8 +199,8 @@ def item_html(a: dict, model: dict) -> str:
                 f'Move to{jp._use("ic-down", 16)}</button>')
     else:
         move = ""
-    parts.append(f'<div class="item-top"><a class="item-title link" id="{ident}-t" '
-                 f'href="{esc(_role_href(a))}">{esc(title)}</a>{move}</div>')
+    parts.append(f'<div class="item-top"><h3 class="item-h"><a class="item-title link" '
+                 f'id="{ident}-t" href="{esc(_role_href(a))}">{esc(title)}</a></h3>{move}</div>')
     parts.append(f'<p class="item-meta">{_meta_line(a)}</p>')
     parts.append(f'<p class="item-cv">{_cv_line(a)}</p>')
     if stage == "closed":
@@ -263,8 +263,10 @@ def next_step_form(a: dict) -> str:
             f'<label>Due<input type="date" name="due" value="{esc(a.get("next_step_due") or "")}"></label>'
             f'<label>Interview, if there is one<input type="datetime-local" name="interview" '
             f'value="{esc(interview)}"></label>'
+            f'<p class="step-error" id="step-err-{app_id}" hidden></p>'
             '<p class="step-acts"><button type="submit" class="btn btn-primary">Save</button>'
-            '<button type="button" class="btn btn-secondary" data-step-clear>Clear the next step</button></p>'
+            '<button type="button" class="btn btn-secondary" data-step-clear>Clear the step '
+            'and the interview</button></p>'
             '</form></details>')
 
 
@@ -273,8 +275,8 @@ def column_html(stage: str, model: dict) -> str:
     total = model["totals"][stage]
     shown = len(items)
     count = f"{shown} of {total}" if model["loc"] and shown != total else str(total)
-    head = [f'<h3 class="col-title" id="colh-{stage}">{ap.STAGE_WORDS[stage]} '
-            f'<span class="col-count">{count}</span></h3>']
+    head = [f'<h2 class="col-title" id="colh-{stage}">{ap.STAGE_WORDS[stage]} '
+            f'<span class="col-count">{count}</span></h2>']
     if stage in ("preparing", "applied"):
         head.append('<p class="col-by">Filled by Radar</p>')
     if stage == "closed" and total:
@@ -386,7 +388,8 @@ BOARD_CSS = """
 .item:last-child{border-bottom:0}
 .item:target,.item.is-flash{box-shadow:inset 3px 0 0 var(--accent)}
 .item-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
-.item-title{min-width:0;font-weight:600;overflow-wrap:anywhere}
+.item-h{min-width:0;font-size:14px;line-height:20px;font-weight:600}
+.item-title{overflow-wrap:anywhere}
 .item-move{flex:none;padding-right:8px}
 .item-meta,.item-cv,.item-days,.item-by{font-size:12px;line-height:16px;color:var(--text-2)}
 .item-cv{overflow-wrap:anywhere}
@@ -400,6 +403,9 @@ BOARD_CSS = """
 .step-form label{display:grid;gap:4px;font-size:12px;line-height:16px;color:var(--text-2)}
 .step-form input{height:32px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface);color:var(--text-1);font-size:14px;min-width:0;width:100%;color-scheme:dark}
 .step-acts{display:flex;flex-wrap:wrap;gap:8px}
+.step-error{color:var(--text-1);font-size:12px;line-height:16px;padding-left:8px;border-left:3px solid var(--negative)}
+.step-error::before{content:"Not saved: ";font-weight:600}
+.step-form input[aria-invalid="true"]{border-color:var(--negative)}
 .move-menu{position:fixed;z-index:20;min-width:240px;padding:4px 0;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay)}
 .move-menu[hidden]{display:none}
 .move-menu button{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;min-height:32px;padding:6px 12px;border:0;background:transparent;color:var(--text-1);text-align:left;cursor:pointer}
@@ -417,6 +423,7 @@ BOARD_CSS = """
   .board.is-picking .col.is-shown{display:block}
   .item-move,.item-acts .btn,.step-acts .btn{height:44px}
   .step-form input{height:44px}
+  .move-menu button{min-height:44px}
 }
 @media (forced-colors:active){.item-warn,.board-note{border:1px solid CanvasText}.item:target,.item.is-flash{outline:2px solid Highlight}}
 """
@@ -498,13 +505,18 @@ BOARD_SCRIPT = """
         setupPicker();
         if (focusId) {
           var el = itemEl(focusId);
-          if (el) {
-            showColumnOf(el);
+          if (el && el.offsetParent !== null) {
             var link = el.querySelector('.item-title');
             if (link) link.focus();
             el.classList.add('is-flash');
             setTimeout(function () { el.classList.remove('is-flash'); }, 1600);
+          } else {
+            var shown = board.querySelector('.col.is-shown .col-title') || board.querySelector('.col-title');
+            if (shown) { shown.tabIndex = -1; shown.focus(); }
           }
+        } else if (document.activeElement === document.body || document.activeElement === undoBtn) {
+          var first = board.querySelector('.col.is-shown .item-title') || board.querySelector('.item-title');
+          if (first) first.focus();
         }
       }).catch(function () { location.reload(); });
   }
@@ -512,9 +524,10 @@ BOARD_SCRIPT = """
   // ---- moving
   var busy = false;
   function move(id, from, fromReason, to, reason, title, undoing) {
-    if (busy) return Promise.resolve('busy');
+    if (busy) { say('Still saving the last move.'); return Promise.resolve('busy'); }
     busy = true;
-    return postJson('/application/move', { id: id, to: to, reason: reason || null, from: from })
+    return postJson('/application/move', { id: id, to: to, reason: reason || null, from: from,
+                                           undo: !!undoing })
       .then(function (j) {
         busy = false;
         if (!j || j.ok === false) {
@@ -640,7 +653,7 @@ BOARD_SCRIPT = """
     var i = items.indexOf(document.activeElement);
     var k = (e.key || '').toLowerCase();
     if (e.key === 'Escape') { e.preventDefault(); closeMenu(true); return; }
-    if (e.key === 'Tab') { closeMenu(false); return; }
+    if (e.key === 'Tab') { e.preventDefault(); closeMenu(true); return; }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       var n = (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
@@ -692,21 +705,50 @@ BOARD_SCRIPT = """
       var f = clear.closest('form');
       f.elements.text.value = '';
       f.elements.due.value = '';
+      f.elements.interview.value = '';
       saveStep(f);
     }
   });
+  function fieldAt(note) {
+    if (/interview/i.test(note)) return 'interview';
+    if (/due date/i.test(note) && !/^Say what/.test(note)) return 'due';
+    return 'text';
+  }
   function saveStep(form) {
+    if (form.dataset.busy === '1') return;
     var id = Number(form.dataset.stepForm);
     var body = { id: id, text: form.elements.text.value, due: form.elements.due.value,
                  interview: form.elements.interview.value };
-    form.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    var err = form.querySelector('.step-error');
+    ['text', 'due', 'interview'].forEach(function (n) {
+      form.elements[n].removeAttribute('aria-invalid');
+      form.elements[n].removeAttribute('aria-describedby');
+    });
+    err.hidden = true;
+    form.dataset.busy = '1';
+    form.setAttribute('aria-busy', 'true');
     postJson('/application/next', body).then(function (j) {
-      form.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
-      if (!j || j.ok === false) { say((j && j.note) || 'That did not save.', true); return; }
-      say(j.unchanged ? 'Nothing changed.' : (j.next_step ? 'Next step saved.' : 'Next step cleared.'));
+      form.dataset.busy = '';
+      form.removeAttribute('aria-busy');
+      if (!j || j.ok === false) {
+        var note = (j && j.note) || 'That did not save.';
+        if (j && j.invalid) {
+          var field = form.elements[fieldAt(note)];
+          err.textContent = note;
+          err.hidden = false;
+          field.setAttribute('aria-invalid', 'true');
+          field.setAttribute('aria-describedby', err.id);
+          field.focus();
+        }
+        say(note, true);
+        return;
+      }
+      say(j.unchanged ? 'Nothing changed.' : (j.next_step ? 'Next step saved.'
+          : (j.interview ? 'Interview saved.' : 'Next step cleared.')));
       refresh(id);
     }, function () {
-      form.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+      form.dataset.busy = '';
+      form.removeAttribute('aria-busy');
       say('No usable answer came back, so that may not have saved. Reload to check.', true);
     });
   }

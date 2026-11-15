@@ -93,13 +93,23 @@ def _now(now) -> datetime:
     return parse(now) or datetime.now(timezone.utc)
 
 
+def uk_date(moment: datetime):
+    """The calendar day in the UK, which is what the page's dates are. UTC
+    where the machine has no time zone database, right all winter."""
+    try:
+        from zoneinfo import ZoneInfo
+        return moment.astimezone(ZoneInfo("Europe/London")).date()
+    except Exception:  # noqa: BLE001
+        return moment.astimezone(timezone.utc).date()
+
+
 def days_between(earlier, later) -> int:
-    """Whole calendar days from one moment's day to another's, never negative."""
+    """Whole UK calendar days from one moment's day to another's, never negative."""
     a = earlier if isinstance(earlier, datetime) else parse(earlier)
     b = later if isinstance(later, datetime) else parse(later)
     if a is None or b is None:
         return 0
-    return max(0, (b.date() - a.date()).days)
+    return max(0, (uk_date(b) - uk_date(a)).days)
 
 
 # ------------------------------------------------------------------ keys
@@ -290,13 +300,47 @@ def _refuse(conn, note: str) -> dict:
     return {"ok": False, "note": note}
 
 
+def _stamp_role(conn, row, now) -> int | None:
+    """Stamp the role applied on the application's row, or on the newest open
+    advert of its chain when that row's advert is no longer open. The row
+    stamped, or None."""
+    if stamp_applied(conn, row["id"], row["role_key"], now):
+        return row["id"]
+    if row["role_key"]:
+        for other in conn.execute("SELECT id FROM opportunities WHERE role_key = ?"
+                                  " AND id <> ? ORDER BY id DESC",
+                                  (row["role_key"], row["id"])).fetchall():
+            if stamp_applied(conn, other["id"], row["role_key"], now):
+                return other["id"]
+    return None
+
+
+def _undoing(conn, app: dict, to: str) -> dict | None:
+    """What the owner's last move changed, when a move to `to` undoes it: the
+    last stage change was the owner's, from `to` to where the item is now."""
+    last = conn.execute("SELECT * FROM application_events WHERE application_id = ?"
+                        " AND kind = 'stage' ORDER BY id DESC LIMIT 1",
+                        (app["id"],)).fetchone()
+    if (last is None or last["actor"] != OWNER or last["to_stage"] != app["stage"]
+            or last["from_stage"] != to):
+        return None
+    try:
+        before = json.loads(last["note"] or "{}").get("before")
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return before if isinstance(before, dict) else None
+
+
 def move(conn, app_id: int, to: str, reason=None, expect=None,
-         now: str | None = None) -> dict:
+         now: str | None = None, undo: bool = False) -> dict:
     """The owner moves an application to a stage. expect is the stage the page
     drew it in: a page left open from before cannot move an item that has
     moved since. Moving into a stage that means an application went in stamps
     the role applied when it is not; moving back to Preparing, which only an
-    Undo does, clears the stamp and needs a saved CV. Commits."""
+    Undo does, clears the stamp and needs a saved CV. undo says this move takes
+    back the owner's last one: the item gets back the day it entered its
+    column, its last movement and its Follow up record, and a stamp that move
+    made is cleared, so an Undo leaves the item as it was. Commits."""
     if to not in STAGES:
         return {"ok": False, "note": "Choose a column from the Move to menu."}
     if to == "closed":
@@ -317,14 +361,17 @@ def move(conn, app_id: int, to: str, reason=None, expect=None,
                              "since the page was drawn. Reload to see where it is.")
     if app["stage"] == to and (to != "closed" or app["closed_reason"] == reason):
         return _refuse(conn, f"It is already in {STAGE_WORDS[to]}.")
+    restore = _undoing(conn, app, to) if undo else None
     row = conn.execute("SELECT id, role_key FROM opportunities WHERE id = ?",
                        (app["opportunity_id"],)).fetchone()
     applied = row is not None and rc.role_is_applied(conn, row["id"])
+    stamped = None
     if to in APPLIED_STAGES and not applied:
         if row is None:
             return _refuse(conn, "The role is no longer on file, so it cannot be marked applied.")
-        if not stamp_applied(conn, row["id"], row["role_key"], now):
-            return _refuse(conn, "That role's advert is no longer open (acknowledged, closed, "
+        stamped = _stamp_role(conn, row, now)
+        if stamped is None:
+            return _refuse(conn, "No advert of that role is open any more (acknowledged, closed, "
                                  "dismissed or expired), so it cannot be marked applied.")
     if to == "preparing":
         if not _saved_cv(conn, app["role_ref"]):
@@ -332,15 +379,33 @@ def move(conn, app_id: int, to: str, reason=None, expect=None,
                                  "one has none.")
         if applied:
             clear_applied(conn, row["id"], row["role_key"])
-    conn.execute(
-        "UPDATE applications SET stage = ?, closed_reason = ?, stage_at = ?,"
-        " stage_by = ?, moved_at = ?, follow_up_added_at = CASE WHEN ? = 'applied'"
-        " THEN NULL ELSE follow_up_added_at END WHERE id = ?",
-        (to, reason, now, OWNER, now, to, app_id))
-    _event(conn, app_id, now, OWNER, "stage", app["stage"], to, reason)
+    elif restore and restore.get("stamped") and applied and to not in APPLIED_STAGES:
+        # The move being undone stamped a role that had not been applied for.
+        clear_applied(conn, row["id"], row["role_key"])
+    if restore:
+        conn.execute(
+            "UPDATE applications SET stage = ?, closed_reason = ?, stage_at = ?,"
+            " stage_by = ?, moved_at = ?, follow_up_added_at = ? WHERE id = ?",
+            (to, reason, restore.get("stage_at") or now, restore.get("stage_by") or OWNER,
+             restore.get("moved_at") or now, restore.get("follow_up_added_at"), app_id))
+        _event(conn, app_id, now, OWNER, "stage", app["stage"], to, reason,
+               json.dumps({"undo": True}))
+    else:
+        conn.execute(
+            "UPDATE applications SET stage = ?, closed_reason = ?, stage_at = ?,"
+            " stage_by = ?, moved_at = ?, opportunity_id = ?,"
+            " follow_up_added_at = CASE WHEN ? = 'applied'"
+            " THEN NULL ELSE follow_up_added_at END WHERE id = ?",
+            (to, reason, now, OWNER, now, stamped or app["opportunity_id"], to, app_id))
+        before = {k: app[k] for k in ("stage_at", "stage_by", "moved_at",
+                                      "follow_up_added_at", "closed_reason")}
+        before["stamped"] = stamped is not None
+        _event(conn, app_id, now, OWNER, "stage", app["stage"], to, reason,
+               json.dumps({"before": before}))
     conn.commit()
     return {"ok": True, "id": app_id, "stage": to, "reason": reason,
-            "from": app["stage"], "from_reason": app["closed_reason"]}
+            "from": app["stage"], "from_reason": app["closed_reason"],
+            "undone": bool(restore)}
 
 
 def clean_next(text, due, interview) -> tuple:
@@ -396,9 +461,14 @@ def set_next(conn, app_id: int, text, due, interview, now: str | None = None) ->
         by = app["next_step_by"]
     else:
         by = OWNER
+    # Once the owner has set a step in this stay in Applied, Radar adds no
+    # Follow up to it, even if the owner later clears theirs.
+    owner_step = bool(text) and by == OWNER and app["stage"] == "applied"
     conn.execute("UPDATE applications SET next_step = ?, next_step_due = ?,"
-                 " next_step_by = ?, interview_at = ?, moved_at = ? WHERE id = ?",
-                 (text, due, by, interview, now, app_id))
+                 " next_step_by = ?, interview_at = ?, moved_at = ?,"
+                 " follow_up_added_at = CASE WHEN ? THEN COALESCE(follow_up_added_at, ?)"
+                 " ELSE follow_up_added_at END WHERE id = ?",
+                 (text, due, by, interview, now, owner_step, now, app_id))
     _event(conn, app_id, now, OWNER, "next-step", app["stage"], app["stage"], None,
            json.dumps({"step": text, "due": due, "interview": interview}))
     conn.commit()
@@ -418,7 +488,9 @@ SELECT a.*, o.title, o.company, o.company_id, o.region, o.location_class,
            AND x.applied_at IS NOT NULL ORDER BY x.applied_at, x.id LIMIT 1) AS applied_cv,
        t.saved_name, t.saved_at,
        (SELECT MAX(touched_at) FROM touches
-         WHERE o.company_id IS NOT NULL AND touches.company_id = o.company_id) AS last_touch
+         WHERE (o.company_id IS NOT NULL AND touches.company_id = o.company_id)
+            OR (o.company IS NOT NULL AND lower(trim(touches.company)) = lower(trim(o.company)))
+       ) AS last_touch
   FROM applications a
   LEFT JOIN opportunities o ON o.id = a.opportunity_id
   LEFT JOIN tailored_cvs t ON t.role_ref = a.role_ref AND t.saved_text IS NOT NULL
@@ -488,7 +560,11 @@ def run_rules(conn, now=None) -> dict:
             if due is not None and moment >= due:
                 cur = conn.execute(
                     "UPDATE applications SET stage = 'closed', closed_reason = 'no-reply',"
-                    " stage_at = ?, stage_by = ? WHERE id = ? AND stage = 'applied'",
+                    " stage_at = ?, stage_by = ?,"
+                    " next_step = CASE WHEN next_step_by = 'radar' THEN NULL ELSE next_step END,"
+                    " next_step_due = CASE WHEN next_step_by = 'radar' THEN NULL ELSE next_step_due END,"
+                    " next_step_by = CASE WHEN next_step_by = 'radar' THEN NULL ELSE next_step_by END"
+                    " WHERE id = ? AND stage = 'applied'",
                     (stamp, RADAR, app["id"]))
                 if cur.rowcount:
                     closed += 1
@@ -503,12 +579,12 @@ def run_rules(conn, now=None) -> dict:
                     "UPDATE applications SET next_step = ?, next_step_due = ?,"
                     " next_step_by = ?, follow_up_added_at = ? WHERE id = ?"
                     " AND stage = 'applied' AND next_step IS NULL",
-                    (FOLLOW_UP, moment.strftime("%Y-%m-%d"), RADAR, stamp, app["id"]))
+                    (FOLLOW_UP, uk_date(moment).isoformat(), RADAR, stamp, app["id"]))
                 if cur.rowcount:
                     follow += 1
                     _event(conn, app["id"], stamp, RADAR, "next-step", "applied",
                            "applied", None, json.dumps({"step": FOLLOW_UP,
-                                                        "due": moment.strftime("%Y-%m-%d"),
+                                                        "due": uk_date(moment).isoformat(),
                                                         "interview": None}))
         conn.commit()
     except BaseException:

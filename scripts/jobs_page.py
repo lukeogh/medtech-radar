@@ -589,7 +589,9 @@ def queue_inner_html(model: dict, view: str, current_key: str | None,
                        'open roles and the digest, and stay on file.</p>')
         if view == "applied":
             out.append('<p class="queue-note">Applied roles stay here and never '
-                       'expire, newest application first.</p>')
+                       'expire, newest application first, Closed ones included. '
+                       'Roles in Preparing are on the Board, where the Applied '
+                       'count is Preparing to Offer.</p>')
         new = sum(1 for o in faces if o.get("_unread"))
         empty = {"applied": "No applications recorded yet.",
                  "acknowledged": "No acknowledged roles.",
@@ -1940,7 +1942,7 @@ JOBS_SCRIPT = """
     var undo = last.kind === 'move'
       ? fetch('/application/move', { method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ id: last.id, to: last.from, reason: last.fromReason || null,
-                                     from: last.to }) })
+                                     from: last.to, undo: true }) })
           .then(function (r) { return r.json(); })
           .then(function (j) {
             if (!j || j.ok === false) { say((j && j.note) || 'That did not stick.', true); return 'refused'; }
