@@ -33,7 +33,11 @@ given no sources, and every database is a throwaway under a temporary folder.
 8. The routes: POST /application/move and /application/next through the
    guard, their 400s, 409s and 200s, and a forged request refused with the
    database left as it was.
-9. The script parses (node --check), when node is installed.
+9. The scripts parse (node --check), and the board's own script is driven in
+   node by test/board_script_harness.js: M, the menu and its keys, Tab and
+   Escape, a move joining Undo last, Z, the shortcut switch, typing in a
+   field. The List's undo of a board move is read from its script. Undo on
+   the store restores the item as it was, the applied stamp included.
 10. The box checks: no command block is empty, every query in them runs on a
     seeded database, every python -c compiles, and the rollback never
     restores the backup.
@@ -194,6 +198,16 @@ def store_checks(tmp: Path) -> None:
     rc.get_db(db).close()
     check(dump(db) == snap, "behind its flag, a second open changes nothing")
     conn = rc.get_db(db)
+    late = put(conn, "Embedded Lead", "Kestle Respiratory", applied_at=day(-1))
+    conn.close()
+    conn = rc.get_db(db)
+    held = app_of(conn, late) is None
+    made = ap.run_rules(conn, day(0))["made"]
+    check(held and made == 1 and app_of(conn, late)["stage"] == "applied",
+          "a role stamped by something else after the migration waits for the scheduled "
+          "rule, which makes its application; opening the database does not")
+    conn.close()
+    conn = rc.get_db(db)
     bad = []
     for stmt, args in (("UPDATE applications SET stage = 'maybe' WHERE id = 1", ()),
                        ("UPDATE applications SET closed_reason = 'bored' WHERE id = 1", ()),
@@ -237,6 +251,16 @@ def radar_fills_checks(tmp: Path) -> None:
           and save.index("applications.on_saved") < save.index("conn.commit()"),
           "and Save CV calls it in the same transaction as the save")
     lone = put(conn, "Software Lead", "Tamesis Surgical")
+    real = put(conn, "Software Quality Lead", "Hartwell Infusion Ltd")
+    conn.close()
+    import prepare_application
+    import run_cv_test
+    saved = prepare_application.save_copy(real, run_cv_test.MASTER_TEXT, db, CFG)
+    conn = rc.get_db(db)
+    check(saved.get("ok") and saved.get("outcome") == "saved"
+          and app_of(conn, real)["stage"] == "preparing"
+          and events(conn, app_of(conn, real)["id"])[0]["actor"] == "radar",
+          "Save CV on Prepare application, the real one, puts the role in Preparing")
     conn.close()
     with pointed_at(db):
         r1 = serve_dashboard.set_applied(p, True)
@@ -340,12 +364,65 @@ def move_checks(tmp: Path) -> None:
     conn.close()
 
 
+def undo_checks(tmp: Path) -> None:
+    db = tmp / "undo.sqlite"
+    conn = rc.get_db(db)
+    p = put(conn, "Head of RA", "Quayle Health")
+    saved_cv(conn, p)
+    ap.on_saved(conn, conn.execute("SELECT * FROM opportunities WHERE id = ?", (p,)).fetchone(), day(0))
+    conn.commit()
+    pid = app_of(conn, p)["id"]
+    ap.move(conn, pid, "closed", "withdrawn", "preparing", day(1))
+    up = ap.move(conn, pid, "applied", None, "closed", day(2))
+    stamped = rc.role_is_applied(conn, p)
+    undone = ap.move(conn, pid, "closed", "withdrawn", "applied", day(2), undo=True)
+    app = app_of(conn, p)
+    check(up["ok"] and stamped and undone["ok"] and undone["undone"]
+          and not rc.role_is_applied(conn, p) and app["stage"] == "closed"
+          and app["closed_reason"] == "withdrawn" and app["stage_at"] == day(1),
+          "Undo of a move that stamped a role applied takes the stamp back with it")
+    a = put(conn, "Software Lead", "Tamesis Surgical", applied_at=day(0))
+    ap.on_applied(conn, a, day(0))
+    conn.commit()
+    aid = app_of(conn, a)["id"]
+    ap.run_rules(conn, day(7))
+    ap.set_next(conn, aid, "", "", None, day(8))
+    before = app_of(conn, a)
+    ap.move(conn, aid, "closed", "no-reply", "applied", day(9))
+    ap.move(conn, aid, "applied", None, "closed", day(9), undo=True)
+    after = app_of(conn, a)
+    check(all(before[k] == after[k] for k in ("stage", "stage_at", "stage_by", "moved_at",
+                                              "follow_up_added_at", "closed_reason"))
+          and ap.run_rules(conn, day(10))["follow_ups"] == 0,
+          "Undo leaves the item as it was: the day it entered its column, its last "
+          "movement and its Follow up record, so no second Follow up comes")
+    plain = ap.move(conn, aid, "conversation", None, "applied", day(11))
+    again = ap.move(conn, aid, "applied", None, "conversation", day(12))
+    check(plain["ok"] and again["ok"] and not again["undone"] and app_of(conn, a)["stage_at"] == day(12),
+          "a move back that is not an Undo is a move, and starts the column's days again")
+    # A move into Applied stamps an open repost when the saved row's advert has gone.
+    gone = put(conn, "Interim Lead", "Marlow Medical", closed_at=day(1))
+    saved_cv(conn, gone)
+    ap.on_saved(conn, conn.execute("SELECT * FROM opportunities WHERE id = ?", (gone,)).fetchone())
+    repost = put(conn, "Interim Lead", "Marlow Medical")
+    conn.commit()
+    gid = app_of(conn, gone)["id"]
+    out = ap.move(conn, gid, "applied", None, "preparing", day(3))
+    row = conn.execute("SELECT applied_at FROM opportunities WHERE id = ?", (repost,)).fetchone()
+    check(out["ok"] and row["applied_at"] == day(3) and app_of(conn, gone)["opportunity_id"] == repost,
+          "a move into Applied stamps the role's open repost when the saved advert has closed")
+    conn.close()
+
+
 # ------------------------------------------------------------------ 4. not a closed advert
 
 def protection_checks(tmp: Path) -> None:
     db = tmp / "protect.sqlite"
     conn = rc.get_db(db)
-    a = put(conn, "Quality Lead", "Brackley Surgical", applied_at=day(0), last_seen=day(0))
+    a = put(conn, "Quality Lead", "Brackley Surgical", applied_at=day(0), last_seen=day(0),
+            source_url="https://www.linkedin.com/jobs/view/8100001/")
+    control = put(conn, "Regulatory Lead", "Orbase Diagnostics", last_seen=day(0),
+                  source_url="https://www.linkedin.com/jobs/view/8100002/")
     ap.on_applied(conn, a, day(0))
     conn.commit()
     aid = app_of(conn, a)["id"]
@@ -353,16 +430,18 @@ def protection_checks(tmp: Path) -> None:
     ok = []
     for stage, reason in (("conversation", None), ("interviewing", None), ("offer", None),
                           ("closed", "no-reply"), ("closed", "turned-down"), ("closed", "withdrawn")):
-        ap.move(conn, aid, stage, reason, app_of(conn, a)["stage"], day(1))
+        moved = ap.move(conn, aid, stage, reason, app_of(conn, a)["stage"], day(1))["ok"]
         row = dict(conn.execute("SELECT * FROM opportunities WHERE id = ?", (a,)).fetchone())
         picked = conn.execute("SELECT COUNT(*) FROM opportunities WHERE id = ? AND "
                               + rc.NOT_APPLIED_SQL, (a,)).fetchone()[0]
-        ok.append(row == before and rc.role_is_applied(conn, a) and picked == 0)
+        ok.append(moved and row == before and rc.role_is_applied(conn, a) and picked == 0)
     check(all(ok), "in every stage, Closed included, the role row is untouched: applied_at "
                    "stays, closed_at and expired_at are never set, and NOT_APPLIED_SQL "
                    "still leaves it out")
     due = [r["id"] for r in check_jobs.due_candidates(conn, day(60))]
-    check(a not in due, "the page checker does not pick an applied role on the board, closed or not")
+    check(a not in due and control in due,
+          "the page checker does not pick an applied role on the board, closed or not, "
+          "and does pick the same role not applied for")
     for name in ("applications.py", "board_page.py"):
         text = (REPO_ROOT / "scripts" / name).read_text(encoding="utf-8")
         check(not re.search(r"(SET|,)\s*(closed_at|expired_at|closed_source|last_check)", text),
@@ -430,6 +509,14 @@ def rule_checks(tmp: Path) -> None:
           "a contact logged with the company counts as movement")
     conn.close()
 
+    conn, a, _c = rule_db(tmp, "named.sqlite")
+    conn.execute("INSERT INTO touches (company, touched_at, channel) VALUES (?,?,?)",
+                 ("co named.sqlite ", day(15), "other"))
+    conn.commit()
+    check(ap.run_rules(conn, day(21))["closed"] == 0,
+          "a contact logged by company name only, as Home's Did the suggestion logs it, counts too")
+    conn.close()
+
     conn, a, _c = rule_db(tmp, "grace.sqlite", applied_day=0, created=day(30))
     check(ap.run_rules(conn, day(31))["closed"] == 0 and ap.run_rules(conn, day(37))["closed"] == 1,
           "an application the migration made is never closed sooner than 7 days after, "
@@ -459,6 +546,17 @@ def rule_checks(tmp: Path) -> None:
     ap.run_rules(conn, day(8))
     check(app_of(conn, a)["next_step"] == "Send the portfolio",
           "Follow up is never put over a step the owner set")
+    ap.set_next(conn, aid, "", "", None, day(9))
+    check(ap.run_rules(conn, day(10))["follow_ups"] == 0,
+          "nor added once the owner has set and cleared their own in this stay")
+    conn.close()
+
+    conn, a, _c = rule_db(tmp, "dropped.sqlite")
+    ap.run_rules(conn, day(7))
+    ap.run_rules(conn, day(21))
+    app = app_of(conn, a)
+    check(app["stage"] == "closed" and app["next_step"] is None,
+          "Radar's close drops Radar's own Follow up, so Move back to Applied brings no stale step")
     conn.close()
 
     # The signals run carries the rule.
@@ -474,6 +572,25 @@ def rule_checks(tmp: Path) -> None:
         check_signals.load_watchlist = saved
     out.seek(0)
     result = json.loads(out.read())
+    conn, spot_a, _c = rule_db(tmp, "spot.sqlite", applied_day=-40, created=day(-40))
+    conn.close()
+    saved = (check_signals.load_watchlist, check_signals.run_source)
+    check_signals.load_watchlist = lambda: [{"id": "spot", "method": "html", "status": "live",
+                                             "url": "https://example.invalid/"}]
+    check_signals.run_source = lambda *a, **k: None
+    spot_out = tempfile.TemporaryFile(mode="w+")
+    try:
+        with contextlib.redirect_stdout(spot_out):
+            check_signals.main(["--dry-run", "--mock", "--db", str(tmp / "spot.sqlite"),
+                                "--source", "spot"])
+    finally:
+        check_signals.load_watchlist, check_signals.run_source = saved
+    spot_out.seek(0)
+    spot = json.loads(spot_out.read())
+    conn = rc.get_db(tmp / "spot.sqlite")
+    check("applications" not in spot and app_of(conn, spot_a)["stage"] == "applied",
+          "a spot check of one source (--source) leaves the board alone")
+    conn.close()
     conn = rc.get_db(tmp / "signals.sqlite")
     run_note = conn.execute("SELECT note FROM runs WHERE workflow = 'signals' ORDER BY id DESC").fetchone()
     check(code == 0 and result.get("applications", {}).get("closed") == 1
@@ -610,7 +727,7 @@ def page_checks(tmp: Path) -> None:
           "layout=list draws the List, and the switch marks the one shown")
     check(s_role == 200 and 'id="role"' in role_html and 'id="board"' not in role_html,
           "a role's address always opens the List beside its role pane")
-    heads = re.findall(r'<h3 class="col-title" id="colh-([a-z]+)"', board_html)
+    heads = re.findall(r'<h2 class="col-title" id="colh-([a-z]+)"', board_html)
     check(heads == list(ap.STAGES), "six columns, Preparing to Closed, in order")
     check(board_html.count("Filled by Radar") == 2
           and board_html.index("Filled by Radar") < board_html.index('id="col-conversation"'),
@@ -635,6 +752,9 @@ def page_checks(tmp: Path) -> None:
     payload = json.loads(frag)
     check(s_frag == 200 and payload["open"] == 6 and 'id="col-closed"' in payload["html"],
           "the board fragment is JSON with the board and the count")
+    listed = re.findall(r'class="row row-queue row-applied" data-id="(\d+)"', list_html)
+    check(listed and all(f'href="/jobs/{i}?show=applied&amp;layout=list"' in board_html for i in listed),
+          f"every role on the List ({len(listed)}) has its item on the Board")
     row = re.search(rf'<div class="row row-queue row-applied" data-id="{ids["conversation"]}".*?</div>',
                     list_html, re.S)
     check(row is not None and "In conversation" in row.group(0),
@@ -697,9 +817,21 @@ def script_checks(tmp: Path) -> None:
         path.write_text(text, encoding="utf-8")
         out = subprocess.run([node, "--check", str(path)], capture_output=True, text=True)
         check(out.returncode == 0, f"{name} parses ({out.stderr.strip()[:200]})")
-    check("radar-jobs-undo" in board_page.BOARD_SCRIPT
-          and "last.kind === 'move'" in jobs_page.JOBS_SCRIPT,
-          "the board's moves join the one Undo last stack, and the List can undo them too")
+    path = tmp / "board_script.js"
+    path.write_text(board_page.BOARD_SCRIPT, encoding="utf-8")
+    out = subprocess.run([node, str(TEST_DIR / "board_script_harness.js"), str(path)],
+                         capture_output=True, text=True, timeout=120)
+    lines = [ln for ln in out.stdout.splitlines() if ln.startswith(("PASS", "FAIL"))]
+    for ln in lines:
+        check(ln.startswith("PASS"), "the board script: " + ln[6:])
+    check(out.returncode == 0 and len(lines) >= 12,
+          f"the board script runs its keys, its menu and its undo in node ({out.stderr.strip()[:200]})")
+    undo = re.search(r"last\.kind === 'move'.*?JSON\.stringify\((\{.*?\})\)",
+                     jobs_page.JOBS_SCRIPT, re.S)
+    body = re.sub(r"\s+", " ", undo.group(1)) if undo else ""
+    check("to: last.from" in body and "from: last.to" in body and "undo: true" in body
+          and "reason: last.fromReason" in body,
+          "the List undoes a board move by moving it back, as an undo")
     run_all = (REPO_ROOT / "test" / "run_all.sh").read_text(encoding="utf-8")
     check("test/run_board_test.py" in run_all, "run_all.sh runs this file")
 
@@ -752,7 +884,7 @@ def main() -> int:
     ap_.parse_args()
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         tmp_path = Path(tmp)
-        for section in (store_checks, radar_fills_checks, move_checks, protection_checks,
+        for section in (store_checks, radar_fills_checks, move_checks, undo_checks, protection_checks,
                         rule_checks, next_step_checks, page_checks, route_checks, script_checks,
                         box_doc_checks):
             try:

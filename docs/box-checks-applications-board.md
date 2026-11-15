@@ -43,6 +43,18 @@ What the change touches on the box:
 
 No write-guard setting, no n8n workflow and no preferences change.
 
+**What the first days after the deploy look like.** On the first signals run
+after step 5, every migrated Applied item 7 days old or more gets Radar's
+"Follow up", due that day, so Waiting on you fills at once (BEFORE's
+`over_7_days`). Seven days after step 5, every Applied item that was 14 days
+old or more at the migration and has not moved, had a next step set or had a
+contact logged closes as no reply, in one run (BEFORE's `over_14_days`, less
+any you move). Step 6 counts both before anything happens.
+
+Don't use the Jobs page between step 4 and step 7: the old dashboard is still
+serving, and an Undo applied made there clears the role's stamp but leaves its
+application in Applied.
+
 ## BEFORE
 
 ```bash
@@ -54,6 +66,7 @@ echo '--- code and rollback point'; git status --short; git log --oneline -1
 echo '--- is anything running'; pgrep -a python | grep -E 'process_email|check_jobs|check_signals|build_digest|rescore|regate|backfill' || echo 'nothing running'
 echo '--- the board tables are not there yet (expect 0 0)'; Q "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'applications') AS applications, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'application_events') AS events;"
 echo '--- roles applied for, what the migration will put in Applied'; Q "SELECT COUNT(DISTINCT COALESCE('key:' || role_key, 'id:' || id)) AS applied_roles, MIN(applied_at) AS earliest, MAX(applied_at) AS latest FROM opportunities WHERE applied_at IS NOT NULL;"
+echo '--- what the rule will meet: applied roles 7 and 14 days old or more (Follow up on the first run, closed 7 days after the migration unless moved)'; Q "SELECT SUM(first_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-7 days')) AS over_7_days, SUM(first_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-14 days')) AS over_14_days FROM (SELECT MIN(applied_at) AS first_at FROM opportunities WHERE applied_at IS NOT NULL GROUP BY COALESCE('key:' || role_key, 'id:' || id));"
 echo '--- saved tailored CVs, what may go to Preparing'; Q "SELECT COUNT(*) AS saved_cvs FROM tailored_cvs WHERE saved_text IS NOT NULL;"
 echo '--- the role rows lifecycle, to compare after'; Q "SELECT COUNT(*) AS roles, SUM(applied_at IS NOT NULL) AS applied, SUM(closed_at IS NOT NULL) AS closed, SUM(expired_at IS NOT NULL) AS expired, SUM(dismissed_at IS NOT NULL) AS dismissed, SUM(acknowledged_at IS NOT NULL) AS acknowledged FROM opportunities;"
 echo '--- touches, to compare after'; Q "SELECT COUNT(*) AS touches FROM touches;"
@@ -81,10 +94,12 @@ Keep the output: AFTER compares with it.
    ```
 
 4. Pull, only when nothing is running. The commit you are on is saved first
-   as the rollback point, in `.git/rollback-applications-board`.
+   as the rollback point, in `.git/rollback-applications-board`, and only if
+   no rollback point is saved yet, so running this again after a pull keeps
+   the first one. Nothing is pulled unless the point is there.
 
    ```bash
-   cd /opt/biz-admin/medtech-radar && { pgrep -a python | grep -E 'process_email|check_jobs|check_signals|build_digest|rescore|regate|backfill' && echo 'wait, something is running, nothing was pulled' || { git rev-parse HEAD | sudo -u radar tee .git/rollback-applications-board && sudo -u radar git pull --ff-only && git log --oneline -3; }; }
+   cd /opt/biz-admin/medtech-radar && { pgrep -a python | grep -E 'process_email|check_jobs|check_signals|build_digest|rescore|regate|backfill' && echo 'wait, something is running, nothing was pulled' || { { test -s .git/rollback-applications-board || sudo -u radar sh -c 'git rev-parse HEAD > .git/rollback-applications-board'; } && test -s .git/rollback-applications-board && echo "rollback point $(cat .git/rollback-applications-board)" && sudo -u radar git pull --ff-only && git log --oneline -3; }; }
    ```
 
 5. Open the database by hand once. This makes the two tables and runs the
@@ -101,13 +116,13 @@ Keep the output: AFTER compares with it.
 6. Look at what the 21-day rule will do, without doing it. Read only.
 
    ```bash
-   cd /opt/biz-admin/medtech-radar && sudo -u radar /opt/biz-admin/radar-venv/bin/python -c "import sys, sqlite3; sys.path.insert(0, 'scripts'); import applications as a; c = sqlite3.connect('file:db/radar.sqlite?mode=ro', uri=True); c.row_factory = sqlite3.Row; rows = [r for r in a.load(c) if r['stage'] == 'applied']; print(len(rows), 'in Applied,', sum(a.warned(r, None) for r in rows), 'showing the 21-day warning'); dates = sorted(a.close_on(r) for r in rows if a.close_on(r)); print('first close by the rule:', dates[0] if dates else 'none'); print('closes in the first week after the migration:', sum(1 for r in rows if a.close_on(r) and a.close_on(r) <= a.parse(r['created_at']) + a.timedelta(days=7)))"
+   cd /opt/biz-admin/medtech-radar && sudo -u radar /opt/biz-admin/radar-venv/bin/python -c "import sys, sqlite3; sys.path.insert(0, 'scripts'); import applications as a; c = sqlite3.connect('file:db/radar.sqlite?mode=ro', uri=True); c.row_factory = sqlite3.Row; rows = [r for r in a.load(c) if r['stage'] == 'applied']; print(len(rows), 'in Applied,', sum(a.warned(r, None) for r in rows), 'showing the 21-day warning'); dates = sorted(a.close_on(r) for r in rows if a.close_on(r)); print('first close by the rule:', dates[0] if dates else 'none'); print('close when the 7-day grace ends, unless moved:', sum(1 for r in rows if a.close_on(r) and a.close_on(r) <= a.parse(r['created_at']) + a.timedelta(days=7))); print('get Follow up on the next run:', sum(1 for r in rows if not r['next_step'] and not r['follow_up_added_at'] and a.days_between(r['stage_at'], a.datetime.now(a.timezone.utc)) >= a.FOLLOW_UP_DAYS))"
    ```
 
-   Every application already 21 days old closes on the first signals run 7
-   days after this step, unless you move it, give it a next step or log a
-   contact with the company before then. If you would rather keep some, look
-   at the board after step 7 and move them.
+   Every Applied item 14 days old or more at the migration closes on the
+   first signals run 7 days after step 5, unless you move it, give it a next
+   step or log a contact with the company before then. If you would rather
+   keep some, look at the board after step 7 and move them.
 
 7. Restart the dashboard.
 
@@ -173,6 +188,15 @@ cd /opt/biz-admin/medtech-radar && test -s .git/rollback-applications-board && s
 
 The old code's Jobs page lists applied roles as before, and its Applied
 count counts them, Closed board items included. While it is rolled back,
-Mark applied and Undo applied do not update the board; if the branch goes
-back on later, an application undone in that time still sits in Applied, and
-moving it to Preparing or closing it as withdrawn tidies it.
+Mark applied and Undo applied do not update the board. If the branch goes
+back on later:
+
+- roles marked applied in that time are not on the Board until the next
+  signals run makes their applications (the migration's flag is already set),
+  so run step 8 straight after the redeploy;
+- an application undone in that time still sits in Applied, and moving it to
+  Preparing or closing it as withdrawn tidies it;
+- the 7-day grace counted from the first migration, so an Applied item whose
+  21 days ran out while rolled back closes on the first run, without the
+  warning having been on screen. Look at the board (step 6 counts them)
+  before that run if you want to keep any.

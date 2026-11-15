@@ -890,10 +890,11 @@ def set_lifecycle(item_id: int, action: str) -> dict:
 CV_REFERENCE_MAX = 200
 
 
-def move_application(app_id: int, to, reason=None, expect=None) -> dict:
-    """The applications board's Move to: the owner moves one application. See
-    applications.move for what each column means for the role."""
-    return _write(lambda conn: applications.move(conn, app_id, to, reason, expect))
+def move_application(app_id: int, to, reason=None, expect=None, undo=False) -> dict:
+    """The applications board's Move to: the owner moves one application, or
+    undoes their last move. See applications.move."""
+    return _write(lambda conn: applications.move(conn, app_id, to, reason, expect,
+                                                 undo=undo))
 
 
 def set_application_next(app_id: int, text, due, interview) -> dict:
@@ -1934,7 +1935,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, b'{"ok": false, "note": "to, reason and from must be text"}',
                                "application/json")
                     return
-                result = move_application(app_id, to, reason, expect)
+                result = move_application(app_id, to, reason, expect,
+                                          undo=body.get("undo") is True)
             else:
                 result = set_application_next(app_id, body.get("text"), body.get("due"),
                                               body.get("interview"))
