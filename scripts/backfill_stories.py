@@ -132,7 +132,8 @@ def main(argv=None) -> int:
         todo = min(len(rows), args.cap)
         if not (args.live or mock_fn):
             print(f"Dry run: {len(rows)} signals from the last {args.days} days have no type; "
-                  f"--live would read {todo} of them, one scoring call each. Nothing written.")
+                  f"--live would read {todo} of them, one scoring call each. No model call was made; "
+                  f"the keys and hiring types above are saved.")
             return 0
         result = read_types(conn, rows, config, mock_fn, args.cap)
         rc.log_run(conn, "backfill", mode="mock" if mock_fn else "live", items_in=todo,

@@ -932,14 +932,17 @@ def job_health(conn: sqlite3.Connection, now: str | None = None) -> dict:
 
 # ------------------------------------------------------------- news stories
 
-# The kinds of story the Insights page files into its four sections. The
-# signal scorer returns one of the first six; the code sets the two hiring
-# kinds on the signals it writes itself (process_email's buying window, the
-# tripwire's first hire). Anything else a model returns reads as "other".
+# The kinds of story a signal can be. The signal scorer returns first-hire
+# for a hiring story and one of the last six otherwise; the code sets the two
+# hiring kinds on the signals it writes itself (process_email's buying window,
+# the tripwire's first hire). Anything else a model returns reads as "other".
 STORY_TYPES = ("buying-window", "first-hire", "funding", "spin-off",
                "accelerator", "regulation", "market", "other")
+# Hiring is not news: since 5 Nov the Jobs page owns it and the scorer puts a
+# hiring story at 0 to 39. The Insights page leaves these kinds out entirely
+# and files the rest into its three sections.
+HIRING_TYPES = ("buying-window", "first-hire")
 STORY_SECTIONS = (
-    ("hiring", "Hiring and buying windows", ("buying-window", "first-hire")),
     ("funding", "Funding", ("funding",)),
     ("spinoffs", "Spin-offs and accelerators", ("spin-off", "accelerator")),
     ("market", "Regulation and market news", ("regulation", "market", "other")),

@@ -227,14 +227,14 @@ def main(argv=None) -> int:
              "article" if extra.get("drafts") else None, iso(when) if extra.get("drafts") else None))
         radar_common.assign_event_key(conn, cur.lastrowid)
     conn.execute("INSERT INTO touches (company, touched_at, channel, note, company_id) VALUES (?,?,?,?,?)",
-                 ("Hartwell Infusion Ltd", iso(now - timedelta(days=14)), "comment", "Commented on the Series C post.",
-                  ids["Hartwell Infusion Ltd"]))
+                 ("PDX Diagnostics", iso(now - timedelta(days=14)), "comment", "Commented on the Series A post.",
+                  ids["PDX Diagnostics"]))
     conn.execute(
         "INSERT INTO opportunities (url_hash, first_seen, source, title, company, location, tier, company_id)"
         " VALUES (?,?,?,?,?,?,?,?)",
-        (radar_common.url_hash("https://example.org/job/hartwell"), iso(now - timedelta(days=23)), "linkedin-alert",
-         "Head of Software Quality, Class II infusion pumps", "Hartwell Infusion Ltd", "Guildford (hybrid, 2 days)",
-         "top", ids["Hartwell Infusion Ltd"]))
+        (radar_common.url_hash("https://example.org/job/pdx"), iso(now - timedelta(days=23)), "linkedin-alert",
+         "Software Quality Lead, IVD analyser", "PDX Diagnostics", "Remote (EU)",
+         "top", ids["PDX Diagnostics"]))
     watcher_ran = now - timedelta(hours=22 if args.week == "stale" else 3)
     radar_common.log_run(conn, "inbox", items_in=1, items_new=1)
     conn.execute("UPDATE runs SET ts = ? WHERE workflow = 'inbox'", (iso(now - timedelta(minutes=12)),))

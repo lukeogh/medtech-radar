@@ -270,8 +270,17 @@ def page_checks(tmp: Path) -> None:
     check('[hidden]{display:none!important}' in html, "hidden parts of the page are hidden whatever their display rule")
     check("toast-undo" not in html and 'id="live" role="status"' in html,
           "the message bar is for failures only, and an always-present live region carries the rest")
-    for name in ("Hiring and buying windows", "Funding", "Spin-offs and accelerators", "Regulation and market news"):
+    for name in ("Funding", "Spin-offs and accelerators", "Regulation and market news"):
         check(f">{name}</h2>" in html, f"the {name} section is on the page")
+    hiring = [r for r in conn.execute("SELECT id, headline FROM signals WHERE story_type IN ('buying-window', 'first-hire')")]
+    check(len(hiring) >= 3 and "Hiring and buying windows" not in html
+          and not any(rc.clean_headline(r["headline"]) in html for r in hiring)
+          and all(s["type"] not in rc.HIRING_TYPES for s in model["stories"]),
+          "hiring is not news: no buying window or first hire is anywhere on the page, folds included")
+    check(all(insights_page.render_story(conn, r["id"]) is None for r in hiring)
+          and insights_page.render_section(conn, "hiring") is None,
+          "a hiring story has no story page and hiring has no section page")
+    check('are on <a href="/jobs">Jobs</a>' in html, "the foot says where hiring went")
     check("More stories" in html and f"{len(model['below'])} this week under relevance 40" in html
           and 'id="more-list" hidden' in html, "stories under 40 are folded under More stories")
     check("Hidden this week" in html and "Show again" in html, "the stories hidden this week are folded with Show again")
@@ -291,7 +300,7 @@ def page_checks(tmp: Path) -> None:
           "the story page shows the company's facts and links its record")
     any_report = model["top"][0]["reports"][-1]["id"]
     check(insights_page.render_story(conn, any_report) is not None, "any report's id opens its story")
-    hw = next(s for s in model["stories"] if s["company"] == "Hartwell Infusion Ltd")
+    hw = next(s for s in model["stories"] if s["company"] == "PDX Diagnostics")
     hstory = insights_page.render_story(conn, hw["id"])
     check("Roles on Jobs" in hstory and "/jobs/" in hstory and "Last contact" in hstory,
           "a company with a role links it on Jobs and says when it was last contacted")
