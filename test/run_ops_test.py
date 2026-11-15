@@ -49,6 +49,7 @@ sys.path.insert(0, str(TEST_DIR))
 import build_dashboard  # noqa: E402
 import check_jobs as cj  # noqa: E402
 import check_signals as cs  # noqa: E402
+import home_page  # noqa: E402
 import radar_common as rc  # noqa: E402
 import serve_dashboard  # noqa: E402
 
@@ -715,11 +716,17 @@ def health_checks(tmp: Path) -> None:
 
 
 def home_checks(tmp: Path) -> None:
-    print("\nHome. The lights are /health's verdicts.")
+    # The old Home's job lines are Radar's health's now (/radar), and Home
+    # final's five lights read the same verdicts; both are checked here.
+    print("\nRadar's health and Home. The lights are /health's verdicts.")
     real_now = datetime.now(timezone.utc)
     config = rc.load_config()
 
+    last_lights: dict = {}
+
     def home(seed, cfg=None) -> str:
+        """Radar's health for this seed; Home final's light words go in
+        last_lights."""
         dbp = tmp / f"home-{time.monotonic_ns()}.sqlite"
         conn = rc.get_db(dbp)
         seed(conn)
@@ -729,8 +736,11 @@ def home_checks(tmp: Path) -> None:
         read.row_factory = sqlite3.Row
         use = cfg or config
         data = build_dashboard.collect(read, use)
+        model = home_page.build_model(read, data, use)
         read.close()
-        return build_dashboard.render_home_page(data, use, "t")
+        last_lights.clear()
+        last_lights.update({light["name"]: light["word"] for light in model["lights"]})
+        return build_dashboard.render_health_page(data, use, "t")
 
     def ago(hours: float) -> str:
         return iso(real_now - timedelta(hours=hours))
@@ -744,7 +754,9 @@ def home_checks(tmp: Path) -> None:
     page = home(lambda c: fresh(c, signals_hours=22.6))
     check("Needs a look. Signal watcher stalled" in page
           and 'dot-red" title="Needs a look.' in page,
-          "with the watcher stalled Home says so in red, as /health does")
+          "with the watcher stalled Radar's health says so in red, as /health does")
+    check(last_lights.get("signals") == "Stale",
+          f"and Home's light for the watcher says Stale ({last_lights})")
     body = page.split("<main", 1)[1]
     check("Inbox on schedule" not in body,
           "the inbox no longer claims a schedule it does not keep")
@@ -756,6 +768,9 @@ def home_checks(tmp: Path) -> None:
     page = home(lambda c: fresh(c, inbox_hours=5))
     check("Every job on schedule" in page and "Inbox flowing" in page,
           "a quiet night reads flowing and every job on schedule")
+    check(last_lights == {"inbox": "On time", "signals": "Dry run", "check": "Dry run",
+                          "digest": "Dry run", "push": "Dry run"},
+          f"and Home's lights say On time for the inbox and Dry run for the rest ({last_lights})")
     check("Signal watcher on schedule, phone push in dry run" in page,
           "the watcher's line says the phone push is in dry run")
     check("Advert checker on schedule, dry run, writes nothing" in page,
@@ -766,15 +781,19 @@ def home_checks(tmp: Path) -> None:
     page = home(lambda c: fresh(c, inbox_hours=13))
     check("Running. Inbox quiet" in page and 'dot-amber" title="Running.' in page,
           "half a day without an email is amber and quiet, not a fault")
+    check(last_lights.get("inbox") == "Late", f"and Home's inbox light says Late ({last_lights})")
 
     page = home(lambda c: (seed_run(c, ago(1), "inbox"),
                            seed_run(c, ago(1), "signals", "live", "ok")),
                 cfg={**config, "health_jobs": ["inbox", "signals"]})
     check("Every job on schedule" in page,
-          "a job /health is not watching does not turn Home's verdict")
+          "a job /health is not watching does not turn the verdict")
     check("Advert checker never run, not watched by /health" in page
           and 'dot-grey" title="never run"></span>Advert checker' in page,
           "and it shows grey, saying it is not watched")
+    check(last_lights.get("check") == "Off" and last_lights.get("push") == "On time",
+          f"Home says Off for a job that has never run, and the push is on time with a live "
+          f"watcher ({last_lights})")
     check("phone push in dry run" not in page,
           "a watcher armed to push says nothing about dry run")
 

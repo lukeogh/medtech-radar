@@ -292,6 +292,18 @@ CREATE TABLE IF NOT EXISTS application_events (
 );
 CREATE INDEX IF NOT EXISTS idx_application_events_app ON application_events(application_id);
 
+-- Home's Done (key E): an item taken off Home, and only off Home. item_key
+-- is the item's address on Home: signal:<event key>, role:<role key>,
+-- app:<application id>:<due date> or radar:<job>:<state>, so a new due date
+-- or a job's change of state brings the item back as a new one. Undo last
+-- deletes the row. Nothing else reads it, and nothing here changes the
+-- signal, the role, the application or the job where it lives.
+CREATE TABLE IF NOT EXISTS home_done (
+  item_key  TEXT PRIMARY KEY,
+  done_at   TEXT NOT NULL,
+  title     TEXT
+);
+
 -- Small key value store, e.g. last_digest_ts.
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
