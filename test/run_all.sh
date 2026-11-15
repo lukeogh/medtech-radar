@@ -90,6 +90,7 @@ run_one "ops faults       (test/run_ops_test.py)" "test/run_ops_test.py"
 run_one "scorer quotes    (test/run_quotes_test.py)" "test/run_quotes_test.py"
 run_one "jobs page        (test/run_jobs_test.py)" "test/run_jobs_test.py"
 run_one "insights page    (test/run_insights_test.py)" "test/run_insights_test.py"
+run_one "applications board (test/run_board_test.py)" "test/run_board_test.py"
 
 echo
 echo "=========================================================================="

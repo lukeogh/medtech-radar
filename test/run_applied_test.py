@@ -353,7 +353,10 @@ def jobs_html(db) -> str:
     split_applied takes them apart again."""
     with pointed_at(db):
         _s, open_page, _t = serve_dashboard.render_jobs(None, {"reading": ["1"]})
-        _s, applied_page, _t = serve_dashboard.render_jobs(None, {"show": ["applied"]})
+        # The List: the server draws the Board by default since the
+        # applications board, and the Board has its own runner.
+        _s, applied_page, _t = serve_dashboard.render_jobs(
+            None, {"show": ["applied"], "layout": ["list"]})
     return open_page.decode("utf-8") + APPLIED_MARK + applied_page.decode("utf-8")
 
 
@@ -2639,8 +2642,8 @@ def nothing_else_changes_checks() -> None:
         # The page's newest row id, and the Applied count in the link and the
         # Show menu, are the Applied view's business.
         html = re.sub(r'&quot;stamp&quot;: \d+', '&quot;stamp&quot;: N', html)
-        return re.sub(r'Applied <span class="(group-count|chip-count)">\d+</span>',
-                      r'Applied <span class="\1">N</span>', html)
+        return re.sub(r'Applied <span class="(group-count|chip-count)"( data-applied-count)?>\d+</span>',
+                      r'Applied <span class="\1"\2>N</span>', html)
 
     with tempfile.TemporaryDirectory() as tmp:
         def build(name, applied):
@@ -2689,8 +2692,9 @@ EXCEPTIONS = {
         "Unclose reopens a retired row, the chain's applied marker still holds",
     ("serve_dashboard.py", "set_lifecycle", "dismissed_at = NULL"):
         "Undismiss reopens a retired row, the chain's applied marker still holds",
-    ("serve_dashboard.py", "set_applied", "applied_at = NULL"):
-        "Undo is the one thing that clears the marker",
+    ("applications.py", "clear_applied", "applied_at = NULL"):
+        "Undo is the one thing that clears the marker (set_applied's Undo, and "
+        "the board's Undo of a move out of Preparing)",
     # ---- writers that take the write lock and look again before they write,
     # which is stronger than a condition on the statement
     ("check_jobs.py", "apply_page", "for c in sets"):
@@ -2818,7 +2822,8 @@ def static_scan_checks() -> None:
               ("backfill_pay.py", "main"), ("build_digest.py", "collect"),
               ("serve_dashboard.py", "set_acknowledged"),
               ("serve_dashboard.py", "set_lifecycle"),
-              ("serve_dashboard.py", "set_applied")}
+              # set_applied and the board's moves stamp through this one.
+              ("applications.py", "stamp_applied")}
     check(needed <= wired,
           "and the scan finds the condition in every function the brief "
           f"names (missing: {sorted(needed - wired)})")

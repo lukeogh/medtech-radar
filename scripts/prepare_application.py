@@ -78,6 +78,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import radar_common as rc  # noqa: E402
+import applications  # noqa: E402
 import check_jobs  # noqa: E402
 import cv_doc  # noqa: E402
 import cv_store  # noqa: E402
@@ -1140,6 +1141,8 @@ def save_copy(item_id: int, text, db_path: Path | None = None,
                                _master_version(config or rc.load_config()))
         name = cv_doc.saved_name(current.get("company"), current.get("title"))
         tailored_cv.save(conn, ref, clean_text, name)
+        # Radar fills Preparing on the applications board.
+        applications.on_saved(conn, current)
         conn.commit()
         out["outcome"] = "saved"
         out["saved_name"] = name

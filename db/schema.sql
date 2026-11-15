@@ -243,6 +243,55 @@ CREATE TABLE IF NOT EXISTS email_attempts (
   subject      TEXT
 );
 
+-- The applications board (design/jobs/applied-board v2). One row per role
+-- applied for or being prepared, keyed on the role as tailored_cvs is
+-- (tailored_cv.role_ref), with the stage it stands at. stage is NULL when the
+-- role has left the board: an application undone on Jobs with no saved CV.
+-- Radar sets preparing (a tailored CV saved, not applied) and applied (marked
+-- applied on Jobs or Prepare application), and the 21-day rule closes an
+-- untouched Applied item as no-reply; every other move is the owner's. A
+-- closed application is not a closed advert: closed_at, expiry and the page
+-- checker never read this table, and applied_at stays on the role whatever its
+-- stage, so an applied role stays protected. moved_at is the owner's last
+-- movement (a stage change or a next step set, changed or cleared); a contact
+-- logged with the company counts too and is read from touches. Rows are never
+-- deleted. Nullable throughout apart from the key, like every table since the
+-- first schema.
+CREATE TABLE IF NOT EXISTS applications (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  role_ref           TEXT NOT NULL UNIQUE,
+  opportunity_id     INTEGER,
+  stage              TEXT CHECK (stage IS NULL OR stage IN
+                       ('preparing','applied','conversation','interviewing','offer','closed')),
+  closed_reason      TEXT CHECK (closed_reason IS NULL OR closed_reason IN
+                       ('no-reply','turned-down','withdrawn')),
+  stage_at           TEXT,               -- when it entered this stage
+  stage_by           TEXT,               -- radar | owner, who moved it here
+  moved_at           TEXT,               -- the last movement, see above
+  next_step          TEXT,
+  next_step_due      TEXT,               -- YYYY-MM-DD
+  next_step_by       TEXT,               -- radar | owner
+  interview_at       TEXT,               -- YYYY-MM-DDTHH:MM, UK time as entered
+  follow_up_added_at TEXT,               -- when Radar added Follow up in this stay in Applied
+  created_at         TEXT
+);
+
+-- Every change to an application, with when and who, so Home can show the
+-- history later. kind is stage (from_stage to to_stage, reason for a close)
+-- or next-step (note holds the step as set, empty when cleared).
+CREATE TABLE IF NOT EXISTS application_events (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  application_id  INTEGER NOT NULL,
+  at              TEXT NOT NULL,
+  actor           TEXT NOT NULL CHECK (actor IN ('radar','owner')),
+  kind            TEXT NOT NULL CHECK (kind IN ('stage','next-step')),
+  from_stage      TEXT,
+  to_stage        TEXT,
+  reason          TEXT,
+  note            TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_application_events_app ON application_events(application_id);
+
 -- Small key value store, e.g. last_digest_ts.
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,

@@ -388,6 +388,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
         recompute_regions(conn, load_config())
     except Exception:                              # noqa: BLE001
         pass
+    # The applications board. Every role applied for gets its application in
+    # Applied, dated from applied_at, and every role with a saved tailored CV
+    # and no application gets one in Preparing, dated from saved_at: once per
+    # database, the first time a writer opens it after the board arrives,
+    # behind its own flag like the backfills above. After that Save CV, Mark
+    # applied and the board make applications as they go, and the scheduled
+    # rule (applications.run_rules) makes any that something else left out.
+    done_apps = conn.execute(
+        "SELECT value FROM meta WHERE key = 'migrated_applications'").fetchone()
+    if not done_apps:
+        import applications
+        applications.sync(conn)
+        conn.execute("INSERT OR IGNORE INTO meta (key, value)"
+                     " VALUES ('migrated_applications', '1')")
 
 
 LIVE_WINDOW_DAYS = 7
