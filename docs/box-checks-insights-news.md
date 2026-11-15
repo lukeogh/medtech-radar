@@ -27,6 +27,11 @@ What the change touches on the box:
   buying window's headline is now "<Company> advertises for a <role>, a first
   hire at a company you have been in touch with", and that is what its phone
   push starts with.
+- One story per event: a report about the same company, found up to seven
+  days after an earlier one, with a similar headline once the company's name is
+  left out, joins that story. A new report of a story you hid arrives hidden
+  and is not pushed. rescore.py now gives a late-scored row the same type,
+  summary, company and story as one scored on arrival.
 - Three regulator sources in `config/watchlist.yaml`, all `status: unverified`,
   so no run reads them until you switch them on (step 9).
 - A one-off backfill, `scripts/backfill_stories.py`: grouping is free; typing
@@ -91,8 +96,9 @@ counts for AFTER.
    cd /opt/biz-admin/medtech-radar && sudo -u radar /opt/biz-admin/radar-venv/bin/python scripts/backfill_stories.py
    ```
 
-   It prints how many signals make how many stories, how many hiring signals
-   were typed in code, and "Dry run: N signals from the last 90 days have no
+   It prints how many signals make how many stories and how many rows were
+   given a key (a second run gives none), how many hiring signals were typed
+   in code, and "Dry run: N signals from the last 90 days have no
    type". N times about one cent is the cost of step 7.
 
 7. Your call: type and summarise the last 90 days. Without it, those stories

@@ -107,6 +107,11 @@ def field_checks(tmp: Path) -> None:
           "clean_card_summary closes with a full stop, caps the length and says None for nothing")
     check(rc.clean_headline("Acme  raises £5m.") == "Acme raises £5m",
           "clean_headline drops a closing full stop and runs of spaces")
+    check(rc.clean_card_summary(": " + "y" * 150) is None,
+          "a card summary that its own cut empties is None, not a crash")
+    check(all(rc.is_placeholder_company(n) for n in ("Unknown company", "Unknown", "N/A", "Not stated", ""))
+          and not rc.is_placeholder_company("Acme Medical"),
+          "the ways a model says it could not name a company are all placeholders")
     conn.close()
 
 
@@ -130,6 +135,19 @@ def grouping_checks(tmp: Path) -> None:
     f = put(conn, "Selwick Photonics", "Selwick Photonics raises a seed round for its Raman reader for wound care", 0.5)
     check(key(conn, f) == key(conn, a) and rc.assign_event_key(conn, b) == f"solo-{b}",
           "a split-off report keeps its solo key and nothing joins it")
+    g = put(conn, "Hartwell Infusion Ltd", "Hartwell Infusion Ltd raises a £5m seed round", 2)
+    h = put(conn, "Hartwell Infusion Ltd", "Hartwell Infusion Ltd appoints a new CFO", 1)
+    check(key(conn, h) == f"e{h}" and key(conn, g) == f"e{g}",
+          "the company's own name does not make two unrelated stories about it one event")
+    i = put(conn, "Brackley Sensing", "Brackley Sensing raises £2.5m for its fibre-optic pressure sensor", 2)
+    conn.execute("UPDATE signals SET acknowledged_at = ? WHERE id = ?", (ago(1), i))
+    conn.commit()
+    j = put(conn, "Brackley Sensing", "Brackley Sensing raises £2.5m to scale its fibre-optic pressure sensor", 0.5)
+    check(key(conn, j) == key(conn, i) and conn.execute("SELECT acknowledged_at FROM signals WHERE id = ?",
+                                                        (j,)).fetchone()[0],
+          "a new report of a story a human hid joins it hidden, so the story does not come back")
+    k = put(conn, "Brackley Sensing", "Brackley Sensing raises £2.5m round for its pressure sensor", 3)
+    check(key(conn, k) == f"e{k}", "only earlier reports are joined, so store time and the backfill agree")
     conn.close()
 
 
@@ -165,10 +183,11 @@ def writer_checks(tmp: Path) -> None:
     check(wrote and bw["story_type"] == "buying-window" and bw["card_summary"] and bw["event_key"]
           and bw["headline"].startswith("Hartwell Infusion Ltd advertises for a Head of Software Quality"),
           "a buying window is typed, summarised and headlined in code")
-    # The backfill: an untyped row from before, grouped and typed.
+    # The backfill: rows stored before the deploy have no key and no type.
     old = put(conn, "Lumo Diagnostics", "Lumo Diagnostics raises a seed round for its IVD reader as a spin-off", 3,
               kind=None, card_summary=None, event_key=None)
     conn.execute("UPDATE signals SET story_type = NULL, card_summary = NULL, event_key = NULL WHERE id = ?", (old,))
+    conn.execute("UPDATE signals SET event_key = NULL WHERE company = 'Lumo Diagnostics'")
     tw = put(conn, "Kern Medical", "Kern Medical advertises its first quality manager", 2, kind=None, source="qa-tripwire")
     conn.execute("UPDATE signals SET story_type = NULL WHERE id = ?", (tw,))
     conn.commit()
@@ -179,18 +198,41 @@ def writer_checks(tmp: Path) -> None:
                          capture_output=True, text=True, env=env, timeout=120)
     conn = rc.get_db(db)
     row = conn.execute("SELECT story_type, event_key FROM signals WHERE id = ?", (old,)).fetchone()
-    first = conn.execute("SELECT event_key FROM signals ORDER BY id LIMIT 1").fetchone()[0]
+    lumo = {r[0] for r in conn.execute("SELECT event_key FROM signals WHERE company = 'Lumo Diagnostics'")}
     tws = conn.execute("SELECT story_type FROM signals WHERE id = ?", (tw,)).fetchone()[0]
-    check(dry.returncode == 0 and "Dry run" in dry.stdout and row["story_type"] is None and row["event_key"] == first
-          and tws == "first-hire",
-          "the backfill groups old rows for free, types the code's hiring rows, and makes no call without --live")
+    check(dry.returncode == 0 and "Dry run" in dry.stdout and row["story_type"] is None
+          and lumo == {f"e{old}"} and tws == "first-hire",
+          "the backfill groups old rows in order of arrival for free, types the code's hiring rows, "
+          "and makes no call without --live")
     conn.close()
+    again = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "backfill_stories.py"), "--db", str(db)],
+                           capture_output=True, text=True, env=env, timeout=120)
+    check(again.returncode == 0 and "0 rows were given a key" in again.stdout, "a second run changes no keys")
+    live_mock = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "backfill_stories.py"), "--mock"],
+                               capture_output=True, text=True, timeout=120)
+    check(live_mock.returncode == 2, "the mock refuses to run against the live database")
     mocked = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "backfill_stories.py"), "--db", str(db),
                              "--mock"], capture_output=True, text=True, timeout=120)
     conn = rc.get_db(db)
     row = conn.execute("SELECT story_type, card_summary FROM signals WHERE id = ?", (old,)).fetchone()
     check(mocked.returncode == 0 and row["story_type"] in rc.STORY_TYPES and row["card_summary"],
           "the paid pass, here with the mock, fills type and card summary on rows that had none")
+    # A row the scorer could not read, scored later by rescore.py, gets everything a row scored on arrival has.
+    conn.execute("INSERT INTO signals (url_hash, first_seen, source_id, headline, summary, source_url, why)"
+                 " VALUES (?,?,?,?,?,?,?)", (rc.url_hash("https://example.org/late"), rc.now_iso(), "imec-press",
+                                            "Lumo Diagnostics raises a seed round for its IVD reader, a spin-off",
+                                            "Spin-off with a seed round for an IVD reader, medical device.",
+                                            "https://example.org/late", "scorer returned unparseable output"))
+    conn.commit()
+    conn.close()
+    late = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "rescore.py"), "--db", str(db), "--mock",
+                           "--quiet"], capture_output=True, text=True, timeout=120)
+    conn = rc.get_db(db)
+    row = conn.execute("SELECT story_type, card_summary, company_id, event_key FROM signals"
+                       " WHERE source_url = 'https://example.org/late'").fetchone()
+    check(late.returncode == 0 and row["story_type"] and row["card_summary"] and row["company_id"]
+          and row["event_key"] == f"e{old}",
+          "a row rescored later gets its type, summary, company and event like one scored on arrival")
     conn.close()
 
 
@@ -223,7 +265,11 @@ def page_checks(tmp: Path) -> None:
     check(model["top"][0]["count"] == 3 and "and 2 more sources" in top,
           "three reports of one event make one story, led by the highest, with the other sources counted")
     ranked = re.search(r'<aside class="ranked".*?</aside>', html, re.S).group(0)
-    check(ranked.count("<li>") == 10 and "Most relevant this week" in ranked, "Most relevant lists ten stories")
+    check(ranked.count("<li data-rank-story=") == 10 and "Most relevant this week" in ranked,
+          "Most relevant lists ten stories, each tied to its story so Hide can take it off")
+    check('[hidden]{display:none!important}' in html, "hidden parts of the page are hidden whatever their display rule")
+    check("toast-undo" not in html and 'id="live" role="status"' in html,
+          "the message bar is for failures only, and an always-present live region carries the rest")
     for name in ("Hiring and buying windows", "Funding", "Spin-offs and accelerators", "Regulation and market news"):
         check(f">{name}</h2>" in html, f"the {name} section is on the page")
     check("More stories" in html and f"{len(model['below'])} this week under relevance 40" in html
@@ -239,7 +285,7 @@ def page_checks(tmp: Path) -> None:
     story = insights_page.render_story(conn, sid)
     check(story.count('<li><span class="src">') == 3 and story.count("Not the same story") == 2,
           "the story page lists every report and offers Not the same story on all but the lead")
-    check("Drafts, yours to edit" in story and "Copy the comment" in story and "Log a contact" in story,
+    check("Drafts to copy" in story and "Copy the comment" in story and "Log a contact" in story,
           "the story page holds the drafts with Copy and Log a contact")
     check("About Selwick Photonics" in story and "Enschede" in story and "/company/" in story,
           "the story page shows the company's facts and links its record")
