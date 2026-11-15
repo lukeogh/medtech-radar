@@ -64,7 +64,9 @@ Applied count covers Preparing to Offer, not Closed. One review pass, findings f
 
 **Update, 15 Nov.** A second study for Insights, as a news front page for a weekly read: three variations (A Front page, B Broadsheet, C Edition), each drawn at 2560, 1280 and phone, with a story page and a states board (a quiet week, a busy week, the watcher failing), plus a shared notes frame with rationale, trade-offs and open questions. They are hand-drawn HTML in the dark frame built on `claude/jobs-redesign`, not Superdesign drafts, and sit under [insights/news](#insightsnews). **B, Broadsheet, is the pick** (15 Nov); A and C stay beside it as the options not taken.
 
-**Counts.** 154 frames exported (462 files), the 25 in insights/news among them. 4 older versions could
+**Update, 15 Nov: the final round for Prepare application, CV and Watchlist.** Each page is finished from its chosen variation (Prepare application and CV from C, Margin notes; Watchlist from A, Table and record) at 2560, 1280 and phone, with a states board and a notes frame, in `prepare-application/final/`, `cv/final/` and `watchlist/final/`. They are hand-drawn in main's frame, dark only, with the Watchlist back in the top bar. One review pass (brief and wording, keyboard and accessibility, layout at each width), findings fixed. These are proposals for sign-off: where the brief left something open, the frames draw one option and the notes frame lists it as an open question with the alternatives (Prepare application 10, CV 13, Watchlist 12).
+
+**Counts.** 173 frames (519 files), the 25 in insights/news and the 19 finals of 15 Nov among them. 4 older versions could
 not be exported; they are listed under jobs with the reason. All sample data is fictional. Round one's
 direction notes address the owner by first name.
 
@@ -273,7 +275,24 @@ Round 1, direction C: Workspace / pipeline. Left off Jobs; its asks grid and com
 
 ## prepare-application
 
-Prepare application: 3 variations, 36 files.
+Prepare application: 3 variations, 36 files, and the final (18 files).
+
+### prepare-application/final
+
+Final round, 15 Nov: variation C, Margin notes, finished as a proposal for sign-off. Each ask in the advert sits beside the CV line that evidences it, citing the CV line numbers and the advert sentence it came from; a gap is said in words and listed first. The rate line is quoted from the advert, and the score is worked against the four gates on its basis (card or full spec). The full description is fetched only on a button that states its cost first, once per click and scored once per description. Rescore role, Save CV and Download Word sit together in a bar that stays in view; the tailored score (86) shows here only, beside the card (74) and full-spec (81) scores. Saving puts the role in Preparing and Mark applied (key M) moves it to Applied, with a link to the applications board (v2).
+
+Shared by the three finals: hand-drawn HTML and CSS in main's frame (`scripts/page_frame.py`: top bar, tokens and type), dark only, nothing loaded from the internet (IBM Plex Sans is not served, so the system sans renders, as on the live site), the Watchlist link back in the top bar. One invented world across the pages: the owner Alex Rennie, the Hartwell Infusion Ltd role "Software Quality Lead, Class II infusion pumps" (role 418; card 74, full spec 81, the tailored copy 86), one master CV whose line numbers Prepare application cites, costs in US cents as the cost note gives them, a 20px page title, 32px buttons, and single-key shortcuts that can be turned off and never fire while typing. **Reviewed** (one review pass: brief and wording, keyboard and accessibility, layout at each width; its findings were fixed) and waiting for sign-off. No canvas links: these are not Superdesign drafts.
+
+| Frame | Size | Files |
+|---|---|---|
+| Full width: the advert on the left, the tailored CV with its margin notes in the middle, score, gates, rate line and Application on the right | 2560x2753 | [png](prepare-application/final/prepare-application_final_2560_v1.png) · [html](prepare-application/final/prepare-application_final_2560_v1.html) · [css](prepare-application/final/prepare-application_final_2560_v1.css) |
+| Score with rate line and Application, then the gates, above the CV; the job description folds above the sheet | 1280x3637 | [png](prepare-application/final/prepare-application_final_1280_v1.png) · [html](prepare-application/final/prepare-application_final_1280_v1.html) · [css](prepare-application/final/prepare-application_final_1280_v1.css) |
+| The card score only, on an earlier CV, with the button that states the cost before fetching the full description | 1280x3431 | [png](prepare-application/final/prepare-application_final_1280-before-fetch_v1.png) · [html](prepare-application/final/prepare-application_final_1280-before-fetch_v1.html) · [css](prepare-application/final/prepare-application_final_1280-before-fetch_v1.css) |
+| Application and a one-line score first, the gates in a disclosure, the gaps, then the CV with each note under its line | 390x6832 | [png](prepare-application/final/prepare-application_final_phone_v1.png) · [html](prepare-application/final/prepare-application_final_phone_v1.html) · [css](prepare-application/final/prepare-application_final_phone_v1.css) |
+| Twelve states: before the fetch, fetching, fetch failed (nothing charged), already scored, rescoring and rescored, saved into Preparing, marked applied with undo, Mark applied with unsaved edits, an edit after the score, the master changed, a new description, the database busy | 1280x3808 | [png](prepare-application/final/prepare-application_final_states_v1.png) · [html](prepare-application/final/prepare-application_final_states_v1.html) · [css](prepare-application/final/prepare-application_final_states_v1.css) |
+| Rationale, what came from Margin notes and what changed, keyboard, contrast, ten open questions | 1280x4151 | [png](prepare-application/final/prepare-application_final_notes_1280_v1.png) · [html](prepare-application/final/prepare-application_final_notes_1280_v1.html) · [css](prepare-application/final/prepare-application_final_notes_1280_v1.css) |
+
+Open questions in the notes frame, each with the choice drawn and the alternatives: where the tailored score sits; whether editing a line re-cites asks live (drawn: the cited lines follow at once, the marks change only on Rescore); what a master change does to a tailored CV; the cost-first button against main's start-on-open from the Jobs link; which advert sentence an ask came from (the scorer would have to return it); where the gaps sit; the save name (drawn with the full job title, as the code and board v2 name files); a dark or a light sheet; notes that do not fit beside their line; Mark applied without a saved CV.
 
 ### prepare-application/three-panes
 
@@ -334,7 +353,25 @@ C, Margin notes: each ask set beside the CV line that evidences it, like a revie
 
 ## cv
 
-CV: 3 variations, 36 files.
+CV: 3 variations, 36 files, and the final (21 files).
+
+### cv/final
+
+Final round, 15 Nov: variation C, Margin notes, laid out like a CV editor: the CV as one A4 sheet in the centre, edited in place section by section, with a toolbar above it for Add section, Rearrange and Design. Master CVs (cv-*.md, one active) with tabs for History, Preferences and the Word import. Preferences live here and the page says plainly that changing them changes how roles are scored. After a master change, the roles still scored on the old version are flagged and Rescore states the count and the cost before it runs. A CV past two A4 pages says so and shows where. The sheet is drawn dark, as the brief asks; light paper is the first open question.
+
+Shared by the three finals: hand-drawn HTML and CSS in main's frame (`scripts/page_frame.py`: top bar, tokens and type), dark only, nothing loaded from the internet (IBM Plex Sans is not served, so the system sans renders, as on the live site), the Watchlist link back in the top bar. One invented world across the pages: the owner Alex Rennie, the Hartwell Infusion Ltd role "Software Quality Lead, Class II infusion pumps" (role 418; card 74, full spec 81, the tailored copy 86), one master CV whose line numbers Prepare application cites, costs in US cents as the cost note gives them, a 20px page title, 32px buttons, and single-key shortcuts that can be turned off and never fire while typing. **Reviewed** (one review pass: brief and wording, keyboard and accessibility, layout at each width; its findings were fixed) and waiting for sign-off. No canvas links: these are not Superdesign drafts.
+
+| Frame | Size | Files |
+|---|---|---|
+| The active master open on the dark A4 sheet, toolbar above it, master CVs, tabs and keys beside it | 2560x2682 | [png](cv/final/cv_final_2560_v1.png) · [html](cv/final/cv_final_2560_v1.html) · [css](cv/final/cv_final_2560_v1.css) |
+| The same at 1280, with the 38 roles scored on an earlier version flagged and Rescore stating count and cost | 1280x2690 | [png](cv/final/cv_final_1280_v1.png) · [html](cv/final/cv_final_1280_v1.html) · [css](cv/final/cv_final_1280_v1.css) |
+| The Preferences tab: floors, location, sector, pass mark, and the plain statement that a change changes how roles are scored | 1280x2690 | [png](cv/final/cv_final_1280-preferences_v1.png) · [html](cv/final/cv_final_1280-preferences_v1.html) · [css](cv/final/cv_final_1280-preferences_v1.css) |
+| A CV running onto a third page: the notice names where, the two-page limit is dashed and page 3 is outlined | 1280x4057 | [png](cv/final/cv_final_1280-overflow_v1.png) · [html](cv/final/cv_final_1280-overflow_v1.html) · [css](cv/final/cv_final_1280-overflow_v1.css) |
+| The CV for reading, each section editable on its own | 390x5332 | [png](cv/final/cv_final_phone_v1.png) · [html](cv/final/cv_final_phone_v1.html) · [css](cv/final/cv_final_phone_v1.css) |
+| History, Word import (importing, imported with differences, failed), Rearrange by keyboard, Design, saved and unsaved, switching the active master, Rescore affected confirming, running and done, a preference change | 1600x5067 | [png](cv/final/cv_final_states_v1.png) · [html](cv/final/cv_final_states_v1.html) · [css](cv/final/cv_final_states_v1.css) |
+| Rationale, what came from Margin notes and the Enhancv-style editor, breakpoints, keyboard, contrast, thirteen open questions | 1280x4924 | [png](cv/final/cv_final_notes_1280_v1.png) · [html](cv/final/cv_final_notes_1280_v1.html) · [css](cv/final/cv_final_notes_1280_v1.css) |
+
+Open questions: dark sheet or light paper (shared with Prepare application); named masters or today's dated versions; how far one Rescore reaches (drawn: all 38 in one confirmed run; today 25 a press); the cost figure (drawn: about 40 to 70 cents for 38 roles, from the cost note); every preference edited here; what a preference change flags; over two pages (drawn: a warning, saving allowed); how much Design changes; Rearrange (keyboard dialog, no dragging); what a Word import does; line numbers; editing on a phone; Undo and the Save button.
 
 ### cv/three-panes
 
@@ -662,7 +699,24 @@ C, Edition (not taken): a section bar with counts that stays at the top; Top sto
 
 ## watchlist
 
-Company watchlist: 3 variations, 54 files.
+Company watchlist: 3 variations, 54 files, and the final (18 files).
+
+### watchlist/final
+
+Final round, 15 Nov: variation A, Table and record, finished. Alex chooses the companies; Radar suggests them from buying windows, funding rounds and Insights stories, and a suggestion joins only when accepted. A company can be added by name. Selwick Photonics is shown arriving from Insights' Add to Watchlist. The record opens beside the table with the facts as published (each with its source and date), signals and stories, roles on Jobs, and the thread: every contact with its date and the next step with its due date. The 2 threads due (Qurio overdue, Lumenhal Photonics due today) are the ones Home final counts. The comment and connection-note drafts with Copy, and Log a contact, have moved here from the Insights story page, and the Watchlist link is back in the top bar.
+
+Shared by the three finals: hand-drawn HTML and CSS in main's frame (`scripts/page_frame.py`: top bar, tokens and type), dark only, nothing loaded from the internet (IBM Plex Sans is not served, so the system sans renders, as on the live site), the Watchlist link back in the top bar. One invented world across the pages: the owner Alex Rennie, the Hartwell Infusion Ltd role "Software Quality Lead, Class II infusion pumps" (role 418; card 74, full spec 81, the tailored copy 86), one master CV whose line numbers Prepare application cites, costs in US cents as the cost note gives them, a 20px page title, 32px buttons, and single-key shortcuts that can be turned off and never fire while typing. **Reviewed** (one review pass: brief and wording, keyboard and accessibility, layout at each width; its findings were fixed) and waiting for sign-off. No canvas links: these are not Superdesign drafts.
+
+| Frame | Size | Files |
+|---|---|---|
+| Your companies with Radar's suggestions open below, and Hartwell Infusion Ltd's record beside the table | 2560x1980 | [png](watchlist/final/watchlist_final_2560_v1.png) · [html](watchlist/final/watchlist_final_2560_v1.html) · [css](watchlist/final/watchlist_final_2560_v1.css) |
+| An 800px-high window: the suggestions folded to one line, the table, and the record kept in view beside it (the rest of the record is in the 2560 frame and the phone record) | 1280x1663 | [png](watchlist/final/watchlist_final_1280_v1.png) · [html](watchlist/final/watchlist_final_1280_v1.html) · [css](watchlist/final/watchlist_final_1280_v1.css) |
+| The list, with the suggestions folded and Selwick Photonics just arrived from Insights | 390x2192 | [png](watchlist/final/watchlist_final_phone_v1.png) · [html](watchlist/final/watchlist_final_phone_v1.html) · [css](watchlist/final/watchlist_final_phone_v1.css) |
+| Hartwell's record as its own view: facts as published, signals and stories, roles on Jobs, thread, drafts with Copy, Log a contact | 390x3903 | [png](watchlist/final/watchlist_final_phone-record_v1.png) · [html](watchlist/final/watchlist_final_phone-record_v1.html) · [css](watchlist/final/watchlist_final_phone-record_v1.css) |
+| First use, a suggestion accepted and one dismissed with undo, adding by name (found, not found, already watched), nothing due, overdue, logging a contact with its next step, copying a draft, removing with undo, how threads due on Home counts | 1600x6578 | [png](watchlist/final/watchlist_final_states_v1.png) · [html](watchlist/final/watchlist_final_states_v1.html) · [css](watchlist/final/watchlist_final_states_v1.css) |
+| Rationale, what came from Table and record, build needs, keyboard, contrast, twelve open questions | 1280x5055 | [png](watchlist/final/watchlist_final_notes_1280_v1.png) · [html](watchlist/final/watchlist_final_notes_1280_v1.html) · [css](watchlist/final/watchlist_final_notes_1280_v1.css) |
+
+Open questions: what Radar may suggest (drawn: buying windows, funding rounds and stories at 70 or more); how often and how many; whether dismissed suggestions come back; whether a next step is required when logging a contact (drawn: no, but a next step needs a due date); which threads count on Home (drawn: Watchlist companies only); whether removing closes the thread; what adding an unknown name does; which drafts the record shows; the record beside the table from 1024; whether facts refresh; the state labels; where the suggestions sit. Build needs listed in the notes: a route that saves a contact's next step and due date (the touches table already has the columns), how each company joined, a suggestions store, add by name, a source per fact.
 
 ### watchlist/a
 

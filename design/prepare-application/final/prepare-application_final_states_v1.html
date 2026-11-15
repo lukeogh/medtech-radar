@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Prepare application, states · MedTech Radar</title><style>
+:root{
+  color-scheme:dark;
+  --canvas:#0e1215; --surface:#151a1e; --surface-sunken:#1c2226;
+  --row-hover:#192024; --row-selected:#0f3237;
+  --text-1:#e6ebee; --text-2:#b3bec6; --text-3:#93a0a9;
+  --border-subtle:#262e34; --border-strong:#6f7c86;
+  --accent:#5cc3cf; --accent-hover:#82d3dc; --accent-tint:#0f3237; --on-accent:#071114;
+  --positive:#74d39b; --positive-tint:#12291c; --caution:#f0c46a; --caution-tint:#2c2311;
+  --negative:#ff9b8f; --negative-tint:#33191a; --neutral:#b3bec6; --neutral-tint:#1f262b;
+  --focus:#ffd447; --shadow-overlay:0 8px 24px rgba(0,0,0,.5);
+  --font-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --radius-2:2px; --radius-4:4px; --dur:120ms;
+  /* Type scale: size and line height in pairs, on a 4px grid. */
+  --fs-12:12px; --lh-12:16px; --fs-14:14px; --lh-14:20px; --fs-15:15px; --lh-15:24px;
+  --fs-16:16px; --lh-16:24px; --fs-18:18px; --lh-18:24px; --fs-20:20px; --lh-20:28px;
+  /* Spacing, a 4px grid. */
+  --sp-2:2px; --sp-4:4px; --sp-8:8px; --sp-12:12px; --sp-16:16px; --sp-20:20px;
+  --sp-24:24px; --sp-32:32px; --sp-48:48px;
+  /* The older pages' own names, pointed at the same palette. */
+  --paper:#0e1215; --surface-sunk:#1c2226;
+  --ink-1:#e6ebee; --ink-2:#b3bec6; --ink-3:#93a0a9;
+  --hairline:#262e34; --hairline-strong:#3d474e;
+  --accent-quiet:#2f6e76; --accent-wash:#0f3237;
+  --fail:#ff9b8f; --settled:#74d39b;
+  --tint-blue:#131b20; --tint-sand:#1a1a17; --tint-sage:#141b17;
+  --tint-clay:#1c1716; --tint-stone:#161b1f;
+  --panel-rule:rgba(230,235,238,.10);
+}
+@media (prefers-reduced-motion:reduce){:root{--dur:0ms}}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--focus-gap,var(--surface))}
+@media (forced-colors:active){:focus-visible{outline-color:Highlight}}
+.visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+.skip-link{position:absolute;left:8px;top:-60px;z-index:50;padding:8px 12px;background:var(--surface);color:var(--text-1);border:1px solid var(--border-strong);border-radius:var(--radius-2);font:600 14px/20px var(--font-sans)}
+.skip-link:focus{top:8px}
+.appbar{position:relative;z-index:20;display:flex;align-items:center;gap:24px;min-width:0;height:48px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);color:var(--text-1);font:400 14px/20px var(--font-sans);letter-spacing:0}
+.appbar .brand{display:flex;align-items:center;gap:12px;flex:none;color:var(--text-1);text-decoration:none}
+.appbar .brand-mark{display:block;width:51px;height:24px;flex:none}
+.appbar .brand-name{font-size:14px;line-height:20px;font-weight:600;white-space:nowrap}
+.appbar .appbar-page{display:none;font-size:16px;line-height:24px;font-weight:600}
+.appbar .nav{display:flex;align-self:stretch;gap:12px;margin:0 0 0 -4px;padding:0;list-style:none}
+.appbar .nav a{display:flex;align-items:center;height:100%;padding:2px 6px 0;border-bottom:2px solid transparent;color:var(--text-2);text-decoration:none;white-space:nowrap;transition:color var(--dur) ease-out}
+.appbar .nav a:hover{color:var(--text-1)}
+.appbar .nav a[aria-current="page"]{color:var(--text-1);border-bottom-color:var(--accent)}
+.appbar .nav a:focus-visible{outline-offset:-4px;box-shadow:none}
+.appbar .appbar-tools{display:flex;align-items:center;gap:16px;min-width:0;margin-left:auto}
+.appbar .inbox-status{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;line-height:16px;color:var(--text-3);white-space:nowrap}
+.appbar .inbox-status svg{flex:none}
+.appbar .inbox-status.is-warn{color:var(--caution)}
+.appbar .inbox-status.is-bad{color:var(--negative)}
+.appbar .bar-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;min-width:32px;padding:0 8px;border:1px solid transparent;border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 14px/20px var(--font-sans);cursor:pointer;text-decoration:none}
+.appbar .bar-btn:hover{color:var(--text-1);background:var(--row-hover)}
+.appbar .menu-btn{display:none}
+.appbar .menu-panel{display:none}
+@media (max-width:767.98px){
+  .appbar{gap:16px}
+  .appbar .nav,.appbar .appbar-tools,.appbar .brand-name{display:none}
+  .appbar .appbar-page{display:block}
+  .appbar .menu-btn{display:inline-flex;width:44px;height:44px;margin:0 -8px 0 auto}
+  .appbar .menu-btn:focus-visible{outline-offset:-2px;box-shadow:none}
+  .appbar.menu-open .menu-panel{display:block;position:absolute;top:48px;left:0;right:0;padding:8px 16px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);box-shadow:var(--shadow-overlay)}
+  .appbar .menu-panel ul{margin:0;padding:0;list-style:none}
+  .appbar .menu-panel a{display:flex;align-items:center;min-height:44px;color:var(--text-1);text-decoration:none;font-size:16px;line-height:24px}
+  .appbar .menu-panel a[aria-current="page"]{font-weight:600;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:6px}
+  .appbar .menu-panel .inbox-status{display:flex;margin-top:8px}
+}
+@media (pointer:coarse){.appbar .bar-btn{min-width:44px;height:44px}}
+/* A page whose body is still the older one: its own heading row keeps what it
+   says and loses the controls the bar now holds. */
+.page > .masthead{padding-top:0}
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--canvas)}
+body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15px/24px var(--font-sans);
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+a{color:var(--accent)}
+a:hover{color:var(--accent-hover)}
+h1,h2,h3,h4,p,ol,ul,dl,dd{margin:0}
+ol,ul{padding:0;list-style:none}
+button,input,select,textarea{font:inherit}
+:root{--note-w:440px;--gut:28px}
+html{scroll-padding-top:104px}
+.pa{padding:24px 24px 48px;max-width:2560px}
+.pa h2{font:600 16px/24px var(--font-sans);color:var(--text-1)}
+.pa h3{font:600 14px/20px var(--font-sans);color:var(--text-1)}
+.sub{font-size:12px;line-height:16px;color:var(--text-3)}
+.small{font-size:14px;line-height:20px;color:var(--text-2)}
+.role-head{padding:0 0 16px;border-bottom:1px solid var(--border-subtle)}
+.h1row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 24px}
+.role-head h1{font:600 20px/28px var(--font-sans);color:var(--text-1)}
+.page-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.facts{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:4px;font-size:14px;line-height:20px;color:var(--text-2)}
+.facts li{white-space:nowrap}
+.tag{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font-size:12px;line-height:16px;color:var(--text-2);white-space:nowrap}
+.tag.basis{border-color:var(--accent);color:var(--accent)}
+.tag.top{border-color:var(--positive);color:var(--positive)}
+.kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface-sunken);color:var(--text-2);font:500 11px/16px var(--font-mono)}
+.btn{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface);color:var(--text-1);font:500 14px/20px var(--font-sans);text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--row-hover)}
+.btn .cost{color:var(--text-2);font-weight:400}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.btn-primary .cost{color:var(--on-accent)}
+.btn-primary .kbd{background:var(--on-accent);color:var(--accent-hover);border-color:var(--on-accent)}
+.btn[disabled],.btn[aria-disabled="true"]{background:transparent;border-color:var(--border-subtle);color:var(--text-3);cursor:not-allowed}
+.btn.quiet{border-color:transparent;background:transparent;color:var(--text-2);padding:0 8px}
+.btn svg{flex:none}
+.btn-sm{display:inline-flex;align-items:center;height:24px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 12px/16px var(--font-sans);cursor:pointer}
+.btn-sm[aria-current="true"]{border-color:var(--accent);color:var(--accent)}
+.link{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+.notice{margin:12px 0 0;padding:8px 12px;border-left:3px solid var(--border-strong);background:var(--surface);font-size:14px;line-height:20px;color:var(--text-2)}
+.notice b{color:var(--text-1)}
+.notice.bad{border-left-color:var(--negative);background:var(--negative-tint)}
+.notice.ok{border-left-color:var(--positive);background:var(--positive-tint)}
+.notice.work{border-left-color:var(--accent);background:var(--accent-tint)}
+.notice.warn{border-left-color:var(--caution);background:var(--caution-tint)}
+.notice .btn{margin-top:8px}
+.switch{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 6px 0 2px;border:1px solid var(--border-strong);border-radius:12px;background:transparent;color:var(--text-2);font:500 12px/16px var(--font-sans);cursor:pointer}
+.switch .knob{width:18px;height:18px;border-radius:50%;background:var(--accent)}
+.keys-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-top:12px;font-size:12px;line-height:16px;color:var(--text-3)}
+
+/* Layout: rail, advert and CV side by side from 1800; a band, the folded advert and the CV below that. */
+.layout{display:grid;gap:24px;margin-top:16px;grid-template-columns:minmax(0,1fr)}
+.work{min-width:0}.advert{min-width:0}
+@media (min-width:1800px){
+  :root{--note-w:520px}
+  .layout{grid-template-columns:480px 520px minmax(0,1fr);align-items:start}
+  .rail,.advert .panel{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto}
+}
+.rail{display:grid;gap:16px;align-content:start}
+.panel{padding:16px;border:1px solid var(--border-subtle);border-radius:var(--radius-4);background:var(--surface)}
+.panel > h2,.panel summary h2{margin-bottom:4px}
+@media (min-width:1024px) and (max-width:1799.98px){
+  .rail{grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);grid-template-areas:"score gates" "app gates" "rate gates";align-items:start}
+  .p-score{grid-area:score}.p-app{grid-area:app}.p-rate{grid-area:rate}.p-gates{grid-area:gates}
+}
+.figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0 8px}
+.fig{padding:8px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);background:var(--canvas)}
+.fig dt{font:600 12px/16px var(--font-sans);color:var(--text-2)}
+.fig .num{font:600 32px/40px var(--font-sans);color:var(--text-1)}
+.fig .num.none{font-size:16px;line-height:40px;color:var(--text-3);font-weight:500}
+.fig dd{font-size:12px;line-height:16px;color:var(--text-3)}
+.fig.is-role{border-color:var(--border-strong)}
+.fig.is-copy{border-color:var(--accent);border-style:dashed}
+.fig.is-old .num{color:var(--text-3)}
+.fig .who{color:var(--text-2)}
+.why{margin-top:8px;font-size:14px;line-height:20px;color:var(--text-2)}
+.sumline{display:none}
+details.panel > summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;cursor:pointer;list-style:none}
+details.panel > summary::-webkit-details-marker{display:none}
+details.panel > summary::before{content:"";align-self:center;width:8px;height:8px;border-right:2px solid var(--text-2);border-bottom:2px solid var(--text-2);transform:rotate(45deg);margin:0 2px 4px}
+details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bottom:0}
+.gates{width:100%;margin-top:8px;border-collapse:collapse;font-size:14px;line-height:20px;table-layout:fixed}
+.gates th,.gates td{padding:6px 8px 6px 0;text-align:left;vertical-align:top;border-top:1px solid var(--border-subtle)}
+.gates thead th{font:600 12px/16px var(--font-sans);color:var(--text-2);border-top:0}
+.gates col.c-gate{width:30%}.gates col.c-mark{width:15%}
+.gates tbody th{font-weight:600;color:var(--text-1)}
+.gates .letter{display:inline-flex;justify-content:center;width:18px;margin-right:6px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font:500 11px/16px var(--font-mono);color:var(--text-2)}
+.pass{color:var(--positive);white-space:nowrap}.fail{color:var(--negative);white-space:nowrap}
+.gates td.gwhy{color:var(--text-3);font-size:12px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.quote{margin:8px 0 4px;padding-left:12px;border-left:3px solid var(--accent);font:500 16px/24px var(--font-sans);color:var(--text-1)}
+.app-state{margin:8px 0 12px;font-size:14px;line-height:20px;color:var(--text-2)}
+.app-state b{color:var(--text-1)}
+.stages{display:flex;gap:4px;margin:8px 0 4px;font-size:12px;line-height:16px}
+.stages li{flex:1;padding:4px 6px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);color:var(--text-3);text-align:center}
+.stages li.is-here{border-color:var(--accent);color:var(--text-1);font-weight:600}
+.row-btns{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+
+/* The work: head, the sticky CV actions, gaps, the sheet with its margin notes. */
+.work{display:flex;flex-direction:column;gap:12px}
+.work-head .tally{display:flex;flex-wrap:wrap;gap:4px 16px;margin:4px 0;font-size:14px;line-height:20px;color:var(--text-2)}
+.tally b{color:var(--text-1)}
+.legend{font-size:12px;line-height:16px;color:var(--text-3)}
+.cv-actions{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface);box-shadow:var(--shadow-overlay)}
+.cv-actions .sep{width:1px;align-self:stretch;margin:0 4px;background:var(--border-subtle)}
+.save-as{flex-basis:100%;margin:0 4px;font-size:12px;line-height:16px;color:var(--text-3)}
+.save-as b{color:var(--text-2);font-weight:500}
+.gaps{padding:12px 16px;border:1px dashed var(--negative);border-radius:var(--radius-4);background:var(--negative-tint)}
+.gaps ol{display:grid;gap:12px;margin-top:8px}
+@media (min-width:1280px){.gaps ol{grid-template-columns:1fr 1fr}}
+
+.sheets{display:grid;gap:4px}
+.sheet{position:relative;display:grid;grid-template-columns:48px minmax(0,1fr) var(--gut) var(--note-w);
+  padding:40px 0;background:linear-gradient(90deg,var(--surface-sunken) calc(100% - var(--note-w) - var(--gut)),transparent 0)}
+.sheet::before{content:"";position:absolute;inset:0 calc(var(--note-w) + var(--gut)) 0 0;border:1px solid var(--border-strong);border-radius:var(--radius-2);box-shadow:var(--shadow-overlay);pointer-events:none}
+.pagefoot{margin:2px 0 12px;font-size:12px;line-height:16px;color:var(--text-3)}
+.ln{grid-column:1 / 3;grid-row:var(--r);position:relative;display:grid;grid-template-columns:48px minmax(0,1fr);align-items:start;padding-right:40px}
+.ln .n{padding-right:12px;text-align:right;font:400 11px/24px var(--font-mono);color:var(--text-3);user-select:none}
+.ln.cited .n{color:var(--text-2)}
+.ln .t{margin:0;font:400 15px/24px var(--font-sans);color:var(--text-1)}
+.ln .t > [role="button"]{display:block;border-radius:var(--radius-2);cursor:text}
+.ln .t > [role="button"]:hover{background:var(--row-hover)}
+.ln.name .t{font:600 24px/32px var(--font-sans)}.ln.name .n{line-height:32px}
+.ln.sub .t,.ln.contact .t{color:var(--text-2);font-size:14px;line-height:20px}
+.ln.h{padding-top:16px}.ln.h .t{font:600 16px/24px var(--font-sans);border-bottom:1px solid var(--border-subtle)}
+.ln.role{padding-top:12px}.ln.role .t{font-weight:600}
+.ln.b .t > [role="button"]{position:relative;padding-left:18px}
+.ln.b .t > [role="button"]::before{content:"";position:absolute;left:4px;top:10px;width:5px;height:5px;border-radius:50%;background:var(--text-2)}
+.ln.lit{background:var(--accent-tint);box-shadow:inset 3px 0 0 var(--accent)}
+.edit{display:flex;gap:8px;align-items:flex-start}
+.edit textarea{flex:1;min-width:0;field-sizing:content;min-height:28px;padding:2px 6px;resize:none;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--canvas);color:var(--text-1);font:400 15px/22px var(--font-sans);outline:2px solid var(--focus);outline-offset:1px}
+.line-ops{display:flex;gap:4px}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface);color:var(--text-2);cursor:pointer}
+.notes{grid-column:4;grid-row:var(--r) / span var(--s);position:relative;display:grid;gap:6px;align-content:start;padding:0 0 8px}
+.notes::before{content:"";position:absolute;left:calc(-1 * var(--gut));top:12px;width:calc(var(--gut) - 4px);border-top:1px solid var(--border-strong)}
+.notes-empty{grid-column:4;grid-row:1 / span 3;padding:8px 12px;border:1px dashed var(--border-strong);border-radius:var(--radius-2);font-size:14px;line-height:20px;color:var(--text-2)}
+.note{padding:6px 10px 8px;border-left:3px solid var(--border-strong);background:var(--canvas);font-size:14px;line-height:20px}
+.note.st-met{border-left-color:var(--positive)}
+.note.st-partly{border-left-color:var(--caution)}
+.note.st-gap{border-left-color:var(--negative);border-left-style:dashed}
+.note.is-closed{padding:0;background:transparent}
+.note.is-selected{background:var(--row-selected);outline:1px solid var(--accent)}
+.note .head{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.note-toggle{display:flex;width:100%;align-items:baseline;gap:8px;padding:2px 10px;border:0;background:transparent;color:var(--text-2);font:400 14px/20px var(--font-sans);text-align:left;cursor:pointer}
+.note-toggle:hover{background:var(--row-hover)}
+.note-toggle .chev{margin-left:auto;color:var(--text-3)}
+.note.is-open .note-toggle{padding:0}
+.note-body{display:grid;gap:2px;margin-top:2px}
+.note .id{font:500 12px/16px var(--font-mono);color:var(--text-3)}
+.mark{font-weight:600;white-space:nowrap}
+.mark.met{color:var(--positive)}.mark.partly{color:var(--caution)}.mark.gap{color:var(--negative)}
+.note q{display:block;color:var(--text-1);quotes:"\201C" "\201D"}
+.note .cite{display:block;font-size:12px;line-height:16px;color:var(--text-3)}
+.note .cite a{color:var(--accent)}
+.note .gapwhy{display:block;color:var(--text-2)}
+.note .was{display:inline-block;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font-size:12px;line-height:16px;color:var(--text-2)}
+.note .btn-sm{justify-self:start;margin-top:4px}
+
+/* The advert, as stored, each ask underlined in the sentence it came from. */
+.advert .panel{padding:16px 20px}
+.advert-toggle{display:none}
+.adv h3{margin:16px 0 4px}
+.adv p,.adv li{font-size:15px;line-height:24px;color:var(--text-2)}
+.adv ul{display:grid;gap:4px;padding-left:18px;list-style:disc}
+.adv .ask{color:var(--text-1);text-decoration-line:underline;text-decoration-thickness:2px;text-underline-offset:4px}
+.adv .ask.met{text-decoration-style:solid;text-decoration-color:var(--positive)}
+.adv .ask.partly{text-decoration-style:dashed;text-decoration-color:var(--caution)}
+.adv .ask.gap{text-decoration-style:dotted;text-decoration-color:var(--negative)}
+.adv .ask.sel{background:var(--row-selected)}
+.adv .tagmark{margin-left:4px;font:500 12px/16px var(--font-mono);white-space:nowrap}
+.adv .rate{color:var(--text-1);background:var(--accent-tint);box-shadow:inset 0 -2px 0 var(--accent)}
+@media (max-width:1799.98px){
+  .advert:not(.is-open) .adv{display:none}
+  .advert-toggle{display:inline-flex}
+  .advert .panel{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}
+  .advert.is-open .adv{flex-basis:100%}
+}
+
+/* A phone: one-line summary, gates folded, notes under the line they sit beside, the actions at the foot. */
+@media (max-width:767.98px){
+  html{scroll-padding-top:16px;scroll-padding-bottom:136px}
+  .pa{padding:24px 16px 48px}
+  .facts li{white-space:normal}
+  .layout{gap:16px}
+  .panel{padding:12px}
+  .p-score .figs,.p-score .why{display:none}
+  .sumline{display:block;margin-top:8px;font-size:15px;line-height:24px;color:var(--text-2)}
+  .sumline b{color:var(--text-1);font-size:18px}
+  .gates td.gwhy{white-space:normal}
+  .gates col.c-gate{width:40%}.gates col.c-mark{width:30%}
+  .gates .gwhy-col{display:none}
+  .sheet{display:block;padding:16px 12px 16px 0;background:var(--surface-sunken)}
+  .sheet::before{inset:0}
+  .ln{display:grid;grid-template-columns:32px minmax(0,1fr);padding-right:0}
+  .ln .n{padding-right:8px}
+  .ln .t{font-size:14px;line-height:22px}
+  .ln.name .t{font-size:20px;line-height:28px}
+  .notes,.notes-empty{display:grid;margin:4px 0 8px 32px;padding:0}
+  .notes::before{display:none}
+  .edit{flex-wrap:wrap}
+  .line-ops{flex-basis:100%}
+  .icon-btn{width:44px;height:44px}
+  .cv-actions{top:auto;bottom:0;margin:0 -16px;border-radius:0;border-width:1px 0}
+  .cv-actions .btn{flex:1 1 0;flex-direction:column;justify-content:center;gap:0;height:auto;min-height:52px;padding:4px 6px;line-height:16px;white-space:normal;text-align:center}
+  .cv-actions .btn svg{display:none}
+  .cv-actions .btn .cost{font-size:12px}
+  .cv-actions .sep,.cv-actions .quiet{display:none}
+  .btn{height:44px}
+}
+@media (forced-colors:active){.note,.fig,.tag,.kbd{border:1px solid CanvasText}.ln.lit{outline:2px solid Highlight}}
+
+.board{padding:24px 24px 48px}
+.board > h1{font:600 24px/32px var(--font-sans);color:var(--text-1)}
+.board > .lede{max-width:960px;margin-top:4px;font-size:14px;line-height:20px;color:var(--text-2)}
+.cells{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-top:24px}
+.cell{display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--canvas)}
+.cell.wide{grid-column:1 / -1}
+.cell > header h2{display:flex;gap:10px;align-items:baseline;font:600 16px/24px var(--font-sans);color:var(--text-1)}
+.cell > header .no{display:inline-flex;justify-content:center;min-width:24px;padding:0 4px;border:1px solid var(--text-2);border-radius:var(--radius-2);font:600 12px/20px var(--font-mono);color:var(--text-1)}
+.cell > header p{margin-top:4px;font-size:14px;line-height:20px;color:var(--text-2)}
+.cell .from{font-size:12px;line-height:16px;color:var(--text-3)}
+.cell .notice{margin:0}
+.cell .figs{margin:8px 0 0}
+.mini-col{padding:12px;border:1px solid var(--border-subtle);border-radius:var(--radius-4);background:var(--surface)}
+.mini-col h3{display:flex;gap:8px;align-items:baseline;font:600 14px/20px var(--font-sans);color:var(--text-1)}
+.mini-col h3 .count{font:500 12px/16px var(--font-mono);color:var(--text-2)}
+.mini-col ol{display:grid;gap:8px;margin-top:8px}
+.card{padding:8px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);background:var(--canvas);font-size:12px;line-height:16px;color:var(--text-3)}
+.card b{display:block;font:600 14px/20px var(--font-sans);color:var(--text-1)}
+.card.is-new{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.card .new{display:inline-block;margin-top:4px;padding:0 4px;border:1px solid var(--accent);border-radius:var(--radius-2);color:var(--accent)}
+.split > *{grid-area:auto}
+.split{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:12px;align-items:start}
+.dialog{max-width:520px;padding:20px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface);box-shadow:var(--shadow-overlay)}
+.dialog h3{font:600 16px/24px var(--font-sans)}
+.dialog p{margin-top:8px;font-size:14px;line-height:20px;color:var(--text-2)}
+.dialog .row-btns{margin-top:16px}
+.scrim{padding:24px;border-radius:var(--radius-4);background:var(--surface-sunken)}
+.mini-sheet{padding:12px 0;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface-sunken)}
+.mini-sheet .ln{display:grid;grid-template-columns:40px minmax(0,1fr);padding-right:12px}
+.mini-sheet .ln .n{color:var(--text-2)}
+.ln.changed .t{box-shadow:inset 0 -2px 0 var(--caution)}
+.stale-note{border-left:3px dashed var(--caution);padding:6px 10px 8px;background:var(--canvas);font-size:14px;line-height:20px}
+.stale-note .mark{color:var(--caution)}
+.tiny-head{font:600 12px/16px var(--font-sans);color:var(--text-2);text-transform:none}
+</style></head><body><a class="skip-link" href="#main">Skip to the page</a><header class="appbar"><a class="brand" href="/" aria-label="MedTech Radar, Home"><svg class="brand-mark" viewBox="0 0 36 17" width="51" height="24" fill="none" aria-hidden="true" focusable="false"><path d="M4 15a14 14 0 0 1 28 0" stroke="var(--text-3)" stroke-width="1.2"/><path d="M8.5 15a9.5 9.5 0 0 1 19 0" stroke="var(--text-2)" stroke-width="1.2"/><path d="M13 15a5 5 0 0 1 10 0Z" fill="var(--text-1)"/><path d="M0 15h36" stroke="var(--text-1)" stroke-width="1.5"/></svg><span class="brand-name">MedTech Radar</span><span class="appbar-page" aria-hidden="true">Prepare application</span></a><nav class="nav" aria-label="Pages"><a href="/">Home</a><a href="/jobs" aria-current="page">Jobs</a><a href="/insights">Insights</a><a href="/watchlist">Watchlist</a><a href="/cv">CV</a></nav><div class="appbar-tools"><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div><button type="button" class="bar-btn menu-btn" aria-expanded="false" aria-controls="menu-panel">Menu</button><div class="menu-panel" id="menu-panel"><nav aria-label="Pages, menu"><ul><li><a href="/">Home</a></li><li><a href="/jobs" aria-current="page">Jobs</a></li><li><a href="/insights">Insights</a></li><li><a href="/watchlist">Watchlist</a></li><li><a href="/cv">CV</a></li></ul></nav><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div></header><main id="main" tabindex="-1"><div class="pa board">
+<h1>Prepare application: states</h1>
+<p class="lede">The states the main frames do not show, for Software Quality Lead, Class II infusion pumps at Hartwell Infusion Ltd, drawn on Friday 13 Nov 2026 at 1280.
+Each is the part of the page that changes, in place. Costs are in US cents, as the bill is. Every name, company and figure is invented.</p>
+<div class="cells"><section class="cell" aria-labelledby="st-1"><header><h2 id="st-1"><span class="no">1</span>Before the full description is fetched</h2><p>The page opens on the card's score. Nothing is fetched or scored on opening: the button names its cost before the verb, and only a press spends. The whole page in this state is the frame <b>1280-before-fetch</b>.</p></header><div class="panel"><dl class="figs"><div class="fig is-role"><dt>Card</dt><dd class="num">74</dd><dd>Alert card, 21 Oct, on an earlier CV.</dd></div><div class="fig"><dt>Full spec</dt><dd class="num none">Not fetched</dd><dd>Made only when you press.</dd></div><div class="fig is-copy"><dt>This copy</dt><dd class="num none">Not scored</dd><dd>Needs the full spec first.</dd></div></dl>
+  <div class="fetch">
+    <button type="button" class="btn btn-primary" style="margin-top:12px" aria-describedby="fetch-cost">
+      <span class="cost">About 2 cents, 1 call:</span> Fetch and score the full description</button>
+    <p class="small" id="fetch-cost" style="margin-top:8px">One read of the advert page and one scoring call, made once for this description:
+    about 0.9 cent for the score, up to about 2 cents with the per-ask working and the quotes, and never more than about 9 cents.
+    A fetch that fails costs nothing. Opening this page again, reloading it or pressing again once it has scored costs nothing.</p>
+  </div></div><p class=from>Also how the page opens from a bookmark, a typed address or another site: never an automatic start.</p></section><section class="cell" aria-labelledby="st-2"><header><h2 id="st-2"><span class="no">2</span>Fetching and scoring</h2><p>One press, one fetch, one call. The button is held and says what it is doing; a second press, a reload or a second tab waits for this one and spends nothing.</p></header><div class="panel"><dl class="figs"><div class="fig is-role"><dt>Card</dt><dd class="num">74</dd><dd>Alert card, 21 Oct, on an earlier CV.</dd></div><div class="fig"><dt>Full spec</dt><dd class="num none">Working</dd><dd>Fetching, then scoring once.</dd></div><div class="fig is-copy"><dt>This copy</dt><dd class="num none">Not scored</dd><dd>Needs the full spec first.</dd></div></dl><button type="button" class="btn" disabled aria-busy="true" style="margin-top:12px">Fetching and scoring&hellip;</button><p class="notice work" role="status"><b>Working.</b> The advert is read from LinkedIn once, then scored once against your master CV. This takes a few seconds. The page fills in when it is done.</p></div></section><section class="cell" aria-labelledby="st-3"><header><h2 id="st-3"><span class="no">3</span>The fetch failed: nothing charged</h2><p>No description means no scoring call, so a failed fetch costs nothing. Try again is offered only where trying again could work.</p></header><p class="notice bad"><b>The full description could not be fetched.</b> Radar could not reach LinkedIn from this machine. The score shown is the one made from the advert card. Nothing was charged.<br><button type="button" class="btn"><span class="cost">About 2 cents, 1 call:</span> Try again</button></p><p class="notice bad"><b>The full description could not be fetched.</b> LinkedIn asked Radar to slow down. Nothing was stored, and Radar will not ask again for 10 minutes. The score shown is the one made from the advert card. Nothing was charged.</p><p class="notice bad"><b>The full description could not be fetched.</b> LinkedIn asked for a login, and Radar never logs in. The score shown is the one made from the advert card. Nothing was charged.</p></section><section class="cell" aria-labelledby="st-4"><header><h2 id="st-4"><span class="no">4</span>Already scored: no new charge</h2><p>A description is scored once per version of it. Opening the page again shows the stored score with no button; Rescore role on a copy already scored shows that score again.</p></header><div class="panel"><span class="tag basis">Basis: full spec, fetched 13 Nov 09:06</span><p class="small" style="margin-top:8px">Scored once for this description, 13 Nov 09:06. Opening this page again, reloading it or a second tab costs nothing, so there is no fetch button.</p></div><p class="notice ok" role="status"><b>Nothing was spent.</b> This copy has been scored against this description already, so its score of 86 is shown again.</p><p class="notice warn"><b>The stored description has changed since this role was scored</b> (a later visit, 09:29: Radar has read a newer version of the advert since), so the asks and the rate line from the earlier one are not shown.<br><button type="button" class="btn"><span class="cost">About 2 cents, 1 call:</span> Score the new description</button></p></section><section class="cell" aria-labelledby="st-5"><header><h2 id="st-5"><span class="no">5</span>Rescore role: in progress</h2><p>Rescore role scores the copy on screen against the stored description, once. The three CV buttons stay together; Rescore role is held while it works.</p></header><div class="cv-actions" role="group" aria-label="Tailored CV actions"><button type="button" class="btn" aria-disabled="true" aria-busy="true"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>Rescoring&hellip;</button><button type="button" class="btn"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h8l2 2v9H3zM5.5 2.5v3h5v-3M5 13.5v-4h6v4" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>Save CV</button><button type="button" class="btn" aria-disabled="true" aria-describedby="dl-why-s5"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m-3.5-3L8 10.5 11.5 7M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>Download Word</button><span class="sep" aria-hidden="true"></span><button type="button" class="btn quiet">Start again from master</button><p class="save-as" id="dl-why-s5">Not saved yet. Save CV stores it as <b>CV - Alex Rennie - Hartwell Infusion Ltd - Software Quality Lead, Class II infusion pumps</b> and puts the role in Preparing. Download Word gives the saved copy, so it waits for a save.</p></div><div class="panel"><dl class="figs"><div class="fig is-old"><dt>Card</dt><dd class="num">74</dd><dd>Alert card, 21 Oct, on an earlier CV.</dd></div><div class="fig is-role"><dt>Full spec</dt><dd class="num">81</dd><dd>Master CV. The Jobs row keeps it.</dd></div><div class="fig is-copy"><dt>This copy</dt><dd class="num none">Working</dd><dd>Scoring this copy once.</dd></div></dl><p class="notice work" role="status"><b>Rescoring.</b> This copy, as it is on screen, is scored against the stored description once. About 2 cents. This takes a few seconds.</p></div></section><section class="cell" aria-labelledby="st-6"><header><h2 id="st-6"><span class="no">6</span>Rescore role: done</h2><p>The copy's score and what moved. It is the copy's own: stored on the copy and in the score history marked tailored, never on the Jobs row.</p></header><div class="panel"><dl class="figs"><div class="fig is-old"><dt>Card</dt><dd class="num">74</dd><dd>Alert card, 21 Oct, on an earlier CV.</dd></div><div class="fig is-role"><dt>Full spec</dt><dd class="num">81</dd><dd>Master CV. The Jobs row keeps it.</dd></div><div class="fig is-copy"><dt>This copy</dt><dd class="num">86</dd><dd>This page only. 13 Nov 09:12.</dd></div></dl><p class="notice ok" role="status"><b>Rescored 09:12.</b> CV match 81 on the master CV to 86 on this copy, still a Top prospect. All four gates pass. 2 asks changed:</p><ul class="small" style="margin-top:8px;display:grid;gap:4px"><li><b>Now met, was partly.</b> A13, Experience of FDA 510(k) submissions.</li><li><b>Now partly, was missing.</b> A18, Desirable: infusion pumps under IEC 60601-2-24.</li></ul><p class="sub" style="margin-top:8px">The Jobs row still shows 81, the full spec score on the master CV.</p></div></section><section class="cell wide" aria-labelledby="st-7"><header><h2 id="st-7"><span class="no">7</span>Saved: the role is in Preparing (a later visit, 09:21)</h2><p>Save CV stores the copy on screen as the one to send, under its name, and puts the role in Preparing on the applications board. Download Word now gives that saved copy.</p></header><div class="cv-actions" role="group" aria-label="Tailored CV actions"><button type="button" class="btn"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg><span class="cost">About 2 cents, 1 call:</span> Rescore role</button><button type="button" class="btn"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h8l2 2v9H3zM5.5 2.5v3h5v-3M5 13.5v-4h6v4" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>Save CV</button><a class="btn" href="/prepare/418/cv.docx" download><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m-3.5-3L8 10.5 11.5 7M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>Download Word</a><span class="sep" aria-hidden="true"></span><button type="button" class="btn quiet">Start again from master</button><p class="save-as">Saved 09:21 as <b>CV - Alex Rennie - Hartwell Infusion Ltd - Software Quality Lead, Class II infusion pumps</b>. Nothing on screen has changed since. Download Word gives this saved copy.</p></div><p class="notice ok" role="status"><b>Saved as CV - Alex Rennie - Hartwell Infusion Ltd - Software Quality Lead, Class II infusion pumps.</b> This role is now in Preparing on the applications board. <a class="link" href="/jobs?view=applied&layout=board">Open the applications board</a></p><div class="split">
+<section class="panel p-app" aria-labelledby="h-app-s7">
+  <h2 id="h-app-s7">Application</h2>
+  <ol class="stages" aria-label="Where this role is on the applications board"><li class="is-here" aria-current="step">Preparing</li><li>Applied</li><li>In conversation</li><li>Interviewing</li><li>Offer</li></ol>
+  <p class="app-state"><b>In Preparing</b> since 09:21, when the CV was saved. Mark applied moves it to Applied.</p>
+  <div class="row-btns"><button type="button" class="btn btn-primary" aria-keyshortcuts="m">Mark applied <kbd class="kbd" aria-hidden="true">M</kbd></button><a class="link" href="/jobs?view=applied&layout=board">Open the applications board</a></div>
+  <p class="keys-line"><span>Keys: M Mark applied. Not while typing in a field.</span>
+  <button type="button" class="switch" role="switch" aria-checked="true"><span class="knob" aria-hidden="true"></span>Single-key shortcuts: On</button></p>
+  <p class="sub" style="margin-top:8px"><a class="link" href="https://jobs.linkedin.example/view/418/">Open the advert on LinkedIn</a> <svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true"><path d="M8 2h4v4M12 2 6.5 7.5M10 8.5V12H2V4h3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+  Opens in a new tab. Radar never sends an application.</p>
+</section><section class="mini-col" aria-label="Applications board, Preparing column"><h3>Preparing <span class="count">3</span></h3><p class="sub">A tailored CV is saved and the role is not applied yet. Filled by Radar.</p><ol><li class="card is-new"><b>Software Quality Lead, Class II infusion pumps</b>CV saved 13 Nov 09:21 · Hartwell Infusion Ltd<br>Saved CV - Alex Rennie - Hartwell Infusion Ltd - Software Quality Lead, Class II infusion pumps.docx<br><span class="new">Moved here just now</span></li><li class="card"><b>Head of Regulatory Software, SaMD</b>CV saved 11 Nov · Quayle Health<br>2 days in Preparing</li><li class="card"><b>Fractional QA/RA Lead, digital pathology</b>CV saved 12 Nov · TMD Instruments Ltd<br>1 day in Preparing</li></ol><p class="sub" style="margin-top:8px">The applications board, Preparing column, as it reads after this press; the rest of the column is not drawn.</p></section></div></section><section class="cell wide" aria-labelledby="st-8"><header><h2 id="st-8"><span class="no">8</span>Marked applied: in Applied, with undo (a later visit, 09:23)</h2><p>Mark applied (key M) records the saved copy as the CV sent and moves the role to Applied. Undo (key Z) puts it back in Preparing. From then on the page only shows: nothing is fetched, scored, saved or changed for an applied role.</p></header><p class="notice ok" role="status"><b>Marked applied, 09:23,</b> with CV - Alex Rennie - Hartwell Infusion Ltd - Software Quality Lead, Class II infusion pumps.docx as the CV sent. This role moved to Applied on the applications board.<br><button type="button" class="btn" aria-keyshortcuts="z">Undo <kbd class="kbd" aria-hidden="true">Z</kbd></button></p><p class="notice">This role is marked applied. Its CV is shown as it was stored, and nothing is scored, saved or changed for it. Rescore role, Save CV and Start again from master are gone; Download Word stays.</p><div class="split">
+<section class="panel p-app" aria-labelledby="h-app-s8">
+  <h2 id="h-app-s8">Application</h2>
+  <ol class="stages" aria-label="Where this role is on the applications board"><li>Preparing</li><li class="is-here" aria-current="step">Applied</li><li>In conversation</li><li>Interviewing</li><li>Offer</li></ol>
+  <p class="app-state"><b>In Applied</b> since 09:23, with CV - Alex Rennie - Hartwell Infusion Ltd - Software Quality Lead, Class II infusion pumps.docx as the CV sent.</p>
+  <div class="row-btns"><button type="button" class="btn" aria-keyshortcuts="z">Undo <kbd class="kbd" aria-hidden="true">Z</kbd></button><a class="link" href="/jobs?view=applied&layout=board">Open the applications board</a></div>
+  <p class="keys-line"><span>Keys: Z Undo. Not while typing in a field.</span>
+  <button type="button" class="switch" role="switch" aria-checked="true"><span class="knob" aria-hidden="true"></span>Single-key shortcuts: On</button></p>
+  <p class="sub" style="margin-top:8px"><a class="link" href="https://jobs.linkedin.example/view/418/">Open the advert on LinkedIn</a> <svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true"><path d="M8 2h4v4M12 2 6.5 7.5M10 8.5V12H2V4h3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+  Opens in a new tab. Radar never sends an application.</p>
+</section><section class="mini-col" aria-label="Applications board, Applied column"><h3>Applied <span class="count">6</span></h3><p class="sub">You marked the role applied. Filled by Radar.</p><ol><li class="card is-new"><b>Software Quality Lead, Class II infusion pumps</b>Applied 13 Nov · Hartwell Infusion Ltd<br>Sent CV - Alex Rennie - Hartwell Infusion Ltd - Software Quality Lead, Class II infusion pumps.docx<br><span class="new">Moved here just now</span></li><li class="card"><b>Software Lead, surgical staplers</b>Applied 9 Nov · Tamesis Surgical<br>4 days in Applied</li><li class="card"><b>Fractional QA/RA Lead, SaMD</b>Applied 6 Nov · Wrenfield Digital Health<br>7 days in Applied · Follow up, due today</li></ol><p class="sub" style="margin-top:8px">The applications board, Applied column, as it reads after this press; the rest of the column is not drawn.</p></section></div></section><section class="cell" aria-labelledby="st-9"><header><h2 id="st-9"><span class="no">9</span>Mark applied with edits not saved (a later visit, 09:24)</h2><p>Mark applied sends nothing anywhere, it records which copy you sent. If the copy on screen is not the saved one, it asks first, in a dialog on the page.</p></header><div class="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-h" aria-describedby="dlg-p"><h3 id="dlg-h">The copy on screen is not the saved one</h3><p id="dlg-p">Line 23 has changed since you saved at 09:21. Mark applied records one copy as the CV you sent. Which one did you send?</p><div class="row-btns"><button type="button" class="btn btn-primary">Save this copy, then mark applied</button><button type="button" class="btn">Mark applied with the 09:21 copy</button><button type="button" class="btn quiet">Cancel</button></div></div></div><p class=from>Focus starts on the first button, Tab stays inside the dialog, Esc is Cancel and focus returns to Mark applied. With nothing saved at all, the dialog offers Save CV first or Mark applied with no CV recorded.</p></section><section class="cell" aria-labelledby="st-10"><header><h2 id="st-10"><span class="no">10</span>The database is busy</h2><p>The inbox run holds the write lock for a whole email, model calls included. Work already paid for is held in memory for half an hour and stored by the next press with no second call.</p></header><p class="notice bad"><b>The scorer answered, but the score could not be stored yet because the database was busy.</b> It is held in memory, and Try again stores it without another call.<br><button type="button" class="btn">Try again <span class="cost">(no charge)</span></button></p><p class="notice bad"><b>The full description was read from LinkedIn, but it could not be stored yet because the database was busy.</b> It is held in memory, and Try again stores it without asking LinkedIn again, then scores it. The score shown is the one made from the advert card.<br><button type="button" class="btn"><span class="cost">About 2 cents, 1 call:</span> Try again</button></p><p class="notice bad"><b>Save CV:</b> The database was busy, so nothing was stored. Nothing on the page was lost, try again in a moment.</p></section><section class="cell" aria-labelledby="st-11"><header><h2 id="st-11"><span class="no">11</span>Edited since the score (a later visit, 09:25)</h2><p>Editing a line re-finds each ask's cited lines at once, by their words, and recounts; the marks themselves change only on Rescore role. An ask whose cited line was edited away turns stale, in words, until the words are back or the copy is rescored.</p></header><p class="notice warn" role="status">The copy has been edited since this score. Rescore role scores it as it is now. <b>12 met, 4 partly, 2 gaps, 1 stale</b> because a line it cited has been edited.</p><div class="split"><div class="mini-sheet"><div class="ln b"><span class="n">22</span><span class="t">Closed 41 software CAPAs, 12 of them from the previous notified body audit.</span></div><div class="ln b cited changed"><span class="n">23</span><span class="t">Reported software quality status to the leadership team each month.</span></div><div class="ln b"><span class="n">24</span><span class="t">Held two releases until every open anomaly had a documented risk assessment.</span></div></div><div class="stale-note"><span class="head"><span class="mark">! Stale, was partly</span> <span class="id">A11</span></span><q style="display:block">Present software quality status to the leadership team each month.</q><span class="cite">CV line 23 when scored, since changed · advert, What you will do, item 8</span></div></div></section><section class="cell" aria-labelledby="st-12"><header><h2 id="st-12"><span class="no">12</span>The master CV changed after this copy was made (a later visit, 09:27)</h2><p>The copy keeps its own text and its own score; nothing merges by itself.</p></header><p class="notice warn"><b>The master CV has changed since this copy was made.</b> The master was saved on the CV page at 09:26; this copy was made from the 09:05 version. The copy keeps its own text and score. Start again from master takes the master as it is now; the saved copy, CV - Alex Rennie - Hartwell Infusion Ltd - Software Quality Lead, Class II infusion pumps, stays as it was saved.<br><button type="button" class="btn">Start again from master</button> <a class="link" href="/cv">See what changed on the CV page</a></p><p class="sub">The full spec score of 81 also says "the CV has changed since". A described role is not scored again from this page.</p></section></div>
+</div></main><script>
+(function () {
+  var bar = document.querySelector('.appbar');
+  if (!bar) return;
+  var menu = bar.querySelector('.menu-btn');
+  function setMenu(open) {
+    bar.classList.toggle('menu-open', open);
+    if (menu) menu.setAttribute('aria-expanded', String(open));
+  }
+  if (menu) menu.addEventListener('click', function () {
+    setMenu(menu.getAttribute('aria-expanded') !== 'true');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && bar.classList.contains('menu-open')) {
+      setMenu(false);
+      if (menu) menu.focus();
+    }
+  });
+  document.addEventListener('click', function (e) {
+    if (bar.classList.contains('menu-open') && !bar.contains(e.target)) setMenu(false);
+  });
+  // The inbox time is written in UTC by the server and shown in the
+  // reader's own time here, today's as a time and older ones with the day.
+  bar.querySelectorAll('time[data-local]').forEach(function (t) {
+    var when = new Date(t.getAttribute('datetime'));
+    if (isNaN(when)) return;
+    var now = new Date();
+    var hm = ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2);
+    var sameDay = when.toDateString() === now.toDateString();
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    t.textContent = sameDay ? hm : when.getDate() + ' ' + months[when.getMonth()] + ' ' + hm;
+  });
+})();
+
+(function(){
+  var adv=document.querySelector('.advert');
+  function openAdvert(){ if(adv){adv.classList.add('is-open');var t=adv.querySelector('.advert-toggle');if(t)t.setAttribute('aria-expanded','true');} }
+  document.addEventListener('click',function(e){
+    var a=e.target.closest('[data-advert-link]');
+    if(a){e.preventDefault();openAdvert();var el=document.getElementById(a.getAttribute('href').slice(1));if(el){el.focus();}return;}
+    var t=e.target.closest('.advert-toggle');
+    if(t){var open=!adv.classList.contains('is-open');adv.classList.toggle('is-open',open);t.setAttribute('aria-expanded',String(open));t.textContent=open?'Hide the job description':'Show the job description';return;}
+    var n=e.target.closest('.note-toggle');
+    if(n){var li=n.closest('.note');var o=n.getAttribute('aria-expanded')!=='true';n.setAttribute('aria-expanded',String(o));li.classList.toggle('is-open',o);li.classList.toggle('is-closed',!o);document.getElementById(n.getAttribute('aria-controls')).hidden=!o;}
+  });
+  document.addEventListener('focusin',function(e){
+    var n=e.target.closest&&e.target.closest('.note-toggle');
+    if(n&&n.getAttribute('aria-expanded')!=='true'){n.click();}
+  });
+})();
+</script></body></html>

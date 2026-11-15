@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Prepare application · Software Quality Lead · MedTech Radar</title><style>
+:root{
+  color-scheme:dark;
+  --canvas:#0e1215; --surface:#151a1e; --surface-sunken:#1c2226;
+  --row-hover:#192024; --row-selected:#0f3237;
+  --text-1:#e6ebee; --text-2:#b3bec6; --text-3:#93a0a9;
+  --border-subtle:#262e34; --border-strong:#6f7c86;
+  --accent:#5cc3cf; --accent-hover:#82d3dc; --accent-tint:#0f3237; --on-accent:#071114;
+  --positive:#74d39b; --positive-tint:#12291c; --caution:#f0c46a; --caution-tint:#2c2311;
+  --negative:#ff9b8f; --negative-tint:#33191a; --neutral:#b3bec6; --neutral-tint:#1f262b;
+  --focus:#ffd447; --shadow-overlay:0 8px 24px rgba(0,0,0,.5);
+  --font-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --radius-2:2px; --radius-4:4px; --dur:120ms;
+  /* Type scale: size and line height in pairs, on a 4px grid. */
+  --fs-12:12px; --lh-12:16px; --fs-14:14px; --lh-14:20px; --fs-15:15px; --lh-15:24px;
+  --fs-16:16px; --lh-16:24px; --fs-18:18px; --lh-18:24px; --fs-20:20px; --lh-20:28px;
+  /* Spacing, a 4px grid. */
+  --sp-2:2px; --sp-4:4px; --sp-8:8px; --sp-12:12px; --sp-16:16px; --sp-20:20px;
+  --sp-24:24px; --sp-32:32px; --sp-48:48px;
+  /* The older pages' own names, pointed at the same palette. */
+  --paper:#0e1215; --surface-sunk:#1c2226;
+  --ink-1:#e6ebee; --ink-2:#b3bec6; --ink-3:#93a0a9;
+  --hairline:#262e34; --hairline-strong:#3d474e;
+  --accent-quiet:#2f6e76; --accent-wash:#0f3237;
+  --fail:#ff9b8f; --settled:#74d39b;
+  --tint-blue:#131b20; --tint-sand:#1a1a17; --tint-sage:#141b17;
+  --tint-clay:#1c1716; --tint-stone:#161b1f;
+  --panel-rule:rgba(230,235,238,.10);
+}
+@media (prefers-reduced-motion:reduce){:root{--dur:0ms}}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--focus-gap,var(--surface))}
+@media (forced-colors:active){:focus-visible{outline-color:Highlight}}
+.visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+.skip-link{position:absolute;left:8px;top:-60px;z-index:50;padding:8px 12px;background:var(--surface);color:var(--text-1);border:1px solid var(--border-strong);border-radius:var(--radius-2);font:600 14px/20px var(--font-sans)}
+.skip-link:focus{top:8px}
+.appbar{position:relative;z-index:20;display:flex;align-items:center;gap:24px;min-width:0;height:48px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);color:var(--text-1);font:400 14px/20px var(--font-sans);letter-spacing:0}
+.appbar .brand{display:flex;align-items:center;gap:12px;flex:none;color:var(--text-1);text-decoration:none}
+.appbar .brand-mark{display:block;width:51px;height:24px;flex:none}
+.appbar .brand-name{font-size:14px;line-height:20px;font-weight:600;white-space:nowrap}
+.appbar .appbar-page{display:none;font-size:16px;line-height:24px;font-weight:600}
+.appbar .nav{display:flex;align-self:stretch;gap:12px;margin:0 0 0 -4px;padding:0;list-style:none}
+.appbar .nav a{display:flex;align-items:center;height:100%;padding:2px 6px 0;border-bottom:2px solid transparent;color:var(--text-2);text-decoration:none;white-space:nowrap;transition:color var(--dur) ease-out}
+.appbar .nav a:hover{color:var(--text-1)}
+.appbar .nav a[aria-current="page"]{color:var(--text-1);border-bottom-color:var(--accent)}
+.appbar .nav a:focus-visible{outline-offset:-4px;box-shadow:none}
+.appbar .appbar-tools{display:flex;align-items:center;gap:16px;min-width:0;margin-left:auto}
+.appbar .inbox-status{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;line-height:16px;color:var(--text-3);white-space:nowrap}
+.appbar .inbox-status svg{flex:none}
+.appbar .inbox-status.is-warn{color:var(--caution)}
+.appbar .inbox-status.is-bad{color:var(--negative)}
+.appbar .bar-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;min-width:32px;padding:0 8px;border:1px solid transparent;border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 14px/20px var(--font-sans);cursor:pointer;text-decoration:none}
+.appbar .bar-btn:hover{color:var(--text-1);background:var(--row-hover)}
+.appbar .menu-btn{display:none}
+.appbar .menu-panel{display:none}
+@media (max-width:767.98px){
+  .appbar{gap:16px}
+  .appbar .nav,.appbar .appbar-tools,.appbar .brand-name{display:none}
+  .appbar .appbar-page{display:block}
+  .appbar .menu-btn{display:inline-flex;width:44px;height:44px;margin:0 -8px 0 auto}
+  .appbar .menu-btn:focus-visible{outline-offset:-2px;box-shadow:none}
+  .appbar.menu-open .menu-panel{display:block;position:absolute;top:48px;left:0;right:0;padding:8px 16px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);box-shadow:var(--shadow-overlay)}
+  .appbar .menu-panel ul{margin:0;padding:0;list-style:none}
+  .appbar .menu-panel a{display:flex;align-items:center;min-height:44px;color:var(--text-1);text-decoration:none;font-size:16px;line-height:24px}
+  .appbar .menu-panel a[aria-current="page"]{font-weight:600;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:6px}
+  .appbar .menu-panel .inbox-status{display:flex;margin-top:8px}
+}
+@media (pointer:coarse){.appbar .bar-btn{min-width:44px;height:44px}}
+/* A page whose body is still the older one: its own heading row keeps what it
+   says and loses the controls the bar now holds. */
+.page > .masthead{padding-top:0}
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--canvas)}
+body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15px/24px var(--font-sans);
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+a{color:var(--accent)}
+a:hover{color:var(--accent-hover)}
+h1,h2,h3,h4,p,ol,ul,dl,dd{margin:0}
+ol,ul{padding:0;list-style:none}
+button,input,select,textarea{font:inherit}
+:root{--note-w:440px;--gut:28px}
+html{scroll-padding-top:104px}
+.pa{padding:24px 24px 48px;max-width:2560px}
+.pa h2{font:600 16px/24px var(--font-sans);color:var(--text-1)}
+.pa h3{font:600 14px/20px var(--font-sans);color:var(--text-1)}
+.sub{font-size:12px;line-height:16px;color:var(--text-3)}
+.small{font-size:14px;line-height:20px;color:var(--text-2)}
+.role-head{padding:0 0 16px;border-bottom:1px solid var(--border-subtle)}
+.h1row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 24px}
+.role-head h1{font:600 20px/28px var(--font-sans);color:var(--text-1)}
+.page-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.facts{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:4px;font-size:14px;line-height:20px;color:var(--text-2)}
+.facts li{white-space:nowrap}
+.tag{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font-size:12px;line-height:16px;color:var(--text-2);white-space:nowrap}
+.tag.basis{border-color:var(--accent);color:var(--accent)}
+.tag.top{border-color:var(--positive);color:var(--positive)}
+.kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface-sunken);color:var(--text-2);font:500 11px/16px var(--font-mono)}
+.btn{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface);color:var(--text-1);font:500 14px/20px var(--font-sans);text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--row-hover)}
+.btn .cost{color:var(--text-2);font-weight:400}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.btn-primary .cost{color:var(--on-accent)}
+.btn-primary .kbd{background:var(--on-accent);color:var(--accent-hover);border-color:var(--on-accent)}
+.btn[disabled],.btn[aria-disabled="true"]{background:transparent;border-color:var(--border-subtle);color:var(--text-3);cursor:not-allowed}
+.btn.quiet{border-color:transparent;background:transparent;color:var(--text-2);padding:0 8px}
+.btn svg{flex:none}
+.btn-sm{display:inline-flex;align-items:center;height:24px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 12px/16px var(--font-sans);cursor:pointer}
+.btn-sm[aria-current="true"]{border-color:var(--accent);color:var(--accent)}
+.link{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+.notice{margin:12px 0 0;padding:8px 12px;border-left:3px solid var(--border-strong);background:var(--surface);font-size:14px;line-height:20px;color:var(--text-2)}
+.notice b{color:var(--text-1)}
+.notice.bad{border-left-color:var(--negative);background:var(--negative-tint)}
+.notice.ok{border-left-color:var(--positive);background:var(--positive-tint)}
+.notice.work{border-left-color:var(--accent);background:var(--accent-tint)}
+.notice.warn{border-left-color:var(--caution);background:var(--caution-tint)}
+.notice .btn{margin-top:8px}
+.switch{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 6px 0 2px;border:1px solid var(--border-strong);border-radius:12px;background:transparent;color:var(--text-2);font:500 12px/16px var(--font-sans);cursor:pointer}
+.switch .knob{width:18px;height:18px;border-radius:50%;background:var(--accent)}
+.keys-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-top:12px;font-size:12px;line-height:16px;color:var(--text-3)}
+
+/* Layout: rail, advert and CV side by side from 1800; a band, the folded advert and the CV below that. */
+.layout{display:grid;gap:24px;margin-top:16px;grid-template-columns:minmax(0,1fr)}
+.work{min-width:0}.advert{min-width:0}
+@media (min-width:1800px){
+  :root{--note-w:520px}
+  .layout{grid-template-columns:480px 520px minmax(0,1fr);align-items:start}
+  .rail,.advert .panel{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto}
+}
+.rail{display:grid;gap:16px;align-content:start}
+.panel{padding:16px;border:1px solid var(--border-subtle);border-radius:var(--radius-4);background:var(--surface)}
+.panel > h2,.panel summary h2{margin-bottom:4px}
+@media (min-width:1024px) and (max-width:1799.98px){
+  .rail{grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);grid-template-areas:"score gates" "app gates" "rate gates";align-items:start}
+  .p-score{grid-area:score}.p-app{grid-area:app}.p-rate{grid-area:rate}.p-gates{grid-area:gates}
+}
+.figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0 8px}
+.fig{padding:8px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);background:var(--canvas)}
+.fig dt{font:600 12px/16px var(--font-sans);color:var(--text-2)}
+.fig .num{font:600 32px/40px var(--font-sans);color:var(--text-1)}
+.fig .num.none{font-size:16px;line-height:40px;color:var(--text-3);font-weight:500}
+.fig dd{font-size:12px;line-height:16px;color:var(--text-3)}
+.fig.is-role{border-color:var(--border-strong)}
+.fig.is-copy{border-color:var(--accent);border-style:dashed}
+.fig.is-old .num{color:var(--text-3)}
+.fig .who{color:var(--text-2)}
+.why{margin-top:8px;font-size:14px;line-height:20px;color:var(--text-2)}
+.sumline{display:none}
+details.panel > summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;cursor:pointer;list-style:none}
+details.panel > summary::-webkit-details-marker{display:none}
+details.panel > summary::before{content:"";align-self:center;width:8px;height:8px;border-right:2px solid var(--text-2);border-bottom:2px solid var(--text-2);transform:rotate(45deg);margin:0 2px 4px}
+details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bottom:0}
+.gates{width:100%;margin-top:8px;border-collapse:collapse;font-size:14px;line-height:20px;table-layout:fixed}
+.gates th,.gates td{padding:6px 8px 6px 0;text-align:left;vertical-align:top;border-top:1px solid var(--border-subtle)}
+.gates thead th{font:600 12px/16px var(--font-sans);color:var(--text-2);border-top:0}
+.gates col.c-gate{width:30%}.gates col.c-mark{width:15%}
+.gates tbody th{font-weight:600;color:var(--text-1)}
+.gates .letter{display:inline-flex;justify-content:center;width:18px;margin-right:6px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font:500 11px/16px var(--font-mono);color:var(--text-2)}
+.pass{color:var(--positive);white-space:nowrap}.fail{color:var(--negative);white-space:nowrap}
+.gates td.gwhy{color:var(--text-3);font-size:12px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.quote{margin:8px 0 4px;padding-left:12px;border-left:3px solid var(--accent);font:500 16px/24px var(--font-sans);color:var(--text-1)}
+.app-state{margin:8px 0 12px;font-size:14px;line-height:20px;color:var(--text-2)}
+.app-state b{color:var(--text-1)}
+.stages{display:flex;gap:4px;margin:8px 0 4px;font-size:12px;line-height:16px}
+.stages li{flex:1;padding:4px 6px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);color:var(--text-3);text-align:center}
+.stages li.is-here{border-color:var(--accent);color:var(--text-1);font-weight:600}
+.row-btns{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+
+/* The work: head, the sticky CV actions, gaps, the sheet with its margin notes. */
+.work{display:flex;flex-direction:column;gap:12px}
+.work-head .tally{display:flex;flex-wrap:wrap;gap:4px 16px;margin:4px 0;font-size:14px;line-height:20px;color:var(--text-2)}
+.tally b{color:var(--text-1)}
+.legend{font-size:12px;line-height:16px;color:var(--text-3)}
+.cv-actions{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface);box-shadow:var(--shadow-overlay)}
+.cv-actions .sep{width:1px;align-self:stretch;margin:0 4px;background:var(--border-subtle)}
+.save-as{flex-basis:100%;margin:0 4px;font-size:12px;line-height:16px;color:var(--text-3)}
+.save-as b{color:var(--text-2);font-weight:500}
+.gaps{padding:12px 16px;border:1px dashed var(--negative);border-radius:var(--radius-4);background:var(--negative-tint)}
+.gaps ol{display:grid;gap:12px;margin-top:8px}
+@media (min-width:1280px){.gaps ol{grid-template-columns:1fr 1fr}}
+
+.sheets{display:grid;gap:4px}
+.sheet{position:relative;display:grid;grid-template-columns:48px minmax(0,1fr) var(--gut) var(--note-w);
+  padding:40px 0;background:linear-gradient(90deg,var(--surface-sunken) calc(100% - var(--note-w) - var(--gut)),transparent 0)}
+.sheet::before{content:"";position:absolute;inset:0 calc(var(--note-w) + var(--gut)) 0 0;border:1px solid var(--border-strong);border-radius:var(--radius-2);box-shadow:var(--shadow-overlay);pointer-events:none}
+.pagefoot{margin:2px 0 12px;font-size:12px;line-height:16px;color:var(--text-3)}
+.ln{grid-column:1 / 3;grid-row:var(--r);position:relative;display:grid;grid-template-columns:48px minmax(0,1fr);align-items:start;padding-right:40px}
+.ln .n{padding-right:12px;text-align:right;font:400 11px/24px var(--font-mono);color:var(--text-3);user-select:none}
+.ln.cited .n{color:var(--text-2)}
+.ln .t{margin:0;font:400 15px/24px var(--font-sans);color:var(--text-1)}
+.ln .t > [role="button"]{display:block;border-radius:var(--radius-2);cursor:text}
+.ln .t > [role="button"]:hover{background:var(--row-hover)}
+.ln.name .t{font:600 24px/32px var(--font-sans)}.ln.name .n{line-height:32px}
+.ln.sub .t,.ln.contact .t{color:var(--text-2);font-size:14px;line-height:20px}
+.ln.h{padding-top:16px}.ln.h .t{font:600 16px/24px var(--font-sans);border-bottom:1px solid var(--border-subtle)}
+.ln.role{padding-top:12px}.ln.role .t{font-weight:600}
+.ln.b .t > [role="button"]{position:relative;padding-left:18px}
+.ln.b .t > [role="button"]::before{content:"";position:absolute;left:4px;top:10px;width:5px;height:5px;border-radius:50%;background:var(--text-2)}
+.ln.lit{background:var(--accent-tint);box-shadow:inset 3px 0 0 var(--accent)}
+.edit{display:flex;gap:8px;align-items:flex-start}
+.edit textarea{flex:1;min-width:0;field-sizing:content;min-height:28px;padding:2px 6px;resize:none;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--canvas);color:var(--text-1);font:400 15px/22px var(--font-sans);outline:2px solid var(--focus);outline-offset:1px}
+.line-ops{display:flex;gap:4px}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface);color:var(--text-2);cursor:pointer}
+.notes{grid-column:4;grid-row:var(--r) / span var(--s);position:relative;display:grid;gap:6px;align-content:start;padding:0 0 8px}
+.notes::before{content:"";position:absolute;left:calc(-1 * var(--gut));top:12px;width:calc(var(--gut) - 4px);border-top:1px solid var(--border-strong)}
+.notes-empty{grid-column:4;grid-row:1 / span 3;padding:8px 12px;border:1px dashed var(--border-strong);border-radius:var(--radius-2);font-size:14px;line-height:20px;color:var(--text-2)}
+.note{padding:6px 10px 8px;border-left:3px solid var(--border-strong);background:var(--canvas);font-size:14px;line-height:20px}
+.note.st-met{border-left-color:var(--positive)}
+.note.st-partly{border-left-color:var(--caution)}
+.note.st-gap{border-left-color:var(--negative);border-left-style:dashed}
+.note.is-closed{padding:0;background:transparent}
+.note.is-selected{background:var(--row-selected);outline:1px solid var(--accent)}
+.note .head{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.note-toggle{display:flex;width:100%;align-items:baseline;gap:8px;padding:2px 10px;border:0;background:transparent;color:var(--text-2);font:400 14px/20px var(--font-sans);text-align:left;cursor:pointer}
+.note-toggle:hover{background:var(--row-hover)}
+.note-toggle .chev{margin-left:auto;color:var(--text-3)}
+.note.is-open .note-toggle{padding:0}
+.note-body{display:grid;gap:2px;margin-top:2px}
+.note .id{font:500 12px/16px var(--font-mono);color:var(--text-3)}
+.mark{font-weight:600;white-space:nowrap}
+.mark.met{color:var(--positive)}.mark.partly{color:var(--caution)}.mark.gap{color:var(--negative)}
+.note q{display:block;color:var(--text-1);quotes:"\201C" "\201D"}
+.note .cite{display:block;font-size:12px;line-height:16px;color:var(--text-3)}
+.note .cite a{color:var(--accent)}
+.note .gapwhy{display:block;color:var(--text-2)}
+.note .was{display:inline-block;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font-size:12px;line-height:16px;color:var(--text-2)}
+.note .btn-sm{justify-self:start;margin-top:4px}
+
+/* The advert, as stored, each ask underlined in the sentence it came from. */
+.advert .panel{padding:16px 20px}
+.advert-toggle{display:none}
+.adv h3{margin:16px 0 4px}
+.adv p,.adv li{font-size:15px;line-height:24px;color:var(--text-2)}
+.adv ul{display:grid;gap:4px;padding-left:18px;list-style:disc}
+.adv .ask{color:var(--text-1);text-decoration-line:underline;text-decoration-thickness:2px;text-underline-offset:4px}
+.adv .ask.met{text-decoration-style:solid;text-decoration-color:var(--positive)}
+.adv .ask.partly{text-decoration-style:dashed;text-decoration-color:var(--caution)}
+.adv .ask.gap{text-decoration-style:dotted;text-decoration-color:var(--negative)}
+.adv .ask.sel{background:var(--row-selected)}
+.adv .tagmark{margin-left:4px;font:500 12px/16px var(--font-mono);white-space:nowrap}
+.adv .rate{color:var(--text-1);background:var(--accent-tint);box-shadow:inset 0 -2px 0 var(--accent)}
+@media (max-width:1799.98px){
+  .advert:not(.is-open) .adv{display:none}
+  .advert-toggle{display:inline-flex}
+  .advert .panel{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}
+  .advert.is-open .adv{flex-basis:100%}
+}
+
+/* A phone: one-line summary, gates folded, notes under the line they sit beside, the actions at the foot. */
+@media (max-width:767.98px){
+  html{scroll-padding-top:16px;scroll-padding-bottom:136px}
+  .pa{padding:24px 16px 48px}
+  .facts li{white-space:normal}
+  .layout{gap:16px}
+  .panel{padding:12px}
+  .p-score .figs,.p-score .why{display:none}
+  .sumline{display:block;margin-top:8px;font-size:15px;line-height:24px;color:var(--text-2)}
+  .sumline b{color:var(--text-1);font-size:18px}
+  .gates td.gwhy{white-space:normal}
+  .gates col.c-gate{width:40%}.gates col.c-mark{width:30%}
+  .gates .gwhy-col{display:none}
+  .sheet{display:block;padding:16px 12px 16px 0;background:var(--surface-sunken)}
+  .sheet::before{inset:0}
+  .ln{display:grid;grid-template-columns:32px minmax(0,1fr);padding-right:0}
+  .ln .n{padding-right:8px}
+  .ln .t{font-size:14px;line-height:22px}
+  .ln.name .t{font-size:20px;line-height:28px}
+  .notes,.notes-empty{display:grid;margin:4px 0 8px 32px;padding:0}
+  .notes::before{display:none}
+  .edit{flex-wrap:wrap}
+  .line-ops{flex-basis:100%}
+  .icon-btn{width:44px;height:44px}
+  .cv-actions{top:auto;bottom:0;margin:0 -16px;border-radius:0;border-width:1px 0}
+  .cv-actions .btn{flex:1 1 0;flex-direction:column;justify-content:center;gap:0;height:auto;min-height:52px;padding:4px 6px;line-height:16px;white-space:normal;text-align:center}
+  .cv-actions .btn svg{display:none}
+  .cv-actions .btn .cost{font-size:12px}
+  .cv-actions .sep,.cv-actions .quiet{display:none}
+  .btn{height:44px}
+}
+@media (forced-colors:active){.note,.fig,.tag,.kbd{border:1px solid CanvasText}.ln.lit{outline:2px solid Highlight}}
+</style></head><body><a class="skip-link" href="#main">Skip to the page</a><header class="appbar"><a class="brand" href="/" aria-label="MedTech Radar, Home"><svg class="brand-mark" viewBox="0 0 36 17" width="51" height="24" fill="none" aria-hidden="true" focusable="false"><path d="M4 15a14 14 0 0 1 28 0" stroke="var(--text-3)" stroke-width="1.2"/><path d="M8.5 15a9.5 9.5 0 0 1 19 0" stroke="var(--text-2)" stroke-width="1.2"/><path d="M13 15a5 5 0 0 1 10 0Z" fill="var(--text-1)"/><path d="M0 15h36" stroke="var(--text-1)" stroke-width="1.5"/></svg><span class="brand-name">MedTech Radar</span><span class="appbar-page" aria-hidden="true">Prepare application</span></a><nav class="nav" aria-label="Pages"><a href="/">Home</a><a href="/jobs" aria-current="page">Jobs</a><a href="/insights">Insights</a><a href="/watchlist">Watchlist</a><a href="/cv">CV</a></nav><div class="appbar-tools"><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div><button type="button" class="bar-btn menu-btn" aria-expanded="false" aria-controls="menu-panel">Menu</button><div class="menu-panel" id="menu-panel"><nav aria-label="Pages, menu"><ul><li><a href="/">Home</a></li><li><a href="/jobs" aria-current="page">Jobs</a></li><li><a href="/insights">Insights</a></li><li><a href="/watchlist">Watchlist</a></li><li><a href="/cv">CV</a></li></ul></nav><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div></header><main id="main" tabindex="-1"><div class="pa">
+
+<header class="role-head">
+  <div class="h1row">
+    <h1>Software Quality Lead, Class II infusion pumps</h1>
+    <div class="page-acts"><span class="tag top">&#10003; Top prospect</span><span class="tag basis">Basis: full spec, 13 Nov 09:06</span><a class="btn" href="/jobs#role-418">Back to Jobs</a></div>
+  </div>
+  <ul class="facts" aria-label="The role">
+    <li>Hartwell Infusion Ltd</li><li>Guildford, hybrid, 2 days a week</li><li>Contract, 6 months</li>
+    <li>£650–£750/day, outside IR35</li><li>Via LinkedIn alert</li><li>First seen 21 Oct</li>
+  </ul>
+</header>
+
+<div class="layout">
+  <aside class="rail" aria-label="Score, application, rate line and gates">
+<section class="panel p-score" aria-labelledby="h-score">
+  <h2 id="h-score">Score</h2>
+  <p class="sub">Basis: full spec, the description read from the advert on 13 Nov 09:06 and scored once for it. The Jobs row shows 81.</p>
+  <dl class="figs">
+  <div class="fig is-old"><dt>Card</dt><dd class="num">74</dd><dd>Alert card, 21 Oct, scored on an earlier CV. Replaced by the full spec score.</dd></div>
+  <div class="fig is-role"><dt>Full spec</dt><dd class="num">81</dd><dd><span class="who">The role's score, shown on Jobs.</span> Master CV, 13 Nov 09:06.</dd></div>
+  <div class="fig is-copy"><dt>This copy</dt><dd class="num">86</dd><dd><span class="who">This page only, never written to Jobs.</span> Tailored CV, 13 Nov 09:12.</dd></div></dl>
+  <p class="sumline"><b>81</b> full spec, shown on Jobs · <b>86</b> this copy, this page only · 74 card. All four gates pass.</p>
+  <p class="why">This copy: "Owns the IEC 62304 file through a notified body audit. This copy now names the 510(k) work."</p>
+</section>
+<section class="panel p-app" aria-labelledby="h-app">
+  <h2 id="h-app">Application</h2>
+  <ol class="stages" aria-label="Where this role is on the applications board"><li>Preparing</li><li>Applied</li><li>In conversation</li><li>Interviewing</li><li>Offer</li></ol>
+  <p class="app-state"><b>Not on the applications board yet.</b> Save CV puts this role in Preparing. Mark applied moves it to Applied.</p>
+  <div class="row-btns"><button type="button" class="btn" aria-keyshortcuts="m">Mark applied <kbd class="kbd" aria-hidden="true">M</kbd></button><a class="link" href="/jobs?view=applied&layout=board">Open the applications board</a></div>
+  <p class="keys-line"><span>Keys: M Mark applied. Not while typing in a field.</span>
+  <button type="button" class="switch" role="switch" aria-checked="true"><span class="knob" aria-hidden="true"></span>Single-key shortcuts: On</button></p>
+  <p class="sub" style="margin-top:8px"><a class="link" href="https://jobs.linkedin.example/view/418/">Open the advert on LinkedIn</a> <svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true"><path d="M8 2h4v4M12 2 6.5 7.5M10 8.5V12H2V4h3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+  Opens in a new tab. Radar never sends an application.</p>
+</section>
+<section class="panel p-rate" aria-labelledby="h-rate">
+  <h2 id="h-rate">Rate line</h2><p class="quote">&ldquo;£650 to £750 a day, outside IR35.&rdquo;</p><p class="sub">Quoted word for word from the full description, Working pattern and pay. <a class="link" href="#rate" data-advert-link>Show it in the advert</a></p>
+  <p class="sub" style="margin-top:4px">On the card: £650–£750/day, outside IR35. Your floor: £700 a day.</p>
+</section>
+<details class="panel p-gates">
+  <summary><h2 id="h-gates">Gates</h2><span class="sub">All four pass on both, so the role stays a Top prospect.</span></summary>
+  <table class="gates" aria-labelledby="h-gates"><colgroup><col class="c-gate"><col class="c-mark"><col class="c-mark"><col></colgroup><thead><tr><th scope="col">Gate</th><th scope="col">Full spec</th><th scope="col">This copy</th><th scope="col" class="gwhy-col">Why</th></tr></thead><tbody><tr><th scope="row"><span class="letter" aria-hidden="true">S</span>Sector</th><td><span class="pass">&#10003; Passes</span></td><td><span class="pass">&#10003; Passes</span></td><td class="gwhy gwhy-col" title="Infusion pumps, Class IIb: in scope">Infusion pumps, Class IIb: in scope</td></tr><tr><th scope="row"><span class="letter" aria-hidden="true">C</span>CV match, 70 or more</th><td><span class="pass">&#10003; Passes</span></td><td><span class="pass">&#10003; Passes</span></td><td class="gwhy gwhy-col" title="81 master CV, 86 this copy">81 master CV, 86 this copy</td></tr><tr><th scope="row"><span class="letter" aria-hidden="true">L</span>Location</th><td><span class="pass">&#10003; Passes</span></td><td><span class="pass">&#10003; Passes</span></td><td class="gwhy gwhy-col" title="Guildford, 2 days a week: 50 min">Guildford, 2 days a week: 50 min</td></tr><tr><th scope="row"><span class="letter" aria-hidden="true">R</span>Rate</th><td><span class="pass">&#10003; Passes</span></td><td><span class="pass">&#10003; Passes</span></td><td class="gwhy gwhy-col" title="Top, £750, clears the £700 floor">Top, £750, clears the £700 floor</td></tr></tbody></table>
+  <p class="sub" style="margin-top:8px">S C L R are the marks on the Jobs row. A range is judged on its top figure; its bottom, £650, is under your floor.</p>
+</details></aside>
+  
+<section class="advert" aria-labelledby="h-adv"><div class="panel" tabindex="0" aria-labelledby="h-adv">
+  <div><h2 id="h-adv">Job description</h2>
+  <p class="sub">Read from the advert 13 Nov 09:06, 2,964 characters, scored once for this version.
+  Asks underlined: solid met, dashed partly, dotted gap, each with its mark and number.</p></div>
+  <button type="button" class="btn advert-toggle" aria-expanded="false" aria-controls="adv">Show the job description</button>
+  <div class="adv" id="adv"><h3>About us</h3><p>Hartwell Infusion makes volumetric and syringe infusion pumps for hospital wards and home care. Our pumps are Class IIb devices, CE and UKCA marked, and run on embedded firmware that we design, verify and maintain in house. We are 140 people at our Guildford site. In October we closed a Series C to widen the range and to prepare our first FDA 510(k) submission, planned for 2027. Software is now the largest part of each new pump, and we want a quality lead who has done this before.</p><h3>The role</h3><p><span class="ask met" id="a1" tabindex="-1">You will own the IEC 62304 software development lifecycle for our class C pump firmware.</span><a class="tagmark mark met" href="#note-a1">&#10003; A1<span class="visually-hidden">, Met, show its note</span></a> You will be the person our engineers, our notified body and our auditors turn to on software quality. <span class="ask met" id="a2" tabindex="-1">In your first three months you will prepare the software technical file ahead of our notified body audit in Q1.</span><a class="tagmark mark met" href="#note-a2">&#10003; A2<span class="visually-hidden">, Met, show its note</span></a> After that you will set up the processes we need for the US submission. <span class="ask gap" id="a3" tabindex="-1">You will also work with our contract manufacturer in Swindon on the design transfer of each firmware release.</span><a class="tagmark mark gap" href="#note-a3">&#10007; A3<span class="visually-hidden">, Gap, not on the CV, show its note</span></a> You will report to the VP Quality and work closely with the Head of Embedded Engineering, whose team of 22 writes the firmware.</p><h3>What you will do</h3><ul><li><span class="ask met" id="a4" tabindex="-1">Act as internal auditor for software processes under ISO 13485.</span><a class="tagmark mark met" href="#note-a4">&#10003; A4<span class="visually-hidden">, Met, show its note</span></a></li><li><span class="ask met" id="a5" tabindex="-1">Lead a team of six software test and quality engineers.</span><a class="tagmark mark met" href="#note-a5">&#10003; A5<span class="visually-hidden">, Met, show its note</span></a></li><li><span class="ask met" id="a6" tabindex="-1">Run ISO 14971 risk management for software hazards, from hazard analysis to the risk management report.</span><a class="tagmark mark met" href="#note-a6">&#10003; A6<span class="visually-hidden">, Met, show its note</span></a></li><li><span class="ask met" id="a7" tabindex="-1">Set the verification and validation strategy for embedded firmware, including hardware-in-the-loop testing.</span><a class="tagmark mark met" href="#note-a7">&#10003; A7<span class="visually-hidden">, Met, show its note</span></a></li><li><span class="ask partly" id="a8" tabindex="-1">Maintain SOUP and cybersecurity records under IEC 81001-5-1.</span><a class="tagmark mark partly" href="#note-a8">&#9680; A8<span class="visually-hidden">, Partly, show its note</span></a></li><li><span class="ask met" id="a9" tabindex="-1">Keep MISRA C and static analysis in a regulated codebase under control, with clear rules on deviations.</span><a class="tagmark mark met" href="#note-a9">&#10003; A9<span class="visually-hidden">, Met, show its note</span></a></li><li><span class="ask partly" id="a10" tabindex="-1">Own traceability in Polarion, from user needs to verification results.</span><a class="tagmark mark partly" href="#note-a10">&#9680; A10<span class="visually-hidden">, Partly, show its note</span></a></li><li><span class="ask partly sel" id="a11" tabindex="-1">Present software quality status to the leadership team each month.</span><a class="tagmark mark partly" href="#note-a11">&#9680; A11<span class="visually-hidden">, Partly, show its note</span></a></li></ul><h3>What you will bring</h3><ul><li><span class="ask met" id="a12" tabindex="-1">Software quality leadership on Class IIb or Class III devices.</span><a class="tagmark mark met" href="#note-a12">&#10003; A12<span class="visually-hidden">, Met, show its note</span></a></li><li><span class="ask met" id="a13" tabindex="-1">Experience of FDA 510(k) submissions.</span><a class="tagmark mark met" href="#note-a13">&#10003; A13<span class="visually-hidden">, Met, show its note</span></a></li><li><span class="ask partly" id="a14" tabindex="-1">Working knowledge of IEC 60601-1 and IEC 62366-1.</span><a class="tagmark mark partly" href="#note-a14">&#9680; A14<span class="visually-hidden">, Partly, show its note</span></a></li><li><span class="ask met" id="a15" tabindex="-1">A degree in engineering or a physical science.</span><a class="tagmark mark met" href="#note-a15">&#10003; A15<span class="visually-hidden">, Met, show its note</span></a></li><li><span class="ask met" id="a16" tabindex="-1">Confidence with auditors, notified bodies and engineering teams alike.</span><a class="tagmark mark met" href="#note-a16">&#10003; A16<span class="visually-hidden">, Met, show its note</span></a></li><li><span class="ask met" id="a17" tabindex="-1">Clear written English; you will write much of the technical file.</span><a class="tagmark mark met" href="#note-a17">&#10003; A17<span class="visually-hidden">, Met, show its note</span></a></li><li><span class="ask partly" id="a18" tabindex="-1">Desirable: infusion pumps under IEC 60601-2-24.</span><a class="tagmark mark partly" href="#note-a18">&#9680; A18<span class="visually-hidden">, Partly, show its note</span></a></li><li><span class="ask gap" id="a19" tabindex="-1">Desirable: an ambulatory or home-use infusion device.</span><a class="tagmark mark gap" href="#note-a19">&#10007; A19<span class="visually-hidden">, Gap, not on the CV, show its note</span></a></li></ul><h3>Working pattern and pay</h3><p>Hybrid, two days a week at our Guildford site. The rest of the week is remote. This is a 6-month contract, with a view to extension. <span class="rate" id="rate" tabindex="-1">£650 to £750 a day, outside IR35.</span> Start in January.</p><h3>How to apply</h3><p>Send your CV and a short note on a technical file you have prepared. No agencies, please.</p></div>
+</div></section>
+  <section class="work" aria-labelledby="h-cv">
+  <div class="work-head">
+    <h2 id="h-cv">Tailored CV</h2>
+    <p class="sub">Made from the master CV cv-medtech-quality.md when this page first opened, 13 Nov 09:05. Nothing done here changes the master. 3 lines differ from it: master line 11 cut, line 12 reworded, line 29 added.</p>
+    <p class="tally"><span><b>19 asks</b> from the advert:</span><span><span class="mark met">&#10003;</span> <b>12</b> met</span><span><span class="mark partly">&#9680;</span> <b>5</b> partly</span><span><span class="mark gap">&#10007;</span> <b>2</b> gaps, not on the CV</span></p><p class="legend">Judged on the CV text alone, by the 09:12 rescore of this copy. Met notes fold to one line; open one to read the advert sentence it came from.</p>
+  </div><section class="gaps" aria-labelledby="h-gaps"><h3 id="h-gaps">Gaps: 2 asks no line on the CV evidences</h3><p class="sub">They have no line to stand beside, so they come first. Add a line only if it is true, then Rescore role.</p><ol><li class="note st-gap" id="note-a3"><span class="head"><span class="mark gap">&#10007; Gap, not on the CV</span><span class="id">A3</span></span><div class="note-body"><q>You will also work with our contract manufacturer in Swindon on the design transfer of each firmware release.</q><span class="gapwhy">No line on the CV names a contract manufacturer or design transfer.</span><span class="cite"><a href="#a3" data-advert-link>advert, The role, sentence 5</a></span><a class="btn-sm" href="#a3" data-advert-link>Show it in the advert<span class="visually-hidden">, A3</span></a></div></li><li class="note st-gap" id="note-a19"><span class="head"><span class="mark gap">&#10007; Gap, not on the CV</span><span class="id">A19</span></span><div class="note-body"><q>Desirable: an ambulatory or home-use infusion device.</q><span class="gapwhy">No line on the CV names an ambulatory or home-use device.</span><span class="cite"><a href="#a19" data-advert-link>advert, What you will bring, item 8</a></span><a class="btn-sm" href="#a19" data-advert-link>Show it in the advert<span class="visually-hidden">, A19</span></a></div></li></ol></section><p class="visually-hidden" id="edit-hint">Enter edits the line.</p><div class="sheets"><div class="sheet" role="group" aria-label="Tailored CV, page 1 of 2"><div class="ln name" id="l1" style="--r:1"><span class="n" aria-hidden="true">1</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 1: </span>Alex Rennie</span></div></div><div class="ln sub" id="l2" style="--r:2"><span class="n" aria-hidden="true">2</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 2: </span>Software quality and regulatory leader, medical device software</span></div></div><div class="ln contact" id="l3" style="--r:3"><span class="n" aria-hidden="true">3</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 3: </span>Reading, Berkshire · alex.rennie@example.com · 07700 900123</span></div></div><div class="ln h" id="l5" style="--r:4"><span class="n" aria-hidden="true">5</span><h3 class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 5: </span>Summary</span></h3></div><div class="ln p" id="l6" style="--r:5"><span class="n" aria-hidden="true">6</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 6: </span>Software quality and regulatory leader for medical device software, 17 years in industry.</span></div></div><div class="ln p" id="l7" style="--r:6"><span class="n" aria-hidden="true">7</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 7: </span>Contract and interim roles since 2021: software quality, IEC 62304 and audit readiness.</span></div></div><div class="ln p cited" id="l8" style="--r:7"><span class="n" aria-hidden="true">8</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-8 edit-hint"><span class="visually-hidden">Line 8: </span>Has taken three devices through notified body audits and one through FDA 510(k) clearance.</span><span class="visually-hidden" id="cb-8">Cited by A16.</span></div></div><ul class="notes" style="--r:7;--s:4" aria-label="Asks beside line 8"><li class="note st-met is-closed" id="note-a16"><button type="button" class="note-toggle" aria-expanded="false" aria-controls="nb-a16"><span class="mark met">&#10003; Met</span><span class="id">A16</span><span>lines 8, 50</span><span class="chev" aria-hidden="true">&#9656;</span></button><div class="note-body" id="nb-a16" hidden><q>Confidence with auditors, notified bodies and engineering teams alike.</q><span class="cite">CV lines <a href="#l8">8</a>, <a href="#l50">50</a> · <a href="#a16" data-advert-link>advert, What you will bring, item 5</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A16</span></button></div></li></ul><div class="ln p" id="l9" style="--r:8"><span class="n" aria-hidden="true">9</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 9: </span>Works across embedded firmware, IVD analysers and software as a medical device.</span></div></div><div class="ln p" id="l10" style="--r:9"><span class="n" aria-hidden="true">10</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 10: </span>Builds small, steady quality teams and leaves processes engineers will actually use.</span></div></div><div class="ln p" id="l11" style="--r:10"><span class="n" aria-hidden="true">11</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 11: </span>Selected outcomes across roles:</span></div></div><div class="ln b cited" id="l12" style="--r:11"><span class="n" aria-hidden="true">12</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-12 edit-hint"><span class="visually-hidden">Line 12: </span>One FDA 510(k) clearance with software as a key part of the submission.</span><span class="visually-hidden" id="cb-12">Cited by A13.</span></div></div><ul class="notes" style="--r:11;--s:4" aria-label="Asks beside line 12"><li class="note st-met is-open" id="note-a13"><button type="button" class="note-toggle" aria-expanded="true" aria-controls="nb-a13"><span class="mark met">&#10003; Met</span><span class="id">A13</span><span class="was">was partly</span><span>lines 12, 61</span><span class="chev" aria-hidden="true">&#9662;</span></button><div class="note-body" id="nb-a13"><q>Experience of FDA 510(k) submissions.</q><span class="cite">CV lines <a href="#l12">12</a>, <a href="#l61">61</a> · <a href="#a13" data-advert-link>advert, What you will bring, item 2</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A13</span></button></div></li></ul><div class="ln b" id="l13" style="--r:12"><span class="n" aria-hidden="true">13</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 13: </span>Two quality teams built from scratch, both still in place.</span></div></div><div class="ln b" id="l14" style="--r:13"><span class="n" aria-hidden="true">14</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 14: </span>Release cycles cut by half at two companies without loosening controls.</span></div></div><div class="ln h" id="l16" style="--r:14"><span class="n" aria-hidden="true">16</span><h3 class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 16: </span>Experience</span></h3></div><div class="ln role cited" id="l18" style="--r:15"><span class="n" aria-hidden="true">18</span><h4 class="t"><span role="button" tabindex="0" aria-describedby="cb-18 edit-hint"><span class="visually-hidden">Line 18: </span>Interim Head of Software Quality, Corbel Medical (Class IIb ventilators), 2024 to 2026</span><span class="visually-hidden" id="cb-18">Cited by A12.</span></h4></div><ul class="notes" style="--r:15;--s:2" aria-label="Asks beside line 18"><li class="note st-met is-closed" id="note-a12"><button type="button" class="note-toggle" aria-expanded="false" aria-controls="nb-a12"><span class="mark met">&#10003; Met</span><span class="id">A12</span><span>lines 18, 28</span><span class="chev" aria-hidden="true">&#9656;</span></button><div class="note-body" id="nb-a12" hidden><q>Software quality leadership on Class IIb or Class III devices.</q><span class="cite">CV lines <a href="#l18">18</a>, <a href="#l28">28</a> · <a href="#a12" data-advert-link>advert, What you will bring, item 1</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A12</span></button></div></li></ul><div class="ln b" id="l19" style="--r:16"><span class="n" aria-hidden="true">19</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 19: </span>Brought the ventilator software file to audit readiness in seven months.</span></div></div><div class="ln b cited" id="l20" style="--r:17"><span class="n" aria-hidden="true">20</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-20 edit-hint"><span class="visually-hidden">Line 20: </span>Led a team of seven software test and quality engineers across two sites.</span><span class="visually-hidden" id="cb-20">Cited by A5.</span></div></div><ul class="notes" style="--r:17;--s:3" aria-label="Asks beside line 20"><li class="note st-met is-closed" id="note-a5"><button type="button" class="note-toggle" aria-expanded="false" aria-controls="nb-a5"><span class="mark met">&#10003; Met</span><span class="id">A5</span><span>line 20</span><span class="chev" aria-hidden="true">&#9656;</span></button><div class="note-body" id="nb-a5" hidden><q>Lead a team of six software test and quality engineers.</q><span class="cite">CV line <a href="#l20">20</a> · <a href="#a5" data-advert-link>advert, What you will do, item 2</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A5</span></button></div></li></ul><div class="ln b" id="l21" style="--r:18"><span class="n" aria-hidden="true">21</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 21: </span>Rewrote the software development plan and the software maintenance plan.</span></div></div><div class="ln b" id="l22" style="--r:19"><span class="n" aria-hidden="true">22</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 22: </span>Closed 41 software CAPAs, 12 of them from the previous notified body audit.</span></div></div><div class="ln b cited lit" id="l23" style="--r:20"><span class="n" aria-hidden="true">23</span><div class="t"><div class="edit"><textarea rows="1" aria-label="Line 23" aria-describedby="cb-23">Introduced weekly quality reviews with the embedded engineering leads.</textarea><span class="line-ops"><button type="button" class="icon-btn" aria-label="Move line 23 up"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 12V2M3 6l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="icon-btn" aria-label="Move line 23 down"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v10M3 8l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="icon-btn" aria-label="Delete line 23"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 3.5h9M5 3.5V2h4v1.5M3.5 3.5l.7 8.5h5.6l.7-8.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg></button></span></div><span class="visually-hidden" id="cb-23">Cited by A11.</span></div></div><ul class="notes" style="--r:20;--s:3" aria-label="Asks beside line 23"><li class="note st-partly is-selected" id="note-a11"><span class="head"><span class="mark partly">&#9680; Partly</span><span class="id">A11</span></span><div class="note-body"><q>Present software quality status to the leadership team each month.</q><span class="gapwhy">Weekly reviews with the engineering leads. No reporting to a leadership team is named.</span><span class="cite">CV line <a href="#l23">23</a> · <a href="#a11" data-advert-link>advert, What you will do, item 8</a></span><button type="button" class="btn-sm" aria-current="true">Show cited lines<span class="visually-hidden">, A11</span></button></div></li></ul><div class="ln b" id="l24" style="--r:21"><span class="n" aria-hidden="true">24</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 24: </span>Held two releases until every open anomaly had a documented risk assessment.</span></div></div><div class="ln b" id="l25" style="--r:22"><span class="n" aria-hidden="true">25</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 25: </span>Recruited three permanent engineers and handed the team to a permanent head of quality.</span></div></div><div class="ln role cited" id="l27" style="--r:23"><span class="n" aria-hidden="true">27</span><h4 class="t"><span role="button" tabindex="0" aria-describedby="cb-27 edit-hint"><span class="visually-hidden">Line 27: </span>Contract Software Quality Lead, Linwood Infusion (syringe drivers), 2022 to 2024</span><span class="visually-hidden" id="cb-27">Cited by A18.</span></h4></div><ul class="notes" style="--r:23;--s:1" aria-label="Asks beside line 27"><li class="note st-partly" id="note-a18"><span class="head"><span class="mark partly">&#9680; Partly</span><span class="id">A18</span><span class="was">was missing</span></span><div class="note-body"><q>Desirable: infusion pumps under IEC 60601-2-24.</q><span class="gapwhy">IEC 60601-2-24 is named for test evidence. Pump design under it is not shown.</span><span class="cite">CV lines <a href="#l27">27</a>, <a href="#l28">28</a>, <a href="#l29">29</a> · <a href="#a18" data-advert-link>advert, What you will bring, item 7</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A18</span></button></div></li></ul><div class="ln b cited" id="l28" style="--r:24"><span class="n" aria-hidden="true">28</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-28 edit-hint"><span class="visually-hidden">Line 28: </span>Led IEC 62304 class C software for a Class IIb pump, from planning to release.</span><span class="visually-hidden" id="cb-28">Cited by A1, A12, A18.</span></div></div><ul class="notes" style="--r:24;--s:3" aria-label="Asks beside line 28"><li class="note st-met is-closed" id="note-a1"><button type="button" class="note-toggle" aria-expanded="false" aria-controls="nb-a1"><span class="mark met">&#10003; Met</span><span class="id">A1</span><span>lines 28, 30</span><span class="chev" aria-hidden="true">&#9656;</span></button><div class="note-body" id="nb-a1" hidden><q>You will own the IEC 62304 software development lifecycle for our class C pump firmware.</q><span class="cite">CV lines <a href="#l28">28</a>, <a href="#l30">30</a> · <a href="#a1" data-advert-link>advert, The role, sentence 1</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A1</span></button></div></li></ul><div class="ln b cited" id="l29" style="--r:25"><span class="n" aria-hidden="true">29</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-29 edit-hint"><span class="visually-hidden">Line 29: </span>Supplied the software evidence for the pump&#x27;s IEC 60601-2-24 tests at the test house.</span><span class="visually-hidden" id="cb-29">Cited by A18.</span></div></div><div class="ln b cited" id="l30" style="--r:26"><span class="n" aria-hidden="true">30</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-30 edit-hint"><span class="visually-hidden">Line 30: </span>Owned the software lifecycle procedures and trained 30 engineers on them.</span><span class="visually-hidden" id="cb-30">Cited by A1.</span></div></div><div class="ln b cited" id="l31" style="--r:27"><span class="n" aria-hidden="true">31</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-31 edit-hint"><span class="visually-hidden">Line 31: </span>Prepared the software technical file for the notified body audit; no major findings.</span><span class="visually-hidden" id="cb-31">Cited by A2, A17.</span></div></div><ul class="notes" style="--r:27;--s:1" aria-label="Asks beside line 31"><li class="note st-met is-closed" id="note-a2"><button type="button" class="note-toggle" aria-expanded="false" aria-controls="nb-a2"><span class="mark met">&#10003; Met</span><span class="id">A2</span><span>line 31</span><span class="chev" aria-hidden="true">&#9656;</span></button><div class="note-body" id="nb-a2" hidden><q>In your first three months you will prepare the software technical file ahead of our notified body audit in Q1.</q><span class="cite">CV line <a href="#l31">31</a> · <a href="#a2" data-advert-link>advert, The role, sentence 3</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A2</span></button></div></li><li class="note st-met is-closed" id="note-a17"><button type="button" class="note-toggle" aria-expanded="false" aria-controls="nb-a17"><span class="mark met">&#10003; Met</span><span class="id">A17</span><span>line 31</span><span class="chev" aria-hidden="true">&#9656;</span></button><div class="note-body" id="nb-a17" hidden><q>Clear written English; you will write much of the technical file.</q><span class="cite">CV line <a href="#l31">31</a> · <a href="#a17" data-advert-link>advert, What you will bring, item 6</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A17</span></button></div></li></ul><div class="ln b cited" id="l32" style="--r:28"><span class="n" aria-hidden="true">32</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-32 edit-hint"><span class="visually-hidden">Line 32: </span>Ran ISO 14971 risk management for software hazards and wrote the risk management report.</span><span class="visually-hidden" id="cb-32">Cited by A6.</span></div></div><ul class="notes" style="--r:28;--s:1" aria-label="Asks beside line 32"><li class="note st-met is-closed" id="note-a6"><button type="button" class="note-toggle" aria-expanded="false" aria-controls="nb-a6"><span class="mark met">&#10003; Met</span><span class="id">A6</span><span>line 32</span><span class="chev" aria-hidden="true">&#9656;</span></button><div class="note-body" id="nb-a6" hidden><q>Run ISO 14971 risk management for software hazards, from hazard analysis to the risk management report.</q><span class="cite">CV line <a href="#l32">32</a> · <a href="#a6" data-advert-link>advert, What you will do, item 3</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A6</span></button></div></li></ul><div class="ln b cited" id="l33" style="--r:29"><span class="n" aria-hidden="true">33</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-33 edit-hint"><span class="visually-hidden">Line 33: </span>Set the verification and validation strategy for embedded firmware, including HIL rigs.</span><span class="visually-hidden" id="cb-33">Cited by A7.</span></div></div><ul class="notes" style="--r:29;--s:1" aria-label="Asks beside line 33"><li class="note st-met is-closed" id="note-a7"><button type="button" class="note-toggle" aria-expanded="false" aria-controls="nb-a7"><span class="mark met">&#10003; Met</span><span class="id">A7</span><span>lines 33, 63</span><span class="chev" aria-hidden="true">&#9656;</span></button><div class="note-body" id="nb-a7" hidden><q>Set the verification and validation strategy for embedded firmware, including hardware-in-the-loop testing.</q><span class="cite">CV lines <a href="#l33">33</a>, <a href="#l63">63</a> · <a href="#a7" data-advert-link>advert, What you will do, item 4</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A7</span></button></div></li></ul><div class="ln b cited" id="l34" style="--r:30"><span class="n" aria-hidden="true">34</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-34 edit-hint"><span class="visually-hidden">Line 34: </span>Brought MISRA C compliance and static analysis into the build, with a deviation register.</span><span class="visually-hidden" id="cb-34">Cited by A9.</span></div></div><ul class="notes" style="--r:30;--s:1" aria-label="Asks beside line 34"><li class="note st-met is-closed" id="note-a9"><button type="button" class="note-toggle" aria-expanded="false" aria-controls="nb-a9"><span class="mark met">&#10003; Met</span><span class="id">A9</span><span>line 34</span><span class="chev" aria-hidden="true">&#9656;</span></button><div class="note-body" id="nb-a9" hidden><q>Keep MISRA C and static analysis in a regulated codebase under control, with clear rules on deviations.</q><span class="cite">CV line <a href="#l34">34</a> · <a href="#a9" data-advert-link>advert, What you will do, item 6</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A9</span></button></div></li></ul><div class="ln b cited" id="l35" style="--r:31"><span class="n" aria-hidden="true">35</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-35 edit-hint"><span class="visually-hidden">Line 35: </span>Set up traceability from user needs to verification in Jama.</span><span class="visually-hidden" id="cb-35">Cited by A10.</span></div></div><ul class="notes" style="--r:31;--s:11" aria-label="Asks beside line 35"><li class="note st-partly" id="note-a10"><span class="head"><span class="mark partly">&#9680; Partly</span><span class="id">A10</span></span><div class="note-body"><q>Own traceability in Polarion, from user needs to verification results.</q><span class="gapwhy">Traceability is in Jama. Polarion is not named.</span><span class="cite">CV line <a href="#l35">35</a> · <a href="#a10" data-advert-link>advert, What you will do, item 7</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A10</span></button></div></li></ul><div class="ln role" id="l37" style="--r:32"><span class="n" aria-hidden="true">37</span><h4 class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 37: </span>Contract Head of Software Quality, Tarrow Surgical (powered instruments), 2023 to 2024</span></h4></div><div class="ln b" id="l38" style="--r:33"><span class="n" aria-hidden="true">38</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 38: </span>Set up the software quality function for a 20-person firmware team before MDR certification.</span></div></div><div class="ln b" id="l39" style="--r:34"><span class="n" aria-hidden="true">39</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 39: </span>Wrote the software verification plan and reviewed every protocol before it ran.</span></div></div><div class="ln b" id="l40" style="--r:35"><span class="n" aria-hidden="true">40</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 40: </span>Audited two contract software suppliers and agreed their corrective actions.</span></div></div><div class="ln b" id="l41" style="--r:36"><span class="n" aria-hidden="true">41</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 41: </span>Coached two engineers into software quality lead roles before handing over.</span></div></div><div class="ln role" id="l43" style="--r:37"><span class="n" aria-hidden="true">43</span><h4 class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 43: </span>Regulatory Software Lead, Wexcombe Health (SaMD triage app), 2021 to 2023</span></h4></div><div class="ln b" id="l44" style="--r:38"><span class="n" aria-hidden="true">44</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 44: </span>Took a Class IIa triage app through UKCA marking and its first surveillance audit.</span></div></div><div class="ln b" id="l45" style="--r:39"><span class="n" aria-hidden="true">45</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 45: </span>Fitted IEC 62304 class B records into the team&#x27;s existing Jira and Git workflow.</span></div></div><div class="ln b" id="l46" style="--r:40"><span class="n" aria-hidden="true">46</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 46: </span>Ran the clinical safety case under DCB0129 with the clinical safety officer.</span></div></div><div class="ln b" id="l47" style="--r:41"><span class="n" aria-hidden="true">47</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 47: </span>Cut the regulatory review of a release from two weeks to two days.</span></div></div></div><p class="pagefoot">Page 1 of 2</p><div class="sheet" role="group" aria-label="Tailored CV, page 2 of 2"><div class="ln role" id="l49" style="--r:1"><span class="n" aria-hidden="true">49</span><h4 class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 49: </span>Software QA Manager, Pellam Diagnostics (IVD analysers), 2017 to 2022</span></h4></div><div class="ln b cited" id="l50" style="--r:2"><span class="n" aria-hidden="true">50</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-50 edit-hint"><span class="visually-hidden">Line 50: </span>Internal auditor for software processes under ISO 13485, 14 audits a year.</span><span class="visually-hidden" id="cb-50">Cited by A4, A16.</span></div></div><ul class="notes" style="--r:2;--s:2" aria-label="Asks beside line 50"><li class="note st-met is-closed" id="note-a4"><button type="button" class="note-toggle" aria-expanded="false" aria-controls="nb-a4"><span class="mark met">&#10003; Met</span><span class="id">A4</span><span>line 50</span><span class="chev" aria-hidden="true">&#9656;</span></button><div class="note-body" id="nb-a4" hidden><q>Act as internal auditor for software processes under ISO 13485.</q><span class="cite">CV line <a href="#l50">50</a> · <a href="#a4" data-advert-link>advert, What you will do, item 1</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A4</span></button></div></li></ul><div class="ln b" id="l51" style="--r:3"><span class="n" aria-hidden="true">51</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 51: </span>Managed software verification for two IVD analysers under IVDD and the move to IVDR.</span></div></div><div class="ln b cited" id="l52" style="--r:4"><span class="n" aria-hidden="true">52</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-52 edit-hint"><span class="visually-hidden">Line 52: </span>Wrote the SOUP evaluation procedure and the off-the-shelf software register.</span><span class="visually-hidden" id="cb-52">Cited by A8.</span></div></div><ul class="notes" style="--r:4;--s:2" aria-label="Asks beside line 52"><li class="note st-partly" id="note-a8"><span class="head"><span class="mark partly">&#9680; Partly</span><span class="id">A8</span></span><div class="note-body"><q>Maintain SOUP and cybersecurity records under IEC 81001-5-1.</q><span class="gapwhy">SOUP records are on the CV. IEC 81001-5-1 is not named.</span><span class="cite">CV lines <a href="#l52">52</a>, <a href="#l53">53</a> · <a href="#a8" data-advert-link>advert, What you will do, item 5</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A8</span></button></div></li></ul><div class="ln b cited" id="l53" style="--r:5"><span class="n" aria-hidden="true">53</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-53 edit-hint"><span class="visually-hidden">Line 53: </span>Kept SOUP records and vulnerability monitoring for 120 third-party components.</span><span class="visually-hidden" id="cb-53">Cited by A8.</span></div></div><div class="ln b cited" id="l54" style="--r:6"><span class="n" aria-hidden="true">54</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-54 edit-hint"><span class="visually-hidden">Line 54: </span>Led the usability file for the analyser&#x27;s touchscreen software with the human factors team.</span><span class="visually-hidden" id="cb-54">Cited by A14.</span></div></div><ul class="notes" style="--r:6;--s:24" aria-label="Asks beside line 54"><li class="note st-partly" id="note-a14"><span class="head"><span class="mark partly">&#9680; Partly</span><span class="id">A14</span></span><div class="note-body"><q>Working knowledge of IEC 60601-1 and IEC 62366-1.</q><span class="gapwhy">IEC 60601-1 is named, and a usability file. IEC 62366-1 is not named.</span><span class="cite">CV lines <a href="#l54">54</a>, <a href="#l55">55</a> · <a href="#a14" data-advert-link>advert, What you will bring, item 3</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A14</span></button></div></li></ul><div class="ln b cited" id="l55" style="--r:7"><span class="n" aria-hidden="true">55</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-55 edit-hint"><span class="visually-hidden">Line 55: </span>Worked to IEC 60601-1 with the electrical safety team on the analyser&#x27;s software controls.</span><span class="visually-hidden" id="cb-55">Cited by A14.</span></div></div><div class="ln b" id="l56" style="--r:8"><span class="n" aria-hidden="true">56</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 56: </span>Reduced release verification time from six weeks to three with automated regression tests.</span></div></div><div class="ln b" id="l57" style="--r:9"><span class="n" aria-hidden="true">57</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 57: </span>Grew the software QA team from two engineers to six.</span></div></div><div class="ln role" id="l59" style="--r:10"><span class="n" aria-hidden="true">59</span><h4 class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 59: </span>Senior Software Test Engineer, Ardent Cardiac (implantable monitors), 2012 to 2017</span></h4></div><div class="ln b" id="l60" style="--r:11"><span class="n" aria-hidden="true">60</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 60: </span>Wrote verification protocols and reports for implant firmware and the clinician app.</span></div></div><div class="ln b cited" id="l61" style="--r:12"><span class="n" aria-hidden="true">61</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-61 edit-hint"><span class="visually-hidden">Line 61: </span>Prepared the software sections of two FDA 510(k) submissions; both cleared.</span><span class="visually-hidden" id="cb-61">Cited by A13.</span></div></div><div class="ln b" id="l62" style="--r:13"><span class="n" aria-hidden="true">62</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 62: </span>Ran defect triage for a 25-person firmware team.</span></div></div><div class="ln b cited" id="l63" style="--r:14"><span class="n" aria-hidden="true">63</span><div class="t"><span role="button" tabindex="0" aria-describedby="cb-63 edit-hint"><span class="visually-hidden">Line 63: </span>Built the hardware-in-the-loop test bench used for every release.</span><span class="visually-hidden" id="cb-63">Cited by A7.</span></div></div><div class="ln b" id="l64" style="--r:15"><span class="n" aria-hidden="true">64</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 64: </span>Mentored four graduate test engineers.</span></div></div><div class="ln role" id="l66" style="--r:16"><span class="n" aria-hidden="true">66</span><h4 class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 66: </span>Software Test Engineer, Fairhurst Instruments (laboratory instruments), 2009 to 2012</span></h4></div><div class="ln b" id="l67" style="--r:17"><span class="n" aria-hidden="true">67</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 67: </span>Tested instrument control software and data export for laboratory customers.</span></div></div><div class="ln b" id="l68" style="--r:18"><span class="n" aria-hidden="true">68</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 68: </span>Wrote the company&#x27;s first software test strategy.</span></div></div><div class="ln h" id="l70" style="--r:19"><span class="n" aria-hidden="true">70</span><h3 class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 70: </span>Skills</span></h3></div><div class="ln p" id="l71" style="--r:20"><span class="n" aria-hidden="true">71</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 71: </span>Standards: IEC 62304, ISO 13485, ISO 14971, IEC 60601-1, IVDR, MDR, FDA 21 CFR 820.</span></div></div><div class="ln p" id="l72" style="--r:21"><span class="n" aria-hidden="true">72</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 72: </span>Audits: internal, supplier and notified body audits; CAPA and nonconformance handling.</span></div></div><div class="ln p" id="l73" style="--r:22"><span class="n" aria-hidden="true">73</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 73: </span>Testing: requirements-based and risk-based test design, hardware-in-the-loop, code review.</span></div></div><div class="ln p" id="l74" style="--r:23"><span class="n" aria-hidden="true">74</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 74: </span>Tools: Jama, Jira, Git, Polyspace, Coverity, LDRA, Python for test automation.</span></div></div><div class="ln h" id="l76" style="--r:24"><span class="n" aria-hidden="true">76</span><h3 class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 76: </span>Education and certifications</span></h3></div><div class="ln p" id="l77" style="--r:25"><span class="n" aria-hidden="true">77</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 77: </span>ISO 13485:2016 lead auditor certificate, 2023.</span></div></div><div class="ln p" id="l78" style="--r:26"><span class="n" aria-hidden="true">78</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 78: </span>ISO 14971:2019 risk management for medical devices, 2020.</span></div></div><div class="ln p" id="l79" style="--r:27"><span class="n" aria-hidden="true">79</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 79: </span>IEC 62304 practitioner course, 2019.</span></div></div><div class="ln role" id="l81" style="--r:28"><span class="n" aria-hidden="true">81</span><h4 class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 81: </span>MSc Software Engineering, Kennet University, 2008</span></h4></div><div class="ln p" id="l82" style="--r:29"><span class="n" aria-hidden="true">82</span><div class="t"><span role="button" tabindex="0" aria-describedby="edit-hint"><span class="visually-hidden">Line 82: </span>Dissertation on static analysis for safety-critical C. Distinction.</span></div></div><div class="ln role cited" id="l84" style="--r:30"><span class="n" aria-hidden="true">84</span><h4 class="t"><span role="button" tabindex="0" aria-describedby="cb-84 edit-hint"><span class="visually-hidden">Line 84: </span>BEng Electronic Engineering, University of Harrowden, 2007</span><span class="visually-hidden" id="cb-84">Cited by A15.</span></h4></div><ul class="notes" style="--r:30;--s:1" aria-label="Asks beside line 84"><li class="note st-met is-closed" id="note-a15"><button type="button" class="note-toggle" aria-expanded="false" aria-controls="nb-a15"><span class="mark met">&#10003; Met</span><span class="id">A15</span><span>line 84</span><span class="chev" aria-hidden="true">&#9656;</span></button><div class="note-body" id="nb-a15" hidden><q>A degree in engineering or a physical science.</q><span class="cite">CV line <a href="#l84">84</a> · <a href="#a15" data-advert-link>advert, What you will bring, item 4</a></span><button type="button" class="btn-sm">Show cited lines<span class="visually-hidden">, A15</span></button></div></li></ul></div><p class="pagefoot">Page 2 of 2</p></div><div class="cv-actions" role="group" aria-label="Tailored CV actions"><button type="button" class="btn"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg><span class="cost">About 2 cents, 1 call:</span> Rescore role</button><button type="button" class="btn"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2.5h8l2 2v9H3zM5.5 2.5v3h5v-3M5 13.5v-4h6v4" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>Save CV</button><button type="button" class="btn" aria-disabled="true" aria-describedby="dl-why"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m-3.5-3L8 10.5 11.5 7M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>Download Word</button><span class="sep" aria-hidden="true"></span><button type="button" class="btn quiet">Start again from master</button><p class="save-as" id="dl-why">Not saved yet. Save CV stores it as <b>CV - Alex Rennie - Hartwell Infusion Ltd - Software Quality Lead, Class II infusion pumps</b> and puts the role in Preparing. Download Word gives the saved copy, so it waits for a save.</p></div></section>
+</div>
+</div></main><script>
+(function () {
+  var bar = document.querySelector('.appbar');
+  if (!bar) return;
+  var menu = bar.querySelector('.menu-btn');
+  function setMenu(open) {
+    bar.classList.toggle('menu-open', open);
+    if (menu) menu.setAttribute('aria-expanded', String(open));
+  }
+  if (menu) menu.addEventListener('click', function () {
+    setMenu(menu.getAttribute('aria-expanded') !== 'true');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && bar.classList.contains('menu-open')) {
+      setMenu(false);
+      if (menu) menu.focus();
+    }
+  });
+  document.addEventListener('click', function (e) {
+    if (bar.classList.contains('menu-open') && !bar.contains(e.target)) setMenu(false);
+  });
+  // The inbox time is written in UTC by the server and shown in the
+  // reader's own time here, today's as a time and older ones with the day.
+  bar.querySelectorAll('time[data-local]').forEach(function (t) {
+    var when = new Date(t.getAttribute('datetime'));
+    if (isNaN(when)) return;
+    var now = new Date();
+    var hm = ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2);
+    var sameDay = when.toDateString() === now.toDateString();
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    t.textContent = sameDay ? hm : when.getDate() + ' ' + months[when.getMonth()] + ' ' + hm;
+  });
+})();
+
+(function(){
+  var adv=document.querySelector('.advert');
+  function openAdvert(){ if(adv){adv.classList.add('is-open');var t=adv.querySelector('.advert-toggle');if(t)t.setAttribute('aria-expanded','true');} }
+  document.addEventListener('click',function(e){
+    var a=e.target.closest('[data-advert-link]');
+    if(a){e.preventDefault();openAdvert();var el=document.getElementById(a.getAttribute('href').slice(1));if(el){el.focus();}return;}
+    var t=e.target.closest('.advert-toggle');
+    if(t){var open=!adv.classList.contains('is-open');adv.classList.toggle('is-open',open);t.setAttribute('aria-expanded',String(open));t.textContent=open?'Hide the job description':'Show the job description';return;}
+    var n=e.target.closest('.note-toggle');
+    if(n){var li=n.closest('.note');var o=n.getAttribute('aria-expanded')!=='true';n.setAttribute('aria-expanded',String(o));li.classList.toggle('is-open',o);li.classList.toggle('is-closed',!o);document.getElementById(n.getAttribute('aria-controls')).hidden=!o;}
+  });
+  document.addEventListener('focusin',function(e){
+    var n=e.target.closest&&e.target.closest('.note-toggle');
+    if(n&&n.getAttribute('aria-expanded')!=='true'){n.click();}
+  });
+})();
+</script></body></html>

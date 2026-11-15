@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Watchlist · MedTech Radar</title><style>
+:root{
+  color-scheme:dark;
+  --canvas:#0e1215; --surface:#151a1e; --surface-sunken:#1c2226;
+  --row-hover:#192024; --row-selected:#0f3237;
+  --text-1:#e6ebee; --text-2:#b3bec6; --text-3:#93a0a9;
+  --border-subtle:#262e34; --border-strong:#6f7c86;
+  --accent:#5cc3cf; --accent-hover:#82d3dc; --accent-tint:#0f3237; --on-accent:#071114;
+  --positive:#74d39b; --positive-tint:#12291c; --caution:#f0c46a; --caution-tint:#2c2311;
+  --negative:#ff9b8f; --negative-tint:#33191a; --neutral:#b3bec6; --neutral-tint:#1f262b;
+  --focus:#ffd447; --shadow-overlay:0 8px 24px rgba(0,0,0,.5);
+  --font-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --radius-2:2px; --radius-4:4px; --dur:120ms;
+  /* Type scale: size and line height in pairs, on a 4px grid. */
+  --fs-12:12px; --lh-12:16px; --fs-14:14px; --lh-14:20px; --fs-15:15px; --lh-15:24px;
+  --fs-16:16px; --lh-16:24px; --fs-18:18px; --lh-18:24px; --fs-20:20px; --lh-20:28px;
+  /* Spacing, a 4px grid. */
+  --sp-2:2px; --sp-4:4px; --sp-8:8px; --sp-12:12px; --sp-16:16px; --sp-20:20px;
+  --sp-24:24px; --sp-32:32px; --sp-48:48px;
+  /* The older pages' own names, pointed at the same palette. */
+  --paper:#0e1215; --surface-sunk:#1c2226;
+  --ink-1:#e6ebee; --ink-2:#b3bec6; --ink-3:#93a0a9;
+  --hairline:#262e34; --hairline-strong:#3d474e;
+  --accent-quiet:#2f6e76; --accent-wash:#0f3237;
+  --fail:#ff9b8f; --settled:#74d39b;
+  --tint-blue:#131b20; --tint-sand:#1a1a17; --tint-sage:#141b17;
+  --tint-clay:#1c1716; --tint-stone:#161b1f;
+  --panel-rule:rgba(230,235,238,.10);
+}
+@media (prefers-reduced-motion:reduce){:root{--dur:0ms}}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--focus-gap,var(--surface))}
+@media (forced-colors:active){:focus-visible{outline-color:Highlight}}
+.visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+.skip-link{position:absolute;left:8px;top:-60px;z-index:50;padding:8px 12px;background:var(--surface);color:var(--text-1);border:1px solid var(--border-strong);border-radius:var(--radius-2);font:600 14px/20px var(--font-sans)}
+.skip-link:focus{top:8px}
+.appbar{position:relative;z-index:20;display:flex;align-items:center;gap:24px;min-width:0;height:48px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);color:var(--text-1);font:400 14px/20px var(--font-sans);letter-spacing:0}
+.appbar .brand{display:flex;align-items:center;gap:12px;flex:none;color:var(--text-1);text-decoration:none}
+.appbar .brand-mark{display:block;width:51px;height:24px;flex:none}
+.appbar .brand-name{font-size:14px;line-height:20px;font-weight:600;white-space:nowrap}
+.appbar .appbar-page{display:none;font-size:16px;line-height:24px;font-weight:600}
+.appbar .nav{display:flex;align-self:stretch;gap:12px;margin:0 0 0 -4px;padding:0;list-style:none}
+.appbar .nav a{display:flex;align-items:center;height:100%;padding:2px 6px 0;border-bottom:2px solid transparent;color:var(--text-2);text-decoration:none;white-space:nowrap;transition:color var(--dur) ease-out}
+.appbar .nav a:hover{color:var(--text-1)}
+.appbar .nav a[aria-current="page"]{color:var(--text-1);border-bottom-color:var(--accent)}
+.appbar .nav a:focus-visible{outline-offset:-4px;box-shadow:none}
+.appbar .appbar-tools{display:flex;align-items:center;gap:16px;min-width:0;margin-left:auto}
+.appbar .inbox-status{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;line-height:16px;color:var(--text-3);white-space:nowrap}
+.appbar .inbox-status svg{flex:none}
+.appbar .inbox-status.is-warn{color:var(--caution)}
+.appbar .inbox-status.is-bad{color:var(--negative)}
+.appbar .bar-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;min-width:32px;padding:0 8px;border:1px solid transparent;border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 14px/20px var(--font-sans);cursor:pointer;text-decoration:none}
+.appbar .bar-btn:hover{color:var(--text-1);background:var(--row-hover)}
+.appbar .menu-btn{display:none}
+.appbar .menu-panel{display:none}
+@media (max-width:767.98px){
+  .appbar{gap:16px}
+  .appbar .nav,.appbar .appbar-tools,.appbar .brand-name{display:none}
+  .appbar .appbar-page{display:block}
+  .appbar .menu-btn{display:inline-flex;width:44px;height:44px;margin:0 -8px 0 auto}
+  .appbar .menu-btn:focus-visible{outline-offset:-2px;box-shadow:none}
+  .appbar.menu-open .menu-panel{display:block;position:absolute;top:48px;left:0;right:0;padding:8px 16px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);box-shadow:var(--shadow-overlay)}
+  .appbar .menu-panel ul{margin:0;padding:0;list-style:none}
+  .appbar .menu-panel a{display:flex;align-items:center;min-height:44px;color:var(--text-1);text-decoration:none;font-size:16px;line-height:24px}
+  .appbar .menu-panel a[aria-current="page"]{font-weight:600;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:6px}
+  .appbar .menu-panel .inbox-status{display:flex;margin-top:8px}
+}
+@media (pointer:coarse){.appbar .bar-btn{min-width:44px;height:44px}}
+/* A page whose body is still the older one: its own heading row keeps what it
+   says and loses the controls the bar now holds. */
+.page > .masthead{padding-top:0}
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--canvas)}
+body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15px/24px var(--font-sans);
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+a{color:var(--accent)}
+a:hover{color:var(--accent-hover)}
+h1,h2,h3,h4,p,ol,ul,dl,dd{margin:0}
+ol,ul{padding:0;list-style:none}
+button,input,select,textarea{font:inherit}
+:root{--gutter:16px}
+@media (min-width:768px){:root{--gutter:24px}}
+@media (min-width:1920px){:root{--gutter:48px}}
+.page{margin:0 auto;padding:0 var(--gutter) 64px;max-width:2560px}
+.kbd{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;
+  border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface-sunken);
+  color:var(--text-2);font:500 12px/16px var(--font-mono)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:32px;padding:5px 12px;
+  border:1px solid transparent;border-radius:var(--radius-2);font:500 14px/20px var(--font-sans);text-decoration:none;
+  cursor:pointer;text-align:left}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn-secondary{background:var(--surface);border-color:var(--border-strong);color:var(--text-1)}
+.btn-ghost{background:transparent;color:var(--text-2);padding-left:8px;padding-right:8px}
+.btn-ghost:hover{color:var(--text-1);text-decoration:underline;text-underline-offset:2px}
+.btn .kbd{margin-left:2px}
+.is-focus{outline:2px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--surface)}
+.meta{color:var(--text-3);font-size:13px;line-height:20px}
+.muted{color:var(--text-2)}
+a.plain{color:var(--text-1);text-decoration:none}
+a.plain:hover{text-decoration:underline}
+
+/* masthead */
+.pagehead{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px 32px;
+  padding:24px 0 16px;border-bottom:1px solid var(--border-subtle)}
+.pagehead h1{font:600 20px/28px var(--font-sans)}
+.tally{margin-top:4px;color:var(--text-2);font-size:14px;line-height:20px;max-width:90ch}
+.tally b{color:var(--text-1);font-weight:600}
+.tally .sep{color:var(--text-3);padding:0 6px}
+.addname{display:grid;gap:4px;min-width:0;width:min(100%,440px)}
+.addname label{font:600 14px/20px var(--font-sans)}
+.addname .row{display:flex;gap:8px;min-width:0}
+.field{min-width:0;width:100%;min-height:36px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:var(--radius-2);
+  background:var(--surface-sunken);color:var(--text-1);font:400 15px/20px var(--font-sans)}
+.field::placeholder{color:var(--text-3)}
+@media (pointer:coarse){.field{min-height:44px}}
+.hint{color:var(--text-3);font-size:13px;line-height:20px}
+.combo{position:relative;flex:1;min-width:0}
+.listbox{margin-top:4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface);
+  box-shadow:var(--shadow-overlay)}
+.listbox li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;padding:8px 10px;border-bottom:1px solid var(--border-subtle);font-size:14px;line-height:20px}
+.listbox li:last-child{border-bottom:0}
+.listbox li[aria-selected="true"]{background:var(--row-selected);box-shadow:inset 3px 0 0 var(--accent)}
+.listbox .opt-name{color:var(--text-1);font-weight:600}
+.arrived{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-top:16px;padding:10px 12px;
+  border:1px solid var(--accent);border-left-width:4px;border-radius:var(--radius-2);background:var(--accent-tint);font-size:14px;line-height:20px}
+.arrived .what{flex:1 1 320px;min-width:0}
+.status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:10px 12px;border:1px solid var(--border-strong);
+  border-left-width:4px;border-radius:var(--radius-2);background:var(--surface);font-size:14px;line-height:20px}
+.status .what{flex:1 1 260px;min-width:0}
+.status.is-ok{border-left-color:var(--positive)}
+.status.is-bad{border-color:var(--negative);background:var(--negative-tint)}
+.status.is-warn{border-color:var(--caution);background:var(--caution-tint)}
+.status svg{flex:none}
+.status.is-ok svg{color:var(--positive)}
+.status.is-bad svg{color:var(--negative)}
+
+/* layout */
+.layout{display:grid;grid-template-columns:minmax(0,1fr);gap:24px;margin-top:24px;align-items:start}
+@media (min-width:1024px){.layout>.record{position:sticky;top:16px;max-height:calc(var(--vh,100vh) - 32px);overflow:auto}}
+.sg-strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-bottom:24px;padding:10px 12px;
+  border:1px dashed var(--border-strong);border-radius:var(--radius-4);font-size:14px;line-height:20px}
+.sg-strip p{flex:1 1 280px;min-width:0;color:var(--text-2)}
+.sg-strip b{color:var(--text-1)}
+.switch{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:0 8px;border:1px solid var(--border-strong);
+  border-radius:var(--radius-2);background:var(--surface);color:var(--text-1);font:500 13px/20px var(--font-sans);cursor:pointer}
+.switch .knob{position:relative;width:28px;height:16px;border-radius:8px;background:var(--accent)}
+.switch .knob::after{content:"";position:absolute;top:2px;right:2px;width:12px;height:12px;border-radius:50%;background:var(--on-accent)}
+.suggest.after{margin-top:40px;margin-bottom:0}
+@media (min-width:1024px){.layout{grid-template-columns:minmax(0,1fr) 560px}}
+@media (min-width:1920px){.layout{grid-template-columns:minmax(0,1fr) 1000px;gap:32px}}
+.sec-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding-top:12px;border-top:3px solid var(--text-1)}
+.sec-head h2{font:600 18px/24px var(--font-sans)}
+.sec-head .count{color:var(--text-3);font-size:14px;line-height:20px}
+.sec-note{margin-top:4px;color:var(--text-3);font-size:13px;line-height:20px;max-width:100ch}
+
+/* suggestions: kept apart, dashed, never in the table */
+.suggest{margin-bottom:32px}
+.sg-list{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin-top:12px}
+@media (min-width:1920px){.sg-list{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}}
+.sg{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:start;padding:12px;
+  border:1px dashed var(--border-strong);border-radius:var(--radius-4);background:var(--canvas)}
+@media (min-width:1920px){.sg{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:767.98px){.sg{grid-template-columns:minmax(0,1fr)}.sg .acts{margin-top:8px}.page .kbd{display:none}}
+.sg .kick{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;color:var(--text-3);font-size:12px;line-height:16px}
+.sg .kick .type{color:var(--text-2);font-weight:600}
+.sg h3{margin-top:2px;font:600 16px/24px var(--font-sans);overflow-wrap:anywhere}
+.sg h3 .where{font-weight:400;color:var(--text-3);font-size:14px}
+.sg p{color:var(--text-2);font-size:14px;line-height:20px}
+.sg .src{margin-top:2px}
+.sg .acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+@media (min-width:1920px){.sg .acts{margin-top:8px}}
+
+/* the watched table */
+.wt{width:100%;margin-top:8px;border-collapse:collapse;table-layout:fixed;font-size:14px;line-height:20px}
+.wt caption{caption-side:top;text-align:left;color:var(--text-3);font-size:13px;line-height:20px;padding:4px 0 8px}
+.wt th{padding:8px;border-bottom:1px solid var(--border-strong);color:var(--text-2);font:600 12px/16px var(--font-sans);text-align:left;vertical-align:bottom}
+.wt td{padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere}
+.wt tr.is-selected>*{background:var(--row-selected)}
+.wt tr.is-selected>:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.wt .co{color:var(--text-1);font-weight:600;text-decoration:none}
+.wt .co:hover{text-decoration:underline}
+.wt .co-where{display:block;color:var(--text-3);font-size:13px}
+.wt .next{display:block;margin-top:4px;color:var(--text-1)}
+.wt .sig-type{display:block;color:var(--text-3);font-size:12px;line-height:16px}
+.wt .sig-h{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--text-2)}
+.wt .rel{font-weight:600;color:var(--text-1)}
+.wt .num{text-align:right}
+.keys{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:12px;color:var(--text-3);font-size:13px;line-height:20px}
+.keys span{display:inline-flex;align-items:center;gap:6px}
+
+/* tags: a shape and a word, never colour alone */
+.ttag,.ntag,.stag{display:inline-flex;align-items:center;gap:5px;padding:1px 7px;border:1px solid;border-radius:var(--radius-2);
+  font:600 12px/18px var(--font-sans);white-space:nowrap}
+.ttag.is-overdue{color:var(--negative);border-color:var(--negative);background:var(--negative-tint)}
+.ttag.is-today{color:var(--caution);border-color:var(--caution);background:var(--caution-tint)}
+.ttag.is-later{color:var(--text-1);border-color:var(--border-strong);background:var(--surface)}
+.ttag.is-quiet{color:var(--text-3);border-color:var(--border-subtle);background:transparent;font-weight:500}
+.ttag.is-done{color:var(--positive);border-color:var(--positive);background:var(--positive-tint)}
+.ntag{color:var(--accent);border-color:var(--accent);background:var(--accent-tint)}
+.stag{color:var(--text-2);border-color:var(--border-subtle);background:var(--surface-sunken);font-weight:500}
+
+/* the record */
+.record{min-width:0;padding:20px 24px 24px;border:1px solid var(--border-subtle);border-top:3px solid var(--accent);
+  border-radius:var(--radius-2);background:var(--surface);align-self:start}
+.rec-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}
+.rec-walk{display:flex;gap:8px;flex-wrap:wrap}
+.record h2.rec-h{margin-top:12px;font:600 24px/32px var(--font-sans);overflow-wrap:anywhere}
+.rec-line{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin-top:4px;color:var(--text-2);font-size:14px;line-height:20px}
+.rec-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.rblock{margin-top:24px;padding-top:16px;border-top:1px solid var(--border-subtle)}
+.rblock h3{font:600 16px/24px var(--font-sans)}
+.rblock h3 .count{font-weight:400;color:var(--text-3);font-size:14px}
+.rblock .lede{margin-top:2px;color:var(--text-3);font-size:13px;line-height:20px}
+.rec-cols{display:block}
+@media (min-width:1920px){.rec-cols{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:0 32px}
+  .rec-cols>.col>.rblock:first-child{margin-top:24px}}
+.thread-box{margin-top:12px;padding:12px;border:1px solid var(--caution);border-left-width:4px;border-radius:var(--radius-2);background:var(--canvas)}
+.thread-box.is-overdue{border-color:var(--negative)}
+.thread-box.is-later,.thread-box.is-quiet{border-color:var(--border-strong)}
+.thread-box .step{margin-top:8px;font:600 16px/24px var(--font-sans)}
+.thread-box .from{margin-top:4px}
+.thread-box .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.drafts .draft{margin-top:12px}
+.drafts h4{font:600 14px/20px var(--font-sans)}
+.drafts .text{margin-top:4px;padding:12px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);
+  background:var(--canvas);color:var(--text-1);white-space:pre-wrap;overflow-wrap:anywhere}
+.drafts .draft-foot{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin-top:8px}
+.logform{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 16px;margin-top:12px}
+.logform .full{grid-column:1/-1}
+.logform label,.logform legend{display:block;color:var(--text-2);font-size:14px;line-height:20px;font-weight:500}
+.logform label .field,.logform label select,.logform label textarea{display:block;margin-top:4px}
+.logform select,.logform textarea{width:100%;min-height:36px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:var(--radius-2);
+  background:var(--surface-sunken);color:var(--text-1);font:400 15px/20px var(--font-sans)}
+.logform textarea{min-height:72px;resize:vertical}
+.logform fieldset{margin:0;padding:0;border:0;min-width:0}
+.logform .radios{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:6px}
+.logform .radios label{display:inline-flex;align-items:center;gap:6px;color:var(--text-1);font-weight:400}
+.logform input[type=radio]{width:16px;height:16px;margin:0;accent-color:var(--accent)}
+.logform .hint{margin-top:4px}
+.logform .err{margin-top:4px;display:flex;gap:6px;align-items:flex-start;color:var(--negative);font-size:13px;line-height:20px}
+.logform .field.is-error{border-color:var(--negative)}
+.logform .submit{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+@media (max-width:767.98px){.logform{grid-template-columns:minmax(0,1fr)}}
+.contacts li{display:grid;grid-template-columns:72px minmax(0,1fr);gap:2px 12px;padding:12px 0;border-top:1px solid var(--border-subtle);font-size:14px;line-height:20px}
+.contacts li:first-child{border-top:0}
+.contacts .when{color:var(--text-1);font-weight:600}
+.contacts .how{color:var(--text-2);font-weight:600}
+.contacts .note{color:var(--text-1)}
+.contacts .set{color:var(--text-3)}
+.contacts .out{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;color:var(--text-3)}
+.items li{padding:12px 0;border-top:1px solid var(--border-subtle);font-size:14px;line-height:20px}
+.items li:first-child{border-top:0}
+.items .kick{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;color:var(--text-3);font-size:12px;line-height:16px}
+.items .kick b{color:var(--text-2);font-weight:600}
+.items .ttl{display:block;margin-top:2px;font-weight:600;overflow-wrap:anywhere}
+.items .ttl a{color:var(--text-1)}
+.items .why{margin-top:2px;color:var(--text-2)}
+.facts{margin-top:8px}
+.facts .fact{display:grid;grid-template-columns:88px minmax(0,1fr);gap:2px 12px;padding:8px 0;border-top:1px solid var(--border-subtle);font-size:14px;line-height:20px}
+.facts .fact:first-child{border-top:0}
+.facts dt{color:var(--text-3)}
+.facts dd .v{color:var(--text-1);overflow-wrap:anywhere}
+.facts dd .v.nk{color:var(--text-3)}
+.facts dd .s{display:block;color:var(--text-3);font-size:13px}
+.facts-foot{margin-top:8px}
+
+/* phone list */
+.plist{margin-top:8px}
+.plist li{border-bottom:1px solid var(--border-subtle)}
+.prow{display:grid;gap:4px;padding:12px 0;color:var(--text-1);text-decoration:none;font-size:14px;line-height:20px;min-height:44px}
+.prow .nm{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font:600 16px/24px var(--font-sans)}
+.prow .nm .where{font-weight:400;font-size:13px;color:var(--text-3)}
+.prow .th{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.prow .sg-line{color:var(--text-3);font-size:13px;line-height:20px}
+.back{display:inline-flex;align-items:center;gap:6px;min-height:44px;color:var(--accent);font-size:15px}
+
+/* the states board and the notes */
+.board{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:32px;margin-top:24px}
+.panel{min-width:0}
+.panel.wide{grid-column:1/-1}
+.panel>h2{font:600 18px/24px var(--font-sans);padding-top:12px;border-top:3px solid var(--text-1)}
+.panel>h2 .n{color:var(--text-3);font-weight:500;margin-right:6px}
+.panel>.say{margin-top:4px;color:var(--text-2);font-size:14px;line-height:20px;max-width:90ch}
+.demo{margin-top:12px;padding:16px;border:1px solid var(--border-subtle);border-radius:var(--radius-4);background:var(--canvas)}
+.demo.on-surface{background:var(--surface)}
+.demo .lbl{display:block;margin-bottom:8px;color:var(--text-3);font:600 12px/16px var(--font-sans)}
+.demo+.demo{margin-top:8px}
+.empty{padding:24px;border:1px dashed var(--border-strong);border-radius:var(--radius-4)}
+.empty h3{font:600 18px/24px var(--font-sans)}
+.empty p{margin-top:4px;color:var(--text-2);font-size:14px;line-height:20px;max-width:70ch}
+.empty ol{margin-top:12px;display:grid;gap:8px;counter-reset:e}
+.empty ol li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;font-size:14px;line-height:20px;color:var(--text-1)}
+.empty ol li::before{counter-increment:e;content:counter(e);display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1px solid var(--border-strong);border-radius:50%;color:var(--text-2);font-size:12px}
+.count-map{display:grid;grid-template-columns:200px minmax(0,1fr);gap:24px;align-items:start}
+.homefig{padding:16px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface)}
+.homefig .big{font:600 44px/48px var(--font-sans);color:var(--text-1)}
+.homefig .w{font-size:14px;line-height:20px;color:var(--text-2)}
+.cm-list li{display:grid;grid-template-columns:150px minmax(0,1fr);gap:2px 12px;padding:8px 0;border-top:1px solid var(--border-subtle);font-size:14px;line-height:20px}
+.cm-list li:first-child{border-top:0}
+.cm-list .co{font-weight:600}
+.cm-h{font:600 14px/20px var(--font-sans);margin-top:12px}
+.cm-h:first-child{margin-top:0}
+.rule{margin-top:12px;padding:12px;border-left:4px solid var(--accent);background:var(--surface);font-size:14px;line-height:20px;color:var(--text-1)}
+.notes{max-width:1180px}
+.notes h2{margin-top:32px;font:600 20px/28px var(--font-sans);padding-top:12px;border-top:3px solid var(--text-1)}
+.notes h3{margin-top:16px;font:600 16px/24px var(--font-sans)}
+.notes p,.notes li{font-size:15px;line-height:24px;color:var(--text-1);max-width:110ch}
+.notes p+p{margin-top:8px}
+.notes ul.b{margin-top:8px;padding-left:20px;list-style:disc}
+.notes ul.b li{margin-top:4px}
+.notes ul.b li::marker{color:var(--text-3)}
+.notes code{font:400 13px/20px var(--font-mono);color:var(--text-2);background:var(--surface-sunken);padding:1px 4px;border-radius:2px}
+.nt{width:100%;margin-top:12px;border-collapse:collapse;font-size:14px;line-height:20px}
+.nt th,.nt td{padding:8px;border-bottom:1px solid var(--border-subtle);text-align:left;vertical-align:top;overflow-wrap:anywhere}
+.nt th{color:var(--text-2);font:600 12px/16px var(--font-sans);border-bottom-color:var(--border-strong)}
+.swatch{display:inline-block;width:12px;height:12px;margin-right:6px;border:1px solid var(--border-strong);vertical-align:-1px}
+.oq li{margin-top:16px;padding:12px 16px;border:1px solid var(--border-subtle);border-radius:var(--radius-4);background:var(--surface);list-style:none}
+.oq{padding:0}
+.oq .q{font-weight:600}
+.oq .drawn{margin-top:4px}
+.oq .drawn b{color:var(--accent)}
+.oq .alt{margin-top:4px;color:var(--text-2)}
+
+:root{--vh:800px}
+</style></head><body><a class="skip-link" href="#main">Skip to the page</a><header class="appbar"><a class="brand" href="/" aria-label="MedTech Radar, Home"><svg class="brand-mark" viewBox="0 0 36 17" width="51" height="24" fill="none" aria-hidden="true" focusable="false"><path d="M4 15a14 14 0 0 1 28 0" stroke="var(--text-3)" stroke-width="1.2"/><path d="M8.5 15a9.5 9.5 0 0 1 19 0" stroke="var(--text-2)" stroke-width="1.2"/><path d="M13 15a5 5 0 0 1 10 0Z" fill="var(--text-1)"/><path d="M0 15h36" stroke="var(--text-1)" stroke-width="1.5"/></svg><span class="brand-name">MedTech Radar</span><span class="appbar-page" aria-hidden="true">Watchlist</span></a><nav class="nav" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a><a href="/watchlist" aria-current="page">Watchlist</a><a href="/cv">CV</a></nav><div class="appbar-tools"><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div><button type="button" class="bar-btn menu-btn" aria-expanded="false" aria-controls="menu-panel">Menu</button><div class="menu-panel" id="menu-panel"><nav aria-label="Pages, menu"><ul><li><a href="/">Home</a></li><li><a href="/jobs">Jobs</a></li><li><a href="/insights">Insights</a></li><li><a href="/watchlist" aria-current="page">Watchlist</a></li><li><a href="/cv">CV</a></li></ul></nav><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div></header><main id="main" tabindex="-1"><div class="page"><header class="pagehead"><div><h1>Watchlist</h1><p class="tally"><b>10 companies</b> on your Watchlist<span class="sep" aria-hidden="true">·</span><b>2 threads due</b> (1 today, 1 overdue)<span class="sep" aria-hidden="true">·</span><b>3 suggestions</b> waiting<span class="sep" aria-hidden="true">·</span>As of 09:14, Friday 13 Nov. Times are UK time.</p></div><form class="addname" role="search" aria-label="Add a company by name"><label for="add-name">Add a company by name <span class="meta" style="font-weight:400"><kbd class="kbd">/</kbd></span></label><div class="row"><div class="combo"><input class="field" id="add-name" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="add-list" autocomplete="off" placeholder="For example, Okara Diagnostics" value=""></div><button type="submit" class="btn btn-secondary">Add</button></div><p class="hint">Radar looks the name up among the companies it has seen. One it has not seen can still be added.</p></form></header><div class="arrived" role="status"><span class="ntag"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true" focusable="false"><path d="M8 1.5l1.8 4.3 4.7.4-3.6 3 1.1 4.6L8 11.4l-4 2.4 1.1-4.6-3.6-3 4.7-.4z" fill="currentColor"/></svg><span>Just added from Insights</span></span><span class="what"><b>Selwick Photonics</b> arrived at 09:11, when you pressed Add to Watchlist on its story, <a href="/insights/story/402">Selwick Photonics spins out with a €2.4m seed round</a>. It is in your companies below.</span><a class="btn btn-ghost" href="/watchlist?company=44">Open its record</a></div><div class="layout"><div style="min-width:0"><div class="sg-strip" role="region" aria-label="Suggestions from Radar"><p><b>3 suggestions waiting</b> from Radar: Okara Diagnostics, PDX Diagnostics and Vantage Bio. None joins your Watchlist until you add it.</p><button type="button" class="btn btn-secondary" aria-expanded="false" aria-controls="sg-panel">Show<span class="visually-hidden"> the 3 suggestions</span></button></div><section aria-labelledby="wt-h"><div class="sec-head"><h2 id="wt-h">Your companies</h2><span class="count">10 watched</span></div><table class="wt" aria-labelledby="wt-h"><caption>Due first: overdue, then today. Then the next due dates, then threads with no date, then companies with no next step, newest signal first. Signals as of the watcher's run at 06:00.</caption><colgroup><col style="width:30%"><col style="width:38%"><col style="width:32%"></colgroup><thead><tr><th scope="col">Company</th><th scope="col">Thread</th><th scope="col">Latest signal or story</th></tr></thead><tbody><tr><th scope="row" style="font:inherit;font-weight:400;text-align:left;padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere"><a class="co" href="/watchlist?company=31">Qurio</a><span class="co-where">Leuven, Belgium</span></th><td><span class="ttag is-overdue"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true" focusable="false"><path d="M8 1.8 15 14H1z" fill="currentColor"/><path d="M8 6v3.6" stroke="var(--canvas)" stroke-width="1.7" stroke-linecap="round"/><circle cx="8" cy="11.8" r="1" fill="var(--canvas)"/></svg><span>Overdue by 1 day</span></span> <span class="meta">due 12 Nov</span><span class="next">Week three. One genuine engagement with their content, brief.</span><span class="meta" style="display:block;margin-top:2px">Last contact 22 Oct, comment</span></td><td><span class="sig-type">Spin-off launch · <span class="rel">78</span> · found 20 Oct</span><span class="sig-h">A university lab spins out Qurio to commercialise a wearable ECG patch</span></td></tr><tr><th scope="row" style="font:inherit;font-weight:400;text-align:left;padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere"><a class="co" href="/watchlist?company=33">Lumenhal Photonics</a><span class="co-where">Eindhoven, Netherlands</span></th><td><span class="ttag is-today"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.2" stroke="currentColor" stroke-width="1.6"/><path d="M8 4.6V8l2.4 1.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>Due today</span></span><span class="next">Send the connection note to the chief executive.</span><span class="meta" style="display:block;margin-top:2px">Last contact 23 Oct, comment</span></td><td><span class="sig-type">Funding round · <span class="rel">92</span> · found 21 Oct</span><span class="sig-h">Lumenhal Photonics closes a £6.5m seed round for its photonic biosensor reader</span></td></tr><tr class="is-selected"><th scope="row" style="font:inherit;font-weight:400;text-align:left;padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere"><a class="co is-focus" href="/watchlist?company=12" aria-current="true">Hartwell Infusion Ltd</a><span class="co-where">Guildford, UK</span></th><td><span class="ttag is-later"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="4.6" stroke="currentColor" stroke-width="1.6"/></svg><span>Due Sun 15 Nov</span></span><span class="next">Send the connection note to Rosa Okoye.</span><span class="meta" style="display:block;margin-top:2px">Last contact 30 Oct, comment</span></td><td><span class="sig-type">Buying window · <span class="rel">90</span> · found 11 Nov</span><span class="sig-h">Hartwell Infusion Ltd is hiring a Head of Software Quality</span></td></tr><tr><th scope="row" style="font:inherit;font-weight:400;text-align:left;padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere"><a class="co" href="/watchlist?company=18">Tessaly Diagnostics</a><span class="co-where">Edinburgh, UK</span></th><td><span class="ttag is-later"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="4.6" stroke="currentColor" stroke-width="1.6"/></svg><span>Due 20 Nov</span></span><span class="next">Share the IVDR software checklist they asked about.</span><span class="meta" style="display:block;margin-top:2px">Last contact 3 Nov, article sent</span></td><td><span class="sig-type">Funding round · <span class="rel">80</span> · found 5 Oct</span><span class="sig-h">Tessaly Diagnostics raises £9m Series A to take its respiratory assay into clinical studies</span></td></tr><tr><th scope="row" style="font:inherit;font-weight:400;text-align:left;padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere"><a class="co" href="/watchlist?company=22">Corvane Surgical</a><span class="co-where">Leeds, UK</span></th><td><span class="ttag is-later"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="4.6" stroke="currentColor" stroke-width="1.6"/></svg><span>Due 27 Nov</span></span><span class="next">Week three. One genuine engagement with their content, brief.</span><span class="meta" style="display:block;margin-top:2px">Last contact 6 Nov, comment</span></td><td><span class="sig-type">Funding round · <span class="rel">76</span> · found 4 Nov</span><span class="sig-h">Corvane Surgical raises £8m Series A for its spinal navigation system</span></td></tr><tr><th scope="row" style="font:inherit;font-weight:400;text-align:left;padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere"><a class="co" href="/watchlist?company=27">Arvell Photonics</a><span class="co-where">Ghent, Belgium</span></th><td><span class="ttag is-quiet"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true" focusable="false"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>No date set</span></span><span class="next">Look again once they name a device partner.</span><span class="meta" style="display:block;margin-top:2px">Last contact 29 Oct, engagement</span></td><td><span class="sig-type">Funding round · <span class="rel">68</span> · found 28 Oct</span><span class="sig-h">Arvell Photonics closes a €3.1m seed round for its photonic blood-gas chip</span></td></tr><tr><th scope="row" style="font:inherit;font-weight:400;text-align:left;padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere"><a class="co" href="/watchlist?company=44">Selwick Photonics</a><span class="co-where">Enschede, Netherlands</span><span style="display:block;margin-top:4px"><span class="ntag"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true" focusable="false"><path d="M8 1.5l1.8 4.3 4.7.4-3.6 3 1.1 4.6L8 11.4l-4 2.4 1.1-4.6-3.6-3 4.7-.4z" fill="currentColor"/></svg><span>Added from Insights at 09:11</span></span></span></th><td><span class="ttag is-quiet"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true" focusable="false"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>No contact yet</span></span></td><td><span class="sig-type">Spin-off launch · <span class="rel">76</span> · found 12 Nov</span><span class="sig-h">Selwick Photonics spins out with a €2.4m seed round for a handheld Raman reader</span></td></tr><tr><th scope="row" style="font:inherit;font-weight:400;text-align:left;padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere"><a class="co" href="/watchlist?company=9">Severn Renal Systems</a><span class="co-where">Bristol, UK</span></th><td><span class="ttag is-quiet"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true" focusable="false"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>No next step</span></span><span class="meta" style="display:block;margin-top:2px">Last contact 28 Oct, article sent</span></td><td><span class="sig-type">Market news · <span class="rel">55</span> · found 9 Nov</span><span class="sig-h">Severn Renal Systems opens a home dialysis software team in Bristol</span></td></tr><tr><th scope="row" style="font:inherit;font-weight:400;text-align:left;padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere"><a class="co" href="/watchlist?company=7">Wrenfield Digital Health</a><span class="co-where">Manchester, UK</span></th><td><span class="ttag is-quiet"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true" focusable="false"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>No contact yet</span></span></td><td><span class="sig-type">Funding round · <span class="rel">62</span> · found 2 Nov</span><span class="sig-h">Wrenfield Digital Health adds £4m to take its SaMD triage app to more trusts</span></td></tr><tr><th scope="row" style="font:inherit;font-weight:400;text-align:left;padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere"><a class="co" href="/watchlist?company=15">Brackley Sensing</a><span class="co-where">Oxford, UK</span></th><td><span class="ttag is-quiet"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true" focusable="false"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>No contact yet</span></span></td><td><span class="sig-type">Funding round · <span class="rel">72</span> · found 28 Oct</span><span class="sig-h">Brackley Sensing raises £2.5m to scale a fibre-optic pressure sensor for catheter makers</span></td></tr></tbody></table><p class="keys" aria-label="Keys"><span><kbd class="kbd">J</kbd> <kbd class="kbd">K</kbd> next, previous</span><span><kbd class="kbd">Enter</kbd> open the record</span><span><kbd class="kbd">Esc</kbd> back to the row</span><span><kbd class="kbd">L</kbd> log a contact</span><span><kbd class="kbd">/</kbd> add by name</span><button type="button" class="switch" role="switch" aria-checked="true">Single-key shortcuts: On<span class="knob" aria-hidden="true"></span></button></p></section></div><aside class="record" aria-labelledby="rec-h"><div class="rec-top"><p class="meta">Record 3 of 10</p><div class="rec-walk"><button type="button" class="btn btn-secondary" aria-label="Previous company, Lumenhal Photonics" aria-keyshortcuts="K">Previous <kbd class="kbd">K</kbd></button><button type="button" class="btn btn-secondary" aria-label="Next company, Tessaly Diagnostics" aria-keyshortcuts="J">Next <kbd class="kbd">J</kbd></button><button type="button" class="btn btn-ghost" aria-label="Close the record" aria-keyshortcuts="Escape">Close <kbd class="kbd">Esc</kbd></button></div></div><h2 class="rec-h" id="rec-h" tabindex="-1">Hartwell Infusion Ltd</h2><p class="rec-line"><span>Infusion pumps · Series C · Guildford, UK</span><span class="stag">Buying window open</span></p><p class="rec-line"><span>On your Watchlist since 14 Oct, added from Insights (the Series C story).</span></p><div class="rec-acts"><button type="button" class="btn btn-secondary" aria-haspopup="menu">Set state</button><button type="button" class="btn btn-ghost">Remove from Watchlist</button></div><section class="rblock" aria-labelledby="th-h"><h3 id="th-h">Thread</h3><p class="lede">Your next step with the company and when it is due, from the newest contact.</p><div class="thread-box is-later"><span class="ttag is-later"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="4.6" stroke="currentColor" stroke-width="1.6"/></svg><span>Due Sun 15 Nov, in 2 days</span></span><p class="step">Send the connection note to Rosa Okoye.</p><p class="meta from">The next step you set on 30 Oct, when you logged the comment. Nothing is due today: it joins threads due on Home on Sunday.</p><div class="acts"><a class="btn btn-primary" href="#log">Log a contact <kbd class="kbd">L</kbd></a><a class="btn btn-ghost" href="#drafts">The connection note draft is below</a></div></div></section><section class="rblock drafts" id="drafts" aria-labelledby="dr-h"><h3 id="dr-h">Drafts to copy</h3><p class="lede">Copy one and make it yours where you post it. Nothing is ever posted or sent by Radar.</p><div class="draft"><h4 id="d-comment">Comment</h4><p class="meta">Written 14 Oct, for the story <a href="/insights/story/311">Hartwell Infusion raises £32m Series C</a>.</p><p class="text" id="t-comment">Congratulations on the Series C. Scaling a pump range while keeping the IEC 62304 class C file in step is where most teams feel the strain first. Good luck with the next phase.</p><div class="draft-foot"><button type="button" class="btn btn-secondary"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true" focusable="false"><rect x="5" y="5" width="8.5" height="9" rx="1" stroke="currentColor" stroke-width="1.4"/><path d="M3 11V3a1 1 0 0 1 1-1h6.5" stroke="currentColor" stroke-width="1.4"/></svg>Copy the comment</button><span class="meta">176 characters</span></div></div><div class="draft"><h4 id="d-note">Connection note</h4><p class="meta">Written 30 Oct, after you logged your comment on Rosa Okoye's post.</p><p class="text" id="t-note">Hello Rosa, I work on software quality and IEC 62304 for infusion and other Class IIb devices, near Reading. I enjoyed your post on class C firmware reviews and would be glad to connect. Alex</p><div class="draft-foot"><button type="button" class="btn btn-secondary"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true" focusable="false"><rect x="5" y="5" width="8.5" height="9" rx="1" stroke="currentColor" stroke-width="1.4"/><path d="M3 11V3a1 1 0 0 1 1-1h6.5" stroke="currentColor" stroke-width="1.4"/></svg>Copy the connection note</button><span class="meta">191 characters</span></div></div></section><section class="rblock" id="log" aria-labelledby="log-h"><h3 id="log-h">Log a contact</h3><p class="lede">One contact with Hartwell Infusion Ltd, by you. It joins the contacts below, and its next step becomes the thread.</p><form class="logform" aria-labelledby="log-h"><label>Date<input class="field" type="text" inputmode="numeric" value="13 Nov 2026" aria-describedby="date-h"><span class="hint" id="date-h">Today unless you say otherwise.</span></label><label>How<select name="channel"><option value="">Choose one</option><option>Comment</option><option>Connection note</option><option>Engagement</option><option>Article sent</option><option>Other</option></select></label><label class="full">Note, optional<textarea name="note" maxlength="500"></textarea></label><fieldset class="full"><legend>What came back</legend><div class="radios"><label><input type="radio" name="out" value="none" checked>None</label><label><input type="radio" name="out" value="reply">Reply</label><label><input type="radio" name="out" value="conversation">Conversation</label></div><p class="hint">You can change it later, when a reply arrives.</p></fieldset><label>Next step<input class="field" type="text" value="" placeholder="Follow up in a week" aria-describedby="next-h"><span class="hint" id="next-h">Leave it empty and the thread closes.</span></label><label>Due date<input class="field" type="text" inputmode="numeric" value="" placeholder="Needed with a next step"><span class="hint">Today and earlier count as due on Home.</span></label><div class="full submit"><button type="submit" class="btn btn-primary">Log the contact</button><span class="meta">Change or delete a contact later from its row.</span></div></form></section><section class="rblock" aria-labelledby="ct-h"><h3 id="ct-h">Contacts <span class="count">2 logged, newest first</span></h3><ul class="contacts" style="margin-top:4px"><li><span class="when">30 Oct</span><div><span class="how">Comment</span><p class="note">Commented on Rosa Okoye&#x27;s post about class C firmware reviews.</p><p class="set">Next step set: Send the connection note to Rosa Okoye, due 13 Nov.</p><p class="out">Outcome: <b style="color:var(--text-1);font-weight:600">Reply</b><button type="button" class="btn btn-ghost" style="padding:0 8px">Change<span class="visually-hidden"> the outcome of the 30 Oct comment</span></button><button type="button" class="btn btn-ghost" style="padding:0 8px">Edit<span class="visually-hidden"> the 30 Oct comment</span></button></p></div></li><li><span class="when">16 Oct</span><div><span class="how">Engagement</span><p class="note">Liked and shared the Series C announcement.</p><p class="set">Next step set: Comment on their next post, due 30 Oct. Done by the 30 Oct comment.</p><p class="out">Outcome: <b style="color:var(--text-1);font-weight:600">None</b><button type="button" class="btn btn-ghost" style="padding:0 8px">Change<span class="visually-hidden"> the outcome of the 16 Oct engagement</span></button><button type="button" class="btn btn-ghost" style="padding:0 8px">Edit<span class="visually-hidden"> the 16 Oct engagement</span></button></p></div></li></ul></section><section class="rblock" aria-labelledby="sg2-h"><h3 id="sg2-h">Signals and stories <span class="count">3, newest first</span></h3><ul class="items" style="margin-top:4px"><li><p class="kick"><b>Buying window</b><span>Relevance 90, which every buying window gets</span><span>found 11 Nov</span><span class="stag">Still open</span></p><span class="ttl"><a href="/jobs#role-431">Hartwell Infusion Ltd is hiring a Head of Software Quality</a></span><p class="why">A first software quality hire at a company you contacted on 30 Oct. It came from a job advert, so it opens on Jobs: hiring is not shown on Insights.</p></li><li><p class="kick"><b>Market news</b><span>Relevance 52</span><span>found 4 Nov</span></p><span class="ttl"><a href="/insights/story/366">Hartwell Infusion opens a firmware team in Guildford</a></span><p class="why">One report, on Insights.</p></li><li><p class="kick"><b>Funding round</b><span>Relevance 81</span><span>found 14 Oct</span></p><span class="ttl"><a href="/insights/story/311">Hartwell Infusion raises £32m Series C to scale its smart pump range</a></span><p class="why">Three reports, on Insights. You added the company from this story, and the comment draft above is from it.</p></li></ul></section><section class="rblock" aria-labelledby="rl-h"><h3 id="rl-h">Roles on Jobs <span class="count">2 open</span></h3><ul class="items" style="margin-top:4px"><li><p class="kick"><b>Top prospect</b><span>81, full spec</span></p><span class="ttl"><a href="/jobs#role-418">Software Quality Lead, Class II infusion pumps</a></span><p class="why">Contract, 6 months · Guildford (hybrid, 2 days a week) · £650 to £750 a day, outside IR35 · first seen 21 Oct</p><p class="meta"><a href="/prepare/418">Prepare application</a></p></li><li><p class="kick"><b>One question away</b><span>71, from the advert card</span></p><span class="ttl"><a href="/jobs#role-431">Head of Software Quality, Class II infusion pumps</a></span><p class="why">Permanent · Guildford (hybrid) · salary not stated · first seen 11 Nov. The buying window above.</p><p class="meta"><a href="/prepare/431">Prepare application</a></p></li></ul></section><section class="rblock" aria-labelledby="fa-h"><h3 id="fa-h">Facts as published</h3><dl class="facts"><div class="fact"><dt>Builds</dt><dd><span class="v">Volumetric and syringe infusion pumps for hospital wards, Class IIb.</span><span class="s">Company site, read 14 Oct</span></dd></div><div class="fact"><dt>Software</dt><dd><span class="v">Pump firmware and a drug library editor. The site names IEC 62304.</span><span class="s">Company site, read 14 Oct</span></dd></div><div class="fact"><dt>Stage</dt><dd><span class="v">Series C</span><span class="s">The Series C report, European Device Funding Digest, 14 Oct</span></dd></div><div class="fact"><dt>Where</dt><dd><span class="v">Guildford, UK</span><span class="s">Company site, read 14 Oct</span></dd></div><div class="fact"><dt>Region</dt><dd><span class="v">Local</span><span class="s">Worked out by Radar from Where, using your local places list</span></dd></div><div class="fact"><dt>People</dt><dd><span class="v">Marcus Hale (CEO), Rosa Okoye (CTO)</span><span class="s">Company site, read 14 Oct</span></dd></div></dl><p class="meta facts-foot">Read once by Radar on 14 Oct, from the Series C report and the company's own site, <span style="white-space:nowrap">hartwell-infusion.example</span>, which allows reading. Radar does not refresh them. A fact neither source stated reads Not known, and only a published chief executive and chief technology officer are kept.</p></section></aside></div></div></main><script>
+(function () {
+  var bar = document.querySelector('.appbar');
+  if (!bar) return;
+  var menu = bar.querySelector('.menu-btn');
+  function setMenu(open) {
+    bar.classList.toggle('menu-open', open);
+    if (menu) menu.setAttribute('aria-expanded', String(open));
+  }
+  if (menu) menu.addEventListener('click', function () {
+    setMenu(menu.getAttribute('aria-expanded') !== 'true');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && bar.classList.contains('menu-open')) {
+      setMenu(false);
+      if (menu) menu.focus();
+    }
+  });
+  document.addEventListener('click', function (e) {
+    if (bar.classList.contains('menu-open') && !bar.contains(e.target)) setMenu(false);
+  });
+  // The inbox time is written in UTC by the server and shown in the
+  // reader's own time here, today's as a time and older ones with the day.
+  bar.querySelectorAll('time[data-local]').forEach(function (t) {
+    var when = new Date(t.getAttribute('datetime'));
+    if (isNaN(when)) return;
+    var now = new Date();
+    var hm = ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2);
+    var sameDay = when.toDateString() === now.toDateString();
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    t.textContent = sameDay ? hm : when.getDate() + ' ' + months[when.getMonth()] + ' ' + hm;
+  });
+})();
+</script></body></html>

@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CV states · MedTech Radar</title><style>
+:root{
+  color-scheme:dark;
+  --canvas:#0e1215; --surface:#151a1e; --surface-sunken:#1c2226;
+  --row-hover:#192024; --row-selected:#0f3237;
+  --text-1:#e6ebee; --text-2:#b3bec6; --text-3:#93a0a9;
+  --border-subtle:#262e34; --border-strong:#6f7c86;
+  --accent:#5cc3cf; --accent-hover:#82d3dc; --accent-tint:#0f3237; --on-accent:#071114;
+  --positive:#74d39b; --positive-tint:#12291c; --caution:#f0c46a; --caution-tint:#2c2311;
+  --negative:#ff9b8f; --negative-tint:#33191a; --neutral:#b3bec6; --neutral-tint:#1f262b;
+  --focus:#ffd447; --shadow-overlay:0 8px 24px rgba(0,0,0,.5);
+  --font-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --radius-2:2px; --radius-4:4px; --dur:120ms;
+  /* Type scale: size and line height in pairs, on a 4px grid. */
+  --fs-12:12px; --lh-12:16px; --fs-14:14px; --lh-14:20px; --fs-15:15px; --lh-15:24px;
+  --fs-16:16px; --lh-16:24px; --fs-18:18px; --lh-18:24px; --fs-20:20px; --lh-20:28px;
+  /* Spacing, a 4px grid. */
+  --sp-2:2px; --sp-4:4px; --sp-8:8px; --sp-12:12px; --sp-16:16px; --sp-20:20px;
+  --sp-24:24px; --sp-32:32px; --sp-48:48px;
+  /* The older pages' own names, pointed at the same palette. */
+  --paper:#0e1215; --surface-sunk:#1c2226;
+  --ink-1:#e6ebee; --ink-2:#b3bec6; --ink-3:#93a0a9;
+  --hairline:#262e34; --hairline-strong:#3d474e;
+  --accent-quiet:#2f6e76; --accent-wash:#0f3237;
+  --fail:#ff9b8f; --settled:#74d39b;
+  --tint-blue:#131b20; --tint-sand:#1a1a17; --tint-sage:#141b17;
+  --tint-clay:#1c1716; --tint-stone:#161b1f;
+  --panel-rule:rgba(230,235,238,.10);
+}
+@media (prefers-reduced-motion:reduce){:root{--dur:0ms}}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--focus-gap,var(--surface))}
+@media (forced-colors:active){:focus-visible{outline-color:Highlight}}
+.visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+.skip-link{position:absolute;left:8px;top:-60px;z-index:50;padding:8px 12px;background:var(--surface);color:var(--text-1);border:1px solid var(--border-strong);border-radius:var(--radius-2);font:600 14px/20px var(--font-sans)}
+.skip-link:focus{top:8px}
+.appbar{position:relative;z-index:20;display:flex;align-items:center;gap:24px;min-width:0;height:48px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);color:var(--text-1);font:400 14px/20px var(--font-sans);letter-spacing:0}
+.appbar .brand{display:flex;align-items:center;gap:12px;flex:none;color:var(--text-1);text-decoration:none}
+.appbar .brand-mark{display:block;width:51px;height:24px;flex:none}
+.appbar .brand-name{font-size:14px;line-height:20px;font-weight:600;white-space:nowrap}
+.appbar .appbar-page{display:none;font-size:16px;line-height:24px;font-weight:600}
+.appbar .nav{display:flex;align-self:stretch;gap:12px;margin:0 0 0 -4px;padding:0;list-style:none}
+.appbar .nav a{display:flex;align-items:center;height:100%;padding:2px 6px 0;border-bottom:2px solid transparent;color:var(--text-2);text-decoration:none;white-space:nowrap;transition:color var(--dur) ease-out}
+.appbar .nav a:hover{color:var(--text-1)}
+.appbar .nav a[aria-current="page"]{color:var(--text-1);border-bottom-color:var(--accent)}
+.appbar .nav a:focus-visible{outline-offset:-4px;box-shadow:none}
+.appbar .appbar-tools{display:flex;align-items:center;gap:16px;min-width:0;margin-left:auto}
+.appbar .inbox-status{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;line-height:16px;color:var(--text-3);white-space:nowrap}
+.appbar .inbox-status svg{flex:none}
+.appbar .inbox-status.is-warn{color:var(--caution)}
+.appbar .inbox-status.is-bad{color:var(--negative)}
+.appbar .bar-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;min-width:32px;padding:0 8px;border:1px solid transparent;border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 14px/20px var(--font-sans);cursor:pointer;text-decoration:none}
+.appbar .bar-btn:hover{color:var(--text-1);background:var(--row-hover)}
+.appbar .menu-btn{display:none}
+.appbar .menu-panel{display:none}
+@media (max-width:767.98px){
+  .appbar{gap:16px}
+  .appbar .nav,.appbar .appbar-tools,.appbar .brand-name{display:none}
+  .appbar .appbar-page{display:block}
+  .appbar .menu-btn{display:inline-flex;width:44px;height:44px;margin:0 -8px 0 auto}
+  .appbar .menu-btn:focus-visible{outline-offset:-2px;box-shadow:none}
+  .appbar.menu-open .menu-panel{display:block;position:absolute;top:48px;left:0;right:0;padding:8px 16px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);box-shadow:var(--shadow-overlay)}
+  .appbar .menu-panel ul{margin:0;padding:0;list-style:none}
+  .appbar .menu-panel a{display:flex;align-items:center;min-height:44px;color:var(--text-1);text-decoration:none;font-size:16px;line-height:24px}
+  .appbar .menu-panel a[aria-current="page"]{font-weight:600;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:6px}
+  .appbar .menu-panel .inbox-status{display:flex;margin-top:8px}
+}
+@media (pointer:coarse){.appbar .bar-btn{min-width:44px;height:44px}}
+/* A page whose body is still the older one: its own heading row keeps what it
+   says and loses the controls the bar now holds. */
+.page > .masthead{padding-top:0}
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--canvas)}
+body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15px/24px var(--font-sans);
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+a{color:var(--accent)}
+a:hover{color:var(--accent-hover)}
+h1,h2,h3,h4,p,ol,ul,dl,dd{margin:0}
+ol,ul{padding:0;list-style:none}
+button,input,select,textarea{font:inherit}
+.wrap{padding:24px 24px 48px;max-width:2560px;margin:0 auto}
+.page-head{margin:0 0 16px}
+.ph-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;min-height:28px}
+.ph-row .ph-meta{margin-left:auto}
+.page-head h1{font:600 20px/28px var(--font-sans);margin:0}
+.page-head .lede{color:var(--text-2);font-size:14px;line-height:20px;max-width:88ch;margin-top:4px}
+.mono{font-family:var(--font-mono);font-size:13px}
+.muted{color:var(--text-3)}
+.sub{color:var(--text-2)}
+.small{font-size:12px;line-height:16px}
+.s14{font-size:14px;line-height:20px}
+/* buttons, after Home final */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-2);font:500 14px/20px var(--font-sans);white-space:nowrap;text-decoration:none;cursor:pointer;background:transparent;color:var(--text-2)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover);color:var(--on-accent)}
+.btn-secondary{background:var(--surface);border-color:var(--border-strong);color:var(--text-1)}
+.btn-secondary:hover{background:var(--row-hover);color:var(--text-1)}
+.btn-ghost{color:var(--text-2)}
+.btn-ghost:hover{color:var(--text-1);background:var(--row-hover)}
+.btn-danger{background:var(--surface);border-color:var(--border-strong);color:var(--negative)}
+.btn[aria-pressed="true"]{background:var(--accent-tint);border-color:var(--accent);color:var(--accent)}
+.btn[aria-disabled="true"]{color:var(--text-3);border-color:var(--border-subtle);cursor:default;background:transparent}
+.btn svg{flex:none}
+.kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font:500 11px/16px var(--font-mono);color:var(--text-2);background:var(--canvas)}
+.btn-primary .kbd{border-color:var(--on-accent);color:var(--on-accent);background:transparent}
+.tag{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 8px;border-radius:var(--radius-2);font:500 12px/16px var(--font-sans);white-space:nowrap}
+.tag-ok{background:var(--positive-tint);color:var(--positive)}
+.tag-neutral{background:var(--neutral-tint);color:var(--neutral)}
+.tag-caution{background:var(--caution-tint);color:var(--caution)}
+.tag-accent{background:var(--accent-tint);color:var(--accent)}
+.tag-bad{background:var(--negative-tint);color:var(--negative)}
+a.link{color:var(--accent);text-underline-offset:2px}
+/* notices */
+.notice{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:10px 16px;border:1px solid var(--border-subtle);border-left-width:4px;border-radius:var(--radius-2);background:var(--surface);margin:0 0 16px}
+.notice-caution{border-left-color:var(--caution)}
+.notice-info{border-left-color:var(--neutral)}
+.notice-ok{border-left-color:var(--positive)}
+.notice-bad{border-left-color:var(--negative)}
+.notice-body{display:flex;gap:12px;align-items:flex-start;flex:1 1 40ch;min-width:0;font-size:14px;line-height:20px}
+.notice-mark{flex:none;margin-top:2px}
+.notice-caution .notice-mark{color:var(--caution)}
+.notice-info .notice-mark{color:var(--neutral)}
+.notice-ok .notice-mark{color:var(--positive)}
+.notice-bad .notice-mark{color:var(--negative)}
+.notice-text strong{font-weight:600;color:var(--text-1)}
+.notice-text p+p{margin-top:4px}
+.notice-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+/* layout: real breakpoints. One column under 768, CV over two panel columns from 768, CV beside a 380px
+   column from 1280, three columns from 1920. */
+html{scroll-padding-top:72px}
+.layout{display:grid;gap:24px;align-items:start;grid-template-columns:minmax(0,1fr);
+  grid-template-areas:"masters" "work" "tabs" "keys"}
+.a-masters{grid-area:masters;min-width:0}.a-work{grid-area:work;min-width:0}
+.a-tabs{grid-area:tabs;min-width:0}.a-keys{grid-area:keys;min-width:0}
+@media (min-width:768px){.layout{grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-template-areas:"work work" "masters tabs" "keys tabs"}}
+@media (min-width:1280px){.layout{grid-template-columns:minmax(0,1fr) 380px;grid-template-rows:auto auto 1fr;
+  grid-template-areas:"work masters" "work tabs" "work keys"}}
+@media (min-width:1920px){.layout{grid-template-columns:400px minmax(0,1fr) 480px;grid-template-rows:auto 1fr;
+  grid-template-areas:"masters work tabs" "keys work tabs"}}
+@media (max-width:767.98px){.a-keys{display:none}.reads{display:none}}
+.panel{background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius-4);padding:16px}
+.panel h2{font:600 16px/24px var(--font-sans)}
+.panel .panel-note{color:var(--text-2);font-size:14px;line-height:20px;margin-top:4px}
+/* the canvas around the sheet; the toolbar is its direct child so it sticks while page 2 is edited */
+.canvas{display:flex;flex-direction:column;align-items:center;min-width:0}
+.canvas > .toolbar{width:794px;max-width:100%}
+.col{width:794px;max-width:100%}
+.wide-only{display:inline-flex;align-items:center;gap:2px}
+.toolbar .phone-only{display:none}
+@media (max-width:767.98px){.toolbar .wide-only{display:none}.toolbar .phone-only{display:inline-flex}}
+.phone-note{width:100%;font-size:13px;line-height:20px;color:var(--text-2);margin:0 0 12px}
+@media (min-width:768px){.phone-note{display:none}}
+.toolbar{display:flex;flex-wrap:nowrap;align-items:center;gap:2px;padding:6px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-4);margin-bottom:16px;position:sticky;top:0;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.35)}
+.toolbar .sep{width:1px;align-self:stretch;margin:4px 2px;background:var(--border-subtle)}
+.toolbar .grow{flex:1 1 auto}
+.toolbar .btn{height:32px;padding:0 8px;gap:6px}
+.toolbar .btn-icon{width:32px;padding:0}
+.save-state{display:inline-flex;align-items:center;gap:6px;font-size:13px;line-height:20px;color:var(--text-2);padding:0 6px;white-space:nowrap}
+.save-state.is-ok svg{color:var(--positive)}
+.save-state.is-warn{color:var(--caution)}
+.switch{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 8px;border-radius:var(--radius-2);border:1px solid transparent;background:transparent;color:var(--text-1);font:500 14px/20px var(--font-sans);cursor:pointer}
+.switch .track{width:28px;height:16px;border-radius:8px;border:1px solid var(--border-strong);background:var(--canvas);position:relative;flex:none}
+.switch .track::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--text-3)}
+.switch[aria-checked="true"] .track{background:var(--accent-tint);border-color:var(--accent)}
+.switch[aria-checked="true"] .track::after{left:14px;background:var(--accent)}
+.switch .sw-word{font-size:12px;color:var(--text-2)}
+/* the sheet: dark, A4 in proportion, raised off the canvas */
+.sheet{position:relative;width:794px;max-width:100%;min-height:1123px;background:var(--surface);color:var(--text-1);padding:72px 76px 64px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);box-shadow:0 8px 28px rgba(0,0,0,.5);font:400 14px/20px Arial,"Helvetica Neue",Helvetica,sans-serif;--focus-gap:var(--surface)}
+.sheet:focus{outline:none}
+.sheet:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
+.sheet-foot{display:flex;justify-content:space-between;gap:12px;width:794px;max-width:100%;margin:8px 0 24px;color:var(--text-3);font-size:12px;line-height:16px}
+.cv-ln{position:relative}
+.ln{position:absolute;left:-60px;width:44px;text-align:right;font:400 11px/20px var(--font-mono);color:var(--text-3);user-select:none}
+.nums-off .ln{display:none}
+.cv-name{font:700 24px/32px Arial,sans-serif}
+.cv-name .ln{line-height:32px}
+.cv-headline{color:var(--text-2)}
+.cv-headline.first{color:var(--text-1)}
+.cv-head,.cv-sec,.cv-entry{position:relative;border-radius:2px}
+.cv-sec{margin-top:12px}
+.cv-entry{margin-top:10px}
+.cv-head:focus-visible,.cv-sec:focus-visible,.cv-entry:focus-visible{outline:2px solid var(--focus);outline-offset:6px;box-shadow:none}
+.cv-h2{font:700 17px/24px Arial,sans-serif;margin:0 0 2px}
+.cv-h2 .ln{line-height:24px}
+.cv-h3{font:700 14.5px/20px Arial,sans-serif;margin:0 0 1px}
+.cv-b{padding-left:18px}
+.cv-b::before{content:"\2022";position:absolute;left:4px;top:0;color:var(--text-2)}
+.cont{margin-top:0}
+/* in-place editing */
+.is-hover{outline:1px dashed var(--border-strong);outline-offset:6px}
+.is-editing{outline:2px solid var(--accent);outline-offset:8px}
+.cv-field{display:block;margin:0 -6px;padding:0 5px;border:1px solid var(--border-strong);border-radius:2px;background:var(--surface-sunken);color:var(--text-1)}
+.cv-field.is-focus{outline:2px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--surface)}
+.caret{display:inline-block;width:1px;height:16px;background:var(--text-1);vertical-align:-3px;margin-left:1px}
+.tools{position:absolute;right:-10px;top:-48px;z-index:3;display:flex;gap:2px;padding:3px;background:var(--surface-sunken);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay);--focus-gap:var(--surface-sunken);font-family:var(--font-sans)}
+.tools .btn{height:32px;padding:0 8px;font-size:13px;color:var(--text-1)}
+.tools .btn:hover{background:var(--row-hover)}
+.tools .lab{align-self:center;font-size:12px;color:var(--text-2);padding:0 6px 0 4px;white-space:nowrap}
+.sec-edit{position:absolute;right:0;top:-4px;z-index:2}
+@media (min-width:768px){.sec-edit{display:none}}
+/* overflow */
+.limit-rule{position:relative;width:794px;max-width:100%;margin:-12px 0 12px;display:flex;align-items:center;gap:12px;color:var(--caution);font:600 13px/20px var(--font-sans)}
+.limit-rule::before,.limit-rule::after{content:"";flex:1;border-top:2px dashed var(--caution)}
+.sheet.over{outline:2px dashed var(--caution);outline-offset:6px}
+.over-label{width:794px;max-width:100%;display:flex;gap:8px;align-items:center;margin:0 0 14px;color:var(--caution);font:600 14px/20px var(--font-sans)}
+/* between 768 and 841 the A4 sheet is drawn at 90% so it fits the column */
+@media (min-width:768px) and (max-width:841.98px){.sheet{zoom:.9}}
+/* under 768 the CV reflows: no A4 height, numbers in a narrow gutter, Edit on each section */
+@media (max-width:767.98px){
+  .canvas{align-items:stretch}
+  .canvas > .toolbar{width:100%}
+  .sheet{width:100%;min-height:0;padding:20px 14px 20px 40px;box-shadow:none}
+  .ln{left:-36px;width:28px;font-size:10px}
+  .cv-name{font-size:22px;line-height:28px}
+  .cv-name .ln{line-height:28px}
+  .cv-h2{font-size:16px;padding-right:72px;min-height:32px}
+  .sheet-foot{width:100%}
+  .toolbar .btn-icon{width:44px;height:44px}
+  .vrow{grid-template-columns:minmax(0,1fr)}
+  .vrow .vacts{grid-column:1;grid-row:auto}
+  .masters .mlist{margin-top:8px}
+}
+/* side panels */
+.masters h2{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.mlist{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.mrow{border:1px solid var(--border-subtle);border-radius:var(--radius-2);padding:10px 12px;background:var(--canvas)}
+.mrow.is-open{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.mrow .mtop{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.mrow .mname{font:500 14px/20px var(--font-mono);color:var(--text-1);text-decoration:none}
+.mrow a.mname:hover{text-decoration:underline}
+.mrow .mmeta{margin-top:2px;color:var(--text-3);font-size:12px;line-height:16px}
+.mrow .macts{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.mrow .open-word{font-size:12px;color:var(--accent)}
+.reads{margin-top:12px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;font-size:13px;line-height:20px}
+.reads dt{color:var(--text-3)}
+.reads dd{color:var(--text-1);min-width:0;overflow-wrap:anywhere}
+/* tabs */
+.tabs{padding:0}
+.tablist{display:flex;border-bottom:1px solid var(--border-subtle);padding:0 8px}
+.tab{position:relative;height:44px;padding:0 12px;border:0;background:transparent;color:var(--text-2);font:500 14px/20px var(--font-sans);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--text-1);border-bottom-color:var(--accent)}
+.tab .count{color:var(--text-3);font-weight:400;margin-left:4px}
+.tabpanel{padding:16px}
+.tabpanel h3{font:600 15px/24px var(--font-sans)}
+.tabpanel .tp-note{color:var(--text-2);font-size:14px;line-height:20px;margin:2px 0 12px}
+.vlist{display:flex;flex-direction:column;border-top:1px solid var(--border-subtle)}
+.vrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 0;border-bottom:1px solid var(--border-subtle)}
+.vrow .vwhen{font:500 14px/20px var(--font-sans);color:var(--text-1)}
+.vrow .vwhat{color:var(--text-2);font-size:13px;line-height:20px}
+.vrow .vfile{color:var(--text-3);font:400 12px/16px var(--font-mono);overflow-wrap:anywhere}
+.vrow .vacts{display:flex;gap:4px;align-items:flex-start;grid-column:2;grid-row:1 / span 3}
+.vrow.is-viewing{background:var(--accent-tint);box-shadow:inset 3px 0 0 var(--accent);padding-left:10px;margin:0 -16px;padding-right:16px}
+.keys{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;margin-top:10px;font-size:13px;line-height:20px;align-items:center}
+.keys dt{display:flex;gap:4px;flex-wrap:wrap}
+.keys dd{color:var(--text-2)}
+/* forms */
+.field{display:flex;flex-direction:column;gap:4px;padding:12px 0;border-bottom:1px solid var(--border-subtle)}
+.field:last-of-type{border-bottom:0}
+.field label,.field legend{font:600 14px/20px var(--font-sans);color:var(--text-1);padding:0}
+.field fieldset{border:0;margin:0;padding:0;min-width:0}
+.field .help{color:var(--text-2);font-size:13px;line-height:20px}
+.field .gate{color:var(--text-3);font-size:12px;line-height:16px}
+.inrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.input{height:32px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--canvas);color:var(--text-1);font:400 14px/20px var(--font-sans);min-width:0}
+.input.num{width:110px;font-variant-numeric:tabular-nums}
+.input.short{width:64px}
+.input.wide{width:100%}
+.input.changed{border-color:var(--caution);box-shadow:inset 3px 0 0 var(--caution)}
+.affix{color:var(--text-2);font-size:14px}
+.check{display:flex;align-items:center;flex-wrap:nowrap;gap:6px;font-size:14px;line-height:20px;color:var(--text-1);padding:3px 0;white-space:nowrap}
+.check input[type=checkbox]{width:16px;height:16px;margin:0 2px 0 0;accent-color:var(--accent);flex:none}
+.check .input{height:28px}
+.check .box{flex:none;width:16px;height:16px;margin-top:2px;border:1px solid var(--border-strong);border-radius:2px;background:var(--canvas);display:inline-flex;align-items:center;justify-content:center;color:var(--on-accent)}
+.check .box.on{background:var(--accent);border-color:var(--accent)}
+.check .box.radio{border-radius:50%}
+.check .box.radio.on{background:var(--canvas);box-shadow:inset 0 0 0 4px var(--accent)}
+.statement{display:flex;gap:12px;padding:12px;border:1px solid var(--border-subtle);border-left:4px solid var(--accent);border-radius:var(--radius-2);background:var(--canvas);font-size:14px;line-height:20px;margin-bottom:4px}
+.statement strong{color:var(--text-1)}
+.statement .notice-mark{color:var(--accent)}
+.form-foot{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border-subtle)}
+.drop{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;border:1px dashed var(--border-strong);border-radius:var(--radius-2);background:var(--canvas)}
+.preview{max-height:none;margin:8px 0 0;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);background:var(--canvas);font:400 12px/18px var(--font-mono);color:var(--text-2);white-space:pre-wrap;overflow-wrap:anywhere}
+.diffs{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.diffs li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;font-size:13px;line-height:20px;color:var(--text-2)}
+.diffs .dk{font:600 12px/20px var(--font-sans);color:var(--text-1);white-space:nowrap}
+.bar{height:8px;border-radius:4px;background:var(--canvas);border:1px solid var(--border-strong);overflow:hidden;margin:8px 0 4px}
+.bar span{display:block;height:100%;background:var(--accent)}
+/* the states board and notes */
+.board .a-tabs,.board .a-masters,.board .a-keys{grid-area:auto}
+.switch{white-space:nowrap}
+.board{padding:24px;max-width:1600px;margin:0 auto}
+.board h1{font:600 20px/28px var(--font-sans)}
+.board .lede{color:var(--text-2);margin:4px 0 24px;max-width:110ch;font-size:14px;line-height:20px}
+.sgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
+.state{border:1px solid var(--border-subtle);border-radius:var(--radius-4);background:var(--canvas);padding:16px;min-width:0}
+.state.full{grid-column:1 / -1}
+.state > h2{font:600 16px/24px var(--font-sans);display:flex;gap:8px;align-items:baseline}
+.state > h2 .no{color:var(--text-3);font-variant-numeric:tabular-nums}
+.state > .why{color:var(--text-2);font-size:13px;line-height:20px;margin:2px 0 14px;max-width:100ch}
+.state .today{color:var(--text-3);font-size:12px;line-height:16px;margin-top:10px}
+.mini{display:flex;flex-direction:column;gap:12px}
+.dialog{background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay);padding:16px;max-width:560px}
+.dialog h3{font:600 16px/24px var(--font-sans)}
+.dialog .dlg-body{color:var(--text-2);font-size:14px;line-height:20px;margin-top:6px}
+.dialog .dlg-body p+p{margin-top:8px}
+.dialog .dlg-acts{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+.menu{background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay);padding:4px;width:300px}
+.menu [role="menuitem"]{display:flex;justify-content:space-between;width:100%;height:36px;align-items:center;padding:0 10px;border:0;background:transparent;color:var(--text-1);font:400 14px/20px var(--font-sans);border-radius:2px;text-align:left}
+.menu [role="menuitem"].is-active{background:var(--row-hover);outline:2px solid var(--focus);outline-offset:-2px}
+.menu .mhead{padding:6px 10px 2px;color:var(--text-3);font-size:12px;line-height:16px}
+.menu hr{border:0;border-top:1px solid var(--border-subtle);margin:4px 0}
+.rlist{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.rrow{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);background:var(--canvas)}
+.rrow .rname{font:500 14px/20px var(--font-sans)}
+.rrow .rmeta{font-size:12px;line-height:16px;color:var(--text-3)}
+.rrow.is-picked{border-color:var(--accent);background:var(--accent-tint);outline:2px solid var(--focus);outline-offset:2px;margin-left:8px}
+.rrow .grip{color:var(--text-3)}
+.live{margin-top:10px;padding:8px 10px;border-radius:var(--radius-2);background:var(--neutral-tint);color:var(--text-1);font-size:13px;line-height:20px}
+.opts{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px 12px;align-items:start;margin-top:12px}
+.opts > .ol{font:600 14px/32px var(--font-sans)}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--radius-2);overflow:hidden;flex-wrap:wrap}
+.seg button{height:32px;padding:0 12px;border:0;border-right:1px solid var(--border-subtle);background:var(--canvas);color:var(--text-2);font:500 13px/20px var(--font-sans)}
+.seg button:last-child{border-right:0}
+.seg button[aria-checked="true"]{background:var(--accent-tint);color:var(--accent);font-weight:600}
+.seg button[aria-checked="true"]::before{content:"\2713\00a0"}
+.strip{display:flex;flex-direction:column;gap:10px}
+.strip .toolbar{margin:0;position:static}
+.notes{padding:32px 40px 64px;max-width:1280px;margin:0 auto}
+.notes h1{font:600 20px/28px var(--font-sans)}
+.notes h2{font:600 18px/24px var(--font-sans);margin:32px 0 8px;padding-top:16px;border-top:1px solid var(--border-subtle)}
+.notes h3{font:600 15px/24px var(--font-sans);margin:16px 0 4px}
+.notes p,.notes li{font-size:14px;line-height:22px;color:var(--text-2);max-width:120ch}
+.notes p+p{margin-top:8px}
+.notes ul.dots{list-style:disc;padding-left:20px}
+.notes ul.dots li+li{margin-top:4px}
+.notes strong{color:var(--text-1);font-weight:600}
+.notes code{font:400 13px/20px var(--font-mono);color:var(--text-1)}
+.tbl{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px;line-height:20px}
+.tbl th,.tbl td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--border-subtle);color:var(--text-2)}
+.tbl th{color:var(--text-1);font-weight:600;background:var(--surface)}
+.tbl td:first-child{color:var(--text-1)}
+.swatch{display:inline-block;width:12px;height:12px;border:1px solid var(--border-strong);border-radius:2px;vertical-align:-1px;margin-right:6px}
+.oq{border:1px solid var(--border-subtle);border-radius:var(--radius-4);padding:12px 16px;margin-top:10px;background:var(--surface)}
+.oq h3{margin:0 0 4px}
+.oq dl{display:grid;grid-template-columns:110px minmax(0,1fr);gap:4px 12px;font-size:14px;line-height:20px}
+.oq dt{color:var(--text-3)}
+.oq dd{color:var(--text-2)}
+.oq dd strong{color:var(--text-1)}
+</style></head><body><a class="skip-link" href="#main">Skip to the page</a><header class="appbar"><a class="brand" href="/" aria-label="MedTech Radar, Home"><svg class="brand-mark" viewBox="0 0 36 17" width="51" height="24" fill="none" aria-hidden="true" focusable="false"><path d="M4 15a14 14 0 0 1 28 0" stroke="var(--text-3)" stroke-width="1.2"/><path d="M8.5 15a9.5 9.5 0 0 1 19 0" stroke="var(--text-2)" stroke-width="1.2"/><path d="M13 15a5 5 0 0 1 10 0Z" fill="var(--text-1)"/><path d="M0 15h36" stroke="var(--text-1)" stroke-width="1.5"/></svg><span class="brand-name">MedTech Radar</span><span class="appbar-page" aria-hidden="true">CV</span></a><nav class="nav" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a><a href="/watchlist">Watchlist</a><a href="/cv" aria-current="page">CV</a></nav><div class="appbar-tools"><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div><button type="button" class="bar-btn menu-btn" aria-expanded="false" aria-controls="menu-panel">Menu</button><div class="menu-panel" id="menu-panel"><nav aria-label="Pages, menu"><ul><li><a href="/">Home</a></li><li><a href="/jobs">Jobs</a></li><li><a href="/insights">Insights</a></li><li><a href="/watchlist">Watchlist</a></li><li><a href="/cv" aria-current="page">CV</a></li></ul></nav><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div></header><main id="main" tabindex="-1"><div class="board"><h1>CV, final: states</h1><p class="lede">The page’s other states, each drawn from the same parts as the 2560, 1280 and phone frames, on Friday 13 Nov 2026 after Alex saved version 4 of cv-medtech-quality.md at 08:52. Each says what the product does today where it differs.</p><div class="sgrid"><section class="state" aria-labelledby="st1"><h2 id="st1"><span class="no">1.</span>History tab, an older version open</h2><p class="why">View opens an older version on the sheet, read only and marked so; Compare lists what changed line by line. Starting a new version from an old one makes version 5; nothing is overwritten.</p><div class="mini"><section class="panel tabs a-tabs" aria-label="History, preferences and Word import"><div class="tablist" role="tablist" aria-label="About this CV"><button type="button" class="tab" role="tab" id="t-history" aria-controls="tp-history" aria-selected="true" tabindex="0">History<span class=count>4</span></button><button type="button" class="tab" role="tab" id="t-prefs" aria-controls="tp-prefs" aria-selected="false" tabindex="-1">Preferences</button><button type="button" class="tab" role="tab" id="t-import" aria-controls="tp-import" aria-selected="false" tabindex="-1">Word import</button></div><div class="tabpanel" role="tabpanel" id="tp-history" aria-labelledby="t-history" tabindex="0"><h3>Versions of cv-medtech-quality.md</h3><p class="tp-note">Newest first. Every save is kept as a new version and nothing is overwritten, so an old score can always be explained.</p><ul class="vlist"><li class="vrow"><span class="vwhen">13 Nov 08:52 <span class="small muted">· Saved here</span></span><span class="vwhat">1 line added (line 53), 1 changed (line 3)</span><span class="vfile">Version 4</span><span class="vacts"><span class="tag tag-ok">Active</span></span></li><li class="vrow is-viewing"><span class="vwhen">21 Oct 18:05 <span class="small muted">· Saved here</span></span><span class="vwhat">3 lines changed in Summary</span><span class="vfile">Version 3 · 30 open roles still scored on it</span><span class="vacts"><span class="tag tag-accent">Viewing, read only</span></span></li><li class="vrow"><span class="vwhen">2 Oct 10:41 <span class="small muted">· Saved here</span></span><span class="vwhat">First save in the editor’s layout</span><span class="vfile">Version 2 · 8 open roles still scored on it</span><span class="vacts"><a class="btn btn-ghost" href="#v2" aria-label="View the 2 Oct 10:41 version">View</a><a class="btn btn-ghost" href="#c2" aria-label="Compare the 2 Oct 10:41 version with the open one">Compare</a></span></li><li class="vrow"><span class="vwhen">2 Oct 10:20 <span class="small muted">· Imported from Alex Rennie CV 2026.docx</span></span><span class="vwhat">96 lines read from Word</span><span class="vfile">Version 1</span><span class="vacts"><a class="btn btn-ghost" href="#v3" aria-label="View the 2 Oct 10:20 version">View</a><a class="btn btn-ghost" href="#c3" aria-label="Compare the 2 Oct 10:20 version with the open one">Compare</a></span></li></ul><div class="panel" style="margin-top:4px;background:var(--canvas)"><h3 class="s14" style="font-weight:600">Version 3 (21 Oct) against version 4 (13 Nov)</h3><ul class="diffs"><li><span class="dk">Line 3</span><span>Changed: “Guildford, Surrey · …” is now “Reading, Berkshire · …”.</span></li><li><span class="dk">Line 53</span><span>Added: “Kept SOUP records and vulnerability monitoring for 120 third-party components.” Lines after it move down by one.</span></li></ul><div class="inrow"><button type="button" class="btn btn-secondary" ><span>Back to version 4</span></button><button type="button" class="btn btn-ghost" ><span>Start a new version from this one</span></button></div></div></div></section></div><p class="today">Today: a list of file names with the active one marked; no view, compare or restore.</p></section><section class="state" aria-labelledby="st2"><h2 id="st2"><span class="no">2.</span>Rearrange, with the keyboard</h2><p class="why">A dialog over the sheet, no dragging. Focus starts on the first section and returns to Rearrange on Done or Cancel. Entries inside a section move with the entry toolbar or Alt Shift and the arrows.</p><div class="mini"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="rr-h" style="max-width:none"><h3 id="rr-h">Rearrange sections</h3><p class="dlg-body" id="rr-help">Pick a section up with Space, move it with the Up and Down arrows and put it down with Space. Escape puts it back where it was. Move up and Move down do the same with a click.</p><ol class="rlist"><li class="rrow" tabindex="-1" aria-describedby="rr-help"><span class="grip"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="6" cy="4" r="1.1" fill="currentColor"/><circle cx="10" cy="4" r="1.1" fill="currentColor"/><circle cx="6" cy="8" r="1.1" fill="currentColor"/><circle cx="10" cy="8" r="1.1" fill="currentColor"/><circle cx="6" cy="12" r="1.1" fill="currentColor"/><circle cx="10" cy="12" r="1.1" fill="currentColor"/></svg></span><span><span class="rname">Summary</span><br><span class="rmeta">lines 5 to 15</span></span><span class="inrow"><button type="button" class="btn btn-ghost" aria-label="Move Summary up"><span>Move up</span></button><button type="button" class="btn btn-ghost" aria-label="Move Summary down"><span>Move down</span></button></span></li><li class="rrow is-picked" tabindex="0" aria-describedby="rr-help" aria-grabbed=true><span class="grip"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="6" cy="4" r="1.1" fill="currentColor"/><circle cx="10" cy="4" r="1.1" fill="currentColor"/><circle cx="6" cy="8" r="1.1" fill="currentColor"/><circle cx="10" cy="8" r="1.1" fill="currentColor"/><circle cx="6" cy="12" r="1.1" fill="currentColor"/><circle cx="10" cy="12" r="1.1" fill="currentColor"/></svg></span><span><span class="rname">Skills</span><br><span class="rmeta">was lines 70 to 74, now second</span></span><span class="inrow"><button type="button" class="btn btn-ghost" aria-label="Move Skills up"><span>Move up</span></button><button type="button" class="btn btn-ghost" aria-label="Move Skills down"><span>Move down</span></button></span></li><li class="rrow" tabindex="-1" aria-describedby="rr-help"><span class="grip"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="6" cy="4" r="1.1" fill="currentColor"/><circle cx="10" cy="4" r="1.1" fill="currentColor"/><circle cx="6" cy="8" r="1.1" fill="currentColor"/><circle cx="10" cy="8" r="1.1" fill="currentColor"/><circle cx="6" cy="12" r="1.1" fill="currentColor"/><circle cx="10" cy="12" r="1.1" fill="currentColor"/></svg></span><span><span class="rname">Experience</span><br><span class="rmeta">lines 17 to 68</span></span><span class="inrow"><button type="button" class="btn btn-ghost" aria-label="Move Experience up"><span>Move up</span></button><button type="button" class="btn btn-ghost" aria-label="Move Experience down"><span>Move down</span></button></span></li><li class="rrow" tabindex="-1" aria-describedby="rr-help"><span class="grip"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="6" cy="4" r="1.1" fill="currentColor"/><circle cx="10" cy="4" r="1.1" fill="currentColor"/><circle cx="6" cy="8" r="1.1" fill="currentColor"/><circle cx="10" cy="8" r="1.1" fill="currentColor"/><circle cx="6" cy="12" r="1.1" fill="currentColor"/><circle cx="10" cy="12" r="1.1" fill="currentColor"/></svg></span><span><span class="rname">Education and certifications</span><br><span class="rmeta">lines 76 to 84</span></span><span class="inrow"><button type="button" class="btn btn-ghost" aria-label="Move Education and certifications up"><span>Move up</span></button><button type="button" class="btn btn-ghost" aria-label="Move Education and certifications down"><span>Move down</span></button></span></li></ol><p class="live" role="status" aria-live="assertive">Skills, picked up. Position 2 of 4. Up and Down to move, Space to put it down, Escape to cancel.</p><p class="small muted" style="margin-top:8px">Line numbers move with the sections. A citation on a Prepare page follows the words of its line, not the number.</p><div class="dlg-acts"><button type="button" class="btn btn-primary" ><span>Done</span></button><button type="button" class="btn btn-ghost" ><span>Cancel</span></button></div></div></div><p class="today">Today: sections cannot be reordered or added.</p></section><section class="state" aria-labelledby="st3"><h2 id="st3"><span class="no">3.</span>Word import: reading the file</h2><p class="why">Radar reads the file to text, in a second or two.</p><div class="mini"><section class="panel tabs a-tabs" aria-label="History, preferences and Word import"><div class="tablist" role="tablist" aria-label="About this CV"><button type="button" class="tab" role="tab" id="t-history" aria-controls="tp-history" aria-selected="false" tabindex="-1">History<span class=count>4</span></button><button type="button" class="tab" role="tab" id="t-prefs" aria-controls="tp-prefs" aria-selected="false" tabindex="-1">Preferences</button><button type="button" class="tab" role="tab" id="t-import" aria-controls="tp-import" aria-selected="true" tabindex="0">Word import</button></div><div class="tabpanel" role="tabpanel" id="tp-import" aria-labelledby="t-import" tabindex="0"><h3>Import from Word</h3><p class="tp-note">Reading the file to text. Nothing has changed.</p><div class="drop" role="status" aria-live="polite"><span class="inrow s14"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-opacity=".35" stroke-width="2"/><path d="M8 2a6 6 0 0 1 6 6" stroke="currentColor" stroke-width="2"/></svg><strong>Alex Rennie CV 2026 v2.docx</strong><span class="muted">184 KB</span></span><div class="bar" style="width:100%" role="progressbar" aria-label="Reading the file" aria-valuetext="Reading"><span style="width:55%"></span></div><button type="button" class="btn btn-ghost" ><span>Cancel</span></button></div></div></section></div></section><section class="state" aria-labelledby="st4"><h2 id="st4"><span class="no">4.</span>Word import: failed</h2><p class="why">Two ways a file is refused, each saying what to do instead, in words and with a cross, not colour alone.</p><div class="mini"><section class="panel tabs a-tabs" aria-label="History, preferences and Word import"><div class="tablist" role="tablist" aria-label="About this CV"><button type="button" class="tab" role="tab" id="t-history" aria-controls="tp-history" aria-selected="false" tabindex="-1">History<span class=count>4</span></button><button type="button" class="tab" role="tab" id="t-prefs" aria-controls="tp-prefs" aria-selected="false" tabindex="-1">Preferences</button><button type="button" class="tab" role="tab" id="t-import" aria-controls="tp-import" aria-selected="true" tabindex="0">Word import</button></div><div class="tabpanel" role="tabpanel" id="tp-import" aria-labelledby="t-import" tabindex="0"><h3>Import from Word</h3><div class="notice notice-bad" ><div class="notice-body"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.5"/><path d="m5.6 5.6 4.8 4.8m0-4.8-4.8 4.8" stroke="currentColor" stroke-width="1.6"/></svg></span><div class="notice-text"><p><strong>Alex Rennie CV 2019.doc was not imported.</strong> Radar reads Word (.docx), Markdown, plain text and PDF files; a .doc file from older Word needs saving as .docx first. Nothing changed.</p></div></div></div><div class="notice notice-bad" ><div class="notice-body"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.5"/><path d="m5.6 5.6 4.8 4.8m0-4.8-4.8 4.8" stroke="currentColor" stroke-width="1.6"/></svg></span><div class="notice-text"><p><strong>Alex Rennie CV scan.pdf has no text to read.</strong> It is probably a scan. Export the CV from Word as .docx or as a PDF with text. Nothing changed.</p></div></div></div><div class="drop"><button type="button" class="btn btn-secondary" ><span>Choose another file</span></button><span class="small muted">Reads Word (.docx), Markdown, plain text and PDF files, up to 5 MB.</span></div></div></section></div><p class="today">Today: the same refusals as one line of red text: “Unsupported file type .doc”, “The PDF yielded no text”.</p></section><section class="state" aria-labelledby="st5"><h2 id="st5"><span class="no">5.</span>Word import: read, with differences</h2><p class="why">What was read is shown as the editor will lay it out, with each guess named, before anything is saved.</p><div class="mini"><section class="panel tabs a-tabs" aria-label="History, preferences and Word import"><div class="tablist" role="tablist" aria-label="About this CV"><button type="button" class="tab" role="tab" id="t-history" aria-controls="tp-history" aria-selected="false" tabindex="-1">History<span class=count>4</span></button><button type="button" class="tab" role="tab" id="t-prefs" aria-controls="tp-prefs" aria-selected="false" tabindex="-1">Preferences</button><button type="button" class="tab" role="tab" id="t-import" aria-controls="tp-import" aria-selected="true" tabindex="0">Word import</button></div><div class="tabpanel" role="tabpanel" id="tp-import" aria-labelledby="t-import" tabindex="0"><h3>Import from Word</h3><div class="notice notice-caution" ><div class="notice-body"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 1.8 15 14.2H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.2v3.9" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="12" r=".95" fill="currentColor"/></svg></span><div class="notice-text"><p><strong>Read 101 lines from Alex Rennie CV 2026 v2.docx, with 5 differences from how the editor lays a CV out.</strong> Check them before you save.</p></div></div></div><ul class="diffs"><li><span class="dk">Profile</span><span>read as Summary</span></li><li><span class="dk">Career history</span><span>read as Experience</span></li><li><span class="dk">Key skills</span><span>read as Skills</span></li><li><span class="dk">12 lines with ▪ marks</span><span>read as bullets</span></li><li><span class="dk">1 line before the first heading</span><span>kept as a headline line: “Curriculum vitae”. Check it.</span></li></ul><p class="s14 sub">Against version 4 of cv-medtech-quality.md: 6 lines differ (7, 19, 23, 36, 52, 60) and 2 are new. <a class="link" href="#cmp">Compare line by line</a></p><pre class="preview"># Alex Rennie
+Curriculum vitae
+Software quality and regulatory leader, medical device software
+
+## Summary
+Software quality and regulatory leader for medical device software, 17 years…</pre><div class="form-foot"><button type="button" class="btn btn-primary" ><span>Save as version 5 of cv-medtech-quality.md</span></button><button type="button" class="btn btn-secondary" ><span>Save as a new master</span></button><button type="button" class="btn btn-ghost" ><span>Discard</span></button></div><p class="small muted" style="margin-top:8px">Saving into the active master changes what the scorer reads; a new master starts inactive. Nothing has changed yet.</p></div></section></div><p class="today">Today: Confirm makes the read text the active master at once, and the editor lays it out on the next save.</p></section><section class="state" aria-labelledby="st6"><h2 id="st6"><span class="no">6.</span>Design</h2><p class="why">A dialog from the toolbar: four choices, each a named group of radio buttons with the selected one ticked as well as tinted, the page count kept in view, and the line numbers switch.</p><div class="mini"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dz-h" style="max-width:none"><h3 id="dz-h">Design</h3><p class="dlg-body">How the sheet and the Word file look. The text and its line numbers do not change.</p><div class="opts"><span class="ol" id="dz-font">Font</span><span class="seg" role="radiogroup" aria-labelledby="dz-font"><button type="button" role="radio" aria-checked="true">Arial</button><button type="button" role="radio" aria-checked="false">Calibri</button><button type="button" role="radio" aria-checked="false">Georgia</button></span><span class="ol" id="dz-size">Text size</span><span class="seg" role="radiogroup" aria-labelledby="dz-size"><button type="button" role="radio" aria-checked="false">10 pt</button><button type="button" role="radio" aria-checked="true">10.5 pt</button><button type="button" role="radio" aria-checked="false">11 pt</button></span><span class="ol" id="dz-sp">Spacing</span><span class="seg" role="radiogroup" aria-labelledby="dz-sp"><button type="button" role="radio" aria-checked="false">Compact</button><button type="button" role="radio" aria-checked="true">Standard</button><button type="button" role="radio" aria-checked="false">Relaxed</button></span><span class="ol" id="dz-mg">Margins</span><span class="seg" role="radiogroup" aria-labelledby="dz-mg"><button type="button" role="radio" aria-checked="false">15 mm</button><button type="button" role="radio" aria-checked="true">20 mm</button><button type="button" role="radio" aria-checked="false">25 mm</button></span><span class="ol" id="dz-ln">On screen</span><span><button type="button" class="switch " role="switch" aria-checked="true"><span class="track"></span><span>Line numbers</span></button><span class="small muted" style="display:block">Shown in the margin here, never in the Word file.</span></span></div><p class="live" role="status" style="margin-top:12px">With these settings: 2 pages, the second about half full.</p><p class="small muted" style="margin-top:8px">Every choice keeps the Word file one column with no tables, images, headers or footers, so tracking systems read it as plainly as a person does.</p><div class="dlg-acts"><button type="button" class="btn btn-primary" ><span>Apply</span></button><button type="button" class="btn btn-ghost" ><span>Back to standard</span></button><button type="button" class="btn btn-ghost" ><span>Cancel</span></button></div></div></div><p class="today">Today: one fixed Word template: Arial, 10.5 pt body, A4.</p></section><section class="state full" aria-labelledby="st7"><h2 id="st7"><span class="no">7.</span>Saved and unsaved changes <span class="small muted">· a later visit, 09:18 to 09:20</span></h2><p class="why">The save state in words in the toolbar, with Save version and Discard beside it on the same row, shown only while there is something to save.</p><div class="mini"><div class="strip"><div class="col"><div class="toolbar" role="toolbar" aria-label="Editing the CV"><span class="wide-only"><button type="button" class="btn btn-ghost" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6"/></svg><span>Add section</span></button><button type="button" class="btn btn-ghost" aria-haspopup="dialog"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M4 3v10M4 13l-2-2m2 2 2-2M12 13V3m0 0-2 2m2-2 2 2" stroke="currentColor" stroke-width="1.5"/></svg><span>Rearrange</span></button><button type="button" class="btn btn-ghost" aria-haspopup="dialog"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M3 13 9.5 6.5m-1-3 4 4M2.5 13.5l.6-2.6 7.5-7.5 2 2-7.5 7.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span>Design</span></button></span><span class="sep wide-only" aria-hidden="true"></span><button type="button" class="btn btn-ghost btn-icon" aria-label="Undo, Ctrl Z" title="Undo, Ctrl Z" aria-keyshortcuts="Control+Z"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M5.5 4 2.5 7l3 3" stroke="currentColor" stroke-width="1.5"/><path d="M3 7h6.5a3.5 3.5 0 0 1 0 7H7" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="btn btn-ghost btn-icon" aria-label="Redo, Ctrl Shift Z" title="Redo, Ctrl Shift Z" aria-keyshortcuts="Control+Shift+Z"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="m10.5 4 3 3-3 3" stroke="currentColor" stroke-width="1.5"/><path d="M13 7H6.5a3.5 3.5 0 0 0 0 7H9" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="switch phone-only" role="switch" aria-checked="true"><span class="track"></span><span>Line numbers</span></button><span class="grow"></span><span class="save-state is-warn" role="status"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="4" fill="currentColor"/></svg><span>2 unsaved lines</span></span><button type="button" class="btn btn-ghost" aria-label="Discard changes"><span>Discard</span></button><button type="button" class="btn btn-primary" aria-keyshortcuts="Control+S"><span>Save version</span><span class="kbd" aria-hidden="true">Ctrl S</span></button></div></div><p class="s14 sub">Unsaved changes. 2 lines changed since version 4. Leaving the page asks first; Ctrl S saves.</p></div><div class="strip"><div class="col"><div class="toolbar" role="toolbar" aria-label="Editing the CV"><span class="wide-only"><button type="button" class="btn btn-ghost" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6"/></svg><span>Add section</span></button><button type="button" class="btn btn-ghost" aria-haspopup="dialog"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M4 3v10M4 13l-2-2m2 2 2-2M12 13V3m0 0-2 2m2-2 2 2" stroke="currentColor" stroke-width="1.5"/></svg><span>Rearrange</span></button><button type="button" class="btn btn-ghost" aria-haspopup="dialog"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M3 13 9.5 6.5m-1-3 4 4M2.5 13.5l.6-2.6 7.5-7.5 2 2-7.5 7.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span>Design</span></button></span><span class="sep wide-only" aria-hidden="true"></span><button type="button" class="btn btn-ghost btn-icon" aria-label="Undo, Ctrl Z" title="Undo, Ctrl Z" aria-keyshortcuts="Control+Z"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M5.5 4 2.5 7l3 3" stroke="currentColor" stroke-width="1.5"/><path d="M3 7h6.5a3.5 3.5 0 0 1 0 7H7" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="btn btn-ghost btn-icon" aria-label="Redo, Ctrl Shift Z" title="Redo, Ctrl Shift Z" aria-keyshortcuts="Control+Shift+Z"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="m10.5 4 3 3-3 3" stroke="currentColor" stroke-width="1.5"/><path d="M13 7H6.5a3.5 3.5 0 0 0 0 7H9" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="switch phone-only" role="switch" aria-checked="true"><span class="track"></span><span>Line numbers</span></button><span class="grow"></span><span class="save-state" role="status"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-opacity=".35" stroke-width="2"/><path d="M8 2a6 6 0 0 1 6 6" stroke="currentColor" stroke-width="2"/></svg><span>Saving as a new version</span></span></div></div><p class="s14 sub">Saving as a new version. The editor stays as it is until the save is done.</p></div><div class="strip"><div class="col"><div class="toolbar" role="toolbar" aria-label="Editing the CV"><span class="wide-only"><button type="button" class="btn btn-ghost" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6"/></svg><span>Add section</span></button><button type="button" class="btn btn-ghost" aria-haspopup="dialog"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M4 3v10M4 13l-2-2m2 2 2-2M12 13V3m0 0-2 2m2-2 2 2" stroke="currentColor" stroke-width="1.5"/></svg><span>Rearrange</span></button><button type="button" class="btn btn-ghost" aria-haspopup="dialog"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M3 13 9.5 6.5m-1-3 4 4M2.5 13.5l.6-2.6 7.5-7.5 2 2-7.5 7.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span>Design</span></button></span><span class="sep wide-only" aria-hidden="true"></span><button type="button" class="btn btn-ghost btn-icon" aria-label="Undo, Ctrl Z" title="Undo, Ctrl Z" aria-keyshortcuts="Control+Z"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M5.5 4 2.5 7l3 3" stroke="currentColor" stroke-width="1.5"/><path d="M3 7h6.5a3.5 3.5 0 0 1 0 7H7" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="btn btn-ghost btn-icon" aria-label="Redo, Ctrl Shift Z" title="Redo, Ctrl Shift Z" aria-keyshortcuts="Control+Shift+Z"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="m10.5 4 3 3-3 3" stroke="currentColor" stroke-width="1.5"/><path d="M13 7H6.5a3.5 3.5 0 0 0 0 7H9" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="switch phone-only" role="switch" aria-checked="true"><span class="track"></span><span>Line numbers</span></button><span class="grow"></span><span class="save-state is-ok" role="status"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.5"/><path d="m4.9 8.2 2.1 2.1 4.1-4.4" stroke="currentColor" stroke-width="1.6"/></svg><span>Saved 09:20 as version 5</span></span></div></div><p class="s14 sub">Saved as version 5 at 09:20. The scorer reads it from now on; the earlier-CV notice above the page now counts 40 roles, about 45 to 70 cents.</p></div><div class="strip"><div class="col"><div class="toolbar" role="toolbar" aria-label="Editing the CV"><span class="wide-only"><button type="button" class="btn btn-ghost" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6"/></svg><span>Add section</span></button><button type="button" class="btn btn-ghost" aria-haspopup="dialog"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M4 3v10M4 13l-2-2m2 2 2-2M12 13V3m0 0-2 2m2-2 2 2" stroke="currentColor" stroke-width="1.5"/></svg><span>Rearrange</span></button><button type="button" class="btn btn-ghost" aria-haspopup="dialog"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M3 13 9.5 6.5m-1-3 4 4M2.5 13.5l.6-2.6 7.5-7.5 2 2-7.5 7.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span>Design</span></button></span><span class="sep wide-only" aria-hidden="true"></span><button type="button" class="btn btn-ghost btn-icon" aria-label="Undo, Ctrl Z" title="Undo, Ctrl Z" aria-keyshortcuts="Control+Z"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M5.5 4 2.5 7l3 3" stroke="currentColor" stroke-width="1.5"/><path d="M3 7h6.5a3.5 3.5 0 0 1 0 7H7" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="btn btn-ghost btn-icon" aria-label="Redo, Ctrl Shift Z" title="Redo, Ctrl Shift Z" aria-keyshortcuts="Control+Shift+Z"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="m10.5 4 3 3-3 3" stroke="currentColor" stroke-width="1.5"/><path d="M13 7H6.5a3.5 3.5 0 0 0 0 7H9" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="switch phone-only" role="switch" aria-checked="true"><span class="track"></span><span>Line numbers</span></button><span class="grow"></span><span class="save-state" role="status" style="color:var(--negative)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.5"/><path d="m5.6 5.6 4.8 4.8m0-4.8-4.8 4.8" stroke="currentColor" stroke-width="1.6"/></svg><span>Not saved</span></span><button type="button" class="btn btn-secondary" ><span>Reload</span></button></div></div><p class="s14 sub">Not saved. cv-medtech-quality.md was saved in another tab at 09:18, so nothing was saved here. Reload shows that version and drops the 2 changed lines on this screen.</p></div></div><p class="today">Today: one Save as a new version button, always enabled; only the browser’s leave-page prompt marks unsaved changes; a save from another tab is refused in red text.</p></section><section class="state" aria-labelledby="st8"><h2 id="st8"><span class="no">8.</span>Switching the active master <span class="small muted">· a later visit, 09:22</span></h2><p class="why">Make active on a master opens this confirm. Its effect on scoring is said before and after; nothing is rescored on its own.</p><div class="mini"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="sw-h"><h3 id="sw-h">Make cv-software-lead.md the active master?</h3><div class="dlg-body"><p>The scorer reads it for every role it scores from the next one on, and Prepare application tailors from it.</p><p>43 open roles were scored on cv-medtech-quality.md. They keep those scores and are marked Scored on an earlier CV: 40 can be rescored, about 45 to 70 cents; 2 scored on the full job description and 1 applied for keep theirs.</p><p class="inrow" style="color:var(--caution)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 1.8 15 14.2H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.2v3.9" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="12" r=".95" fill="currentColor"/></svg><span>cv-software-lead.md runs to 3 pages.</span></p></div><div class="dlg-acts"><button type="button" class="btn btn-primary" ><span>Make active</span></button><button type="button" class="btn btn-ghost" ><span>Cancel</span></button></div></div><div class="notice notice-caution" ><div class="notice-body"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 1.8 15 14.2H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.2v3.9" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="12" r=".95" fill="currentColor"/></svg></span><div class="notice-text"><p><strong>cv-software-lead.md is active since 09:22. 40 roles were scored on another CV, about 45 to 70 cents to rescore.</strong> Nothing is rescored until you say so.</p></div></div><div class="notice-acts"><button type="button" class="btn btn-secondary" ><span>Rescore 40 roles, about 45 to 70 cents</span></button></div></div></div><p class="today">Today: one master; the newest confirmed import or save is active.</p></section><section class="state" aria-labelledby="st9"><h2 id="st9"><span class="no">9.</span>Add section</h2><p class="why">A menu from the toolbar, arrows to move, Enter to choose. The new section goes after the one in focus and opens for editing. The four standard sections are always there, so they are not offered.</p><div class="mini"><div class="menu" role="menu" aria-label="Add section"><p class="mhead">Add after Experience</p><button type="button" role="menuitem" class="is-active">Selected projects</button><button type="button" role="menuitem">Talks and writing</button><button type="button" role="menuitem">Languages</button><button type="button" role="menuitem">Publications</button><hr><button type="button" role="menuitem">A section with your own heading</button></div></div></section><section class="state full" aria-labelledby="st10"><h2 id="st10"><span class="no">10.</span>Rescore affected: confirming, running and done <span class="small muted">· a later visit, 09:15 to 09:19</span></h2><p class="why">The button carries the count and the cost; pressing it opens a confirm that says them again with what is left out. One run reaches every affected role.</p><div class="mini"><p class="s14 sub">Confirming: the button opens the confirm under the notice.</p><div class="notice notice-caution" role="region" aria-label="Scores on an earlier CV"><div class="notice-body"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 1.8 15 14.2H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.2v3.9" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="12" r=".95" fill="currentColor"/></svg></span><div class="notice-text"><p><strong>38 roles were scored on an earlier version of this CV.</strong> You saved cv-medtech-quality.md at 08:52 today; their scores still read 30 on the 21 Oct version and 8 on the 2 Oct one. On Jobs they are marked Scored on an earlier CV.</p></div></div><div class="notice-acts"><button type="button" class="btn btn-secondary" aria-expanded="true" aria-controls="rescore-confirm"><span>Rescore 38 roles, about 40 to 70 cents</span></button><a class="link s14" href="/jobs?cv=earlier">See the 38 on Jobs</a></div></div><div class="notice notice-caution" id="rescore-confirm" role="group" aria-label="Confirm the rescore"><div class="notice-body"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 1.8 15 14.2H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.2v3.9" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="12" r=".95" fill="currentColor"/></svg></span><div class="notice-text"><p><strong>Rescore 38 roles on version 4 of cv-medtech-quality.md?</strong> That is 38 paid calls, about 40 to 70 cents. Each role is scored on its advert card, as it was before.</p><p>2 roles scored on their full job description and 1 you have applied for keep their scores and are not counted. Acknowledged roles are left alone.</p></div></div><div class="notice-acts"><button type="button" class="btn btn-primary" ><span>Rescore 38 roles, about 40 to 70 cents</span></button><button type="button" class="btn btn-ghost" ><span>Cancel</span></button></div></div><p class="s14 sub">Running:</p><div class="notice notice-info" role="status" aria-live="polite"><div class="notice-body"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-opacity=".35" stroke-width="2"/><path d="M8 2a6 6 0 0 1 6 6" stroke="currentColor" stroke-width="2"/></svg></span><div class="notice-text"><p><strong>Rescoring 14 of 38 on version 4.</strong> 16 cents so far. It carries on if you leave this page; Jobs updates each role as it is done.</p><div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="38" aria-valuenow="14" aria-label="Roles rescored"><span style="width:36.8%"></span></div><p class="small muted">Started 09:16. A run like this takes a few minutes.</p></div></div></div><p class="s14 sub">Done:</p><div class="notice notice-ok" role="status"><div class="notice-body"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.5"/><path d="m4.9 8.2 2.1 2.1 4.1-4.4" stroke="currentColor" stroke-width="1.6"/></svg></span><div class="notice-text"><p><strong>Rescored 37 of 38 on version 4,</strong> 37 paid calls, 44 cents. 4 roles changed tier: 3 rose, 1 fell. Brackley Surgical Ltd, Software Verification Lead, went from 66 to 72 and now passes the CV gate.</p><p>1 was not rescored: its reply was cut off. It keeps its earlier score and is still marked Scored on an earlier CV.</p></div></div><div class="notice-acts"><button type="button" class="btn btn-secondary" ><span>Rescore 1 role, about 1 to 2 cents</span></button><a class="link s14" href="/jobs?changed=rescore">See the 4 changed roles</a></div></div></div><p class="today">Today: Re-score stale items with the browser’s confirm and “This spends real tokens”; no count first; at most 25 a press, and only roles scored before 3 Aug.</p></section><section class="state full" aria-labelledby="st11"><h2 id="st11"><span class="no">11.</span>Preferences changed <span class="small muted">· a later visit, 09:25 to 09:27</span></h2><p class="why">Left: a change waiting to be saved, marked in words and with a bar on the field. Right: what two saved changes mean for roles already scored, with the count and the cost.</p><div class="mini"><div class="sgrid" style="gap:16px"><section class="panel tabs a-tabs" aria-label="History, preferences and Word import"><div class="tablist" role="tablist" aria-label="About this CV"><button type="button" class="tab" role="tab" id="t-history" aria-controls="tp-history" aria-selected="false" tabindex="-1">History<span class=count>4</span></button><button type="button" class="tab" role="tab" id="t-prefs" aria-controls="tp-prefs" aria-selected="true" tabindex="0">Preferences</button><button type="button" class="tab" role="tab" id="t-import" aria-controls="tp-import" aria-selected="false" tabindex="-1">Word import</button></div><div class="tabpanel" role="tabpanel" id="tp-prefs" aria-labelledby="t-prefs" tabindex="0"><h3>Scoring preferences</h3><p class="tp-note">What a role is judged against, beside the CV.</p><div class="statement" role="note"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2v4.4" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="4.9" r=".95" fill="currentColor"/></svg></span><div><strong>Changing these changes how roles are scored.</strong> The scorer reads them for every role it scores from the next one on, and the four gates judge against them. Roles already scored keep their scores until they are rescored; after a change, this tab says how many roles it would move and what rescoring them costs.</div></div><form>
+<div class="field"><label for="p-rate">Contract day-rate floor</label>
+<div class="inrow"><span class="affix">£</span><input class="input num changed" id="p-rate" value="750" inputmode="numeric"
+ aria-describedby="p-rate-h"><span class="affix">a day</span><span class="tag tag-caution">Changed from £700</span></div>
+<p class="help" id="p-rate-h">A day rate under this fails the Rate gate. A range is judged on its top figure, and a rate the advert does not state passes.</p>
+<p class="gate">Rate gate</p></div>
+<div class="field"><label for="p-sal">Permanent salary floor</label>
+<div class="inrow"><span class="affix">£</span><input class="input num" id="p-sal" value="85,000" inputmode="numeric"
+ aria-describedby="p-sal-h"><span class="affix">a year</span></div>
+<p class="help" id="p-sal-h">A salary under this fails the Rate gate. A salary is judged as a salary and never turned into a day rate.</p>
+<p class="gate">Rate gate</p></div>
+<div class="field"><fieldset><legend>Location</legend>
+<div class="check"><input type="checkbox" id="loc-uk" checked><label for="loc-uk">Remote, in the UK</label></div>
+<div class="check"><input type="checkbox" id="loc-hyb" checked><label for="loc-hyb">Hybrid, up to</label><input class="input short" aria-label="Minutes of travel" value="90" inputmode="numeric"><span>min from</span><input class="input" style="width:96px" aria-label="Town" value="Reading"></div>
+<div class="check"><input type="checkbox" id="loc-eu" checked><label for="loc-eu">Remote from Europe, considered</label></div>
+</fieldset><p class="gate">Location gate. “Considered” passes with a note.</p></div>
+<div class="field"><fieldset><legend>Sector</legend>
+<div class="check"><input type="checkbox" id="sec-med" checked><label for="sec-med">Medtech</label></div><div class="check"><input type="checkbox" id="sec-ivd" checked><label for="sec-ivd">In vitro diagnostics (IVD)</label></div><div class="check"><input type="checkbox" id="sec-dh" checked><label for="sec-dh">Digital health with a device</label></div>
+<div class="check"><input type="checkbox" id="sec-ph"><label for="sec-ph">Pharma or biotech with no device</label></div>
+</fieldset><p class="gate">Sector gate</p></div>
+<div class="field"><fieldset><legend>CV match</legend>
+<div class="inrow"><label class="s14" for="p-pass" style="font-weight:400">Pass mark</label>
+<input class="input short" id="p-pass" value="70" inputmode="numeric">
+<label class="s14" for="p-floor" style="font-weight:400;margin-left:8px">Filtered floor</label>
+<input class="input short" id="p-floor" value="40" inputmode="numeric"></div>
+<p class="help">A CV match of 70 or more passes the CV gate. Under 40 a role is Filtered: counted on Jobs, never listed.</p>
+</fieldset><p class="gate">CV gate</p></div>
+</form><div class="form-foot"><button type="button" class="btn btn-primary" ><span>Save preferences</span></button><span class="small muted">Last changed 11 Nov</span></div><p class="small muted" style="margin-top:10px">The scorer also reads your target title and keywords and the notes you keep on engagement types, rates and travel.</p><div style="margin-top:6px"><button type="button" class="btn btn-ghost" aria-expanded="false"><span>Title and keywords</span></button></div></div></section><div class="mini"><div class="notice notice-caution" ><div class="notice-body"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 1.8 15 14.2H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.2v3.9" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="12" r=".95" fill="currentColor"/></svg></span><div class="notice-text"><p><strong>Saved at 09:25. Roles scored from now on fail the Rate gate under £750 a day.</strong> Roles already scored keep their judgement against £700: 6 of the 40 open roles quote a top day rate from £700 to £749 and would now fail.</p></div></div><div class="notice-acts"><button type="button" class="btn btn-secondary" ><span>Rescore 6 roles, about 7 to 11 cents</span></button><a class="link s14" href="/jobs?rate=under-750">See the 6 on Jobs</a></div></div><div class="notice notice-caution" ><div class="notice-body"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 1.8 15 14.2H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.2v3.9" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="12" r=".95" fill="currentColor"/></svg></span><div class="notice-text"><p><strong>Saved at 09:27. Pharma or biotech with no device now passes the Sector gate</strong> for roles scored from now on. Radar cannot tell which of the 40 open roles this changes without asking the model again.</p></div></div><div class="notice-acts"><button type="button" class="btn btn-secondary" ><span>Rescore all 40, about 45 to 70 cents</span></button><button type="button" class="btn btn-ghost" ><span>Leave them</span></button></div></div></div></div></div><p class="today">Today: the day-rate floor, title and keywords are edited on Home; the salary floor, pass mark and floor are lines in the preferences file; location and sector are its prose. Nothing says what a change does to roles already scored.</p></section></div></div></main><script>
+(function () {
+  var bar = document.querySelector('.appbar');
+  if (!bar) return;
+  var menu = bar.querySelector('.menu-btn');
+  function setMenu(open) {
+    bar.classList.toggle('menu-open', open);
+    if (menu) menu.setAttribute('aria-expanded', String(open));
+  }
+  if (menu) menu.addEventListener('click', function () {
+    setMenu(menu.getAttribute('aria-expanded') !== 'true');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && bar.classList.contains('menu-open')) {
+      setMenu(false);
+      if (menu) menu.focus();
+    }
+  });
+  document.addEventListener('click', function (e) {
+    if (bar.classList.contains('menu-open') && !bar.contains(e.target)) setMenu(false);
+  });
+  // The inbox time is written in UTC by the server and shown in the
+  // reader's own time here, today's as a time and older ones with the day.
+  bar.querySelectorAll('time[data-local]').forEach(function (t) {
+    var when = new Date(t.getAttribute('datetime'));
+    if (isNaN(when)) return;
+    var now = new Date();
+    var hm = ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2);
+    var sameDay = when.toDateString() === now.toDateString();
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    t.textContent = sameDay ? hm : when.getDate() + ' ' + months[when.getMonth()] + ' ' + hm;
+  });
+})();
+</script></body></html>

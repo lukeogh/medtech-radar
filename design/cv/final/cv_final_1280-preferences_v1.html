@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CV · MedTech Radar</title><style>
+:root{
+  color-scheme:dark;
+  --canvas:#0e1215; --surface:#151a1e; --surface-sunken:#1c2226;
+  --row-hover:#192024; --row-selected:#0f3237;
+  --text-1:#e6ebee; --text-2:#b3bec6; --text-3:#93a0a9;
+  --border-subtle:#262e34; --border-strong:#6f7c86;
+  --accent:#5cc3cf; --accent-hover:#82d3dc; --accent-tint:#0f3237; --on-accent:#071114;
+  --positive:#74d39b; --positive-tint:#12291c; --caution:#f0c46a; --caution-tint:#2c2311;
+  --negative:#ff9b8f; --negative-tint:#33191a; --neutral:#b3bec6; --neutral-tint:#1f262b;
+  --focus:#ffd447; --shadow-overlay:0 8px 24px rgba(0,0,0,.5);
+  --font-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --radius-2:2px; --radius-4:4px; --dur:120ms;
+  /* Type scale: size and line height in pairs, on a 4px grid. */
+  --fs-12:12px; --lh-12:16px; --fs-14:14px; --lh-14:20px; --fs-15:15px; --lh-15:24px;
+  --fs-16:16px; --lh-16:24px; --fs-18:18px; --lh-18:24px; --fs-20:20px; --lh-20:28px;
+  /* Spacing, a 4px grid. */
+  --sp-2:2px; --sp-4:4px; --sp-8:8px; --sp-12:12px; --sp-16:16px; --sp-20:20px;
+  --sp-24:24px; --sp-32:32px; --sp-48:48px;
+  /* The older pages' own names, pointed at the same palette. */
+  --paper:#0e1215; --surface-sunk:#1c2226;
+  --ink-1:#e6ebee; --ink-2:#b3bec6; --ink-3:#93a0a9;
+  --hairline:#262e34; --hairline-strong:#3d474e;
+  --accent-quiet:#2f6e76; --accent-wash:#0f3237;
+  --fail:#ff9b8f; --settled:#74d39b;
+  --tint-blue:#131b20; --tint-sand:#1a1a17; --tint-sage:#141b17;
+  --tint-clay:#1c1716; --tint-stone:#161b1f;
+  --panel-rule:rgba(230,235,238,.10);
+}
+@media (prefers-reduced-motion:reduce){:root{--dur:0ms}}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--focus-gap,var(--surface))}
+@media (forced-colors:active){:focus-visible{outline-color:Highlight}}
+.visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+.skip-link{position:absolute;left:8px;top:-60px;z-index:50;padding:8px 12px;background:var(--surface);color:var(--text-1);border:1px solid var(--border-strong);border-radius:var(--radius-2);font:600 14px/20px var(--font-sans)}
+.skip-link:focus{top:8px}
+.appbar{position:relative;z-index:20;display:flex;align-items:center;gap:24px;min-width:0;height:48px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);color:var(--text-1);font:400 14px/20px var(--font-sans);letter-spacing:0}
+.appbar .brand{display:flex;align-items:center;gap:12px;flex:none;color:var(--text-1);text-decoration:none}
+.appbar .brand-mark{display:block;width:51px;height:24px;flex:none}
+.appbar .brand-name{font-size:14px;line-height:20px;font-weight:600;white-space:nowrap}
+.appbar .appbar-page{display:none;font-size:16px;line-height:24px;font-weight:600}
+.appbar .nav{display:flex;align-self:stretch;gap:12px;margin:0 0 0 -4px;padding:0;list-style:none}
+.appbar .nav a{display:flex;align-items:center;height:100%;padding:2px 6px 0;border-bottom:2px solid transparent;color:var(--text-2);text-decoration:none;white-space:nowrap;transition:color var(--dur) ease-out}
+.appbar .nav a:hover{color:var(--text-1)}
+.appbar .nav a[aria-current="page"]{color:var(--text-1);border-bottom-color:var(--accent)}
+.appbar .nav a:focus-visible{outline-offset:-4px;box-shadow:none}
+.appbar .appbar-tools{display:flex;align-items:center;gap:16px;min-width:0;margin-left:auto}
+.appbar .inbox-status{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;line-height:16px;color:var(--text-3);white-space:nowrap}
+.appbar .inbox-status svg{flex:none}
+.appbar .inbox-status.is-warn{color:var(--caution)}
+.appbar .inbox-status.is-bad{color:var(--negative)}
+.appbar .bar-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;min-width:32px;padding:0 8px;border:1px solid transparent;border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 14px/20px var(--font-sans);cursor:pointer;text-decoration:none}
+.appbar .bar-btn:hover{color:var(--text-1);background:var(--row-hover)}
+.appbar .menu-btn{display:none}
+.appbar .menu-panel{display:none}
+@media (max-width:767.98px){
+  .appbar{gap:16px}
+  .appbar .nav,.appbar .appbar-tools,.appbar .brand-name{display:none}
+  .appbar .appbar-page{display:block}
+  .appbar .menu-btn{display:inline-flex;width:44px;height:44px;margin:0 -8px 0 auto}
+  .appbar .menu-btn:focus-visible{outline-offset:-2px;box-shadow:none}
+  .appbar.menu-open .menu-panel{display:block;position:absolute;top:48px;left:0;right:0;padding:8px 16px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);box-shadow:var(--shadow-overlay)}
+  .appbar .menu-panel ul{margin:0;padding:0;list-style:none}
+  .appbar .menu-panel a{display:flex;align-items:center;min-height:44px;color:var(--text-1);text-decoration:none;font-size:16px;line-height:24px}
+  .appbar .menu-panel a[aria-current="page"]{font-weight:600;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:6px}
+  .appbar .menu-panel .inbox-status{display:flex;margin-top:8px}
+}
+@media (pointer:coarse){.appbar .bar-btn{min-width:44px;height:44px}}
+/* A page whose body is still the older one: its own heading row keeps what it
+   says and loses the controls the bar now holds. */
+.page > .masthead{padding-top:0}
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--canvas)}
+body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15px/24px var(--font-sans);
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+a{color:var(--accent)}
+a:hover{color:var(--accent-hover)}
+h1,h2,h3,h4,p,ol,ul,dl,dd{margin:0}
+ol,ul{padding:0;list-style:none}
+button,input,select,textarea{font:inherit}
+.wrap{padding:24px 24px 48px;max-width:2560px;margin:0 auto}
+.page-head{margin:0 0 16px}
+.ph-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;min-height:28px}
+.ph-row .ph-meta{margin-left:auto}
+.page-head h1{font:600 20px/28px var(--font-sans);margin:0}
+.page-head .lede{color:var(--text-2);font-size:14px;line-height:20px;max-width:88ch;margin-top:4px}
+.mono{font-family:var(--font-mono);font-size:13px}
+.muted{color:var(--text-3)}
+.sub{color:var(--text-2)}
+.small{font-size:12px;line-height:16px}
+.s14{font-size:14px;line-height:20px}
+/* buttons, after Home final */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-2);font:500 14px/20px var(--font-sans);white-space:nowrap;text-decoration:none;cursor:pointer;background:transparent;color:var(--text-2)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover);color:var(--on-accent)}
+.btn-secondary{background:var(--surface);border-color:var(--border-strong);color:var(--text-1)}
+.btn-secondary:hover{background:var(--row-hover);color:var(--text-1)}
+.btn-ghost{color:var(--text-2)}
+.btn-ghost:hover{color:var(--text-1);background:var(--row-hover)}
+.btn-danger{background:var(--surface);border-color:var(--border-strong);color:var(--negative)}
+.btn[aria-pressed="true"]{background:var(--accent-tint);border-color:var(--accent);color:var(--accent)}
+.btn[aria-disabled="true"]{color:var(--text-3);border-color:var(--border-subtle);cursor:default;background:transparent}
+.btn svg{flex:none}
+.kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font:500 11px/16px var(--font-mono);color:var(--text-2);background:var(--canvas)}
+.btn-primary .kbd{border-color:var(--on-accent);color:var(--on-accent);background:transparent}
+.tag{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 8px;border-radius:var(--radius-2);font:500 12px/16px var(--font-sans);white-space:nowrap}
+.tag-ok{background:var(--positive-tint);color:var(--positive)}
+.tag-neutral{background:var(--neutral-tint);color:var(--neutral)}
+.tag-caution{background:var(--caution-tint);color:var(--caution)}
+.tag-accent{background:var(--accent-tint);color:var(--accent)}
+.tag-bad{background:var(--negative-tint);color:var(--negative)}
+a.link{color:var(--accent);text-underline-offset:2px}
+/* notices */
+.notice{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:10px 16px;border:1px solid var(--border-subtle);border-left-width:4px;border-radius:var(--radius-2);background:var(--surface);margin:0 0 16px}
+.notice-caution{border-left-color:var(--caution)}
+.notice-info{border-left-color:var(--neutral)}
+.notice-ok{border-left-color:var(--positive)}
+.notice-bad{border-left-color:var(--negative)}
+.notice-body{display:flex;gap:12px;align-items:flex-start;flex:1 1 40ch;min-width:0;font-size:14px;line-height:20px}
+.notice-mark{flex:none;margin-top:2px}
+.notice-caution .notice-mark{color:var(--caution)}
+.notice-info .notice-mark{color:var(--neutral)}
+.notice-ok .notice-mark{color:var(--positive)}
+.notice-bad .notice-mark{color:var(--negative)}
+.notice-text strong{font-weight:600;color:var(--text-1)}
+.notice-text p+p{margin-top:4px}
+.notice-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+/* layout: real breakpoints. One column under 768, CV over two panel columns from 768, CV beside a 380px
+   column from 1280, three columns from 1920. */
+html{scroll-padding-top:72px}
+.layout{display:grid;gap:24px;align-items:start;grid-template-columns:minmax(0,1fr);
+  grid-template-areas:"masters" "work" "tabs" "keys"}
+.a-masters{grid-area:masters;min-width:0}.a-work{grid-area:work;min-width:0}
+.a-tabs{grid-area:tabs;min-width:0}.a-keys{grid-area:keys;min-width:0}
+@media (min-width:768px){.layout{grid-template-columns:repeat(2,minmax(0,1fr));
+  grid-template-areas:"work work" "masters tabs" "keys tabs"}}
+@media (min-width:1280px){.layout{grid-template-columns:minmax(0,1fr) 380px;grid-template-rows:auto auto 1fr;
+  grid-template-areas:"work masters" "work tabs" "work keys"}}
+@media (min-width:1920px){.layout{grid-template-columns:400px minmax(0,1fr) 480px;grid-template-rows:auto 1fr;
+  grid-template-areas:"masters work tabs" "keys work tabs"}}
+@media (max-width:767.98px){.a-keys{display:none}.reads{display:none}}
+.panel{background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius-4);padding:16px}
+.panel h2{font:600 16px/24px var(--font-sans)}
+.panel .panel-note{color:var(--text-2);font-size:14px;line-height:20px;margin-top:4px}
+/* the canvas around the sheet; the toolbar is its direct child so it sticks while page 2 is edited */
+.canvas{display:flex;flex-direction:column;align-items:center;min-width:0}
+.canvas > .toolbar{width:794px;max-width:100%}
+.col{width:794px;max-width:100%}
+.wide-only{display:inline-flex;align-items:center;gap:2px}
+.toolbar .phone-only{display:none}
+@media (max-width:767.98px){.toolbar .wide-only{display:none}.toolbar .phone-only{display:inline-flex}}
+.phone-note{width:100%;font-size:13px;line-height:20px;color:var(--text-2);margin:0 0 12px}
+@media (min-width:768px){.phone-note{display:none}}
+.toolbar{display:flex;flex-wrap:nowrap;align-items:center;gap:2px;padding:6px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-4);margin-bottom:16px;position:sticky;top:0;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.35)}
+.toolbar .sep{width:1px;align-self:stretch;margin:4px 2px;background:var(--border-subtle)}
+.toolbar .grow{flex:1 1 auto}
+.toolbar .btn{height:32px;padding:0 8px;gap:6px}
+.toolbar .btn-icon{width:32px;padding:0}
+.save-state{display:inline-flex;align-items:center;gap:6px;font-size:13px;line-height:20px;color:var(--text-2);padding:0 6px;white-space:nowrap}
+.save-state.is-ok svg{color:var(--positive)}
+.save-state.is-warn{color:var(--caution)}
+.switch{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 8px;border-radius:var(--radius-2);border:1px solid transparent;background:transparent;color:var(--text-1);font:500 14px/20px var(--font-sans);cursor:pointer}
+.switch .track{width:28px;height:16px;border-radius:8px;border:1px solid var(--border-strong);background:var(--canvas);position:relative;flex:none}
+.switch .track::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--text-3)}
+.switch[aria-checked="true"] .track{background:var(--accent-tint);border-color:var(--accent)}
+.switch[aria-checked="true"] .track::after{left:14px;background:var(--accent)}
+.switch .sw-word{font-size:12px;color:var(--text-2)}
+/* the sheet: dark, A4 in proportion, raised off the canvas */
+.sheet{position:relative;width:794px;max-width:100%;min-height:1123px;background:var(--surface);color:var(--text-1);padding:72px 76px 64px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);box-shadow:0 8px 28px rgba(0,0,0,.5);font:400 14px/20px Arial,"Helvetica Neue",Helvetica,sans-serif;--focus-gap:var(--surface)}
+.sheet:focus{outline:none}
+.sheet:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
+.sheet-foot{display:flex;justify-content:space-between;gap:12px;width:794px;max-width:100%;margin:8px 0 24px;color:var(--text-3);font-size:12px;line-height:16px}
+.cv-ln{position:relative}
+.ln{position:absolute;left:-60px;width:44px;text-align:right;font:400 11px/20px var(--font-mono);color:var(--text-3);user-select:none}
+.nums-off .ln{display:none}
+.cv-name{font:700 24px/32px Arial,sans-serif}
+.cv-name .ln{line-height:32px}
+.cv-headline{color:var(--text-2)}
+.cv-headline.first{color:var(--text-1)}
+.cv-head,.cv-sec,.cv-entry{position:relative;border-radius:2px}
+.cv-sec{margin-top:12px}
+.cv-entry{margin-top:10px}
+.cv-head:focus-visible,.cv-sec:focus-visible,.cv-entry:focus-visible{outline:2px solid var(--focus);outline-offset:6px;box-shadow:none}
+.cv-h2{font:700 17px/24px Arial,sans-serif;margin:0 0 2px}
+.cv-h2 .ln{line-height:24px}
+.cv-h3{font:700 14.5px/20px Arial,sans-serif;margin:0 0 1px}
+.cv-b{padding-left:18px}
+.cv-b::before{content:"\2022";position:absolute;left:4px;top:0;color:var(--text-2)}
+.cont{margin-top:0}
+/* in-place editing */
+.is-hover{outline:1px dashed var(--border-strong);outline-offset:6px}
+.is-editing{outline:2px solid var(--accent);outline-offset:8px}
+.cv-field{display:block;margin:0 -6px;padding:0 5px;border:1px solid var(--border-strong);border-radius:2px;background:var(--surface-sunken);color:var(--text-1)}
+.cv-field.is-focus{outline:2px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--surface)}
+.caret{display:inline-block;width:1px;height:16px;background:var(--text-1);vertical-align:-3px;margin-left:1px}
+.tools{position:absolute;right:-10px;top:-48px;z-index:3;display:flex;gap:2px;padding:3px;background:var(--surface-sunken);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay);--focus-gap:var(--surface-sunken);font-family:var(--font-sans)}
+.tools .btn{height:32px;padding:0 8px;font-size:13px;color:var(--text-1)}
+.tools .btn:hover{background:var(--row-hover)}
+.tools .lab{align-self:center;font-size:12px;color:var(--text-2);padding:0 6px 0 4px;white-space:nowrap}
+.sec-edit{position:absolute;right:0;top:-4px;z-index:2}
+@media (min-width:768px){.sec-edit{display:none}}
+/* overflow */
+.limit-rule{position:relative;width:794px;max-width:100%;margin:-12px 0 12px;display:flex;align-items:center;gap:12px;color:var(--caution);font:600 13px/20px var(--font-sans)}
+.limit-rule::before,.limit-rule::after{content:"";flex:1;border-top:2px dashed var(--caution)}
+.sheet.over{outline:2px dashed var(--caution);outline-offset:6px}
+.over-label{width:794px;max-width:100%;display:flex;gap:8px;align-items:center;margin:0 0 14px;color:var(--caution);font:600 14px/20px var(--font-sans)}
+/* between 768 and 841 the A4 sheet is drawn at 90% so it fits the column */
+@media (min-width:768px) and (max-width:841.98px){.sheet{zoom:.9}}
+/* under 768 the CV reflows: no A4 height, numbers in a narrow gutter, Edit on each section */
+@media (max-width:767.98px){
+  .canvas{align-items:stretch}
+  .canvas > .toolbar{width:100%}
+  .sheet{width:100%;min-height:0;padding:20px 14px 20px 40px;box-shadow:none}
+  .ln{left:-36px;width:28px;font-size:10px}
+  .cv-name{font-size:22px;line-height:28px}
+  .cv-name .ln{line-height:28px}
+  .cv-h2{font-size:16px;padding-right:72px;min-height:32px}
+  .sheet-foot{width:100%}
+  .toolbar .btn-icon{width:44px;height:44px}
+  .vrow{grid-template-columns:minmax(0,1fr)}
+  .vrow .vacts{grid-column:1;grid-row:auto}
+  .masters .mlist{margin-top:8px}
+}
+/* side panels */
+.masters h2{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.mlist{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.mrow{border:1px solid var(--border-subtle);border-radius:var(--radius-2);padding:10px 12px;background:var(--canvas)}
+.mrow.is-open{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.mrow .mtop{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.mrow .mname{font:500 14px/20px var(--font-mono);color:var(--text-1);text-decoration:none}
+.mrow a.mname:hover{text-decoration:underline}
+.mrow .mmeta{margin-top:2px;color:var(--text-3);font-size:12px;line-height:16px}
+.mrow .macts{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.mrow .open-word{font-size:12px;color:var(--accent)}
+.reads{margin-top:12px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;font-size:13px;line-height:20px}
+.reads dt{color:var(--text-3)}
+.reads dd{color:var(--text-1);min-width:0;overflow-wrap:anywhere}
+/* tabs */
+.tabs{padding:0}
+.tablist{display:flex;border-bottom:1px solid var(--border-subtle);padding:0 8px}
+.tab{position:relative;height:44px;padding:0 12px;border:0;background:transparent;color:var(--text-2);font:500 14px/20px var(--font-sans);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--text-1);border-bottom-color:var(--accent)}
+.tab .count{color:var(--text-3);font-weight:400;margin-left:4px}
+.tabpanel{padding:16px}
+.tabpanel h3{font:600 15px/24px var(--font-sans)}
+.tabpanel .tp-note{color:var(--text-2);font-size:14px;line-height:20px;margin:2px 0 12px}
+.vlist{display:flex;flex-direction:column;border-top:1px solid var(--border-subtle)}
+.vrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 0;border-bottom:1px solid var(--border-subtle)}
+.vrow .vwhen{font:500 14px/20px var(--font-sans);color:var(--text-1)}
+.vrow .vwhat{color:var(--text-2);font-size:13px;line-height:20px}
+.vrow .vfile{color:var(--text-3);font:400 12px/16px var(--font-mono);overflow-wrap:anywhere}
+.vrow .vacts{display:flex;gap:4px;align-items:flex-start;grid-column:2;grid-row:1 / span 3}
+.vrow.is-viewing{background:var(--accent-tint);box-shadow:inset 3px 0 0 var(--accent);padding-left:10px;margin:0 -16px;padding-right:16px}
+.keys{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;margin-top:10px;font-size:13px;line-height:20px;align-items:center}
+.keys dt{display:flex;gap:4px;flex-wrap:wrap}
+.keys dd{color:var(--text-2)}
+/* forms */
+.field{display:flex;flex-direction:column;gap:4px;padding:12px 0;border-bottom:1px solid var(--border-subtle)}
+.field:last-of-type{border-bottom:0}
+.field label,.field legend{font:600 14px/20px var(--font-sans);color:var(--text-1);padding:0}
+.field fieldset{border:0;margin:0;padding:0;min-width:0}
+.field .help{color:var(--text-2);font-size:13px;line-height:20px}
+.field .gate{color:var(--text-3);font-size:12px;line-height:16px}
+.inrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.input{height:32px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--canvas);color:var(--text-1);font:400 14px/20px var(--font-sans);min-width:0}
+.input.num{width:110px;font-variant-numeric:tabular-nums}
+.input.short{width:64px}
+.input.wide{width:100%}
+.input.changed{border-color:var(--caution);box-shadow:inset 3px 0 0 var(--caution)}
+.affix{color:var(--text-2);font-size:14px}
+.check{display:flex;align-items:center;flex-wrap:nowrap;gap:6px;font-size:14px;line-height:20px;color:var(--text-1);padding:3px 0;white-space:nowrap}
+.check input[type=checkbox]{width:16px;height:16px;margin:0 2px 0 0;accent-color:var(--accent);flex:none}
+.check .input{height:28px}
+.check .box{flex:none;width:16px;height:16px;margin-top:2px;border:1px solid var(--border-strong);border-radius:2px;background:var(--canvas);display:inline-flex;align-items:center;justify-content:center;color:var(--on-accent)}
+.check .box.on{background:var(--accent);border-color:var(--accent)}
+.check .box.radio{border-radius:50%}
+.check .box.radio.on{background:var(--canvas);box-shadow:inset 0 0 0 4px var(--accent)}
+.statement{display:flex;gap:12px;padding:12px;border:1px solid var(--border-subtle);border-left:4px solid var(--accent);border-radius:var(--radius-2);background:var(--canvas);font-size:14px;line-height:20px;margin-bottom:4px}
+.statement strong{color:var(--text-1)}
+.statement .notice-mark{color:var(--accent)}
+.form-foot{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border-subtle)}
+.drop{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;border:1px dashed var(--border-strong);border-radius:var(--radius-2);background:var(--canvas)}
+.preview{max-height:none;margin:8px 0 0;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);background:var(--canvas);font:400 12px/18px var(--font-mono);color:var(--text-2);white-space:pre-wrap;overflow-wrap:anywhere}
+.diffs{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.diffs li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;font-size:13px;line-height:20px;color:var(--text-2)}
+.diffs .dk{font:600 12px/20px var(--font-sans);color:var(--text-1);white-space:nowrap}
+.bar{height:8px;border-radius:4px;background:var(--canvas);border:1px solid var(--border-strong);overflow:hidden;margin:8px 0 4px}
+.bar span{display:block;height:100%;background:var(--accent)}
+/* the states board and notes */
+.board .a-tabs,.board .a-masters,.board .a-keys{grid-area:auto}
+.switch{white-space:nowrap}
+.board{padding:24px;max-width:1600px;margin:0 auto}
+.board h1{font:600 20px/28px var(--font-sans)}
+.board .lede{color:var(--text-2);margin:4px 0 24px;max-width:110ch;font-size:14px;line-height:20px}
+.sgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
+.state{border:1px solid var(--border-subtle);border-radius:var(--radius-4);background:var(--canvas);padding:16px;min-width:0}
+.state.full{grid-column:1 / -1}
+.state > h2{font:600 16px/24px var(--font-sans);display:flex;gap:8px;align-items:baseline}
+.state > h2 .no{color:var(--text-3);font-variant-numeric:tabular-nums}
+.state > .why{color:var(--text-2);font-size:13px;line-height:20px;margin:2px 0 14px;max-width:100ch}
+.state .today{color:var(--text-3);font-size:12px;line-height:16px;margin-top:10px}
+.mini{display:flex;flex-direction:column;gap:12px}
+.dialog{background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay);padding:16px;max-width:560px}
+.dialog h3{font:600 16px/24px var(--font-sans)}
+.dialog .dlg-body{color:var(--text-2);font-size:14px;line-height:20px;margin-top:6px}
+.dialog .dlg-body p+p{margin-top:8px}
+.dialog .dlg-acts{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+.menu{background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay);padding:4px;width:300px}
+.menu [role="menuitem"]{display:flex;justify-content:space-between;width:100%;height:36px;align-items:center;padding:0 10px;border:0;background:transparent;color:var(--text-1);font:400 14px/20px var(--font-sans);border-radius:2px;text-align:left}
+.menu [role="menuitem"].is-active{background:var(--row-hover);outline:2px solid var(--focus);outline-offset:-2px}
+.menu .mhead{padding:6px 10px 2px;color:var(--text-3);font-size:12px;line-height:16px}
+.menu hr{border:0;border-top:1px solid var(--border-subtle);margin:4px 0}
+.rlist{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.rrow{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);background:var(--canvas)}
+.rrow .rname{font:500 14px/20px var(--font-sans)}
+.rrow .rmeta{font-size:12px;line-height:16px;color:var(--text-3)}
+.rrow.is-picked{border-color:var(--accent);background:var(--accent-tint);outline:2px solid var(--focus);outline-offset:2px;margin-left:8px}
+.rrow .grip{color:var(--text-3)}
+.live{margin-top:10px;padding:8px 10px;border-radius:var(--radius-2);background:var(--neutral-tint);color:var(--text-1);font-size:13px;line-height:20px}
+.opts{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px 12px;align-items:start;margin-top:12px}
+.opts > .ol{font:600 14px/32px var(--font-sans)}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--radius-2);overflow:hidden;flex-wrap:wrap}
+.seg button{height:32px;padding:0 12px;border:0;border-right:1px solid var(--border-subtle);background:var(--canvas);color:var(--text-2);font:500 13px/20px var(--font-sans)}
+.seg button:last-child{border-right:0}
+.seg button[aria-checked="true"]{background:var(--accent-tint);color:var(--accent);font-weight:600}
+.seg button[aria-checked="true"]::before{content:"\2713\00a0"}
+.strip{display:flex;flex-direction:column;gap:10px}
+.strip .toolbar{margin:0;position:static}
+.notes{padding:32px 40px 64px;max-width:1280px;margin:0 auto}
+.notes h1{font:600 20px/28px var(--font-sans)}
+.notes h2{font:600 18px/24px var(--font-sans);margin:32px 0 8px;padding-top:16px;border-top:1px solid var(--border-subtle)}
+.notes h3{font:600 15px/24px var(--font-sans);margin:16px 0 4px}
+.notes p,.notes li{font-size:14px;line-height:22px;color:var(--text-2);max-width:120ch}
+.notes p+p{margin-top:8px}
+.notes ul.dots{list-style:disc;padding-left:20px}
+.notes ul.dots li+li{margin-top:4px}
+.notes strong{color:var(--text-1);font-weight:600}
+.notes code{font:400 13px/20px var(--font-mono);color:var(--text-1)}
+.tbl{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px;line-height:20px}
+.tbl th,.tbl td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--border-subtle);color:var(--text-2)}
+.tbl th{color:var(--text-1);font-weight:600;background:var(--surface)}
+.tbl td:first-child{color:var(--text-1)}
+.swatch{display:inline-block;width:12px;height:12px;border:1px solid var(--border-strong);border-radius:2px;vertical-align:-1px;margin-right:6px}
+.oq{border:1px solid var(--border-subtle);border-radius:var(--radius-4);padding:12px 16px;margin-top:10px;background:var(--surface)}
+.oq h3{margin:0 0 4px}
+.oq dl{display:grid;grid-template-columns:110px minmax(0,1fr);gap:4px 12px;font-size:14px;line-height:20px}
+.oq dt{color:var(--text-3)}
+.oq dd{color:var(--text-2)}
+.oq dd strong{color:var(--text-1)}
+</style></head><body><a class="skip-link" href="#main">Skip to the page</a><header class="appbar"><a class="brand" href="/" aria-label="MedTech Radar, Home"><svg class="brand-mark" viewBox="0 0 36 17" width="51" height="24" fill="none" aria-hidden="true" focusable="false"><path d="M4 15a14 14 0 0 1 28 0" stroke="var(--text-3)" stroke-width="1.2"/><path d="M8.5 15a9.5 9.5 0 0 1 19 0" stroke="var(--text-2)" stroke-width="1.2"/><path d="M13 15a5 5 0 0 1 10 0Z" fill="var(--text-1)"/><path d="M0 15h36" stroke="var(--text-1)" stroke-width="1.5"/></svg><span class="brand-name">MedTech Radar</span><span class="appbar-page" aria-hidden="true">CV</span></a><nav class="nav" aria-label="Pages"><a href="/">Home</a><a href="/jobs">Jobs</a><a href="/insights">Insights</a><a href="/watchlist">Watchlist</a><a href="/cv" aria-current="page">CV</a></nav><div class="appbar-tools"><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div><button type="button" class="bar-btn menu-btn" aria-expanded="false" aria-controls="menu-panel">Menu</button><div class="menu-panel" id="menu-panel"><nav aria-label="Pages, menu"><ul><li><a href="/">Home</a></li><li><a href="/jobs">Jobs</a></li><li><a href="/insights">Insights</a></li><li><a href="/watchlist">Watchlist</a></li><li><a href="/cv" aria-current="page">CV</a></li></ul></nav><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div></header><main id="main" tabindex="-1"><div class="wrap"><div class="page-head"><div class="ph-row"><h1>CV</h1><p class="inrow s14 ph-meta"><span class="mono" style="color:var(--text-1)">cv-medtech-quality.md</span><span class="tag tag-ok"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true" focusable="false"><path d="m3.5 8.3 3 3 6-6.6" stroke="currentColor" stroke-width="2"/></svg>Active, the scorer reads this</span><span class="muted">2 pages · saved 13 Nov 08:52</span></p></div><p class="lede">The master CV the scorer reads for every role. Edit it in place, section by section; every save is kept as a new version.</p></div><div class="notice notice-caution" role="region" aria-label="Scores on an earlier CV"><div class="notice-body"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 1.8 15 14.2H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.2v3.9" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="12" r=".95" fill="currentColor"/></svg></span><div class="notice-text"><p><strong>38 roles were scored on an earlier version of this CV.</strong> You saved cv-medtech-quality.md at 08:52 today; their scores still read 30 on the 21 Oct version and 8 on the 2 Oct one. On Jobs they are marked Scored on an earlier CV.</p></div></div><div class="notice-acts"><button type="button" class="btn btn-secondary" aria-expanded="false" aria-controls="rescore-confirm"><span>Rescore 38 roles, about 40 to 70 cents</span></button><a class="link s14" href="/jobs?cv=earlier">See the 38 on Jobs</a></div></div><div class="layout"><section class="panel masters a-masters" aria-labelledby="m-h"><h2 id="m-h">Master CVs <span class="small muted">2, one active</span></h2><p class="panel-note">The active master is the one the scorer reads for every role, and the one Prepare application tailors from.</p><ul class="mlist"><li class="mrow is-open" aria-current=true><div class="mtop"><span class="mname">cv-medtech-quality.md</span><span class="tag tag-ok"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true" focusable="false"><path d="m3.5 8.3 3 3 6-6.6" stroke="currentColor" stroke-width="2"/></svg>Active, the scorer reads this</span></div><p class="mmeta">2 pages · 4 versions · saved 13 Nov 08:52</p><div class="macts"><span class="open-word">Open in the editor</span></div></li><li class="mrow"><div class="mtop"><a class="mname" href="/cv?master=cv-software-lead.md">cv-software-lead.md</a><span class="tag tag-neutral">Not active</span></div><p class="mmeta"><span style="color:var(--caution)"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 1.8 15 14.2H1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 6.2v3.9" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="12" r=".95" fill="currentColor"/></svg> 3 pages, over by 1 page</span> · 2 versions · saved 30 Oct 17:20</p><div class="macts"><a class="btn btn-secondary" href="/cv?master=cv-software-lead.md">Open</a><button type="button" class="btn btn-secondary" aria-haspopup="dialog"><span>Make active</span></button></div></li></ul><div style="margin-top:10px"><button type="button" class="btn btn-ghost" ><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6"/></svg><span>New master from the open one</span></button></div><dl class="reads"><dt>The scorer reads</dt><dd><span class="mono">cv-medtech-quality.md</span>, version 4 of 13 Nov 08:52</dd><dt>Preferences</dt><dd>Last changed 11 Nov, in the Preferences tab</dd><dt>CV gate</dt><dd>Passes at 70, Filtered under 40</dd></dl></section><section class="a-work" aria-labelledby="cv-h"><h2 id="cv-h" class="visually-hidden">cv-medtech-quality.md, the CV</h2><div class="canvas"><p class="phone-note">On a phone the CV is for reading and small edits: Edit opens one section’s lines as fields. Add section, Rearrange and Design are on a wider screen.</p><div class="toolbar" role="toolbar" aria-label="Editing the CV"><span class="wide-only"><button type="button" class="btn btn-ghost" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6"/></svg><span>Add section</span></button><button type="button" class="btn btn-ghost" aria-haspopup="dialog"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M4 3v10M4 13l-2-2m2 2 2-2M12 13V3m0 0-2 2m2-2 2 2" stroke="currentColor" stroke-width="1.5"/></svg><span>Rearrange</span></button><button type="button" class="btn btn-ghost" aria-haspopup="dialog"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M3 13 9.5 6.5m-1-3 4 4M2.5 13.5l.6-2.6 7.5-7.5 2 2-7.5 7.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span>Design</span></button></span><span class="sep wide-only" aria-hidden="true"></span><button type="button" class="btn btn-ghost btn-icon" aria-label="Undo, Ctrl Z" title="Undo, Ctrl Z" aria-keyshortcuts="Control+Z"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="M5.5 4 2.5 7l3 3" stroke="currentColor" stroke-width="1.5"/><path d="M3 7h6.5a3.5 3.5 0 0 1 0 7H7" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="btn btn-ghost btn-icon" aria-label="Redo, Ctrl Shift Z" title="Redo, Ctrl Shift Z" aria-keyshortcuts="Control+Shift+Z"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><path d="m10.5 4 3 3-3 3" stroke="currentColor" stroke-width="1.5"/><path d="M13 7H6.5a3.5 3.5 0 0 0 0 7H9" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="switch phone-only" role="switch" aria-checked="true"><span class="track"></span><span>Line numbers</span></button><span class="grow"></span><span class="save-state is-ok" role="status"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.5"/><path d="m4.9 8.2 2.1 2.1 4.1-4.4" stroke="currentColor" stroke-width="1.6"/></svg><span>Saved 08:52</span></span></div><article class="sheet" id="page-1" tabindex="-1" aria-label="cv-medtech-quality.md, page 1 of 2"><div class="cv-head" role="group" tabindex="0" aria-label="Name and headline, lines 1 to 3. Enter to edit"><p class="cv-ln cv-name"><span class="ln" aria-hidden="true">1</span>Alex Rennie</p><p class="cv-ln cv-headline first"><span class="ln" aria-hidden="true">2</span>Software quality and regulatory leader, medical device software</p><p class="cv-ln cv-headline"><span class="ln" aria-hidden="true">3</span>Reading, Berkshire · alex.rennie@example.com · 07700 900123</p></div><section class="cv-sec" tabindex="0" aria-label="Summary, section, lines 5 to 15. Enter to edit"><h3 class="cv-ln cv-h2"><span class="ln" aria-hidden="true">5</span>Summary</h3><button type="button" class="btn btn-secondary sec-edit">Edit<span class="visually-hidden"> Summary</span></button><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">6</span>Software quality and regulatory leader for medical device software, 17 years in industry.</p><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">7</span>Contract and interim roles since 2021: software quality, IEC 62304 and audit readiness.</p><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">8</span>Has taken three devices through notified body audits and one through FDA 510(k) clearance.</p><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">9</span>Works across embedded firmware, IVD analysers and software as a medical device.</p><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">10</span>Builds small, steady quality teams and leaves processes engineers will actually use.</p><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">11</span>Based in Reading; open to hybrid roles within 90 minutes and remote roles across the UK.</p><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">12</span>Selected outcomes across roles:</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">13</span>One US regulatory clearance with software as a key part of the submission.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">14</span>Two quality teams built from scratch, both still in place.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">15</span>Release cycles cut by half at two companies without loosening controls.</p></section><section class="cv-sec" tabindex="0" aria-label="Experience, section, lines 17 to 68. Enter to edit"><h3 class="cv-ln cv-h2"><span class="ln" aria-hidden="true">17</span>Experience</h3><button type="button" class="btn btn-secondary sec-edit">Edit<span class="visually-hidden"> Experience</span></button><div class="cv-entry" role="group" tabindex="0" aria-label="Interim Head of Software Quality, Corbel Medical (Class IIb ventilators), 2024 to 2026, entry, lines 19 to 26. Enter to edit"><h4 class="cv-ln cv-h3"><span class="ln" aria-hidden="true">19</span>Interim Head of Software Quality, Corbel Medical (Class IIb ventilators), 2024 to 2026</h4><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">20</span>Brought the ventilator software file to audit readiness in seven months.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">21</span>Led a team of seven software test and quality engineers across two sites.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">22</span>Rewrote the software development plan and the software maintenance plan.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">23</span>Closed 41 software CAPAs, 12 of them from the previous notified body audit.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">24</span>Introduced weekly quality reviews with the embedded engineering leads.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">25</span>Held two releases until every open anomaly had a documented risk assessment.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">26</span>Recruited three permanent engineers and handed the team to a permanent head of quality.</p></div><div class="cv-entry" role="group" tabindex="0" aria-label="Contract Software Quality Lead, Linwood Infusion (syringe drivers), 2022 to 2024, entry, lines 28 to 35. Enter to edit"><h4 class="cv-ln cv-h3"><span class="ln" aria-hidden="true">28</span>Contract Software Quality Lead, Linwood Infusion (syringe drivers), 2022 to 2024</h4><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">29</span>Led IEC 62304 class C software for a Class IIb pump, from planning to release.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">30</span>Owned the software lifecycle procedures and trained 30 engineers on them.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">31</span>Prepared the software technical file for the notified body audit; no major findings.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">32</span>Ran ISO 14971 risk management for software hazards and wrote the risk management report.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">33</span>Set the verification and validation strategy for embedded firmware, including HIL rigs.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">34</span>Brought MISRA C compliance and static analysis into the build, with a deviation register.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">35</span>Set up traceability from user needs to verification in Jama.</p></div><div class="cv-entry" role="group" tabindex="0" aria-label="Contract Head of Software Quality, Tarrow Surgical (powered instruments), 2023 to 2024, entry, lines 37 to 41. Enter to edit"><h4 class="cv-ln cv-h3"><span class="ln" aria-hidden="true">37</span>Contract Head of Software Quality, Tarrow Surgical (powered instruments), 2023 to 2024</h4><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">38</span>Set up the software quality function for a 20-person firmware team before MDR certification.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">39</span>Wrote the software verification plan and reviewed every protocol before it ran.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">40</span>Audited two contract software suppliers and agreed their corrective actions.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">41</span>Coached two engineers into software quality lead roles before handing over.</p></div><div class="cv-entry" role="group" tabindex="0" aria-label="Regulatory Software Lead, Wexcombe Health (SaMD triage app), 2021 to 2023, entry, lines 43 to 47. Enter to edit"><h4 class="cv-ln cv-h3"><span class="ln" aria-hidden="true">43</span>Regulatory Software Lead, Wexcombe Health (SaMD triage app), 2021 to 2023</h4><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">44</span>Took a Class IIa triage app through UKCA marking and its first surveillance audit.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">45</span>Fitted IEC 62304 class B records into the team&#x27;s existing Jira and Git workflow.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">46</span>Ran the clinical safety case under DCB0129 with the clinical safety officer.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">47</span>Cut the regulatory review of a release from two weeks to two days.</p></div></section></article><p class="sheet-foot"><span>Page 1 of 2 · lines 1 to 48</span><span>A4, as the Word file prints</span></p><article class="sheet" id="page-2" tabindex="-1" aria-label="cv-medtech-quality.md, page 2 of 2"><section class="cv-sec cont" tabindex="0" aria-label="Experience, continued, section, lines 17 to 68. Enter to edit"><div class="cv-entry is-editing" role="group" tabindex="0" aria-label="Software QA Manager, Pellam Diagnostics (IVD analysers), 2017 to 2022, entry, lines 49 to 57. Enter to edit"><div class="tools" role="toolbar" aria-label="Tools for this entry"><span class="lab">Entry</span><button type="button" class="btn">Add bullet</button><button type="button" class="btn">Add entry below</button><button type="button" class="btn">Move up</button><button type="button" class="btn">Move down</button><button type="button" class="btn">Delete</button></div><h4 class="cv-ln cv-h3"><span class="ln" aria-hidden="true">49</span><span class="cv-field" role="textbox" tabindex="0" contenteditable="true" aria-label="Line 49">Software QA Manager, Pellam Diagnostics (IVD analysers), 2017 to 2022</span></h4><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">50</span><span class="cv-field" role="textbox" tabindex="0" contenteditable="true" aria-label="Line 50">Internal auditor for software processes under ISO 13485, 14 audits a year.</span></p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">51</span><span class="cv-field" role="textbox" tabindex="0" contenteditable="true" aria-label="Line 51">Managed software verification for two IVD analysers under IVDD and the move to IVDR.</span></p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">52</span><span class="cv-field" role="textbox" tabindex="0" contenteditable="true" aria-label="Line 52">Wrote the SOUP evaluation procedure and the off-the-shelf software register.</span></p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">53</span><span class="cv-field is-focus" role="textbox" tabindex="0" contenteditable="true" aria-label="Line 53">Kept SOUP records and vulnerability monitoring for 120 third-party components.<span class="caret"></span></span></p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">54</span><span class="cv-field" role="textbox" tabindex="0" contenteditable="true" aria-label="Line 54">Led the usability file for the analyser&#x27;s touchscreen software with the human factors team.</span></p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">55</span><span class="cv-field" role="textbox" tabindex="0" contenteditable="true" aria-label="Line 55">Worked to IEC 60601-1 with the electrical safety team on the analyser&#x27;s software controls.</span></p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">56</span><span class="cv-field" role="textbox" tabindex="0" contenteditable="true" aria-label="Line 56">Reduced release verification time from six weeks to three with automated regression tests.</span></p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">57</span><span class="cv-field" role="textbox" tabindex="0" contenteditable="true" aria-label="Line 57">Grew the software QA team from two engineers to six.</span></p></div><div class="cv-entry" role="group" tabindex="0" aria-label="Senior Software Test Engineer, Ardent Cardiac (implantable monitors), 2012 to 2017, entry, lines 59 to 64. Enter to edit"><h4 class="cv-ln cv-h3"><span class="ln" aria-hidden="true">59</span>Senior Software Test Engineer, Ardent Cardiac (implantable monitors), 2012 to 2017</h4><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">60</span>Wrote verification protocols and reports for implant firmware and the clinician app.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">61</span>Prepared the software sections of two FDA 510(k) submissions; both cleared.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">62</span>Ran defect triage for a 25-person firmware team.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">63</span>Built the hardware-in-the-loop test bench used for every release.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">64</span>Mentored four graduate test engineers.</p></div><div class="cv-entry" role="group" tabindex="0" aria-label="Software Test Engineer, Fairhurst Instruments (laboratory instruments), 2009 to 2012, entry, lines 66 to 68. Enter to edit"><h4 class="cv-ln cv-h3"><span class="ln" aria-hidden="true">66</span>Software Test Engineer, Fairhurst Instruments (laboratory instruments), 2009 to 2012</h4><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">67</span>Tested instrument control software and data export for laboratory customers.</p><p class="cv-ln cv-b"><span class="ln" aria-hidden="true">68</span>Wrote the company&#x27;s first software test strategy.</p></div></section><section class="cv-sec" tabindex="0" aria-label="Skills, section, lines 70 to 74. Enter to edit"><h3 class="cv-ln cv-h2"><span class="ln" aria-hidden="true">70</span>Skills</h3><button type="button" class="btn btn-secondary sec-edit">Edit<span class="visually-hidden"> Skills</span></button><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">71</span>Standards: IEC 62304, ISO 13485, ISO 14971, IEC 60601-1, IVDR, MDR, FDA 21 CFR 820.</p><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">72</span>Audits: internal, supplier and notified body audits; CAPA and nonconformance handling.</p><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">73</span>Testing: requirements-based and risk-based test design, hardware-in-the-loop, code review.</p><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">74</span>Tools: Jama, Jira, Git, Polyspace, Coverity, LDRA, Python for test automation.</p></section><section class="cv-sec" tabindex="0" aria-label="Education and certifications, section, lines 76 to 84. Enter to edit"><h3 class="cv-ln cv-h2"><span class="ln" aria-hidden="true">76</span>Education and certifications</h3><button type="button" class="btn btn-secondary sec-edit">Edit<span class="visually-hidden"> Education and certifications</span></button><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">77</span>ISO 13485:2016 lead auditor certificate, 2023.</p><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">78</span>ISO 14971:2019 risk management for medical devices, 2020.</p><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">79</span>IEC 62304 practitioner course, 2019.</p><div class="cv-entry" role="group" tabindex="0" aria-label="MSc Software Engineering, Kennet University, 2008, entry, lines 81 to 82. Enter to edit"><h4 class="cv-ln cv-h3"><span class="ln" aria-hidden="true">81</span>MSc Software Engineering, Kennet University, 2008</h4><p class="cv-ln cv-plain"><span class="ln" aria-hidden="true">82</span>Dissertation on static analysis for safety-critical C. Distinction.</p></div><div class="cv-entry" role="group" tabindex="0" aria-label="BEng Electronic Engineering, University of Harrowden, 2007, entry, lines 84 to 84. Enter to edit"><h4 class="cv-ln cv-h3"><span class="ln" aria-hidden="true">84</span>BEng Electronic Engineering, University of Harrowden, 2007</h4></div></section></article><p class="sheet-foot"><span>Page 2 of 2 · lines 49 to 84</span><span>A4, as the Word file prints</span></p></div></section><section class="panel tabs a-tabs" aria-label="History, preferences and Word import"><div class="tablist" role="tablist" aria-label="About this CV"><button type="button" class="tab" role="tab" id="t-history" aria-controls="tp-history" aria-selected="false" tabindex="-1">History<span class=count>4</span></button><button type="button" class="tab" role="tab" id="t-prefs" aria-controls="tp-prefs" aria-selected="true" tabindex="0">Preferences</button><button type="button" class="tab" role="tab" id="t-import" aria-controls="tp-import" aria-selected="false" tabindex="-1">Word import</button></div><div class="tabpanel" role="tabpanel" id="tp-prefs" aria-labelledby="t-prefs" tabindex="0"><h3>Scoring preferences</h3><p class="tp-note">What a role is judged against, beside the CV.</p><div class="statement" role="note"><span class="notice-mark"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.2v4.4" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="4.9" r=".95" fill="currentColor"/></svg></span><div><strong>Changing these changes how roles are scored.</strong> The scorer reads them for every role it scores from the next one on, and the four gates judge against them. Roles already scored keep their scores until they are rescored; after a change, this tab says how many roles it would move and what rescoring them costs.</div></div><form>
+<div class="field"><label for="p-rate">Contract day-rate floor</label>
+<div class="inrow"><span class="affix">£</span><input class="input num" id="p-rate" value="700" inputmode="numeric"
+ aria-describedby="p-rate-h"><span class="affix">a day</span></div>
+<p class="help" id="p-rate-h">A day rate under this fails the Rate gate. A range is judged on its top figure, and a rate the advert does not state passes.</p>
+<p class="gate">Rate gate</p></div>
+<div class="field"><label for="p-sal">Permanent salary floor</label>
+<div class="inrow"><span class="affix">£</span><input class="input num" id="p-sal" value="85,000" inputmode="numeric"
+ aria-describedby="p-sal-h"><span class="affix">a year</span></div>
+<p class="help" id="p-sal-h">A salary under this fails the Rate gate. A salary is judged as a salary and never turned into a day rate.</p>
+<p class="gate">Rate gate</p></div>
+<div class="field"><fieldset><legend>Location</legend>
+<div class="check"><input type="checkbox" id="loc-uk" checked><label for="loc-uk">Remote, in the UK</label></div>
+<div class="check"><input type="checkbox" id="loc-hyb" checked><label for="loc-hyb">Hybrid, up to</label><input class="input short" aria-label="Minutes of travel" value="90" inputmode="numeric"><span>min from</span><input class="input" style="width:96px" aria-label="Town" value="Reading"></div>
+<div class="check"><input type="checkbox" id="loc-eu" checked><label for="loc-eu">Remote from Europe, considered</label></div>
+</fieldset><p class="gate">Location gate. “Considered” passes with a note.</p></div>
+<div class="field"><fieldset><legend>Sector</legend>
+<div class="check"><input type="checkbox" id="sec-med" checked><label for="sec-med">Medtech</label></div><div class="check"><input type="checkbox" id="sec-ivd" checked><label for="sec-ivd">In vitro diagnostics (IVD)</label></div><div class="check"><input type="checkbox" id="sec-dh" checked><label for="sec-dh">Digital health with a device</label></div>
+<div class="check"><input type="checkbox" id="sec-ph"><label for="sec-ph">Pharma or biotech with no device</label></div>
+</fieldset><p class="gate">Sector gate</p></div>
+<div class="field"><fieldset><legend>CV match</legend>
+<div class="inrow"><label class="s14" for="p-pass" style="font-weight:400">Pass mark</label>
+<input class="input short" id="p-pass" value="70" inputmode="numeric">
+<label class="s14" for="p-floor" style="font-weight:400;margin-left:8px">Filtered floor</label>
+<input class="input short" id="p-floor" value="40" inputmode="numeric"></div>
+<p class="help">A CV match of 70 or more passes the CV gate. Under 40 a role is Filtered: counted on Jobs, never listed.</p>
+</fieldset><p class="gate">CV gate</p></div>
+</form><div class="form-foot"><button type="button" class="btn btn-secondary" aria-disabled="true"><span>Save preferences</span></button><span class="small muted">Last changed 11 Nov</span></div><p class="small muted" style="margin-top:10px">The scorer also reads your target title and keywords and the notes you keep on engagement types, rates and travel.</p><div style="margin-top:6px"><button type="button" class="btn btn-ghost" aria-expanded="false"><span>Title and keywords</span></button></div></div></section><section class="panel a-keys" aria-labelledby="k-h"><h2 id="k-h">Keys on this page</h2><dl class="keys"><dt><span class=kbd>Tab</span></dt><dd>Through the CV’s head, sections and entries</dd><dt><span class=kbd>Enter</span></dt><dd>Edit the section or entry in focus, line by line</dd><dt><span class=kbd>Esc</span></dt><dd>Leave the line, then the section</dd><dt><span class=kbd>Alt</span><span class=kbd>Shift</span><span class=kbd>↑</span><span class=kbd>↓</span></dt><dd>Move the section or entry in focus (not while a line is being edited)</dd><dt><span class=kbd>Ctrl</span><span class=kbd>S</span></dt><dd>Save as a new version</dd><dt><span class=kbd>Ctrl</span><span class=kbd>Z</span></dt><dd>Undo; with Shift, redo</dd><dt><span class=kbd>←</span><span class=kbd>→</span></dt><dd>Along the toolbar and the tabs</dd></dl><p class="small muted" style="margin-top:10px">Every key here goes with Ctrl or Alt, or moves focus, so none fires while you type.</p></section></div></div></main><script>
+(function () {
+  var bar = document.querySelector('.appbar');
+  if (!bar) return;
+  var menu = bar.querySelector('.menu-btn');
+  function setMenu(open) {
+    bar.classList.toggle('menu-open', open);
+    if (menu) menu.setAttribute('aria-expanded', String(open));
+  }
+  if (menu) menu.addEventListener('click', function () {
+    setMenu(menu.getAttribute('aria-expanded') !== 'true');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && bar.classList.contains('menu-open')) {
+      setMenu(false);
+      if (menu) menu.focus();
+    }
+  });
+  document.addEventListener('click', function (e) {
+    if (bar.classList.contains('menu-open') && !bar.contains(e.target)) setMenu(false);
+  });
+  // The inbox time is written in UTC by the server and shown in the
+  // reader's own time here, today's as a time and older ones with the day.
+  bar.querySelectorAll('time[data-local]').forEach(function (t) {
+    var when = new Date(t.getAttribute('datetime'));
+    if (isNaN(when)) return;
+    var now = new Date();
+    var hm = ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2);
+    var sameDay = when.toDateString() === now.toDateString();
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    t.textContent = sameDay ? hm : when.getDate() + ' ' + months[when.getMonth()] + ' ' + hm;
+  });
+})();
+</script></body></html>

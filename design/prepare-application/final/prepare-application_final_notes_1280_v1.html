@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Prepare application, notes · MedTech Radar</title><style>
+:root{
+  color-scheme:dark;
+  --canvas:#0e1215; --surface:#151a1e; --surface-sunken:#1c2226;
+  --row-hover:#192024; --row-selected:#0f3237;
+  --text-1:#e6ebee; --text-2:#b3bec6; --text-3:#93a0a9;
+  --border-subtle:#262e34; --border-strong:#6f7c86;
+  --accent:#5cc3cf; --accent-hover:#82d3dc; --accent-tint:#0f3237; --on-accent:#071114;
+  --positive:#74d39b; --positive-tint:#12291c; --caution:#f0c46a; --caution-tint:#2c2311;
+  --negative:#ff9b8f; --negative-tint:#33191a; --neutral:#b3bec6; --neutral-tint:#1f262b;
+  --focus:#ffd447; --shadow-overlay:0 8px 24px rgba(0,0,0,.5);
+  --font-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --radius-2:2px; --radius-4:4px; --dur:120ms;
+  /* Type scale: size and line height in pairs, on a 4px grid. */
+  --fs-12:12px; --lh-12:16px; --fs-14:14px; --lh-14:20px; --fs-15:15px; --lh-15:24px;
+  --fs-16:16px; --lh-16:24px; --fs-18:18px; --lh-18:24px; --fs-20:20px; --lh-20:28px;
+  /* Spacing, a 4px grid. */
+  --sp-2:2px; --sp-4:4px; --sp-8:8px; --sp-12:12px; --sp-16:16px; --sp-20:20px;
+  --sp-24:24px; --sp-32:32px; --sp-48:48px;
+  /* The older pages' own names, pointed at the same palette. */
+  --paper:#0e1215; --surface-sunk:#1c2226;
+  --ink-1:#e6ebee; --ink-2:#b3bec6; --ink-3:#93a0a9;
+  --hairline:#262e34; --hairline-strong:#3d474e;
+  --accent-quiet:#2f6e76; --accent-wash:#0f3237;
+  --fail:#ff9b8f; --settled:#74d39b;
+  --tint-blue:#131b20; --tint-sand:#1a1a17; --tint-sage:#141b17;
+  --tint-clay:#1c1716; --tint-stone:#161b1f;
+  --panel-rule:rgba(230,235,238,.10);
+}
+@media (prefers-reduced-motion:reduce){:root{--dur:0ms}}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--focus-gap,var(--surface))}
+@media (forced-colors:active){:focus-visible{outline-color:Highlight}}
+.visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+.skip-link{position:absolute;left:8px;top:-60px;z-index:50;padding:8px 12px;background:var(--surface);color:var(--text-1);border:1px solid var(--border-strong);border-radius:var(--radius-2);font:600 14px/20px var(--font-sans)}
+.skip-link:focus{top:8px}
+.appbar{position:relative;z-index:20;display:flex;align-items:center;gap:24px;min-width:0;height:48px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);color:var(--text-1);font:400 14px/20px var(--font-sans);letter-spacing:0}
+.appbar .brand{display:flex;align-items:center;gap:12px;flex:none;color:var(--text-1);text-decoration:none}
+.appbar .brand-mark{display:block;width:51px;height:24px;flex:none}
+.appbar .brand-name{font-size:14px;line-height:20px;font-weight:600;white-space:nowrap}
+.appbar .appbar-page{display:none;font-size:16px;line-height:24px;font-weight:600}
+.appbar .nav{display:flex;align-self:stretch;gap:12px;margin:0 0 0 -4px;padding:0;list-style:none}
+.appbar .nav a{display:flex;align-items:center;height:100%;padding:2px 6px 0;border-bottom:2px solid transparent;color:var(--text-2);text-decoration:none;white-space:nowrap;transition:color var(--dur) ease-out}
+.appbar .nav a:hover{color:var(--text-1)}
+.appbar .nav a[aria-current="page"]{color:var(--text-1);border-bottom-color:var(--accent)}
+.appbar .nav a:focus-visible{outline-offset:-4px;box-shadow:none}
+.appbar .appbar-tools{display:flex;align-items:center;gap:16px;min-width:0;margin-left:auto}
+.appbar .inbox-status{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;line-height:16px;color:var(--text-3);white-space:nowrap}
+.appbar .inbox-status svg{flex:none}
+.appbar .inbox-status.is-warn{color:var(--caution)}
+.appbar .inbox-status.is-bad{color:var(--negative)}
+.appbar .bar-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;min-width:32px;padding:0 8px;border:1px solid transparent;border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 14px/20px var(--font-sans);cursor:pointer;text-decoration:none}
+.appbar .bar-btn:hover{color:var(--text-1);background:var(--row-hover)}
+.appbar .menu-btn{display:none}
+.appbar .menu-panel{display:none}
+@media (max-width:767.98px){
+  .appbar{gap:16px}
+  .appbar .nav,.appbar .appbar-tools,.appbar .brand-name{display:none}
+  .appbar .appbar-page{display:block}
+  .appbar .menu-btn{display:inline-flex;width:44px;height:44px;margin:0 -8px 0 auto}
+  .appbar .menu-btn:focus-visible{outline-offset:-2px;box-shadow:none}
+  .appbar.menu-open .menu-panel{display:block;position:absolute;top:48px;left:0;right:0;padding:8px 16px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);box-shadow:var(--shadow-overlay)}
+  .appbar .menu-panel ul{margin:0;padding:0;list-style:none}
+  .appbar .menu-panel a{display:flex;align-items:center;min-height:44px;color:var(--text-1);text-decoration:none;font-size:16px;line-height:24px}
+  .appbar .menu-panel a[aria-current="page"]{font-weight:600;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:6px}
+  .appbar .menu-panel .inbox-status{display:flex;margin-top:8px}
+}
+@media (pointer:coarse){.appbar .bar-btn{min-width:44px;height:44px}}
+/* A page whose body is still the older one: its own heading row keeps what it
+   says and loses the controls the bar now holds. */
+.page > .masthead{padding-top:0}
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--canvas)}
+body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15px/24px var(--font-sans);
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+a{color:var(--accent)}
+a:hover{color:var(--accent-hover)}
+h1,h2,h3,h4,p,ol,ul,dl,dd{margin:0}
+ol,ul{padding:0;list-style:none}
+button,input,select,textarea{font:inherit}
+:root{--note-w:440px;--gut:28px}
+html{scroll-padding-top:104px}
+.pa{padding:24px 24px 48px;max-width:2560px}
+.pa h2{font:600 16px/24px var(--font-sans);color:var(--text-1)}
+.pa h3{font:600 14px/20px var(--font-sans);color:var(--text-1)}
+.sub{font-size:12px;line-height:16px;color:var(--text-3)}
+.small{font-size:14px;line-height:20px;color:var(--text-2)}
+.role-head{padding:0 0 16px;border-bottom:1px solid var(--border-subtle)}
+.h1row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 24px}
+.role-head h1{font:600 20px/28px var(--font-sans);color:var(--text-1)}
+.page-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.facts{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:4px;font-size:14px;line-height:20px;color:var(--text-2)}
+.facts li{white-space:nowrap}
+.tag{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font-size:12px;line-height:16px;color:var(--text-2);white-space:nowrap}
+.tag.basis{border-color:var(--accent);color:var(--accent)}
+.tag.top{border-color:var(--positive);color:var(--positive)}
+.kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface-sunken);color:var(--text-2);font:500 11px/16px var(--font-mono)}
+.btn{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface);color:var(--text-1);font:500 14px/20px var(--font-sans);text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--row-hover)}
+.btn .cost{color:var(--text-2);font-weight:400}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.btn-primary .cost{color:var(--on-accent)}
+.btn-primary .kbd{background:var(--on-accent);color:var(--accent-hover);border-color:var(--on-accent)}
+.btn[disabled],.btn[aria-disabled="true"]{background:transparent;border-color:var(--border-subtle);color:var(--text-3);cursor:not-allowed}
+.btn.quiet{border-color:transparent;background:transparent;color:var(--text-2);padding:0 8px}
+.btn svg{flex:none}
+.btn-sm{display:inline-flex;align-items:center;height:24px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 12px/16px var(--font-sans);cursor:pointer}
+.btn-sm[aria-current="true"]{border-color:var(--accent);color:var(--accent)}
+.link{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+.notice{margin:12px 0 0;padding:8px 12px;border-left:3px solid var(--border-strong);background:var(--surface);font-size:14px;line-height:20px;color:var(--text-2)}
+.notice b{color:var(--text-1)}
+.notice.bad{border-left-color:var(--negative);background:var(--negative-tint)}
+.notice.ok{border-left-color:var(--positive);background:var(--positive-tint)}
+.notice.work{border-left-color:var(--accent);background:var(--accent-tint)}
+.notice.warn{border-left-color:var(--caution);background:var(--caution-tint)}
+.notice .btn{margin-top:8px}
+.switch{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 6px 0 2px;border:1px solid var(--border-strong);border-radius:12px;background:transparent;color:var(--text-2);font:500 12px/16px var(--font-sans);cursor:pointer}
+.switch .knob{width:18px;height:18px;border-radius:50%;background:var(--accent)}
+.keys-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-top:12px;font-size:12px;line-height:16px;color:var(--text-3)}
+
+/* Layout: rail, advert and CV side by side from 1800; a band, the folded advert and the CV below that. */
+.layout{display:grid;gap:24px;margin-top:16px;grid-template-columns:minmax(0,1fr)}
+.work{min-width:0}.advert{min-width:0}
+@media (min-width:1800px){
+  :root{--note-w:520px}
+  .layout{grid-template-columns:480px 520px minmax(0,1fr);align-items:start}
+  .rail,.advert .panel{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto}
+}
+.rail{display:grid;gap:16px;align-content:start}
+.panel{padding:16px;border:1px solid var(--border-subtle);border-radius:var(--radius-4);background:var(--surface)}
+.panel > h2,.panel summary h2{margin-bottom:4px}
+@media (min-width:1024px) and (max-width:1799.98px){
+  .rail{grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);grid-template-areas:"score gates" "app gates" "rate gates";align-items:start}
+  .p-score{grid-area:score}.p-app{grid-area:app}.p-rate{grid-area:rate}.p-gates{grid-area:gates}
+}
+.figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0 8px}
+.fig{padding:8px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);background:var(--canvas)}
+.fig dt{font:600 12px/16px var(--font-sans);color:var(--text-2)}
+.fig .num{font:600 32px/40px var(--font-sans);color:var(--text-1)}
+.fig .num.none{font-size:16px;line-height:40px;color:var(--text-3);font-weight:500}
+.fig dd{font-size:12px;line-height:16px;color:var(--text-3)}
+.fig.is-role{border-color:var(--border-strong)}
+.fig.is-copy{border-color:var(--accent);border-style:dashed}
+.fig.is-old .num{color:var(--text-3)}
+.fig .who{color:var(--text-2)}
+.why{margin-top:8px;font-size:14px;line-height:20px;color:var(--text-2)}
+.sumline{display:none}
+details.panel > summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;cursor:pointer;list-style:none}
+details.panel > summary::-webkit-details-marker{display:none}
+details.panel > summary::before{content:"";align-self:center;width:8px;height:8px;border-right:2px solid var(--text-2);border-bottom:2px solid var(--text-2);transform:rotate(45deg);margin:0 2px 4px}
+details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bottom:0}
+.gates{width:100%;margin-top:8px;border-collapse:collapse;font-size:14px;line-height:20px;table-layout:fixed}
+.gates th,.gates td{padding:6px 8px 6px 0;text-align:left;vertical-align:top;border-top:1px solid var(--border-subtle)}
+.gates thead th{font:600 12px/16px var(--font-sans);color:var(--text-2);border-top:0}
+.gates col.c-gate{width:30%}.gates col.c-mark{width:15%}
+.gates tbody th{font-weight:600;color:var(--text-1)}
+.gates .letter{display:inline-flex;justify-content:center;width:18px;margin-right:6px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font:500 11px/16px var(--font-mono);color:var(--text-2)}
+.pass{color:var(--positive);white-space:nowrap}.fail{color:var(--negative);white-space:nowrap}
+.gates td.gwhy{color:var(--text-3);font-size:12px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.quote{margin:8px 0 4px;padding-left:12px;border-left:3px solid var(--accent);font:500 16px/24px var(--font-sans);color:var(--text-1)}
+.app-state{margin:8px 0 12px;font-size:14px;line-height:20px;color:var(--text-2)}
+.app-state b{color:var(--text-1)}
+.stages{display:flex;gap:4px;margin:8px 0 4px;font-size:12px;line-height:16px}
+.stages li{flex:1;padding:4px 6px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);color:var(--text-3);text-align:center}
+.stages li.is-here{border-color:var(--accent);color:var(--text-1);font-weight:600}
+.row-btns{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+
+/* The work: head, the sticky CV actions, gaps, the sheet with its margin notes. */
+.work{display:flex;flex-direction:column;gap:12px}
+.work-head .tally{display:flex;flex-wrap:wrap;gap:4px 16px;margin:4px 0;font-size:14px;line-height:20px;color:var(--text-2)}
+.tally b{color:var(--text-1)}
+.legend{font-size:12px;line-height:16px;color:var(--text-3)}
+.cv-actions{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface);box-shadow:var(--shadow-overlay)}
+.cv-actions .sep{width:1px;align-self:stretch;margin:0 4px;background:var(--border-subtle)}
+.save-as{flex-basis:100%;margin:0 4px;font-size:12px;line-height:16px;color:var(--text-3)}
+.save-as b{color:var(--text-2);font-weight:500}
+.gaps{padding:12px 16px;border:1px dashed var(--negative);border-radius:var(--radius-4);background:var(--negative-tint)}
+.gaps ol{display:grid;gap:12px;margin-top:8px}
+@media (min-width:1280px){.gaps ol{grid-template-columns:1fr 1fr}}
+
+.sheets{display:grid;gap:4px}
+.sheet{position:relative;display:grid;grid-template-columns:48px minmax(0,1fr) var(--gut) var(--note-w);
+  padding:40px 0;background:linear-gradient(90deg,var(--surface-sunken) calc(100% - var(--note-w) - var(--gut)),transparent 0)}
+.sheet::before{content:"";position:absolute;inset:0 calc(var(--note-w) + var(--gut)) 0 0;border:1px solid var(--border-strong);border-radius:var(--radius-2);box-shadow:var(--shadow-overlay);pointer-events:none}
+.pagefoot{margin:2px 0 12px;font-size:12px;line-height:16px;color:var(--text-3)}
+.ln{grid-column:1 / 3;grid-row:var(--r);position:relative;display:grid;grid-template-columns:48px minmax(0,1fr);align-items:start;padding-right:40px}
+.ln .n{padding-right:12px;text-align:right;font:400 11px/24px var(--font-mono);color:var(--text-3);user-select:none}
+.ln.cited .n{color:var(--text-2)}
+.ln .t{margin:0;font:400 15px/24px var(--font-sans);color:var(--text-1)}
+.ln .t > [role="button"]{display:block;border-radius:var(--radius-2);cursor:text}
+.ln .t > [role="button"]:hover{background:var(--row-hover)}
+.ln.name .t{font:600 24px/32px var(--font-sans)}.ln.name .n{line-height:32px}
+.ln.sub .t,.ln.contact .t{color:var(--text-2);font-size:14px;line-height:20px}
+.ln.h{padding-top:16px}.ln.h .t{font:600 16px/24px var(--font-sans);border-bottom:1px solid var(--border-subtle)}
+.ln.role{padding-top:12px}.ln.role .t{font-weight:600}
+.ln.b .t > [role="button"]{position:relative;padding-left:18px}
+.ln.b .t > [role="button"]::before{content:"";position:absolute;left:4px;top:10px;width:5px;height:5px;border-radius:50%;background:var(--text-2)}
+.ln.lit{background:var(--accent-tint);box-shadow:inset 3px 0 0 var(--accent)}
+.edit{display:flex;gap:8px;align-items:flex-start}
+.edit textarea{flex:1;min-width:0;field-sizing:content;min-height:28px;padding:2px 6px;resize:none;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--canvas);color:var(--text-1);font:400 15px/22px var(--font-sans);outline:2px solid var(--focus);outline-offset:1px}
+.line-ops{display:flex;gap:4px}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface);color:var(--text-2);cursor:pointer}
+.notes{grid-column:4;grid-row:var(--r) / span var(--s);position:relative;display:grid;gap:6px;align-content:start;padding:0 0 8px}
+.notes::before{content:"";position:absolute;left:calc(-1 * var(--gut));top:12px;width:calc(var(--gut) - 4px);border-top:1px solid var(--border-strong)}
+.notes-empty{grid-column:4;grid-row:1 / span 3;padding:8px 12px;border:1px dashed var(--border-strong);border-radius:var(--radius-2);font-size:14px;line-height:20px;color:var(--text-2)}
+.note{padding:6px 10px 8px;border-left:3px solid var(--border-strong);background:var(--canvas);font-size:14px;line-height:20px}
+.note.st-met{border-left-color:var(--positive)}
+.note.st-partly{border-left-color:var(--caution)}
+.note.st-gap{border-left-color:var(--negative);border-left-style:dashed}
+.note.is-closed{padding:0;background:transparent}
+.note.is-selected{background:var(--row-selected);outline:1px solid var(--accent)}
+.note .head{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.note-toggle{display:flex;width:100%;align-items:baseline;gap:8px;padding:2px 10px;border:0;background:transparent;color:var(--text-2);font:400 14px/20px var(--font-sans);text-align:left;cursor:pointer}
+.note-toggle:hover{background:var(--row-hover)}
+.note-toggle .chev{margin-left:auto;color:var(--text-3)}
+.note.is-open .note-toggle{padding:0}
+.note-body{display:grid;gap:2px;margin-top:2px}
+.note .id{font:500 12px/16px var(--font-mono);color:var(--text-3)}
+.mark{font-weight:600;white-space:nowrap}
+.mark.met{color:var(--positive)}.mark.partly{color:var(--caution)}.mark.gap{color:var(--negative)}
+.note q{display:block;color:var(--text-1);quotes:"\201C" "\201D"}
+.note .cite{display:block;font-size:12px;line-height:16px;color:var(--text-3)}
+.note .cite a{color:var(--accent)}
+.note .gapwhy{display:block;color:var(--text-2)}
+.note .was{display:inline-block;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font-size:12px;line-height:16px;color:var(--text-2)}
+.note .btn-sm{justify-self:start;margin-top:4px}
+
+/* The advert, as stored, each ask underlined in the sentence it came from. */
+.advert .panel{padding:16px 20px}
+.advert-toggle{display:none}
+.adv h3{margin:16px 0 4px}
+.adv p,.adv li{font-size:15px;line-height:24px;color:var(--text-2)}
+.adv ul{display:grid;gap:4px;padding-left:18px;list-style:disc}
+.adv .ask{color:var(--text-1);text-decoration-line:underline;text-decoration-thickness:2px;text-underline-offset:4px}
+.adv .ask.met{text-decoration-style:solid;text-decoration-color:var(--positive)}
+.adv .ask.partly{text-decoration-style:dashed;text-decoration-color:var(--caution)}
+.adv .ask.gap{text-decoration-style:dotted;text-decoration-color:var(--negative)}
+.adv .ask.sel{background:var(--row-selected)}
+.adv .tagmark{margin-left:4px;font:500 12px/16px var(--font-mono);white-space:nowrap}
+.adv .rate{color:var(--text-1);background:var(--accent-tint);box-shadow:inset 0 -2px 0 var(--accent)}
+@media (max-width:1799.98px){
+  .advert:not(.is-open) .adv{display:none}
+  .advert-toggle{display:inline-flex}
+  .advert .panel{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}
+  .advert.is-open .adv{flex-basis:100%}
+}
+
+/* A phone: one-line summary, gates folded, notes under the line they sit beside, the actions at the foot. */
+@media (max-width:767.98px){
+  html{scroll-padding-top:16px;scroll-padding-bottom:136px}
+  .pa{padding:24px 16px 48px}
+  .facts li{white-space:normal}
+  .layout{gap:16px}
+  .panel{padding:12px}
+  .p-score .figs,.p-score .why{display:none}
+  .sumline{display:block;margin-top:8px;font-size:15px;line-height:24px;color:var(--text-2)}
+  .sumline b{color:var(--text-1);font-size:18px}
+  .gates td.gwhy{white-space:normal}
+  .gates col.c-gate{width:40%}.gates col.c-mark{width:30%}
+  .gates .gwhy-col{display:none}
+  .sheet{display:block;padding:16px 12px 16px 0;background:var(--surface-sunken)}
+  .sheet::before{inset:0}
+  .ln{display:grid;grid-template-columns:32px minmax(0,1fr);padding-right:0}
+  .ln .n{padding-right:8px}
+  .ln .t{font-size:14px;line-height:22px}
+  .ln.name .t{font-size:20px;line-height:28px}
+  .notes,.notes-empty{display:grid;margin:4px 0 8px 32px;padding:0}
+  .notes::before{display:none}
+  .edit{flex-wrap:wrap}
+  .line-ops{flex-basis:100%}
+  .icon-btn{width:44px;height:44px}
+  .cv-actions{top:auto;bottom:0;margin:0 -16px;border-radius:0;border-width:1px 0}
+  .cv-actions .btn{flex:1 1 0;flex-direction:column;justify-content:center;gap:0;height:auto;min-height:52px;padding:4px 6px;line-height:16px;white-space:normal;text-align:center}
+  .cv-actions .btn svg{display:none}
+  .cv-actions .btn .cost{font-size:12px}
+  .cv-actions .sep,.cv-actions .quiet{display:none}
+  .btn{height:44px}
+}
+@media (forced-colors:active){.note,.fig,.tag,.kbd{border:1px solid CanvasText}.ln.lit{outline:2px solid Highlight}}
+
+.nf{max-width:1232px;padding:24px 24px 48px}
+.nf h1{font:600 24px/32px var(--font-sans);color:var(--text-1)}
+.nf h2{margin-top:32px;padding-bottom:4px;border-bottom:1px solid var(--border-subtle);font:600 18px/24px var(--font-sans);color:var(--text-1)}
+.nf h3{margin-top:16px;font:600 15px/24px var(--font-sans);color:var(--text-1)}
+.nf p,.nf li{font-size:15px;line-height:24px;color:var(--text-2)}
+.nf p{margin-top:8px}
+.nf ul.dots{margin-top:8px;padding-left:20px;list-style:disc;display:grid;gap:4px}
+.nf b{color:var(--text-1)}
+.nf code{font:500 13px/20px var(--font-mono);color:var(--text-1)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.qs{display:grid;gap:12px;margin-top:12px;counter-reset:q}
+.q{padding:12px 16px;border:1px solid var(--border-subtle);border-radius:var(--radius-4);background:var(--surface)}
+.q h3{margin:0}
+.q .drawn{margin-top:4px;color:var(--text-1)}
+.q .drawn b{color:var(--accent)}
+.q .alt{margin-top:4px}
+.ct{width:100%;margin-top:12px;border-collapse:collapse;font-size:14px;line-height:20px}
+.ct th,.ct td{padding:6px 8px;border-top:1px solid var(--border-subtle);text-align:left;color:var(--text-2)}
+.ct thead th{color:var(--text-1);font-weight:600;border-top:0}
+.ct td.r{font-family:var(--font-mono);color:var(--text-1)}
+.sw{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:-1px;border:1px solid var(--border-strong)}
+.keys{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin-top:8px;font-size:15px;line-height:24px;color:var(--text-2)}
+</style></head><body><a class="skip-link" href="#main">Skip to the page</a><header class="appbar"><a class="brand" href="/" aria-label="MedTech Radar, Home"><svg class="brand-mark" viewBox="0 0 36 17" width="51" height="24" fill="none" aria-hidden="true" focusable="false"><path d="M4 15a14 14 0 0 1 28 0" stroke="var(--text-3)" stroke-width="1.2"/><path d="M8.5 15a9.5 9.5 0 0 1 19 0" stroke="var(--text-2)" stroke-width="1.2"/><path d="M13 15a5 5 0 0 1 10 0Z" fill="var(--text-1)"/><path d="M0 15h36" stroke="var(--text-1)" stroke-width="1.5"/></svg><span class="brand-name">MedTech Radar</span><span class="appbar-page" aria-hidden="true">Prepare application</span></a><nav class="nav" aria-label="Pages"><a href="/">Home</a><a href="/jobs" aria-current="page">Jobs</a><a href="/insights">Insights</a><a href="/watchlist">Watchlist</a><a href="/cv">CV</a></nav><div class="appbar-tools"><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div><button type="button" class="bar-btn menu-btn" aria-expanded="false" aria-controls="menu-panel">Menu</button><div class="menu-panel" id="menu-panel"><nav aria-label="Pages, menu"><ul><li><a href="/">Home</a></li><li><a href="/jobs" aria-current="page">Jobs</a></li><li><a href="/insights">Insights</a></li><li><a href="/watchlist">Watchlist</a></li><li><a href="/cv">CV</a></li></ul></nav><p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran <time datetime="2026-11-13T09:02:00Z" data-local>13 Nov 09:02 UTC</time></span></p></div></header><main id="main" tabindex="-1"><div class="nf">
+<h1>Prepare application: notes</h1>
+<p>The final Prepare application page, for the owner to sign off: Software Quality Lead, Class II infusion pumps at Hartwell Infusion Ltd,
+Friday 13 Nov 2026, 09:14. Frames: 2560, 1280, phone (390), 1280-before-fetch, the states board and these notes. Built on variation C,
+Margin notes, after one review round. Every name, company and figure is invented; costs are US cents, as in docs/cost-note.md.</p>
+
+<h2>Rationale</h2>
+<p>The page answers one question: is this CV good enough to send for this role, and if not, which lines need work? So the tailored CV
+is the widest column and each ask from the advert sits beside the CV line that evidences it, like a reviewer's comment: its mark
+in a shape and a word (&#10003; Met, &#9680; Partly, &#10007; Gap, not on the CV), the advert sentence it came from in quotes with where
+it is, and the cited CV line numbers as links. What decides the application, the score with its basis, the four gates and the rate
+line, sits in the rail at 2560 and in a band above the sheet at 1280. The page never spends on opening:
+the fetch is a button that names its cost first.</p>
+
+<h2>What came from C, and what changed</h2>
+<div class="two"><div>
+<h3>Kept from C, Margin notes</h3>
+<ul class="dots">
+<li>Notes beside the first line they cite; the selected note and its lines share the tint; the line being edited opens in place with Move up, Move down and Delete outside the text.</li>
+<li>The dark sheet in the app's tokens; cited line numbers shown, others hidden.</li>
+<li>Asks with no line listed first; "was partly" and "was missing" tags after a rescore.</li>
+<li>The advert at 2560 with each ask underlined in its sentence, solid, dashed or dotted, and a mark after it.</li>
+<li>Back to Jobs, the role's title and facts as the page header; Jobs current in the bar.</li>
+</ul></div><div>
+<h3>Changed</h3>
+<ul class="dots">
+<li>Three scores (card, full spec, this copy) instead of two, each with its basis, and "never written to Jobs" said on the copy's.</li>
+<li>Each note quotes its advert sentence and names its place, so the citation reads at 1280 and on a phone, where the advert is folded.</li>
+<li>Rescore role, Save CV and Download Word sit together in one bar that sticks through the whole CV, at the top on a desktop and at the foot on a phone, with the save name under it. Scroll padding keeps it off a focused line.</li><li>Met notes fold to one line (mark, ask number, cited lines) and open on focus or click; Partly and Gap notes stay open. A note slides below its first line when the notes above need the room, so the sheet keeps its line spacing; its line numbers say where it belongs.</li><li>The line being edited is a textarea that grows with its text, at every width.</li>
+<li>A cost-stating fetch button; C's "about 2p" corrected to about 2 cents (US), as the cost note gives it.</li>
+<li>An Application panel: Preparing, Applied and the later stages, Mark applied (M) and the link to the applications board v2.</li>
+<li>At 1280 a band of two columns: Score, Application and Rate line, then Gates with one line of reason each. At 2560 the rail and the advert scroll on their own. On a phone: the one-line score, Application, Rate line, Gates folded, the folded advert, then the gaps and the CV. The steps list of C is gone: the buttons say their own state.</li>
+<li>The role is Software Quality Lead (the brief's), contract 6 months, £650 to £750 a day, so the rate gate shows a range judged on its top.</li>
+</ul></div></div>
+
+<h2>Where the drawing and main's code differ</h2>
+<ul class="dots">
+<li><b>Start on open.</b> Main starts the fetch when the Jobs link is followed (go=1, Sec-Fetch-Site same-origin); drawn: always a button. The button's POST is still the one guarded write, one per press.</li>
+<li><b>Advert sentences.</b> Main stores each ask's words and CV lines (score_item.normalise_asks), not the sentence it came from.</li>
+<li><b>Preparing.</b> Main has no Preparing stage: Save CV stores saved_name and saved_at on the copy, and the applications board is a design (jobs/applied-board v2). Mark applied on main is the "Applied, sent it" button with the browser's confirm box.</li>
+<li><b>Download.</b> Main hides Download until a copy is saved; drawn shown and unavailable, with the reason.</li>
+<li><b>Kept off the page.</b> The scorer's model (claude-sonnet-4-6) and prompt (97f11cce), the 6,144-token reply cap behind "never more than about 9 cents", the HTTP 429 behind "LinkedIn asked Radar to slow down" and the page checker behind "a newer version of the advert". The notices' wording follows prepare_application.py on main: fetch_failed_text, _store_description, _store_score, COPY_BUSY, UNCHANGED_COPY.</li><li><b>Costs.</b> US cents, from docs/cost-note.md: about 0.9 cent for the score, about 1.7 with the per-ask working, about 2 with the quotes. Rescore role is the same call on the copy.</li><li><b>Master line numbers.</b> Before the fetch the copy is the master exactly as the CV page numbers it (cv_doc.render_lines): line 11 "Based in Reading" and line 13 "One US regulatory clearance". The tailored copy cuts line 11, rewords line 13 (its 12) and adds its 29.</li>
+<li><b>Card score.</b> Main replaces the card score in place (it goes to score_history); the page reads it back from the history to show it beside the spec score.</li>
+</ul>
+
+<h2>Keyboard and screen readers</h2>
+<div class="keys">
+<kbd class="kbd">Tab</kbd><span>In the order drawn: Back to Jobs; Score, Application, Rate line, Gates; the job description (at 2560 its own scroll region); the CV bar; the gaps; then each CV line and its notes. Every control is a real button or link with the yellow focus ring (--focus).</span>
+<kbd class="kbd">Enter</kbd><span>On a CV line (each is a button named "Line 23: ...", described by "Cited by A11. Enter edits the line."): opens it as a growing textarea with Move up, Move down and Delete. Esc closes it.</span>
+<kbd class="kbd">M</kbd><span>Mark applied, as on the Jobs page.</span>
+<kbd class="kbd">Z</kbd><span>Undo the last move on the applications board, as on the board.</span>
+</div>
+<p>Single-key shortcuts (M, Z) can be turned off with the "Single-key shortcuts: On" switch beside the keys line in Application, and are suspended whenever focus is in a field. Each Met note is a button ("Met A16 lines 8, 50") that opens on focus or click; each open note has a "Show cited lines" button with the ask's number in hidden text, and the selected note's button carries aria-current. Notes are plain list items with their quote readable, no tab stop and no label hiding it. Citation links and Show it in the advert open the folded advert and move focus to the cited ask. Download Word uses aria-disabled with its reason as its description, so it stays in the tab order. Working, done and failed messages are status regions; the Mark applied dialog is modal, starts on its first button, keeps Tab inside, closes on Esc and returns focus. Headings: h1 the role; h2 Score, Application, Rate line, Gates, Job description, Tailored CV; h3 the CV's sections and h4 its entries. Meaning is never colour alone: every mark has a shape and a word, underlines differ in style, and the copy's figure has a dashed border and its words.</p>
+
+<h2>Contrast, from the frame's tokens</h2>
+<p>No new colours: every value is a FRAME_CSS token. Ratios computed from the tokens by build.py.</p>
+<table class="ct"><thead><tr><th>Foreground</th><th>Background</th><th>Used for</th><th>Ratio</th><th>Needs</th></tr></thead><tbody><tr><td><span class="sw" style="background:#e6ebee"></span>--text-1</td><td><span class="sw" style="background:#1c2226"></span>--surface-sunken</td><td>CV line text on the dark sheet</td><td class="r">13.4:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#93a0a9"></span>--text-3</td><td><span class="sw" style="background:#1c2226"></span>--surface-sunken</td><td>Line numbers on the sheet</td><td class="r">6.0:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#b3bec6"></span>--text-2</td><td><span class="sw" style="background:#1c2226"></span>--surface-sunken</td><td>Cited line numbers</td><td class="r">8.5:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#e6ebee"></span>--text-1</td><td><span class="sw" style="background:#0e1215"></span>--canvas</td><td>Note quotes, advert asks</td><td class="r">15.7:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#e6ebee"></span>--text-1</td><td><span class="sw" style="background:#0f3237"></span>--row-selected</td><td>Selected note, edited line</td><td class="r">11.4:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#b3bec6"></span>--text-2</td><td><span class="sw" style="background:#151a1e"></span>--surface</td><td>Panel body, advert text</td><td class="r">9.3:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#b3bec6"></span>--text-2</td><td><span class="sw" style="background:#1c2226"></span>--surface-sunken</td><td>Sheet subtitle and contact line</td><td class="r">8.5:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#93a0a9"></span>--text-3</td><td><span class="sw" style="background:#0e1215"></span>--canvas</td><td>Note citations, card dates</td><td class="r">7.0:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#93a0a9"></span>--text-3</td><td><span class="sw" style="background:#151a1e"></span>--surface</td><td>Panel small print</td><td class="r">6.5:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#93a0a9"></span>--text-3</td><td><span class="sw" style="background:#33191a"></span>--negative-tint</td><td>Small print in the gaps block</td><td class="r">6.1:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#5cc3cf"></span>--accent</td><td><span class="sw" style="background:#0e1215"></span>--canvas</td><td>Links in notes</td><td class="r">9.1:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#5cc3cf"></span>--accent</td><td><span class="sw" style="background:#151a1e"></span>--surface</td><td>Links in panels, basis tag</td><td class="r">8.5:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#74d39b"></span>--positive</td><td><span class="sw" style="background:#0e1215"></span>--canvas</td><td>Met mark, Passes</td><td class="r">10.3:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#f0c46a"></span>--caution</td><td><span class="sw" style="background:#0e1215"></span>--canvas</td><td>Partly mark</td><td class="r">11.5:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#ff9b8f"></span>--negative</td><td><span class="sw" style="background:#0e1215"></span>--canvas</td><td>Gap mark</td><td class="r">9.3:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#ff9b8f"></span>--negative</td><td><span class="sw" style="background:#33191a"></span>--negative-tint</td><td>Gap mark in the gaps block</td><td class="r">8.0:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#071114"></span>--on-accent</td><td><span class="sw" style="background:#5cc3cf"></span>--accent</td><td>Primary button label</td><td class="r">9.2:1</td><td>Passes 4.5:1</td></tr><tr><td><span class="sw" style="background:#6f7c86"></span>--border-strong</td><td><span class="sw" style="background:#151a1e"></span>--surface</td><td>Button and sheet edges (non-text)</td><td class="r">4.1:1</td><td>Passes 3:1</td></tr><tr><td><span class="sw" style="background:#ffd447"></span>--focus</td><td><span class="sw" style="background:#0e1215"></span>--canvas</td><td>Focus ring (non-text)</td><td class="r">13.2:1</td><td>Passes 3:1</td></tr></tbody></table>
+
+<h2>Open questions</h2>
+<div class="qs"><section class="q"><h3>1. Where the tailored score sits beside the card and spec scores</h3><p class="drawn"><b>Drawn:</b> Three figures in one row, Card 74, Full spec 81, This copy 86, the first faded and marked replaced, the second labelled &quot;the role&#x27;s score, shown on Jobs&quot;, the third dashed and labelled &quot;this page only, never written to Jobs&quot;. The gates table then compares full spec and this copy column by column.</p><p class="alt"><b>Alternatives:</b> Two figures only, full spec and this copy, with the card score in the basis line (C&#x27;s choice); or the tailored score in the CV&#x27;s own header, away from the role&#x27;s score, so it cannot be mistaken for it.</p></section><section class="q"><h3>2. Does editing a CV line re-cite asks live, or only on Rescore</h3><p class="drawn"><b>Drawn:</b> Both, split by what is cheap: the cited lines are found again at once by their words (moved lines are followed, edited-away ones make the ask stale, in words) and the counts recount, as main&#x27;s page script already does. The met, partly and gap marks change only on Rescore role, because judging them is the paid call.</p><p class="alt"><b>Alternatives:</b> Nothing moves until Rescore (simpler, but the notes then sit beside the wrong lines); or a free local guess at the marks as you type (fast, but a guess the scorer may not agree with).</p></section><section class="q"><h3>3. What happens to a tailored CV after the master changes</h3><p class="drawn"><b>Drawn:</b> Nothing by itself. The copy keeps its text and its score, the page says the master changed and when, and Start again from master takes the new one. The saved copy stays as saved (states board, 12).</p><p class="alt"><b>Alternatives:</b> Offer the master&#x27;s changed lines one by one to copy across; or rebuild an unsaved copy from the new master automatically and keep only saved copies fixed.</p></section><section class="q"><h3>4. The cost-first button against main&#x27;s automatic start</h3><p class="drawn"><b>Drawn:</b> The page never spends on opening. One button, &quot;About 2 cents: Fetch and score the full description&quot;, with the breakdown and the 6,144-token ceiling under it. On main, following the Jobs link (go=1 with Sec-Fetch-Site same-origin) starts the fetch as the page opens, and only other routes get a button.</p><p class="alt"><b>Alternatives:</b> Keep main&#x27;s start-on-open and put the cost on the Jobs row&#x27;s Prepare application button instead; or start on open only for Top prospects and show the button for the rest.</p></section><section class="q"><h3>5. Which advert sentence an ask came from</h3><p class="drawn"><b>Drawn:</b> Each note quotes its sentence and names where it is (&quot;What you will do, item 8&quot;), and at 2560 the advert column underlines it. Main&#x27;s per-ask working stores the ask&#x27;s words and its CV lines, not the sentence: the scorer would return the sentence too, kept only if it is found word for word in the stored description, as the reasons&#x27; quotes are.</p><p class="alt"><b>Alternatives:</b> Match the ask&#x27;s words to the description in code, with no prompt change (cheaper, sometimes wrong); or show the ask&#x27;s words only and drop the advert column.</p></section><section class="q"><h3>6. Where the gaps sit</h3><p class="drawn"><b>Drawn:</b> First, in a dashed block above the sheet, each with its sentence and a reason, and in the advert with a dotted underline and a cross. They have no CV line to stand beside.</p><p class="alt"><b>Alternatives:</b> At the foot of the notes column; or as a note beside the CV section where the evidence would belong (a guess the scorer does not make).</p></section><section class="q"><h3>7. Save CV&#x27;s name</h3><p class="drawn"><b>Drawn:</b> The full job title, &quot;CV - Alex Rennie - Hartwell Infusion Ltd - Software Quality Lead, Class II infusion pumps&quot;, as main&#x27;s cv_doc.saved_name makes it (the title kept up to 79 characters) and as the applications board v2 names its files, for example &quot;CV - Alex Rennie - Quayle Health - Head of Regulatory Software, SaMD.docx&quot;.</p><p class="alt"><b>Alternatives:</b> The short form cut at the title&#x27;s first comma (&quot;... - Software Quality Lead&quot;), which the brief first gave; it needs a code change and the board&#x27;s names redrawn.</p></section><section class="q"><h3>8. A dark or a light sheet</h3><p class="drawn"><b>Drawn:</b> Dark, as on the CV page: an A4-proportioned raised sheet in the frame&#x27;s surface tokens, page breaks shown, line numbers quiet. The owner asked for dark only.</p><p class="alt"><b>Alternatives:</b> Light paper, which is what prints and what Download Word gives; or a Paper preview switch on the dark page as a middle option.</p></section><section class="q"><h3>9. Notes that do not fit beside their line</h3><p class="drawn"><b>Drawn:</b> Met notes fold to one line, and a note slides down below its first line when the notes above need the room, so the sheet&#x27;s lines stay evenly spaced.</p><p class="alt"><b>Alternatives:</b> Keep every note level with its line and let the sheet open gaps (C&#x27;s choice, about 100px between lines 27 and 35); or show only the selected line&#x27;s notes.</p></section><section class="q"><h3>10. Mark applied without a saved CV</h3><p class="drawn"><b>Drawn:</b> Allowed, through the dialog (states board, 9), which offers Save CV first; the board then says no CV was saved, as main&#x27;s applied banner does.</p><p class="alt"><b>Alternatives:</b> Mark applied unavailable until something is saved; or save silently on Mark applied.</p></section></div>
+</div></main><script>
+(function () {
+  var bar = document.querySelector('.appbar');
+  if (!bar) return;
+  var menu = bar.querySelector('.menu-btn');
+  function setMenu(open) {
+    bar.classList.toggle('menu-open', open);
+    if (menu) menu.setAttribute('aria-expanded', String(open));
+  }
+  if (menu) menu.addEventListener('click', function () {
+    setMenu(menu.getAttribute('aria-expanded') !== 'true');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && bar.classList.contains('menu-open')) {
+      setMenu(false);
+      if (menu) menu.focus();
+    }
+  });
+  document.addEventListener('click', function (e) {
+    if (bar.classList.contains('menu-open') && !bar.contains(e.target)) setMenu(false);
+  });
+  // The inbox time is written in UTC by the server and shown in the
+  // reader's own time here, today's as a time and older ones with the day.
+  bar.querySelectorAll('time[data-local]').forEach(function (t) {
+    var when = new Date(t.getAttribute('datetime'));
+    if (isNaN(when)) return;
+    var now = new Date();
+    var hm = ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2);
+    var sameDay = when.toDateString() === now.toDateString();
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    t.textContent = sameDay ? hm : when.getDate() + ' ' + months[when.getMonth()] + ' ' + hm;
+  });
+})();
+
+(function(){
+  var adv=document.querySelector('.advert');
+  function openAdvert(){ if(adv){adv.classList.add('is-open');var t=adv.querySelector('.advert-toggle');if(t)t.setAttribute('aria-expanded','true');} }
+  document.addEventListener('click',function(e){
+    var a=e.target.closest('[data-advert-link]');
+    if(a){e.preventDefault();openAdvert();var el=document.getElementById(a.getAttribute('href').slice(1));if(el){el.focus();}return;}
+    var t=e.target.closest('.advert-toggle');
+    if(t){var open=!adv.classList.contains('is-open');adv.classList.toggle('is-open',open);t.setAttribute('aria-expanded',String(open));t.textContent=open?'Hide the job description':'Show the job description';return;}
+    var n=e.target.closest('.note-toggle');
+    if(n){var li=n.closest('.note');var o=n.getAttribute('aria-expanded')!=='true';n.setAttribute('aria-expanded',String(o));li.classList.toggle('is-open',o);li.classList.toggle('is-closed',!o);document.getElementById(n.getAttribute('aria-controls')).hidden=!o;}
+  });
+  document.addEventListener('focusin',function(e){
+    var n=e.target.closest&&e.target.closest('.note-toggle');
+    if(n&&n.getAttribute('aria-expanded')!=='true'){n.click();}
+  });
+})();
+</script></body></html>
