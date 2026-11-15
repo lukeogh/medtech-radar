@@ -7,7 +7,7 @@ The stories, companies and sources are the fictional world the news page was
 drawn from (design/insights/news on the design/round-1 branch), so the built
 page can be put beside the frames. Dates are counted back from the moment the
 seed runs, so "this week" is always the last seven days. typical is the
-drawn week; quiet keeps only the stories under 40 this week; stale stops the
+drawn week; quiet keeps only the stories under 10 (the page floor) this week; stale stops the
 watcher 22 hours ago and leaves seven sources unanswered.
 
 Writes only the database it is given, which must not exist yet. No model is
@@ -206,7 +206,7 @@ def main(argv=None) -> int:
                       iso(now - timedelta(days=30)) if watched else None, cid))
         ids[name] = cid
     for days, hour, source, company, kind, rel, headline, summary, why, words, extra in STORIES:
-        if args.week == "quiet" and days < 7 and rel >= 40:
+        if args.week == "quiet" and days < 7 and rel >= 10:
             continue
         when = (now - timedelta(days=days)).replace(hour=hour, minute=0)
         if when > now:

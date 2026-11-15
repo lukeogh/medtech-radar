@@ -207,3 +207,29 @@ from the checkout. To check after step 8 (expect `200 font/woff2` three times):
 ```bash
 for f in Regular Medium SemiBold; do curl -s -m 15 -o /dev/null -w '%{http_code} %{content_type}\n' http://192.168.1.100:8787/static/fonts/IBMPlexSerif-$f.woff2; done
 ```
+
+## Ranking the week (after 15 Nov)
+
+Insights was deployed at c345de9 on 15 Nov. The change that ranks the week
+needs no backfill, no new column and no scorer change: only the pull and a
+restart. Before it, the page folded everything under 40 and most weeks had no
+Top stories at all (46 stories that week, the best at 22). After it, the page
+ranks the week by relevance, folds only what is under 10, and says when
+nothing reached 40, the mark of a buying window. The digest and the phone
+pushes keep their own bars.
+
+The check for running jobs below looks only at Python processes. The pgrep
+line in the steps above matches its own shell when a claude session runs it
+with `bash -c`, because that command line holds the script names too; it
+errs on the safe side, saying something is running when nothing is.
+
+```bash
+cd /opt/biz-admin/medtech-radar && { pgrep -a python | grep -E 'process_email|check_jobs|check_signals|build_digest|rescore|regate|backfill' && echo 'wait, something is running, nothing was pulled' || { sudo -u radar git fetch origin && sudo -u radar git pull --ff-only && sudo -u radar git log --oneline -1 && docker restart medtech-radar; }; }
+```
+
+Then, from any machine on the LAN (expect 200, then a Top stories row, and
+the tally line):
+
+```bash
+B=http://192.168.1.100:8787; curl -s -m 15 -o /dev/null -w '%{http_code}\n' $B/insights; curl -s -m 15 $B/insights | grep -c 'id="top-row"'; curl -s -m 15 $B/insights | grep -o '[0-9]* at relevance 40 or more'
+```
