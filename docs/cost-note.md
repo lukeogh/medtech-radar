@@ -28,7 +28,8 @@ text rather than a bare headline, so a signal call carries roughly 1,000 to
 item. Add $0.30 to $0.70 a week. Since the Insights news page (scorer v1.2) each reply also carries a
 type and a one-sentence card summary, about 40 tokens more, a few hundredths of a cent a signal. The
 one-off scripts/backfill_stories.py --live reads the last 90 days again at one call a row, roughly
-0.7 to 1.4 cents each; its dry run says how many rows first.
+0.7 to 1.4 cents each; its dry run says how many rows first. On the box on 15 Nov 2026 it read 215
+rows for 42,910 input and 42,319 output tokens, about $0.76, or 0.35 cent a row.
 
 **Prepare application, Sonnet.** One call each time you open a role's page by its Prepare application link and the role has a description that has not been scored, never in a batch and never on a schedule (by the plain http address the link opens a button, and the call is made when you press it). About 0.9 cent a role for the description alone, about 1.7 cents with the per-ask working and about 2 cents with the quoted reasons as well. The reply is capped at 6,144 tokens, so the most one call can bill for its reply is about 9 cents, and a reply that runs into the cap is thrown away after being paid for. A role is scored once per version of its description, so opening its page again, reloading it or double clicking costs nothing, and a failed fetch costs nothing because nothing is sent. Not in the weekly figures below, because it only happens when you press it.
 

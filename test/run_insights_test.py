@@ -281,7 +281,7 @@ def page_checks(tmp: Path) -> None:
           and insights_page.render_section(conn, "hiring") is None,
           "a hiring story has no story page and hiring has no section page")
     check('are on <a href="/jobs">Jobs</a>' in html, "the foot says where hiring went")
-    check("More stories" in html and f"{len(model['below'])} this week under relevance 40" in html
+    check("More stories" in html and f"{len(model['below'])} this week under relevance 10" in html
           and 'id="more-list" hidden' in html, "stories under 40 are folded under More stories")
     check("Hidden this week" in html and "Show again" in html, "the stories hidden this week are folded with Show again")
     check(not re.search(r"I did it|Suggestion|Do today|playbook", html, re.I),
@@ -313,6 +313,23 @@ def page_checks(tmp: Path) -> None:
     after = conn.execute("SELECT COUNT(*), SUM(LENGTH(COALESCE(acknowledged_at,''))) FROM signals").fetchone()
     check(tuple(before) == tuple(after), "rendering writes nothing")
     conn.close()
+    # A week where nothing is a buying window still has a front page: the week is ranked whatever the numbers.
+    low = seeded(tmp, "typical")
+    w = sqlite3.connect(low)
+    w.execute("UPDATE signals SET relevance = MIN(relevance, 22)")
+    w.commit()
+    w.close()
+    lconn = ro(low)
+    lmodel = insights_page.build_model(lconn)
+    lhtml = insights_page.render_front(lconn)
+    check('id="top-row"' in lhtml and "A quiet week" not in lhtml and len(lmodel["top"]) == 5
+          and lmodel["top"][0]["relevance"] == 22,
+          "a week with nothing at 40 still leads with its five best stories")
+    check("0 at relevance 40 or more" in lhtml and "None reached 40, the mark of a buying window" in lhtml,
+          "the tally and Most relevant say plainly that nothing this week is a buying window")
+    check(all(s["relevance"] < 10 for s in lmodel["below"]) and all(s["relevance"] >= 10 for s in lmodel["ranked"]),
+          "only stories under the floor of 10 are folded under More stories, and none of them is ranked")
+    lconn.close()
     quiet = ro(seeded(tmp, "quiet"))
     qhtml = insights_page.render_front(quiet)
     check("A quiet week" in qhtml and "From earlier weeks" in qhtml and 'id="top-row"' not in qhtml,

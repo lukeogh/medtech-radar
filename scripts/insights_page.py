@@ -6,9 +6,11 @@ shared frame in page_frame.py, dark only.
 
 The page is the last seven days of what the signal watcher found, laid out
 like a newspaper: Top stories (the lead and four smaller), Most relevant this
-week (1 to 10), four sections filed by story type, everything under 40
-folded under More stories, and the stories hidden this week folded under
-that. A story is one event: the reports that share an event_key (see
+week (1 to 10), three sections filed by story type, everything under the
+floor folded under More stories, and the stories hidden this week folded
+under that. The page ranks the week by relevance whatever the numbers: 40 is
+the mark of a buying window, which the digest and the phone pushes use, and
+most weeks nothing reaches it, so the news page does not wait for it. A story is one event: the reports that share an event_key (see
 radar_common.event_key_for), led by the highest-scoring one.
 
 Three pages, all read only:
@@ -35,7 +37,8 @@ import page_frame
 
 esc = bd.esc
 
-BAR = 40               # under this a story is folded under More stories
+FLOOR = 10             # under this a story is folded under More stories
+BUYING = 40            # the mark of a buying window, as the scorer's bands put it
 TOP_COUNT = 5
 RANKED = 10
 WEEK_DAYS = 7          # a rolling week, as "fresh" has always worked
@@ -146,8 +149,8 @@ def build_model(conn, config: dict | None = None, now: str | None = None) -> dic
     shown = [s for s in stories if not s["hidden"]]
     week = [s for s in shown if s["this_week"]]
     earlier = [s for s in shown if not s["this_week"]]
-    above = [s for s in week if s["relevance"] >= BAR]
-    below = [s for s in week if s["relevance"] < BAR]
+    above = [s for s in week if s["relevance"] >= FLOOR]
+    below = [s for s in week if s["relevance"] < FLOOR]
     top, rest = above[:TOP_COUNT], above[TOP_COUNT:]
     sections = []
     for key, name, _types in SECTIONS:
@@ -155,7 +158,7 @@ def build_model(conn, config: dict | None = None, now: str | None = None) -> dic
             "key": key, "name": name,
             "stories": [s for s in rest if s["section"] == key],
             "in_top": [s for s in top if s["section"] == key],
-            "earlier": [s for s in earlier if s["section"] == key and s["relevance"] >= BAR],
+            "earlier": [s for s in earlier if s["section"] == key and s["relevance"] >= FLOOR],
         })
     for sec in sections:
         sec["count"] = len(sec["stories"]) + len(sec["in_top"])
@@ -168,7 +171,7 @@ def build_model(conn, config: dict | None = None, now: str | None = None) -> dic
     return {
         "now": _iso(moment), "stories": stories, "week": week, "earlier": earlier,
         "above": above, "below": below, "top": top, "sections": sections,
-        "ranked": week[:RANKED], "hidden": [s for s in stories if s["hidden"] and s["this_week"]],
+        "ranked": above[:RANKED], "buying": sum(1 for s in week if s["relevance"] >= BUYING), "hidden": [s for s in stories if s["hidden"] and s["this_week"]],
         "watcher": watcher, "jobs": jobs, "sources": len(sources), "answering": answering,
         "unscored": unscored, "companies": companies,
     }
@@ -506,10 +509,12 @@ def ranked_html(model: dict) -> str:
     items = "".join(f'<li data-rank-story="{esc(s["id"])}"><a href="{story_href(s)}">{esc(s["headline"])}</a>'
                     f'<span class="meta">{esc(s["company"])} · Relevance {s["relevance"]}</span></li>'
                     for s in model["ranked"])
-    if not model["ranked"]:
+    if not model["week"]:
         sub = "Nothing came in over the last seven days."
-    elif not model["above"]:
-        sub = "Nothing reached 40 in the last seven days. These are the highest, all under 40."
+    elif not model["ranked"]:
+        sub = f"Nothing scored {FLOOR} or more in the last seven days."
+    elif not model["buying"]:
+        sub = f"Ranked by relevance, over the last seven days. None reached {BUYING}, the mark of a buying window."
     else:
         sub = "Ranked by relevance, over the last seven days."
     body = f'<ol>{items}</ol>' if items else ""
@@ -539,7 +544,7 @@ def _count_words(sec: dict) -> str:
 def _empty_words(sec: dict) -> str:
     if sec["in_top"]:
         return f"This week's {'story is' if len(sec['in_top']) == 1 else 'stories are'} in Top stories."
-    return f"Nothing in {sec['name']} scored 40 or more this week."
+    return f"Nothing in {sec['name']} scored {FLOOR} or more this week."
 
 
 def section_html(sec: dict) -> str:
@@ -562,11 +567,11 @@ def masthead_html(model: dict, title: str = "Insights", tag: str = "h1") -> str:
     else:
         upd = (f'updated <b><time datetime="{when[0]}" data-local>{esc(when[1])}</time></b>'
                if when else "updated")
-    week, above = len(model["week"]), len(model["above"])
+    week, buying = len(model["week"]), model["buying"]
     cover = f'{model["answering"]} of {model["sources"]} sources answering'
     return (f'<header class="masthead"><{tag}>{esc(title)}</{tag}><p class="edition"><b>The last seven days</b> · '
-            f'{upd}</p><p class="tally">{week} {"story" if week == 1 else "stories"} this week, {above} at '
-            f'relevance 40 or more · <a href="/health">{cover}</a></p></header>')
+            f'{upd}</p><p class="tally">{week} {"story" if week == 1 else "stories"} this week, {buying} at '
+            f'relevance {BUYING} or more · <a href="/health">{cover}</a></p></header>')
 
 
 def notice_html(model: dict) -> str:
@@ -588,11 +593,11 @@ def notice_html(model: dict) -> str:
 
 def top_html(model: dict) -> str:
     if not model["top"]:
-        older = [s for s in model["earlier"] if s["relevance"] >= BAR][:3]
+        older = [s for s in model["earlier"] if s["relevance"] >= FLOOR][:3]
         week = len(model["week"])
         best = model["below"][0]["relevance"] if model["below"] else None
         if week:
-            text = (f'Nothing has scored 40 or more in the last seven days. {week} '
+            text = (f'Nothing has scored {FLOOR} or more in the last seven days. {week} '
                     f'{"story" if week == 1 else "stories"} came in and the highest scored {best}. '
                     f'{"It is" if week == 1 else "They are"} under More stories at the foot of the page.')
         else:
@@ -623,7 +628,7 @@ def folds_html(model: dict) -> str:
     below = model["below"]
     out = ""
     if below:
-        out = fold_html("more", "More stories", f"{len(below)} this week under relevance 40",
+        out = fold_html("more", "More stories", f"{len(below)} this week under relevance {FLOOR}",
                         "".join(_list_item(s) for s in below),
                         '<p class="fold-foot">Older stories stay on file. <a href="/archive">Every story on file</a></p>')
     hidden = model["hidden"]
@@ -643,7 +648,9 @@ def foot_html(model: dict) -> str:
                  f'and not shown; scripts/rescore.py clears them.</p>')
     return ('<footer class="page-foot"><p>Times are shown in your own time zone. A story is one event; when several '
             'sources report it, the highest-scoring report leads and every report is on the story page. Hiring '
-            'is not news here: job adverts and first hires are on <a href="/jobs">Jobs</a>.</p><p>'
+            'is not news here: job adverts and first hires are on <a href="/jobs">Jobs</a>. Relevance is how '
+            f'close a story comes to a buying window; {BUYING} or more marks one, and only those reach the '
+            'digest and your phone.</p><p>'
             'Headlines, summaries and the lines on why a story matters are written by the scoring model from the '
             f'sources. Check the source before you act on one.</p>{extra}</footer>')
 
@@ -658,7 +665,7 @@ def front_body(model: dict) -> str:
         older = sum(len(sec["earlier"]) for sec in model["sections"])
         cols = (f'<div class="cols cols-none"><section aria-labelledby="sec-none"><div class="sec-head">'
                 f'<h2 id="sec-none">Sections</h2><span class="count">None this week</span></div>'
-                f'<p class="empty-line">No section has a story at 40 or more this week. '
+                f'<p class="empty-line">No section has a story at {FLOOR} or more this week. '
                 + (f'{older} from earlier weeks {"is" if older == 1 else "are"} still on file.' if older
                    else 'Nothing from earlier weeks is open either.') + '</p></section></div>')
     front = f'<div class="front">{top_html(model)}{ranked_html(model)}{cols}</div>'
