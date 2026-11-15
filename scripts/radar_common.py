@@ -1646,6 +1646,10 @@ PREF_EDITABLE = {
     "day_rate_floor_gbp": "number",
     "target_title": "text",
     "keywords": "text",
+    # Optional. The first name Home's welcome greets, so the name lives in the
+    # owner's own gitignored file and never in the code. Home greets without
+    # a name when the line is missing or empty.
+    "first_name": "text",
 }
 
 
@@ -1665,7 +1669,9 @@ def read_pref_line(key: str, config: dict | None = None) -> str | None:
     path = _prefs_path(config)
     if not path.exists():
         return None
-    match = re.search(rf"^{re.escape(key)}:\s*(.+?)\s*$",
+    # Blanks around the value, never the line's end: \s would run on past the
+    # end of an empty line and read the next line as its value.
+    match = re.search(rf"^{re.escape(key)}:[^\S\n]*(\S.*?)[^\S\n]*$",
                       path.read_text(encoding="utf-8"),
                       re.IGNORECASE | re.MULTILINE)
     return match.group(1) if match else None
@@ -1711,6 +1717,21 @@ def update_pref_line(key: str, value: str,
         text = text.rstrip() + "\n" + line + "\n"
     path.write_text(text, encoding="utf-8")
     return value
+
+
+def read_first_name(config: dict | None = None) -> str | None:
+    """The first name Home greets, from the optional first_name line, or None.
+
+    Read like the other labelled lines, from the live preferences file (the
+    template when there is none, whose line is empty). One line of plain text,
+    cut to 40 characters, and None for nothing.
+    """
+    try:
+        value = read_pref_line("first_name", config)
+    except (OSError, UnicodeDecodeError):
+        return None
+    value = " ".join(str(value or "").split())[:40].strip()
+    return value or None
 
 
 def read_rate_floors(config: dict | None = None) -> dict:

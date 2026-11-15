@@ -773,11 +773,17 @@ BOARD_SCRIPT = """
     var col = el.closest('.col');
     if (col && narrow.matches) pickColumn(col.dataset.stage, false);
   }
+  var columnFromAddress = false;
   function setupPicker() {
     board.classList.add('is-picking');
     var stage = null;
     try { stage = sessionStorage.getItem('radar-board-column'); } catch (e) {}
     if (!stage || !document.getElementById('col-' + stage)) stage = 'applied';
+    // Home's column links name the column in the address, #col-<stage>, and
+    // the board opens on it; after that the column picked stays picked.
+    var named = !columnFromAddress && /^#col-([a-z]+)$/.exec(location.hash || '');
+    columnFromAddress = true;
+    if (named && document.getElementById('col-' + named[1])) stage = named[1];
     pickColumn(stage, false);
     if (location.hash) {
       var el = document.querySelector(location.hash.replace(/[^#a-z0-9-]/gi, ''));

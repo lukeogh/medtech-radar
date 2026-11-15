@@ -2286,7 +2286,10 @@ def _line_chart(series: list[tuple[str, int | None]], label: str) -> str:
             + note)
 
 
-HOME_SCRIPT = """
+# The scoring panel's Save buttons. The panel moved from the old Home to the CV
+# page's Settings with Home final (15 Nov), where Home's "Settings, on the CV
+# page" link goes.
+PREFS_SCRIPT = """
 (function () {
   document.querySelectorAll('[data-pref-save]').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -2549,13 +2552,68 @@ def telemetry_html(data: dict, config: dict) -> str:
     return "".join(metrics)
 
 
-def render_home_page(data: dict, config: dict, db_label: str) -> str:
-    """Home as the entrance. Cards to the pages, trends, the scoring panel.
+def settings_html(config: dict, floor=None) -> str:
+    """What the scorer judges against: the preferences file's labelled lines,
+    edited in place, and the first name Home's welcome greets. On the CV page
+    since Home final (15 Nov), under Settings; it was on the old Home."""
+    if floor is None:
+        try:
+            floor = radar_common.read_rate_floor(config)
+        except RuntimeError:
+            floor = None
+    title_val = radar_common.read_pref_line("target_title", config) or ""
+    keywords_val = radar_common.read_pref_line("keywords", config) or ""
+    name_val = radar_common.read_first_name(config) or ""
+    keyword_chips = "".join(
+        f'<span class="chip">{esc(k.strip())}</span>'
+        for k in keywords_val.split(",") if k.strip())
+    cv_label = "the built-in cv.txt"
+    try:
+        import score_item
+        cv_label = score_item.get_cv_version(config)
+    except Exception:  # noqa: BLE001  the panel degrades, never breaks the page
+        pass
+    return f"""<section class="section" id="settings">
+<div class="section-head"><h2>Settings</h2></div>
+<p class="section-note">What the scorer judges against. Capability comes from
+the CV, desire from the preferences file, and these are the file's
+machine-readable lines, edited in place. Everything saved here is in the
+scorer's next system prompt.</p>
+<div class="panel panel-sage" style="padding:16px">
+<div class="pref-grid">
+<label>Title<input type="text" id="pref-target_title"
+ value="{esc(title_val)}" placeholder="e.g. Fractional software director, medtech and IVD">
+<button type="button" class="act-btn" data-pref-save="target_title">Save</button></label>
+<label>Day-rate floor, GBP<input type="text" id="pref-day_rate_floor_gbp"
+ value="{esc('' if floor is None else f'{floor:g}')}" placeholder="650">
+<button type="button" class="act-btn" data-pref-save="day_rate_floor_gbp">Save</button></label>
+<label>Keywords, comma separated<input type="text" id="pref-keywords"
+ value="{esc(keywords_val)}" placeholder="IEC 62304, ISO 13485, IVD, fractional">
+<button type="button" class="act-btn" data-pref-save="keywords">Save</button></label>
+<label>First name, for Home's welcome<input type="text" id="pref-first_name"
+ value="{esc(name_val)}" autocomplete="given-name">
+<button type="button" class="act-btn" data-pref-save="first_name">Save</button></label>
+</div>
+<p class="board-note" id="pref-note"></p>
+<div style="margin-top:10px">{keyword_chips}</div>
+<p class="legend">Also in the judging set. The active CV,
+{esc(cv_label)}, changed above. The engagement
+types, location and sector rules live as prose in
+config/profile/preferences.md, edited by hand, this panel never touches
+them. The rate floor drives the Rate bands everywhere at once. The first
+name is the welcome's alone: Home greets without one while it is empty.</p>
+</div>
+</section>"""
 
-    The working tables live on their own pages now, Jobs, Insights and
-    the full archive at /archive. Home answers the walking-past
-    questions: is it running, what came in, how is the market moving,
-    and what is the scorer actually judging me against.
+
+def render_health_page(data: dict, config: dict, db_label: str) -> str:
+    """Radar's health, at /radar: how each job runs, what came in, the boards'
+    freshness, the trends, the doctrine as worked, and the add-a-source form.
+
+    This was Home until Home final (15 Nov), which links here from its lights
+    as "Radar's health". The entrance cards went, because the top bar and the
+    new Home are the entrance, and the scoring panel moved to the CV page's
+    Settings. Everything else reads as it did.
     """
     data["serve"] = True
     now = radar_common.now_iso()
@@ -2576,15 +2634,6 @@ def render_home_page(data: dict, config: dict, db_label: str) -> str:
         cv_label = score_item.get_cv_version(config)
     except Exception:  # noqa: BLE001  the card degrades, never breaks Home
         pass
-
-    cards = f"""<div class="entrance">
-<a class="card card-jobs" href="/jobs">{ICON_JOBS}<span class="card-title">Jobs</span>
-<span class="card-sub">{len(active)} {"role" if len(active) == 1 else "roles"} in play, {len(new_this_week)} new this week</span></a>
-<a class="card card-insights" href="/insights">{ICON_INSIGHTS}<span class="card-title">Insights</span>
-<span class="card-sub">{len(live_signals)} live, {len(fresh_signals)} fresh this week</span></a>
-<a class="card card-cv" href="/cv">{ICON_CV}<span class="card-title">CV</span>
-<span class="card-sub">Scoring against {esc(cv_label)}</span></a>
-</div>"""
 
     jobs = job_verdicts(data)
     sync_dot, sync_word = job_light("inbox", jobs["inbox"])
@@ -2643,39 +2692,6 @@ def render_home_page(data: dict, config: dict, db_label: str) -> str:
 {_line_chart(data["monthly_signals"], "Relevant medtech signals per month over twelve months")}
 </div>
 </div>"""
-
-    floor_val = data["floor"]
-    title_val = radar_common.read_pref_line("target_title", config) or ""
-    keywords_val = radar_common.read_pref_line("keywords", config) or ""
-    keyword_chips = "".join(
-        f'<span class="chip">{esc(k.strip())}</span>'
-        for k in keywords_val.split(",") if k.strip())
-    profile = f"""<section class="section">
-<div class="section-head"><h2>What the scorer judges against</h2></div>
-<p class="section-note">Capability comes from the CV, desire from the
-preferences file, and these are the file's machine-readable lines, edited
-in place. Everything saved here is in the scorer's next system prompt.</p>
-<div class="panel panel-sage" style="padding:16px">
-<div class="pref-grid">
-<label>Title<input type="text" id="pref-target_title"
- value="{esc(title_val)}" placeholder="e.g. Fractional software director, medtech and IVD">
-<button type="button" class="act-btn" data-pref-save="target_title">Save</button></label>
-<label>Day-rate floor, GBP<input type="text" id="pref-day_rate_floor_gbp"
- value="{esc('' if floor_val is None else f'{floor_val:g}')}" placeholder="650">
-<button type="button" class="act-btn" data-pref-save="day_rate_floor_gbp">Save</button></label>
-<label>Keywords, comma separated<input type="text" id="pref-keywords"
- value="{esc(keywords_val)}" placeholder="IEC 62304, ISO 13485, IVD, fractional">
-<button type="button" class="act-btn" data-pref-save="keywords">Save</button></label>
-</div>
-<p class="board-note" id="pref-note"></p>
-<div style="margin-top:10px">{keyword_chips}</div>
-<p class="legend">Also in the judging set. The active CV,
-{esc(cv_label)}, changed at <a href="/cv">the CV page</a>. The engagement
-types, location and sector rules live as prose in
-config/profile/preferences.md, edited by hand, this panel never touches
-them. The rate floor drives the Rate bands everywhere at once.</p>
-</div>
-</section>"""
 
     n_threads = len(data["threads"])
     n_age = len(data["ageing"])
@@ -2790,33 +2806,32 @@ them. The rate floor drives the Rate bands everywhere at once.</p>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MedTech Radar</title>
+<title>Radar's health · MedTech Radar</title>
 <link rel="icon" href="{FAVICON}">
 <style>{CSS}{page_frame.FRAME_CSS}</style>
 </head>
 <body>
-{page_frame.appbar_html("home", job_verdicts(data))}
+{page_frame.appbar_html("", job_verdicts(data), "Radar's health")}
 <main class="page" id="main">
 <header class="masthead">
 <div>
-<div class="brand">{MARK_SVG}<h1>MedTech Radar</h1></div>
-<p class="masthead-sub">Generated {esc(fmt_long(now))} from {esc(db_label)}. The page re-renders on every load.</p>
+<div class="brand">{MARK_SVG}<h1>Radar's health</h1></div>
+<p class="masthead-sub">How each scheduled job runs, what came in and how
+the market moves. Generated {esc(fmt_long(now))} from {esc(db_label)}. The page re-renders on every load.</p>
 </div>
 </header>
 <section class="standing">{standing_line(data)}</section>
-{cards}
 {overview}
-{profile}
 {telemetry}{attention}{traction}{connectors}
 {add_source_strip_html(config)}
 <footer class="heartbeat">
 <ul class="heartbeat-facts">{heartbeat_facts(data)}</ul>
 {sparkline(data)}
-<ul class="outlinks"><li><a href="/archive">The full archive, every row on file but the applied ones</a></li><li><a href="/cv">Update the CV the scorer reads</a></li></ul>
+<ul class="outlinks"><li><a href="/">Home</a></li><li><a href="/archive">The full archive, every row on file but the applied ones</a></li><li><a href="/cv#settings">Settings, on the CV page</a></li></ul>
 <p class="end">Buttons write, everything else reads. Regenerate the static fallback with <code>python scripts/build_dashboard.py</code>.</p>
 </footer>
 </main>
-<script>{SCRIPT}{page_frame.FRAME_SCRIPT}{HOME_SCRIPT}{SOURCE_SCRIPT}</script>
+<script>{SCRIPT}{page_frame.FRAME_SCRIPT}{SOURCE_SCRIPT}</script>
 </body>
 </html>"""
 

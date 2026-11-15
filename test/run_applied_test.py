@@ -375,6 +375,30 @@ def home_html(db) -> str:
         return serve_dashboard.render("home").decode("utf-8")
 
 
+def radar_html(db) -> str:
+    """Radar's health, /radar: the old Home's telemetry and attention list."""
+    with pointed_at(db):
+        return serve_dashboard.render("radar").decode("utf-8")
+
+
+def home_funnel(html: str) -> dict:
+    """Home's Open roles tile, {step: count}: all, reading, question, top."""
+    return {k: int(n) for k, n in re.findall(
+        r'id="funnel-(\w+)".*?<span class="ht-step-fig">(\d+)<', html)}
+
+
+def home_figures(html: str) -> dict:
+    """Home's four figures, {kind: count}."""
+    return {k: int(n) for k, n in re.findall(
+        r'id="figure-(\w+)"[^>]*><span class="ht-fignum">(\d+)<', html)}
+
+
+def home_rows(html: str) -> list[str]:
+    """The titles in Home's Needs you today."""
+    return re.findall(r'<a class="row row-3[^"]*"[^>]*><span class="r1"><span class="r-title">(.*?)</span>',
+                      html)
+
+
 def split_applied(html: str) -> tuple[str, str]:
     """(the open roles page, the Applied view's queue)."""
     tiers, _mark, applied = html.partition(APPLIED_MARK)
@@ -1213,11 +1237,13 @@ def repost_checks() -> None:
         check(row_titles(applied) == [QD[0]],
               "the Applied section lists the role once")
         home = home_html(db)
-        card = re.search(r"(\d+) roles? in play, (\d+) new this week", home)
-        check(card and int(card.group(1)) == 2 and int(card.group(2)) == 2,
-              "the Home page's Jobs card counts the two adverts of the other "
-              "role and none of the applied one's "
-              f"({card.group(0) if card else None})")
+        funnel = home_funnel(home)
+        check(funnel.get("all") == 1 and funnel.get("top") == 1
+              and home_figures(home).get("top") == 1
+              and home_rows(home).count(RD[0]) == 1 and QD[0] not in home,
+              "Home's Open roles counts the other role once, its two adverts one "
+              "role, and the applied one nowhere: not in a count, a figure or the "
+              f"list, repost included ({funnel}, {home_rows(home)})")
 
         # The digest.
         digest = build_digest.collect(conn, CFG)
@@ -2394,10 +2420,10 @@ def page_checks() -> None:
         home = home_html(db)
         check("data-apply=" not in home and "<h2>Applied</h2>" not in home,
               "the Home page has no Applied button and no Applied section")
-        card = re.search(r"(\d+) roles? in play, (\d+) new this week", home)
-        check(card and int(card.group(1)) == 3,
-              "its Jobs card counts the three open roles and none of the "
-              f"three applied ({card.group(0) if card else None})")
+        funnel = home_funnel(home)
+        check(funnel.get("all") == 3,
+              "its Open roles counts the three open roles and none of the "
+              f"three applied ({funnel})")
         archive = serve_dashboard_render(db, "archive")
         check("data-apply=" not in archive and "<h2>Applied</h2>" not in archive
               and "Head of QA" not in archive,
@@ -2405,9 +2431,9 @@ def page_checks() -> None:
               "the applied roles among the open ones")
         check("apart from the roles you have applied for, which are listed on "
               "Jobs" in archive and "every row on file but the applied ones"
-              in home,
-              "the archive's masthead and Home's link to it say that applied "
-              "roles are on Jobs, so neither promises every row")
+              in radar_html(db),
+              "the archive's masthead and Radar's health's link to it say that "
+              "applied roles are on Jobs, so neither promises every row")
         insights = serve_dashboard_render(db, "insights")
         check("<h2>Applied</h2>" not in insights, "the Insights page is untouched")
 
@@ -2572,17 +2598,23 @@ def home_checks() -> None:
               "one, and not the applied role, its repost or its "
               f"acknowledged advert ({weeks})")
 
-        home = home_html(db)
+        home = radar_html(db)
         ageing = re.search(r'<span class="num">(\d+)</span>unknown for over a '
                            r'month', home)
         review = re.search(r'<span class="num">(\d+)</span>roles? unscored',
                            home)
         check(ageing and ageing.group(1) == "1" and review
               and review.group(1) == "1",
-              "Home's attention list says one role unknown for over a month "
-              "and one unscored, the applied ones are in neither "
+              "Radar's health's attention list says one role unknown for over a "
+              "month and one unscored, the applied ones are in neither "
               f"({ageing.group(0) if ageing else None}, "
               f"{review.group(0) if review else None})")
+        new_home = home_html(db)
+        before_funnel = home_funnel(new_home)
+        check(before_funnel.get("all") == 2 and QD[0] not in new_home
+              and "Unscored One" not in new_home,
+              "Home's Open roles counts the two roles that are not applied, and "
+              f"names neither applied role anywhere ({before_funnel})")
 
         # The control: take the application back and every one of them is
         # counted again, so it was the marker that kept them out.
@@ -2590,6 +2622,10 @@ def home_checks() -> None:
             check(serve_dashboard.set_applied(ap, False)["ok"]
                   and serve_dashboard.set_applied(ap_un, False)["ok"],
                   "Undo on both applied roles works")
+        after_home = home_html(db)
+        check(home_funnel(after_home).get("all") == 4 and QD[0] in after_home,
+              "undo them and Home counts them, and lists the Top one as new "
+              f"({home_funnel(after_home)})")
         data = seen()
         check({a["id"] for a in data["ageing"]} == {ap, quiet},
               "undo it and the role is in Ageing again")
@@ -2609,7 +2645,7 @@ def home_checks() -> None:
             role(c, QD, first_seen=at(0.2), last_seen=at(0.2),
                  applied_at=stamp)
             c.close()
-            html = home_html(path)
+            html = radar_html(path)
             start = html.index("<h4>Board freshness")
             look = reader(path)
             built[label] = (html[start:html.index("</ul></div>", start)],

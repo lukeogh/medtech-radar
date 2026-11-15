@@ -2833,7 +2833,7 @@ def master_page_checks() -> None:
                   "and is read as it is until it is saved")
             heads = re.findall(r"<h2>([^<]+)</h2>", page)
             check(heads == ["Master CV", "History", "One-off import from a Word file",
-                            "After a change"]
+                            "After a change", "Settings"]
                   and 'id="cv-file" accept=".md,.markdown,.txt,.docx,.pdf"' in page
                   and "For bringing the master in from a Word file once." in text
                   and "cv-20261101-080000.md — active" in text,

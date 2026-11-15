@@ -1112,7 +1112,7 @@ def main() -> int:
         conn.commit()
         data6 = bd4.collect(conn, config5)
         jobs6 = bd4.render_jobs_page(data6, config5, "t", reading=True)
-        home6 = bd4.render_home_page(data6, config5, "t")
+        home6 = bd4.render_health_page(data6, config5, "t")
 
         def sec_count(page, title):
             m = _re5.search(r'id="group-[a-z]+">' + _re5.escape(title)
@@ -1646,26 +1646,26 @@ def main() -> int:
         check("The jobs market" in insights
               and "The trailing 90 days" in insights,
               "Insights carries the rates widget in the market fold instead")
-        # The telemetry moved to Home on 3 August. These facts still matter,
-        # they are just no longer on the page a person opens for roles, so
-        # the checks follow them rather than being deleted.
-        home_page = build_dashboard.render_home_page(data, config, "t")
+        # The telemetry moved to Home on 3 August, and with Home final (15
+        # Nov) to Radar's health at /radar, the old Home. These facts still
+        # matter, so the checks follow them rather than being deleted.
+        home_page = build_dashboard.render_health_page(data, config, "t")
         check("The flow, last fourteen days" in home_page
               and 'class="bars"' in home_page,
-              "the fortnight flow chart renders, on Home")
+              "the fortnight flow chart renders, on Radar's health")
         check("dot-green" in home_page,
               "a board that heard from its sender today shows a green light")
         check("dot-grey" in home_page,
               "a board never heard from shows the hollow waiting light")
         check("dot-red" in home_page and "Inbox never run" in home_page,
-              "an inbox that has never run wears the red light honestly, on Home")
+              "an inbox that has never run wears the red light honestly, on Radar's health")
         check("The flow, last fourteen days" not in jobs_page
               and "Board freshness" not in jobs_page,
               "and none of it clutters Jobs any more")
         check('id="src-add"' not in jobs_page
               and "Add a job source" not in jobs_page
               and 'id="src-add"' in home_page and "Add a job source" in home_page,
-              "the add-a-source form renders on Home, not on Jobs (J11)")
+              "the add-a-source form renders on Radar's health, not on Jobs (J11)")
         check("None yet" not in home_page
               and "job_sources.yaml" not in home_page,
               "no custom-source receipt renders while there are none")
@@ -1674,22 +1674,22 @@ def main() -> int:
         saved_reg3 = radar_common.JOB_SOURCES_PATH
         try:
             radar_common.JOB_SOURCES_PATH = reg_path
-            home_with_custom = build_dashboard.render_home_page(
+            home_with_custom = build_dashboard.render_health_page(
                 data, config, "t")
         finally:
             radar_common.JOB_SOURCES_PATH = saved_reg3
         check("Added so far: Technojobs (matches technojobs)"
               in home_with_custom
               and "job_sources.yaml" in home_with_custom,
-              "an added source earns its one-line receipt on Home, with the edit path")
+              "an added source earns its one-line receipt on Radar's health, with the edit path")
         # A custom source no longer earns a section, because no source does.
         # What it earns is the receipt line above, which is the honest
         # acknowledgement that the radar now watches for its sender.
         check(">Technojobs</span>" not in home_with_custom,
               "an added source gets no board section, because none exist")
         check(home_with_custom.index("Added so far: Technojobs")
-              > home_with_custom.index('class="entrance"'),
-              "its receipt sits at the foot of Home, below the cards")
+              > home_with_custom.index("Board freshness"),
+              "its receipt sits at the foot of Radar's health, below the lights")
         check('href="/jobs" aria-current="page"' in jobs_page,
               "the Jobs tab marks itself current")
         keep_pane = build_dashboard.render_jobs_page(
@@ -1699,15 +1699,17 @@ def main() -> int:
         check('>Home</a>' in html_page and 'href="/jobs"' in html_page,
               "the archive page tab bar names Home and reaches Jobs")
 
-        # Home is the entrance now. Three cards to the pages, the trends,
-        # and the scoring panel with the file's own values in its inputs.
-        home = build_dashboard.render_home_page(data, config, "t")
+        # Radar's health, the old Home: the trends, and the scoring panel,
+        # now under the CV page's Settings, with the file's own values in its
+        # inputs. The entrance cards went with Home final: the top bar and
+        # the new Home are the way in (test/run_home_test.py checks it).
+        home = build_dashboard.render_health_page(data, config, "t")
         for href, word in (("/jobs", "Jobs"), ("/insights", "Insights"),
                            ("/cv", "CV")):
-            check(f'href="{href}"' in home and f">{word}</span>" in home,
-                  f"the {word} entrance card links to its page")
-        check("<svg" in home.split('class="entrance"')[1][:2000],
-              "the entrance cards carry their icons")
+            check(f'href="{href}"' in home and f">{word}</a>" in home,
+                  f"the top bar links to {word}")
+        check('class="entrance"' not in home and "<h1>Radar's health</h1>" in home,
+              "Radar's health has no entrance cards")
         check("Top prospects, week on week" in home
               and 'class="bars"' in home,
               "the week-on-week prospects chart renders")
@@ -1719,7 +1721,7 @@ def main() -> int:
               "quiet")
         check(home.count('class="info"') >= 3
               and "scoring 70 or higher" in home,
-              "every Home widget rule lives behind an info icon")
+              "every widget rule lives behind an info icon")
         # The relevance filter. A sub-threshold signal is activity noise
         # and must not move the annual line.
         low = dict(data)
@@ -1745,12 +1747,14 @@ def main() -> int:
               f"a relevance-20 signal does not move the annual line "
               f"(this month counts {this_month_count})")
         _floor_now = radar_common.read_rate_floor(CFG)
-        check('id="pref-day_rate_floor_gbp"' in home
-              and f'value="{_floor_now:g}"' in home,
+        settings = build_dashboard.settings_html(config)
+        check('id="pref-day_rate_floor_gbp"' in settings
+              and f'value="{_floor_now:g}"' in settings,
               f"the scoring panel shows the live floor, {_floor_now:g}")
-        check('id="pref-target_title"' in home
-              and 'id="pref-keywords"' in home,
-              "title and keywords are editable from the panel")
+        check('id="pref-target_title"' in settings
+              and 'id="pref-keywords"' in settings and 'id="pref-first_name"' in settings,
+              "title, keywords and the welcome's first name are editable from the panel")
+        check('id="pref-' not in home, "and the panel is no longer on Radar's health")
         check("Needs you" not in home,
               "the attention section stays silent with nothing due")
         check('href="/archive"' in home,
@@ -1841,8 +1845,8 @@ def main() -> int:
             with urllib.request.urlopen(
                     f"http://127.0.0.1:{port}/", timeout=10) as resp:
                 home_http = resp.read().decode("utf-8")
-            check(resp.status == 200 and 'class="entrance"' in home_http,
-                  "GET / serves the entrance dashboard over HTTP")
+            check(resp.status == 200 and 'id="welcome-h"' in home_http,
+                  "GET / serves Home over HTTP")
             with urllib.request.urlopen(
                     f"http://127.0.0.1:{port}/insights", timeout=10) as resp:
                 ins_page = resp.read().decode("utf-8")

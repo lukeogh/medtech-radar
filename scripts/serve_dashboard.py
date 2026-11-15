@@ -86,6 +86,7 @@ import page_frame
 import cv_doc
 import cv_page
 import cv_store
+import home_page
 import prepare_application
 import score_item
 import tailored_cv
@@ -104,30 +105,69 @@ WATCH_LOCK = threading.Lock()
 WATCH_TIMEOUT = 600        # seconds Check now waits for the watcher
 
 
-def render(page_name: str = "archive") -> bytes:
+def render(page_name: str = "archive", query: dict | None = None) -> bytes:
+    """A whole page as bytes: home (the default for anything unnamed),
+    radar (Radar's health), archive, insights or jobs. query is the address's
+    parsed query, which Home reads for item and show."""
     config = radar_common.load_config()
     db_path = Path(ARGS.db).resolve() if ARGS.db else radar_common.DB_PATH
     if not db_path.exists():
         radar_common.get_db(db_path).close()
     conn = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
-    data = build_dashboard.collect(conn, config)
-    conn.close()
     try:
-        db_label = db_path.relative_to(REPO_ROOT).as_posix()
-    except ValueError:
-        db_label = str(db_path)
-    if page_name == "insights":
-        page = build_dashboard.render_insights_page(data, config, db_label)
-    elif page_name == "jobs":
-        page = build_dashboard.render_jobs_page(data, config, db_label)
-    elif page_name == "archive":
-        page = build_dashboard.render_page(data, config, db_label,
-                                           REPO_ROOT / "dashboard.html",
-                                           serve=True)
-    else:
-        page = build_dashboard.render_home_page(data, config, db_label)
+        data = build_dashboard.collect(conn, config)
+        try:
+            db_label = db_path.relative_to(REPO_ROOT).as_posix()
+        except ValueError:
+            db_label = str(db_path)
+        if page_name == "insights":
+            page = build_dashboard.render_insights_page(data, config, db_label)
+        elif page_name == "jobs":
+            page = build_dashboard.render_jobs_page(data, config, db_label)
+        elif page_name == "archive":
+            page = build_dashboard.render_page(data, config, db_label,
+                                               REPO_ROOT / "dashboard.html",
+                                               serve=True)
+        elif page_name == "radar":
+            page = build_dashboard.render_health_page(data, config, db_label)
+        else:
+            # Home reads a few things of its own on the same connection.
+            item, show = home_query(query or {})
+            page = home_page.render(conn, data, config, item, show,
+                                    push_on=bool(getattr(ARGS, "push", False)))
+    finally:
+        conn.close()
     return page.encode("utf-8")
+
+
+def home_query(query: dict) -> tuple[str | None, str]:
+    """(the item an address names, the view): an item is a short id of
+    letters, digits and hyphens, and anything else names none."""
+    item = (query.get("item") or [""])[0]
+    if not (item and len(item) <= 64 and item.isascii()
+            and all(c.isalnum() or c == "-" for c in item)):
+        item = None
+    show = "done" if (query.get("show") or [""])[0] == "done" else "todo"
+    return item, show
+
+
+def render_home_main(query: dict) -> dict:
+    """Home's main element as JSON, for its script to put in place after Done
+    or Undo last. Read only, like the page."""
+    config = radar_common.load_config()
+    dbp = db_path()
+    if not dbp.exists():
+        radar_common.get_db(dbp).close()
+    conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        data = build_dashboard.collect(conn, config)
+        item, show = home_query(query)
+        return home_page.main_payload(conn, data, config, item, show,
+                                      push_on=bool(getattr(ARGS, "push", False)))
+    finally:
+        conn.close()
 
 
 def job_verdicts_now() -> dict | None:
@@ -902,6 +942,13 @@ def set_application_next(app_id: int, text, due, interview) -> dict:
     return _write(lambda conn: applications.set_next(conn, app_id, text, due, interview))
 
 
+def set_home_done(key: str, on: bool, title=None) -> dict:
+    """Home's Done and its undo: take one item off Home, or put it back. Only
+    the home_done table changes, never the item where it lives."""
+    return _write(lambda conn: home_page.mark_done(conn, key, title) if on
+                  else home_page.mark_undone(conn, key))
+
+
 def clean_cv_reference(value) -> str | None:
     """The saved CV reference a request names, or None for no reference.
 
@@ -1205,8 +1252,9 @@ swaps that score for one made on the advert card.</p>
 <p class="cv-note" id="cv-rescore-note"></p>
 </div>
 </section>
+{build_dashboard.settings_html(config)}
 </main>
-<script>{build_dashboard.SCRIPT}{page_frame.FRAME_SCRIPT}{CV_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}</script>
+<script>{build_dashboard.SCRIPT}{page_frame.FRAME_SCRIPT}{CV_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}{build_dashboard.PREFS_SCRIPT}</script>
 </body>
 </html>"""
     return page.encode("utf-8")
@@ -1625,9 +1673,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlsplit(self.path).path
         if path in ("/", "/index.html", "/dashboard.html"):
+            query = parse_qs(urlsplit(self.path).query)
             try:
-                self._send(200, render("home"), "text/html; charset=utf-8")
+                if (query.get("part") or [""])[0] == "main":
+                    self._send(200, json.dumps(render_home_main(query)).encode(),
+                               "application/json")
+                else:
+                    self._send(200, render("home", query), "text/html; charset=utf-8")
             except Exception as err:  # noqa: BLE001  a broken render is a 500, not a crash
+                self._send(500, f"Render failed. {type(err).__name__}: {err}"
+                           .encode(), "text/plain; charset=utf-8")
+            return
+        if path == "/radar":
+            try:
+                self._send(200, render("radar"), "text/html; charset=utf-8")
+            except Exception as err:  # noqa: BLE001
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")
             return
@@ -1943,6 +2003,21 @@ class Handler(BaseHTTPRequestHandler):
             status = (200 if result.get("ok") else
                       400 if result.get("invalid") else 409)
             self._send(status, json.dumps(result).encode(), "application/json")
+            return
+        if path in ("/home/done", "/home/undone"):
+            body = self._read_json_body()
+            title = body.get("title") if isinstance(body, dict) else None
+            try:
+                key = home_page.clean_key(body.get("key") if isinstance(body, dict) else None)
+                if title is not None and not isinstance(title, str):
+                    raise ValueError("title must be text")
+            except ValueError as err:
+                self._send(400, json.dumps({"ok": False, "note": str(err)}).encode(),
+                           "application/json")
+                return
+            result = set_home_done(key, path == "/home/done", title)
+            self._send(200 if result.get("ok") else 409,
+                       json.dumps(result).encode(), "application/json")
             return
         if path == "/prepare":
             body = self._read_json_body()

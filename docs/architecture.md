@@ -498,6 +498,45 @@ to Applied dated from `applied_at`, saved CVs to Preparing dated from
 `test/run_board_test.py` checks it, and `docs/box-checks-applications-board.md`
 is the deploy.
 
+## Home
+
+Built from design/home/final and the owner's decisions of 15 Nov 2026.
+`scripts/home_page.py` draws `/` from one `build_dashboard.collect()` and a few
+reads of its own on the same read-only connection (the `home_done` table, the
+last runs of a job, company records, Top scores kept in `score_history`). Every
+item has its own address, `/?item=<id>`, the items taken off Home are at
+`/?show=done`, and `/?part=main` is the page's main element as JSON for its
+script.
+
+- The welcome greets by the optional `first_name` line of the owner's
+  preferences file (`radar_common.read_first_name`), never a name in the code,
+  and "Good morning." without one. Four figures, each a link and each equal to
+  a group of Needs you today: urgent signals (a story at the fast bar or over,
+  found in the last seven days, hiring stories included), new Top prospects
+  and new One question away roles (unread, the Jobs page's New), and
+  application follow-ups due today or overdue (the board's next steps). Threads
+  due joins when the Watchlist page is built.
+- Five lights from `job_health`: On time, Late, Stale, Off or Dry run, each with
+  its own mark. The phone push has no run of its own, so its light comes from
+  the signal watcher's runs and the ntfy address in radar.yaml.
+- The applications tile reads the board; the funnel counts each tier as the
+  Jobs tabs do; Week by week counts new Top prospects (each role once, in the
+  week it was first scored Top, from `score_history` and each advert's own
+  score date, an applied role left out) and stories that scored 40 or more,
+  over four Monday weeks, from the week Radar's first row arrived.
+- Done (key E) is a row in `home_done`, keyed on the item's address on Home
+  (`signal:`, `role:`, `app:<id>:<due date>`, `radar:<job>:<state>`), through
+  POST `/home/done` and `/home/undone` behind the write guard. It changes
+  nothing where the item lives; a new due date or a change in a job's state
+  brings the item back.
+
+The old Home is Radar's health, at `/radar` (the lights' "Radar's health"
+link): the job lines, the flow, board freshness, the trends, traction, the
+circle and the add-a-source form. Its scoring panel moved to the CV page's
+Settings (`/cv#settings`), with the first name beside the scorer's lines.
+`test/run_home_test.py` checks it, and `docs/box-checks-home-final.md` is the
+deploy.
+
 ## Prepare application
 
 The Prepare application link in an expanded Jobs row opens `GET /prepare/<id>`,
@@ -968,7 +1007,7 @@ unreachable or a job named in `health_jobs` has gone stale. Each job has its own
 limits in `radar_common.JOB_LIMITS`, because the jobs do not run alike: the
 inbox writes a row only when an email arrives, so it is stale after a day with
 none, the signal watcher after six hours, the advert checker after two days and
-the digest after eight. Home draws its lights from the same verdicts. The
+the digest after eight. Home and Radar's health draw their lights from the same verdicts. The
 watcher and the advert checker write their runs row however a run ends, with an
 outcome of ok, partial or failed, so a job that keeps failing shows as failing
 rather than as silence. It exists so that silence means quiet rather than

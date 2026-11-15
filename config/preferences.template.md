@@ -57,3 +57,11 @@ them as part of this file, so what is written here shapes want_match.
 
 target_title: Fractional software director, medtech and IVD
 keywords: IEC 62304, ISO 13485, IVD, medical devices, fractional, interim
+
+## Welcome.
+
+Optional. Home's welcome greets you by the first name on this line, and says
+"Good morning." without a name while it is empty. Only Home uses it, though
+the scorer reads this whole file, this line included.
+
+first_name:
