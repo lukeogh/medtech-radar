@@ -561,6 +561,8 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
         return
 
     company = str(parsed.get("company") or "").strip() or "Unknown company"
+    if rc.is_placeholder_company(company):
+        company = "Unknown company"
     headline = rc.clean_headline(parsed.get("headline") or item["headline"])
     story_type = rc.clean_story_type(parsed.get("type"))
     card_summary = rc.clean_card_summary(parsed.get("card_summary"))
@@ -594,6 +596,12 @@ def process_item(item: dict, conn, config: dict, system_blocks: list,
     rc.assign_event_key(conn, cur.lastrowid)
     conn.commit()
     result["items_new"] += 1
+    # A second report of a story a human hid arrives hidden too, and is
+    # not pushed: the human already said no to this event.
+    if conn.execute("SELECT acknowledged_at FROM signals WHERE id = ?",
+                    (cur.lastrowid,)).fetchone()[0]:
+        result["notes"].append(f"{company}: a new report of a hidden story, kept hidden")
+        return
 
     threshold = int(config.get("fast_signal_threshold", 75))
     if relevance < threshold:

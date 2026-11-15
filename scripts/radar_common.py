@@ -949,6 +949,11 @@ STORY_SECTIONS = (
 EVENT_WINDOW_DAYS = 7
 EVENT_SIMILARITY = 0.3
 CARD_SUMMARY_MAX = 140
+# Names a model writes when it cannot name the company. None of them is a
+# company to watch or to group news under.
+PLACEHOLDER_COMPANIES = frozenset({"unknown company", "unknown", "not stated", "not known",
+                                   "n a", "n/a", "na", "none", "various", "multiple companies",
+                                   "unnamed", "undisclosed", ""})
 _EVENT_STOP = frozenset("""a an and the of for to in on at by with from its it is as into new
     has have will be this that their than over after out up our we via per""".split())
 
@@ -973,6 +978,8 @@ def clean_card_summary(value) -> str | None:
         return None
     if len(text) > CARD_SUMMARY_MAX:
         text = text[:CARD_SUMMARY_MAX].rsplit(" ", 1)[0].rstrip(",;: ")
+    if not text:
+        return None
     if text[-1] not in ".?":
         text += "."
     return text
@@ -984,15 +991,25 @@ def clean_headline(value) -> str:
     return text[:-1] if text.endswith(".") and not text.endswith("..") else text
 
 
-def headline_words(text) -> frozenset:
+def is_placeholder_company(name) -> bool:
+    """True for "Unknown company" and the other ways a model says it could not name one."""
+    return normalise_company(name or "") in PLACEHOLDER_COMPANIES or \
+        str(name or "").strip().lower() in PLACEHOLDER_COMPANIES
+
+
+def headline_words(text, drop=frozenset()) -> frozenset:
     words = re.findall(r"[a-z0-9£€$][a-z0-9.£€$-]*", str(text or "").lower())
     return frozenset(w.strip(".-") for w in words
-                     if w.strip(".-") and w.strip(".-") not in _EVENT_STOP)
+                     if w.strip(".-") and w.strip(".-") not in _EVENT_STOP
+                     and w.strip(".-") not in drop)
 
 
-def headline_similarity(a, b) -> float:
-    """Words in common over words in either, 0 to 1."""
-    wa, wb = headline_words(a), headline_words(b)
+def headline_similarity(a, b, company=None) -> float:
+    """Words in common over words in either, 0 to 1. The company's own name
+    is left out: every candidate is about the same company, so its name
+    would make any two headlines look alike."""
+    drop = headline_words(company) if company else frozenset()
+    wa, wb = headline_words(a, drop), headline_words(b, drop)
     if not wa or not wb:
         return 0.0
     return len(wa & wb) / len(wa | wb)
@@ -1000,30 +1017,32 @@ def headline_similarity(a, b) -> float:
 
 def event_key_for(conn, signal_id: int, company_id, headline, first_seen) -> str:
     """The event a new signal belongs to: the key of an earlier signal about
-    the same company, found within EVENT_WINDOW_DAYS of this one, whose
-    headline is at least EVENT_SIMILARITY alike, or its own new key. A
-    signal with no company, or about "Unknown company", stands alone. A key
-    a human split off ("solo-") is never joined."""
+    the same company, found up to EVENT_WINDOW_DAYS before this one, whose
+    headline, less the company's name, is at least EVENT_SIMILARITY alike,
+    or its own new key. Only earlier signals count, so grouping at store time
+    and the backfill, which walks the rows in order of arrival, agree. A
+    signal with no company, or a placeholder for one, stands alone. A key a
+    human split off ("solo-") is never joined."""
     own = f"e{signal_id}"
     if not company_id:
         return own
-    name = conn.execute("SELECT norm_name FROM companies WHERE id = ?",
+    name = conn.execute("SELECT norm_name, display_name FROM companies WHERE id = ?",
                         (company_id,)).fetchone()
-    if name is None or normalise_company("Unknown company") == name[0]:
+    if name is None or is_placeholder_company(name[1]) or name[0] in PLACEHOLDER_COMPANIES:
         return own
     try:
         when = datetime.fromisoformat(str(first_seen).replace("Z", "+00:00"))
     except ValueError:
         return own
     lo = (when - timedelta(days=EVENT_WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    hi = (when + timedelta(days=EVENT_WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    hi = when.strftime("%Y-%m-%dT%H:%M:%SZ")
     best, best_score = None, 0.0
     for row in conn.execute(
             "SELECT id, headline, event_key FROM signals WHERE company_id = ?"
             " AND id <> ? AND first_seen >= ? AND first_seen <= ?"
             " AND event_key IS NOT NULL AND event_key NOT LIKE 'solo-%'"
             " ORDER BY first_seen, id", (company_id, signal_id, lo, hi)):
-        score = headline_similarity(headline, row[1])
+        score = headline_similarity(headline, row[1], name[1])
         if score >= EVENT_SIMILARITY and score > best_score:
             best, best_score = row[2], score
     return best or own
@@ -1031,7 +1050,9 @@ def event_key_for(conn, signal_id: int, company_id, headline, first_seen) -> str
 
 def assign_event_key(conn, signal_id: int) -> str:
     """Work out and store one signal's event key. For the writers, right
-    after the INSERT, so the row's own id is known."""
+    after the INSERT, so the row's own id is known. A report that joins a
+    story a human has hidden is hidden with it, so a hidden story never
+    comes back through a second source."""
     row = conn.execute("SELECT company_id, headline, first_seen, event_key"
                        " FROM signals WHERE id = ?", (signal_id,)).fetchone()
     if row is None:
@@ -1040,6 +1061,13 @@ def assign_event_key(conn, signal_id: int) -> str:
         return row[3]
     key = event_key_for(conn, signal_id, row[0], row[1], row[2])
     conn.execute("UPDATE signals SET event_key = ? WHERE id = ?", (key, signal_id))
+    if key != f"e{signal_id}":
+        hidden = conn.execute(
+            "SELECT COUNT(*), SUM(acknowledged_at IS NULL), MAX(acknowledged_at) FROM signals"
+            " WHERE event_key = ? AND id <> ?", (key, signal_id)).fetchone()
+        if hidden[0] and not hidden[1]:
+            conn.execute("UPDATE signals SET acknowledged_at = ? WHERE id = ?"
+                         " AND acknowledged_at IS NULL", (hidden[2], signal_id))
     return key
 
 # -------------------------------------------------------------- score record

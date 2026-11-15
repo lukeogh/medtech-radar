@@ -250,17 +250,27 @@ def rescore_signals(conn, config, usage_total) -> tuple[int, int]:
         except (TypeError, ValueError):
             failed += 1
             continue
+        company = str(parsed.get("company") or row["company"] or "Unknown company").strip()
+        if radar_common.is_placeholder_company(company):
+            company = "Unknown company"
+        company_id = radar_common.resolve_company(conn, company)
         conn.execute(
             "UPDATE signals SET company = ?, headline = ?, relevance = ?,"
-            " why = ?, playbook_step = ? WHERE id = ?",
-            (str(parsed.get("company") or row["company"] or "Unknown company"),
-             str(parsed.get("headline") or row["headline"] or ""),
+            " why = ?, playbook_step = ?, company_id = ?, story_type = ?,"
+            " card_summary = ?, event_key = NULL WHERE id = ?",
+            (company,
+             radar_common.clean_headline(parsed.get("headline") or row["headline"] or ""),
              relevance,
              radar_common.sanitise_free_text(
                  str(parsed.get("why") or "").strip()),
              radar_common.sanitise_free_text(
                  str(parsed.get("playbook_step") or "").strip()),
+             company_id, radar_common.clean_story_type(parsed.get("type")),
+             radar_common.clean_card_summary(parsed.get("card_summary")),
              row["id"]))
+        # The Insights page groups reports by event; a row scored late joins
+        # its event now, by the same rule as a row scored on arrival.
+        radar_common.assign_event_key(conn, row["id"])
         fixed += 1
     conn.commit()
     return fixed, failed

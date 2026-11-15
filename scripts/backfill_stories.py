@@ -3,19 +3,21 @@
 
 Two passes, in this order:
 
-1. Events, free. Every signal gets an event_key, worked out in order of
-   arrival with the same rule the watcher now uses at store time
-   (radar_common.event_key_for: same company, within seven days, similar
-   headline). A key a human split off on the story page ("solo-") is kept.
-   Re-running gives the same keys.
+1. Events, free. Every signal with no event_key gets one, worked out in
+   order of arrival with the same rule the watcher uses at store time
+   (radar_common.event_key_for: same company, up to seven days earlier,
+   similar headline less the company's name). A row that already has a key,
+   and a key a human split off ("solo-"), is left alone, so re-running
+   changes nothing.
 
 2. Types and card summaries. The hiring signals the code wrote itself get
    their type in code, free: job-advert is a buying window, qa-tripwire a
    first hire. Every other signal first seen in the last --days days (90 by
    default) that has no story_type yet is read again by the signal scorer,
    prompts/signal-scorer.md, from the headline and the source words the row
-   already holds. Only its type, headline and card summary are kept. The
-   relevance, the why line and everything else stay exactly as they were.
+   already holds. Only its type and card summary are kept. The headline
+   the grouping read, the relevance, the why line and everything else stay
+   exactly as they were.
    This pass costs one scoring call per row, so it is a dry run unless
    --live is given: the dry run says how many rows it would read and does
    nothing else.
@@ -47,20 +49,13 @@ CODE_TYPES = {"job-advert": "buying-window", "qa-tripwire": "first-hire"}
 
 
 def group_events(conn) -> int:
-    """Pass 1. Returns how many rows changed key."""
-    changed = 0
-    rows = conn.execute("SELECT id, event_key FROM signals"
+    """Pass 1. Returns how many rows were given a key."""
+    rows = conn.execute("SELECT id FROM signals WHERE event_key IS NULL"
                         " ORDER BY first_seen, id").fetchall()
     for row in rows:
-        if row["event_key"] and str(row["event_key"]).startswith("solo-"):
-            continue
-        before = row["event_key"]
-        conn.execute("UPDATE signals SET event_key = NULL WHERE id = ?", (row["id"],))
-        after = rc.assign_event_key(conn, row["id"])
-        if after != before:
-            changed += 1
+        rc.assign_event_key(conn, row["id"])
     conn.commit()
-    return changed
+    return len(rows)
 
 
 def type_hiring_rows(conn) -> int:
@@ -95,10 +90,9 @@ def read_types(conn, rows: list, config: dict, mock_fn, cap: int) -> dict:
             out["failed"] += 1
             continue
         conn.execute(
-            "UPDATE signals SET story_type = ?, card_summary = ?,"
-            " headline = COALESCE(NULLIF(?, ''), headline) WHERE id = ?",
+            "UPDATE signals SET story_type = ?, card_summary = ? WHERE id = ?",
             (rc.clean_story_type(parsed.get("type")), rc.clean_card_summary(parsed.get("card_summary")),
-             rc.clean_headline(parsed.get("headline")), row["id"]))
+             row["id"]))
         conn.commit()
         out["read"] += 1
     return out
@@ -114,6 +108,12 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.mock:
         os.environ["RADAR_MOCK"] = "1"
+    if rc.mock_mode_active() and (not args.db or Path(args.db).resolve() == Path(rc.DB_PATH).resolve()):
+        # Mock types are guesses; written to the live database they would
+        # stop a real --live run from ever reading those rows.
+        print("Mock mode only runs against a database named with --db that is not the live one.",
+              file=sys.stderr)
+        return 2
     mock_fn = None
     if rc.mock_mode_active():
         sys.path.insert(0, str(REPO_ROOT / "test"))
@@ -125,7 +125,7 @@ def main(argv=None) -> int:
         moved = group_events(conn)
         events = conn.execute("SELECT COUNT(DISTINCT COALESCE(event_key, 'e' || id)) FROM signals").fetchone()[0]
         total = conn.execute("SELECT COUNT(*) FROM signals").fetchone()[0]
-        print(f"Events: {total} signals make {events} stories; {moved} rows took a new key.")
+        print(f"Events: {total} signals make {events} stories; {moved} rows were given a key.")
         hired = type_hiring_rows(conn)
         print(f"Hiring signals typed in code: {hired}.")
         rows = rows_to_read(conn, args.days)

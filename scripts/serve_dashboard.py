@@ -314,9 +314,11 @@ def set_story_hidden(signal_id: int, on: bool) -> dict:
     comes back through a second source. Hidden is acknowledged_at, the same
     stamp the old Dismiss set: out of sight, never out of the database."""
     def go(conn):
+        radar_common.begin_write(conn)
         ids = _event_ids(conn, signal_id)
         if not ids:
-            return {"ok": False, "note": f"no story with signal {signal_id}"}
+            conn.rollback()
+            return {"ok": False, "note": "That story is no longer on file. Reload the page."}
         marks = ",".join("?" * len(ids))
         if on:
             cur = conn.execute(f"UPDATE signals SET acknowledged_at = ? WHERE id IN ({marks})"
@@ -327,7 +329,7 @@ def set_story_hidden(signal_id: int, on: bool) -> dict:
         conn.commit()
         if cur.rowcount == 0:
             word = "hidden" if on else "on the page"
-            return {"ok": False, "note": f"that story is already {word}, maybe from another tab"}
+            return {"ok": False, "note": f"That story is already {word}, perhaps from another tab. Reload the page."}
         return {"ok": True, "id": signal_id, "reports": cur.rowcount}
     return _write(go)
 
@@ -340,7 +342,7 @@ def split_story(signal_id: int) -> dict:
                            (f"solo-{signal_id}", signal_id))
         conn.commit()
         if cur.rowcount == 0:
-            return {"ok": False, "note": f"no signal {signal_id}"}
+            return {"ok": False, "note": "That report is no longer on file. Reload the page."}
         return {"ok": True, "id": signal_id}
     return _write(go)
 
@@ -351,7 +353,7 @@ def set_watched(company_id: int, on: bool) -> dict:
         row = conn.execute("SELECT id, watched_at FROM companies WHERE id = ?",
                            (company_id,)).fetchone()
         if row is None:
-            return {"ok": False, "note": f"no company {company_id}"}
+            return {"ok": False, "note": "That company is no longer on file. Reload the page."}
         if on and row["watched_at"]:
             return {"ok": True, "id": company_id, "already": True}
         conn.execute("UPDATE companies SET watched_at = ? WHERE id = ?",
@@ -367,14 +369,14 @@ LOG_CHANNELS = ("comment", "connection-note", "engagement", "artefact", "other")
 def log_contact(company_id: int, channel: str, note) -> dict:
     """Log a contact from a story page: one touch, by a human, nothing booked."""
     if channel not in LOG_CHANNELS:
-        return {"ok": False, "note": f"{channel!r} is not a channel the log knows"}
+        return {"ok": False, "note": "Choose how the contact was made from the list."}
     text = radar_common.sanitise_free_text(str(note or "").strip())[:500] or None
 
     def go(conn):
         row = conn.execute("SELECT display_name FROM companies WHERE id = ?",
                            (company_id,)).fetchone()
         if row is None:
-            return {"ok": False, "note": f"no company {company_id}"}
+            return {"ok": False, "note": "That company is no longer on file. Reload the page."}
         conn.execute("INSERT INTO touches (company, touched_at, channel, note, company_id)"
                      " VALUES (?,?,?,?,?)",
                      (row["display_name"], radar_common.now_iso(), channel,

@@ -97,8 +97,7 @@ def _story(reports: list, names: dict, companies: dict) -> dict:
     lead = ranked[0]
     kind = lead.get("story_type") or CODE_TYPES.get(lead.get("source_id")) or "other"
     company = companies.get(lead.get("company_id")) if lead.get("company_id") else None
-    known = bool(company) and radar_common.normalise_company(lead.get("company") or "") != \
-        radar_common.normalise_company("Unknown company")
+    known = bool(company) and not radar_common.is_placeholder_company(lead.get("company"))
     found = min(r["first_seen"] or "" for r in reports)
     return {
         "id": lead["id"], "key": lead.get("event_key") or f"e{lead['id']}",
@@ -189,6 +188,7 @@ FONT_CSS = "".join(
 PAGE_CSS = """
 :root{--font-serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;--gutter:16px;--rail-w:320px}
 *,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
 html{background:var(--canvas)}
 body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15px/24px var(--font-sans);
   -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
@@ -395,12 +395,16 @@ button,select,textarea{font:inherit}
 .drafts p.text{margin-top:4px;padding:12px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);
   background:var(--surface);color:var(--text-1);white-space:pre-wrap}
 .drafts .btn{margin-top:8px}
-.logform{display:grid;gap:12px;margin-top:12px;max-width:560px}
+.logform{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;margin-top:12px;max-width:560px}
 .logform label{display:grid;gap:4px;color:var(--text-2);font-size:14px;line-height:20px}
 .logform select,.logform textarea{padding:8px;border:1px solid var(--border-strong);border-radius:var(--radius-2);
   background:var(--surface-sunken);color:var(--text-1);font-size:15px;line-height:22px}
 .logform textarea{min-height:88px;resize:vertical}
-.logform .btn{justify-self:start}
+.logform .btn{justify-self:start;max-width:100%;white-space:normal;overflow-wrap:anywhere;height:auto;min-height:32px;padding:6px 12px;text-align:left}
+.watch-done{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.shown{color:var(--text-2);font-size:13px;line-height:20px}
+.ranked a,.ranked .meta,.fold-list a,.fold-list .meta,.earlier li a,.earlier .meta,.plain-list a,.plain-list .meta,
+.article h1,.hidden-slot .hl,.company dd,.company h2,.reports .as,.reports .src,.masthead h1{overflow-wrap:anywhere}
 .company{min-width:0}
 .company h2{font:600 18px/24px var(--font-sans);padding-top:12px;border-top:3px solid var(--text-1)}
 .company dl{display:grid;grid-template-columns:96px 1fr;gap:8px 12px;margin-top:12px;font-size:14px;line-height:20px}
@@ -449,16 +453,16 @@ def watch_html(s: dict) -> str:
     if not s["company_id"]:
         return ""
     if s["watched"]:
-        return (f'<a class="on-list" href="/company/{s["company_id"]}" data-cid="{s["company_id"]}">{ICON_CHECK}'
+        return (f'<a class="on-list" href="/company/{esc(s["company_id"])}">{ICON_CHECK}'
                 f'On your Watchlist<span class="visually-hidden">: {esc(s["company"])}, open its record</span></a>')
-    return (f'<button type="button" class="btn" data-act="watch" data-cid="{s["company_id"]}" '
+    return (f'<button type="button" class="btn" data-act="watch" data-cid="{esc(s["company_id"])}" '
             f'data-company="{esc(s["company"])}">Add to Watchlist<span class="visually-hidden">: '
             f'{esc(s["company"])}</span></button>')
 
 
 def actions_html(s: dict) -> str:
     return (f'<div class="story-actions">{watch_html(s)}<button type="button" class="btn quiet" data-act="hide" '
-            f'data-id="{s["id"]}">Hide<span class="visually-hidden"> this story: {esc(s["headline"])}</span>'
+            f'data-id="{esc(s["id"])}">Hide<span class="visually-hidden"> this story: {esc(s["headline"])}</span>'
             f'</button></div>')
 
 
@@ -477,7 +481,7 @@ def meta_line(s: dict) -> str:
         link = (f' · <a href="{esc(s["url"])}" target="_blank" rel="noopener">Read the announcement'
                 f'<span class="visually-hidden"> on {esc(s["source"])}: {esc(s["company"])} (opens in a new tab)'
                 f'</span>{ICON_OUT}</a>')
-    return (f'<p class="story-meta"><span class="rel">Relevance {s["relevance"]}</span> · Found '
+    return (f'<p class="story-meta"><span class="rel">Relevance {esc(s["relevance"])}</span> · Found '
             f'{esc(_day(s["found"]))}{link}</p>')
 
 
@@ -496,7 +500,7 @@ def _list_item(s: dict) -> str:
 
 
 def ranked_html(model: dict) -> str:
-    items = "".join(f'<li><a href="{story_href(s)}">{esc(s["headline"])}</a>'
+    items = "".join(f'<li data-rank-story="{esc(s["id"])}"><a href="{story_href(s)}">{esc(s["headline"])}</a>'
                     f'<span class="meta">{esc(s["company"])} · Relevance {s["relevance"]}</span></li>'
                     for s in model["ranked"])
     if not model["ranked"]:
@@ -614,9 +618,11 @@ def fold_html(fid: str, title: str, sub: str, items: str, foot: str = "") -> str
 
 def folds_html(model: dict) -> str:
     below = model["below"]
-    out = fold_html("more", "More stories", f"{len(below)} this week under relevance 40",
-                    "".join(_list_item(s) for s in below),
-                    '<p class="fold-foot">Older stories stay on file. <a href="/archive">Every story on file</a></p>')
+    out = ""
+    if below:
+        out = fold_html("more", "More stories", f"{len(below)} this week under relevance 40",
+                        "".join(_list_item(s) for s in below),
+                        '<p class="fold-foot">Older stories stay on file. <a href="/archive">Every story on file</a></p>')
     hidden = model["hidden"]
     if hidden:
         lis = "".join(f'<li data-story="{s["id"]}"><a href="{story_href(s)}">{esc(s["headline"])}</a>'
@@ -648,8 +654,9 @@ def front_body(model: dict) -> str:
         older = sum(len(sec["earlier"]) for sec in model["sections"])
         cols = (f'<div class="cols cols-none"><section aria-labelledby="sec-none"><div class="sec-head">'
                 f'<h2 id="sec-none">Sections</h2><span class="count">None this week</span></div>'
-                f'<p class="empty-line">No section has a story at 40 or more this week. {older} from earlier '
-                f'weeks are still on file.</p></section></div>')
+                f'<p class="empty-line">No section has a story at 40 or more this week. '
+                + (f'{older} from earlier weeks {"is" if older == 1 else "are"} still on file.' if older
+                   else 'Nothing from earlier weeks is open either.') + '</p></section></div>')
     front = f'<div class="front">{top_html(model)}{ranked_html(model)}{cols}</div>'
     return f'{masthead_html(model)}{notice_html(model)}{front}{folds_html(model)}{foot_html(model)}'
 
@@ -673,7 +680,7 @@ def _people(raw) -> str:
     return str(items)
 
 
-def company_html(conn, s: dict) -> str:
+def company_html(conn, s: dict, others: list | None = None) -> str:
     c = s["company_rec"]
     if not c:
         return ('<aside class="company" aria-labelledby="co-h"><h2 id="co-h">About the company</h2>'
@@ -688,12 +695,12 @@ def company_html(conn, s: dict) -> str:
                         " ORDER BY touched_at DESC, id DESC LIMIT 1", (c["id"], c["display_name"])).fetchone()
     contact = (f'Last contact {_day(last[0])} ({dict(CHANNELS).get(last[1], last[1] or "other").lower()}).'
                if last else "No contact yet.")
-    if s["watched"]:
-        parts.append(f'<a class="rec" href="/company/{c["id"]}">{esc(c["display_name"])}’s record</a>'
-                     f'<span class="meta">On your Watchlist since {esc(_day(c["watched_at"]))}. {contact}</span>')
-    else:
-        parts.append(f'<a class="rec" href="/company/{c["id"]}">{esc(c["display_name"])}’s record</a>'
-                     f'<span class="meta">Not on your Watchlist. {contact}</span>')
+    cid = esc(c["id"])
+    watch_line = (f'On your Watchlist since {_day(c["watched_at"])}.' if s["watched"]
+                  else "Not on your Watchlist.")
+    parts.append(f'<a class="rec" href="/company/{cid}">{esc(c["display_name"])}’s record</a>'
+                 f'<span class="meta"><span data-watch-line="{cid}">{esc(watch_line)}</span> '
+                 f'<span data-contact-line="{cid}">{esc(contact)}</span></span>')
     roles = conn.execute(
         "SELECT id, title, tier, applied_at, location FROM opportunities WHERE company_id = ?"
         " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
@@ -707,6 +714,9 @@ def company_html(conn, s: dict) -> str:
         parts.append(f'<h3>Roles on Jobs</h3><ul>{lis}</ul>')
     else:
         parts.append(f'<h3>Roles on Jobs</h3><p class="empty-line">No open roles from {esc(c["display_name"])} on Jobs.</p>')
+    if others:
+        lis = "".join(_list_item(o) for o in others[:5])
+        parts.append(f'<h3>Other stories about {esc(c["display_name"])}</h3><ul class="plain-list">{lis}</ul>')
     return f'<aside class="company" aria-labelledby="co-h">{"".join(parts)}</aside>'
 
 
@@ -718,17 +728,18 @@ def drafts_html(s: dict) -> str:
     for field, title in (("draft_comment", "Comment"), ("draft_note", "Connection note")):
         if d.get(field):
             out.append(f'<div class="draft"><h3 id="d-{field}">{title}</h3><p class="text" id="t-{field}">'
-                       f'{esc(d[field])}</p><button type="button" class="btn" data-act="copy" data-target="t-{field}">'
-                       f'Copy the {title.lower()}</button></div>')
-    return (f'<h2>Drafts, yours to edit</h2><p class="src-note">Written when the story arrived. Nothing is ever '
-            f'posted or sent by the machine.</p><div class="drafts">{"".join(out)}</div>')
+                       f'{esc(d[field])}</p><button type="button" class="btn" data-act="copy" data-target="t-{field}" '
+                       f'data-label="Copy the {title.lower()}">Copy the {title.lower()}</button></div>')
+    return (f'<h2>Drafts to copy</h2><p class="src-note">Written when the story arrived. Copy one and make it yours '
+            f'where you post it. Nothing is ever posted or sent by the machine.</p>'
+            f'<div class="drafts">{"".join(out)}</div>')
 
 
 def log_html(s: dict) -> str:
     if not s["company_id"]:
         return ""
     opts = "".join(f'<option value="{v}">{w}</option>' for v, w in CHANNELS)
-    return (f'<h2 id="log-h">Log a contact</h2><form class="logform" data-cid="{s["company_id"]}" '
+    return (f'<h2 id="log-h">Log a contact</h2><form class="logform" data-cid="{esc(s["company_id"])}" '
             f'aria-labelledby="log-h"><label>How<select name="channel">{opts}</select></label>'
             f'<label>Note, optional<textarea name="note" maxlength="500"></textarea></label>'
             f'<button type="submit" class="btn">Log a contact with {esc(s["company"])}</button></form>')
@@ -772,7 +783,9 @@ def story_body(conn, model: dict, s: dict) -> str:
     article = (f'<article class="article" aria-labelledby="story-h1" data-story="{s["id"]}">{source_line(s)}'
                f'<h1 id="story-h1">{esc(s["headline"])}</h1>{facts}{actions_html(s)}{summary}{why}{reports}'
                f'{drafts_html(s)}{log_html(s)}<a class="back" href="/insights">Back to Insights</a></article>')
-    return f'<div class="story-page">{crumbs}{article}{company_html(conn, s)}</div>'
+    others = [o for o in model["stories"] if o["company_id"] and o["company_id"] == s["company_id"]
+              and o["id"] != s["id"] and not o["hidden"]]
+    return f'<div class="story-page">{crumbs}{article}{company_html(conn, s, others)}</div>'
 
 
 def section_body(model: dict, key: str) -> str:
@@ -795,107 +808,127 @@ PAGE_SCRIPT = r"""
 (function(){
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var toast = document.querySelector('.toast'), msg = toast && toast.querySelector('.toast-msg'),
-      undoBtn = toast && toast.querySelector('.toast-undo'), closeBtn = toast && toast.querySelector('.toast-close'),
-      undoFn = null, timer = null;
-  function announce(text){ if(!msg) return; msg.textContent=''; window.requestAnimationFrame(function(){ msg.textContent=text; }); }
-  function closeToast(){ if(!toast) return; toast.classList.remove('show','is-bad'); undoFn=null; clearTimeout(timer); }
-  function arm(){ clearTimeout(timer); timer=setTimeout(function(){
-      if(toast.matches(':hover')||toast.contains(document.activeElement)){ arm(); return; } closeToast(); },10000); }
-  function say(text, undo, bad){ if(!toast) return; announce(text); undoFn=undo||null;
-    if(undoBtn) undoBtn.hidden=!undo; toast.classList.toggle('is-bad',!!bad); toast.classList.add('show'); arm(); }
-  if(undoBtn) undoBtn.addEventListener('click',function(){ var f=undoFn; closeToast(); if(f) f(); });
+      closeBtn = toast && toast.querySelector('.toast-close');
+  var live = document.getElementById('live');
+  // Polite words for a screen reader. The region is always rendered, so it is announced.
+  function announce(text){ if(!live) return; live.textContent=''; window.requestAnimationFrame(function(){ live.textContent=text; }); }
+  // A failure stays on screen until it is closed or the next action, and the page keeps
+  // room under it so it never covers what has focus.
+  function closeToast(){ if(!toast) return; toast.classList.remove('show'); document.documentElement.style.scrollPaddingBottom=''; }
+  function fail(text, focusAfter){
+    if(toast){ msg.textContent=text; toast.classList.add('show');
+      document.documentElement.style.scrollPaddingBottom=(toast.offsetHeight+48)+'px'; }
+    announce(text); if(focusAfter) focusAfter.focus();
+  }
   if(closeBtn) closeBtn.addEventListener('click',closeToast);
   document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&toast&&toast.classList.contains('show')) closeToast(); });
+  function busy(b,on){ if(on){ b.setAttribute('aria-disabled','true'); b.dataset.busy='1'; }
+    else { b.removeAttribute('aria-disabled'); delete b.dataset.busy; } }
   function post(path, body){
     return fetch(path,{method:'POST',headers:{'Content-Type':'application/json','__WRITE_HEADER__':'1'},body:JSON.stringify(body)})
       .then(function(r){ return r.json().catch(function(){
         return {ok:false,note:'No usable answer came back, so that may not have saved. Reload to check.'}; }); })
       .catch(function(){ return {ok:false,note:'The dashboard did not answer. Nothing was saved.'}; });
   }
-  function failed(res){ say(res.note || 'That did not stick. Try again.', null, true); }
-  function onList(cid, name){
-    var a=document.createElement('a'); a.className='on-list'; a.href='/company/'+cid; a.dataset.cid=cid;
-    a.innerHTML='<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
-    a.appendChild(document.createTextNode('On your Watchlist'));
-    var v=document.createElement('span'); v.className='visually-hidden'; v.textContent=': '+name+', open its record'; a.appendChild(v);
-    return a;
+  function act(b, path, body, done){
+    if(b.dataset.busy) return; busy(b,true); closeToast();
+    post(path, body).then(function(res){ busy(b,false);
+      if(!res.ok){ fail(res.note||'That did not stick. Try again.', b); return; }
+      done(res); });
   }
-  function hiddenSlot(headline, onUndo){
-    var slot=document.createElement('div'); slot.className='hidden-slot';
-    var t=document.createElement('span'); t.appendChild(document.createTextNode('Hidden: '));
-    var h=document.createElement('span'); h.className='hl'; h.textContent=headline; t.appendChild(h);
-    t.appendChild(document.createTextNode('. It stays on file.')); slot.appendChild(t);
-    var b=document.createElement('button'); b.type='button'; b.className='btn'; b.textContent='Undo';
-    var v=document.createElement('span'); v.className='visually-hidden'; v.textContent=' hiding this story'; b.appendChild(v);
-    b.addEventListener('click',onUndo); slot.appendChild(b); return slot;
+  function el(tag, cls, text){ var n=document.createElement(tag); if(cls) n.className=cls; if(text!=null) n.textContent=text; return n; }
+  function vh(text){ return el('span','visually-hidden',text); }
+  var CHECK='<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+  function setLine(sel, text){ document.querySelectorAll(sel).forEach(function(n){ n.textContent=text; }); }
+
+  function watched(cid, name){
+    var wrap=el('span','watch-done'), a=el('a','on-list'); a.href='/company/'+cid; a.innerHTML=CHECK;
+    a.appendChild(document.createTextNode('On your Watchlist')); a.appendChild(vh(': '+name+', open its record'));
+    var u=el('button','btn quiet','Undo'); u.type='button'; u.dataset.act='unwatch'; u.dataset.cid=cid; u.dataset.company=name;
+    u.appendChild(vh(': take '+name+' off your Watchlist'));
+    wrap.appendChild(a); wrap.appendChild(u); return wrap;
   }
+  var restore = {};
+
   document.addEventListener('click',function(e){
-    var b=e.target.closest('button[data-act]'); if(!b||b.disabled) return;
-    var act=b.dataset.act;
-    if(act==='copy'){
-      var el=document.getElementById(b.dataset.target), label=b.textContent;
-      (navigator.clipboard?navigator.clipboard.writeText(el.textContent):Promise.reject()).then(function(){
+    var b=e.target.closest('button[data-act]'); if(!b) return;
+    var kind=b.dataset.act;
+    if(b.dataset.busy){ e.preventDefault(); return; }
+    if(kind==='copy'){
+      var src=document.getElementById(b.dataset.target), label=b.dataset.label||b.textContent;
+      (navigator.clipboard?navigator.clipboard.writeText(src.textContent):Promise.reject()).then(function(){
         b.textContent='Copied'; announce('Copied.'); setTimeout(function(){ b.textContent=label; },1600);
-      },function(){ say('The browser would not copy. Select the text and copy it by hand.',null,true); });
+      },function(){ fail('The browser would not copy. Select the text and copy it by hand.', b); });
       return;
     }
-    if(act==='watch'){
-      var cid=Number(b.dataset.cid), name=b.dataset.company; b.disabled=true;
-      post('/watchlist/add',{company_id:cid}).then(function(res){
-        b.disabled=false; if(!res.ok) return failed(res);
-        var all=[].slice.call(document.querySelectorAll('button[data-act="watch"][data-cid="'+cid+'"]'));
-        var links=all.map(function(x){ var a=onList(cid,name); x.replaceWith(a); return {a:a,b:x}; });
-        var mine=links.filter(function(p){ return p.b===b; })[0]; if(mine) mine.a.focus();
-        say(name+' is on your Watchlist.', function(){
-          post('/watchlist/remove',{company_id:cid}).then(function(r2){
-            if(!r2.ok) return failed(r2);
-            links.forEach(function(p){ p.a.replaceWith(p.b); }); b.focus(); announce(name+' is off your Watchlist.');
-          });
-        });
+    if(kind==='watch'){
+      var cid=Number(b.dataset.cid), name=b.dataset.company;
+      act(b,'/watchlist/add',{company_id:cid},function(){
+        restore[cid]=[];
+        document.querySelectorAll('button[data-act="watch"][data-cid="'+cid+'"]').forEach(function(x){
+          var w=watched(cid,name); restore[cid].push({w:w,b:x}); x.replaceWith(w);
+          if(x===b) w.querySelector('a').focus(); });
+        setLine('[data-watch-line="'+cid+'"]','On your Watchlist from today.');
+        announce(name+' is on your Watchlist. Undo is next to it.');
       });
       return;
     }
-    if(act==='hide'){
-      var card=b.closest('[data-story]'); if(!card) return; var id=Number(b.dataset.id); b.disabled=true;
-      post('/story/hide',{id:id}).then(function(res){
-        b.disabled=false; if(!res.ok) return failed(res);
+    if(kind==='unwatch'){
+      var cid2=Number(b.dataset.cid), name2=b.dataset.company, mine=b.closest('.watch-done');
+      act(b,'/watchlist/remove',{company_id:cid2},function(){
+        (restore[cid2]||[]).forEach(function(p){ p.w.replaceWith(p.b); if(p.w===mine) p.b.focus(); });
+        setLine('[data-watch-line="'+cid2+'"]','Not on your Watchlist.');
+        announce(name2+' is off your Watchlist.');
+      });
+      return;
+    }
+    if(kind==='hide'){
+      var card=b.closest('[data-story]'); if(!card) return; var id=Number(b.dataset.id);
+      act(b,'/story/hide',{id:id},function(){
         var link=card.querySelector('.story-h a, h1'), headline=link?link.textContent:'This story';
         var target=card.classList.contains('article')?b.closest('.story-actions'):card;
-        var slot=hiddenSlot(headline,function(){
-          post('/story/show',{id:id}).then(function(r2){
-            if(!r2.ok) return failed(r2);
-            slot.remove(); target.hidden=false; var f=target.querySelector('.story-h a, button[data-act="hide"]'); if(f) f.focus();
+        var ranked=document.querySelectorAll('[data-rank-story="'+id+'"]');
+        var slot=el('div','hidden-slot'), t=el('span');
+        t.appendChild(document.createTextNode('Hidden: ')); t.appendChild(el('span','hl',headline));
+        t.appendChild(document.createTextNode('. It stays on file.')); slot.appendChild(t);
+        var u=el('button','btn','Undo'); u.type='button'; u.appendChild(vh(' hiding this story')); slot.appendChild(u);
+        u.addEventListener('click',function(){
+          if(u.dataset.busy) return; busy(u,true); closeToast();
+          post('/story/show',{id:id}).then(function(r2){ busy(u,false);
+            if(!r2.ok){ fail(r2.note||'That did not stick. Try again.', u); return; }
+            slot.remove(); target.hidden=false; ranked.forEach(function(n){ n.hidden=false; });
+            var f=target.querySelector('.story-h a, button[data-act="hide"]'); if(f) f.focus();
             announce('Story back on the page.');
           });
         });
-        target.parentNode.insertBefore(slot,target); target.hidden=true; slot.querySelector('button').focus();
-        announce('Story hidden. Undo is next to where it was.');
+        target.parentNode.insertBefore(slot,target); target.hidden=true;
+        ranked.forEach(function(n){ n.hidden=true; });
+        u.focus(); announce('Story hidden. Undo is where it was.');
       });
       return;
     }
-    if(act==='show'){
-      var li=b.closest('[data-story]'); b.disabled=true;
-      post('/story/show',{id:Number(b.dataset.id)}).then(function(res){
-        b.disabled=false; if(!res.ok) return failed(res);
-        b.replaceWith(document.createTextNode(' Back on the page when you reload.')); announce('Story shown again.');
+    if(kind==='show'){
+      act(b,'/story/show',{id:Number(b.dataset.id)},function(){
+        var s=el('span','shown','Back on the page when you reload.'); s.tabIndex=-1;
+        b.replaceWith(s); s.focus(); announce('Story shown again.');
       });
       return;
     }
-    if(act==='split'){
-      b.disabled=true;
-      post('/story/split',{id:Number(b.dataset.id)}).then(function(res){
-        b.disabled=false; if(!res.ok) return failed(res);
-        var li=b.closest('li'); var a=document.createElement('a'); a.href='/insights/story/'+b.dataset.id;
-        a.textContent='Now a story of its own'; b.replaceWith(a); a.focus(); announce('Split off into a story of its own.');
+    if(kind==='split'){
+      act(b,'/story/split',{id:Number(b.dataset.id)},function(){
+        var a=el('a',null,'Now a story of its own'); a.href='/insights/story/'+b.dataset.id;
+        b.replaceWith(a); a.focus(); announce('Split off into a story of its own.');
       });
     }
   });
   document.querySelectorAll('form.logform').forEach(function(form){
     form.addEventListener('submit',function(e){
-      e.preventDefault(); var btn=form.querySelector('button[type=submit]'); btn.disabled=true;
-      post('/touch/log',{company_id:Number(form.dataset.cid),channel:form.channel.value,note:form.note.value})
-        .then(function(res){ btn.disabled=false; if(!res.ok) return failed(res);
-          form.note.value=''; say('Contact logged.'); });
+      e.preventDefault(); var btn=form.querySelector('button[type=submit]');
+      var word=form.channel.options[form.channel.selectedIndex].text.toLowerCase();
+      act(btn,'/touch/log',{company_id:Number(form.dataset.cid),channel:form.channel.value,note:form.note.value},function(){
+        form.note.value=''; setLine('[data-contact-line="'+form.dataset.cid+'"]','Last contact today ('+word+').');
+        announce('Contact logged.');
+      });
     });
   });
   document.querySelectorAll('.fold-btn').forEach(function(btn){
@@ -932,8 +965,8 @@ PAGE_SCRIPT = r"""
 })();
 """.replace("__WRITE_HEADER__", bd.WRITE_HEADER)
 
-TOAST = ('<div class="toast"><span class="toast-msg" role="status" aria-live="polite"></span>'
-         '<button type="button" class="btn toast-undo">Undo</button>'
+TOAST = ('<p class="visually-hidden" id="live" role="status" aria-live="polite"></p>'
+         '<div class="toast is-bad"><span class="toast-msg"></span>'
          '<button type="button" class="btn quiet toast-close" aria-label="Close message">Close</button></div>')
 
 
@@ -957,7 +990,8 @@ def render_story(conn, signal_id: int, config: dict | None = None, now: str | No
     s = find_story(model, signal_id)
     if s is None:
         return None
-    return page(f"{s['headline'][:70]} · Insights", story_body(conn, model, s), model["jobs"])
+    title = s["headline"] if len(s["headline"]) <= 70 else s["headline"][:70].rsplit(" ", 1)[0] + "…"
+    return page(f"{title} · Insights", story_body(conn, model, s), model["jobs"])
 
 
 def render_section(conn, key: str, config: dict | None = None, now: str | None = None) -> str | None:
