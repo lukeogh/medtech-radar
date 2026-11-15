@@ -294,6 +294,18 @@ Shared by the three finals: hand-drawn HTML and CSS in main's frame (`scripts/pa
 
 Open questions in the notes frame, each with the choice drawn and the alternatives: where the tailored score sits; whether editing a line re-cites asks live (drawn: the cited lines follow at once, the marks change only on Rescore); what a master change does to a tailored CV; the cost-first button against main's start-on-open from the Jobs link; which advert sentence an ask came from (the scorer would have to return it); where the gaps sit; the save name (drawn with the full job title, as the code and board v2 name files); a dark or a light sheet; notes that do not fit beside their line; Mark applied without a saved CV.
 
+**Decisions, 15 Nov.** The open questions in the notes frame, settled:
+
+1. Spending: the page never spends on opening. Fetching and scoring the full description sit behind their own
+   button, which states the cost first; following the Jobs link no longer starts the fetch.
+2. The CV sheet is light paper inside the dark page, an approved exception to dark only, the same as on the CV
+   page. The rest of the page stays dark.
+3. Advert sentences: the scorer also returns the advert sentence each ask came from, and it is kept only if it is
+   found word for word in the stored description; otherwise the ask shows without a quoted sentence.
+
+The other open questions stay as drawn in the notes frame, among them the cited lines following an edit at once
+while the met, partly and gap marks change only on Rescore, and the save name keeping the full job title.
+
 ### prepare-application/three-panes
 
 A, Three panes: the tailored CV, the asks and the advert side by side, with the scores and actions in one band.
@@ -372,6 +384,19 @@ Shared by the three finals: hand-drawn HTML and CSS in main's frame (`scripts/pa
 | Rationale, what came from Margin notes and the Enhancv-style editor, breakpoints, keyboard, contrast, thirteen open questions | 1280x4924 | [png](cv/final/cv_final_notes_1280_v1.png) · [html](cv/final/cv_final_notes_1280_v1.html) · [css](cv/final/cv_final_notes_1280_v1.css) |
 
 Open questions: dark sheet or light paper (shared with Prepare application); named masters or today's dated versions; how far one Rescore reaches (drawn: all 38 in one confirmed run; today 25 a press); the cost figure (drawn: about 40 to 70 cents for 38 roles, from the cost note); every preference edited here; what a preference change flags; over two pages (drawn: a warning, saving allowed); how much Design changes; Rearrange (keyboard dialog, no dragging); what a Word import does; line numbers; editing on a phone; Undo and the Save button.
+
+**Decisions, 15 Nov.** The open questions in the notes frame, settled:
+
+1. The CV sheet is light paper inside the dark page, an approved exception to dark only, shared with Prepare
+   application.
+2. Versions: one master CV with dated versions, as today, not named masters.
+3. Preference changes: a change to the day-rate or salary floor, the CV pass mark or the filter floor re-sorts the
+   affected roles in code, for free, and says how many moved. Only a location or sector change offers a paid
+   rescore, with the count and the cost stated first.
+
+The other open questions stay as drawn in the notes frame, among them Rescore affected reaching every flagged role
+in one confirmed run with its cost first, every preference edited on this page, a warning past two pages with saving
+still allowed, and Rearrange as a keyboard dialog with no dragging.
 
 ### cv/three-panes
 
@@ -455,6 +480,17 @@ The final Home: round-2 variation C, welcome hero and bento, with a fifth large 
 
 - `home_final_1280_v1`: from 1024 to 1799 the page scrolls to Needs you today; `home_final_1280-scrolled-to-list_v1.png` (a local render, not a canvas frame) shows the 900px screen scrolled there.
 - `home_final_states_v1`: four whole Home screens at 1280 (a quiet day, the first week, no applications yet, a Radar fault), then the quiet day and the fault on a phone.
+
+**Decisions, 15 Nov.** What Home final needs before it is built:
+
+1. Order: the applications board is built first and Home second.
+2. Follow-ups: Radar adds a "Follow up" next step 7 days after a role is marked applied, and the owner adds their
+   own, each with a date. The 21-day rule stays as board v2 draws it.
+3. Threads due: the figure joins Home when the Watchlist is built, so Home ships with four figures until then.
+4. The weekly chart is rebuilt from score history, so it is not empty on day one.
+5. The digest and phone push lights say "Dry run" while they are.
+6. No light or dark switch: Radar stays dark only.
+7. The welcome name comes from config, never the code.
 
 ### home/round-2
 
@@ -717,6 +753,19 @@ Shared by the three finals: hand-drawn HTML and CSS in main's frame (`scripts/pa
 | Rationale, what came from Table and record, build needs, keyboard, contrast, twelve open questions | 1280x5055 | [png](watchlist/final/watchlist_final_notes_1280_v1.png) · [html](watchlist/final/watchlist_final_notes_1280_v1.html) · [css](watchlist/final/watchlist_final_notes_1280_v1.css) |
 
 Open questions: what Radar may suggest (drawn: buying windows, funding rounds and stories at 70 or more); how often and how many; whether dismissed suggestions come back; whether a next step is required when logging a contact (drawn: no, but a next step needs a due date); which threads count on Home (drawn: Watchlist companies only); whether removing closes the thread; what adding an unknown name does; which drafts the record shows; the record beside the table from 1024; whether facts refresh; the state labels; where the suggestions sit. Build needs listed in the notes: a route that saves a contact's next step and due date (the touches table already has the columns), how each company joined, a suggestions store, add by name, a source per fact.
+
+**Decisions, 15 Nov.** The open questions in the notes frame, settled:
+
+1. Logging a contact adds the company to the Watchlist if it is not on it, so every thread can count towards
+   "threads due" on Home.
+2. Facts: the record gets a Read again button for the company's facts, which makes one polite fetch and one model
+   call, with the cost shown first.
+3. People: a person can be added by hand, with a name and a title, as well as the published chief executive and
+   chief technology officer Radar keeps today.
+
+The other open questions stay as drawn in the notes frame, among them suggestions from buying windows, funding
+rounds and stories at 70 or more, and a next step that is optional when logging a contact but needs a due date when
+it is given.
 
 ### watchlist/a
 
