@@ -1003,9 +1003,23 @@ CV gate has only ever been code's (`score_item.cv_gate`); the rate gate is exact
 wherever a pay figure is stored, and the floor reaches `derive_tier`. What cannot
 be worked out again is left as the scorer judged it and counted on the page: a
 rate the advert states that Radar holds no figure for, roles never gated, and
-the Location and Sector gates, which the model judges from the prose. A re-sort
-keeps each replaced score in `score_history` (writer `cv_preferences`) and logs
-one `regate` run, and applied roles keep their tier.
+the Location and Sector gates, which the model judges from the prose. Roles never
+gated have no tier, so no re-sort and no run on the page reaches them; the page
+says so, with their cost, and names `scripts/rescore.py --regate`, run by hand on
+the box, as what scores them. A re-sort keeps each replaced score in
+`score_history` (writer `cv_preferences`) and logs one `regate` run, and applied
+roles keep their tier. A CV gate the re-sort flips gets code's note
+(`regate_rates.cv_gate_note`, "CV match 64 against the pass mark of 70, below,
+judged in code."), so a fail mark never sits beside the scorer's words that it
+passed; `gate_cv_note` is one of the columns `regate` writes. A database too busy
+to re-sort leaves the file saved and the roles as they were (`resorted` false),
+and the page keeps a Re-sort now that sends the same values again. A one-line
+setting (title, keywords, first name, `/profile/setting`, `update_pref_line`) is
+written the same atomic way, and the floors, the pass mark and the Filtered floor
+are not one-line settings, so they never change without a re-sort. An inbox run
+reads the floors and the thresholds again once it holds its write lock, for the
+whole email, so a save landing mid-run is either read by that run or re-sorts
+its roles after it.
 
 A location or sector change offers a paid rescore instead, and a master change
 flags the roles still scored on an older version. Rescore affected
@@ -1015,8 +1029,16 @@ dashboard that shares Check now's lock, on the card scorer; acknowledged,
 applied and full-description roles are left out and counted. The count and the
 cost are said first (`cv_screen.rescore_cost`: the cost note's 1.1 to 1.8 cents a
 card score, widened by what live rescores on file have cost a role, priced as
-Home prices the week), the confirm sends the count it stated, and a run whose
-count has grown since is refused. `test/run_cv_final_test.py` and
+Home prices the week, cache writes at 1.25 times input), the confirm sends the
+count it stated and a hash of the roles it named (`rescore.ids_hash`), and a run
+whose count has grown, or whose roles are another set, is refused. A paid reply
+the database is too busy to take (an inbox run holds the lock for a whole email)
+is held and written again after a pause (`rescore.BUSY_TRIES`, `BUSY_PAUSE`);
+one that still cannot be written is counted as not stored, said so on the page,
+and the run goes on. The run's row in `runs` is written however the run ends,
+with the tokens spent so far, and the running line says the cost so far. Every
+call's cache-write tokens are recorded (`runs.cache_write_tokens`, added by
+`_migrate`). `test/run_cv_final_test.py` and
 `test/cv_screen_harness.js` check it, and `docs/box-checks-prepare-cv-final.md` holds
 the deploy.
 

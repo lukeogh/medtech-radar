@@ -399,6 +399,18 @@ def main(argv=None) -> int:
         "radar-email://" + "|".join(str(email.get(k, ""))
                                     for k in ("from", "subject", "date")))
     attempts = 0
+    # The run's write lock, taken here, held to the end of the email. The
+    # floors and the CV thresholds are read again under it, so the values
+    # every role of this email is sorted on are the file's as of this moment.
+    # A save on the CV page's Preferences tab that lands before this is read
+    # here; one that lands after needs this run's lock to re-sort, so its
+    # re-sort comes after this email and takes in its roles (if the wait runs
+    # past five seconds the page says so and offers Re-sort now, the file
+    # already saved). The read at the top stays, so a file
+    # that has lost a floor line still fails before the extraction is paid for.
+    radar_common.begin_write(conn)
+    floors = radar_common.read_rate_floors(config)
+    thresholds = radar_common.read_score_thresholds(config)
     if extract_note:
         conn.execute(
             "INSERT INTO email_attempts (email_hash, attempts, last_attempt,"

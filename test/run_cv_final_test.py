@@ -296,7 +296,11 @@ def resort_checks() -> None:
         sal = [put(conn, pay_currency="GBP", pay_period="year", pay_min=90000, pay_max=95000,
                    rate_stated=1) for _ in range(2)]
         cv74 = [put(conn, cv_match=74) for _ in range(4)]
-        cv75 = put(conn, cv_match=75)
+        cv75 = put(conn, cv_match=75, gate_cv_note="The CV covers the asks.")
+        # A CV gate that flips while its tier stands: the Sector gate fails it
+        # to Reading whatever the CV gate says.
+        cv74_reading = put(conn, cv_match=74, gate_sector=0, tier="reading",
+                           failed_gates='["sector"]', gate_cv_note="Passes the CV gate.")
         cv45 = [put(conn, cv_match=45, gate_cv=0, tier="reading", failed_gates='["cv"]')
                 for _ in range(2)]
         prose_rate = put(conn, rate_stated=1, gate_rate=1)            # no figure stored
@@ -348,8 +352,11 @@ def resort_checks() -> None:
               "the two roles whose advert states a rate Radar holds no figure for keep the "
               "scorer's Rate gate and are counted (kept_as_scored 2)")
         check(res["ungated"] == 1 and tier_of(conn, ungated) is None
-              and "never gated" in res["note"],
-              "the role scored before the gates is counted and left for a rescore")
+              and "no re-sort reaches it and nothing on this page rescores it" in res["note"]
+              and "python scripts/rescore.py --regate, run by hand on the box" in res["note"]
+              and "about 1 to 2 cents" in res["note"] and "left for a rescore" not in res["note"],
+              "the role scored before the gates is counted and left, and the page names "
+              "honestly where it is scored, the script on the box, with its cost")
         conn.close()
         res = cv_screen.save_preferences({"values": {"salary_floor_gbp": 96000}}, p.cfg, p.db)
         conn = rc.get_db(p.db)
@@ -363,9 +370,9 @@ def resort_checks() -> None:
         conn.close()
         res = cv_screen.save_preferences({"values": {"cv_pass_score": 75}}, p.cfg, p.db)
         conn = rc.get_db(p.db)
-        check(broken["tier_moves_total"] == 0 and broken["cv_gate_stale"] == 4,
+        check(broken["tier_moves_total"] == 0 and broken["cv_gate_stale"] == 5,
               "the control: with the CV gate left as stored, a pass mark of 75 would move "
-              "nothing and leave 4 gates stale")
+              "nothing and leave 5 gates stale")
         check(res["moved"] == 4 and res["moves"] == {"top to reading": 4}
               and all(tier_of(conn, i) == "reading" for i in cv74)
               and tier_of(conn, cv75) == "top"
@@ -373,6 +380,20 @@ def resort_checks() -> None:
               "with it, a pass mark of 75 moves exactly the four CV matches of 74 to Reading, "
               "their CV gate now failed, while the match of exactly 75 passes and stays")
         check(tier_of(conn, applied) == "top", "and the applied role, a CV match of 74, keeps Top")
+        note_of = lambda i: tuple(conn.execute("SELECT gate_cv, gate_cv_note FROM opportunities"
+                                               " WHERE id = ?", (i,)).fetchone())
+        check(note_of(cv74[0]) == (0, "CV match 74 against the pass mark of 75, below, "
+                                      "judged in code.")
+              and note_of(cv75) == (1, "The CV covers the asks."),
+              "a CV gate the re-sort fails gets code's note, naming the pass mark, so no fail "
+              "mark sits beside the scorer's words that it passes; a gate that stands keeps "
+              "the scorer's note")
+        check(tier_of(conn, cv74_reading) == "reading"
+              and note_of(cv74_reading)[0] == 0
+              and note_of(cv74_reading)[1].startswith("CV match 74 against the pass mark of 75")
+              and history_of(conn, cv74_reading) == [("replaced", "cv_preferences", "reading")],
+              "a CV gate that flips while its tier stands is written with its note, and the "
+              "score it replaced is kept in score_history first")
         conn.close()
         res = cv_screen.save_preferences({"values": {"cv_floor_score": 50}}, p.cfg, p.db)
         conn = rc.get_db(p.db)
@@ -392,6 +413,9 @@ def resort_checks() -> None:
               and all(tier_of(conn, i) == "reading" for i in cv45),
               "putting the old values back moves the same roles back: 9, the four 74s and the "
               "three day rates to Top, the two 45s to Reading")
+        check(conn.execute("SELECT gate_cv_note FROM opportunities WHERE id = ?", (cv74[0],))
+              .fetchone()[0] == "CV match 74 against the pass mark of 70, at or above, judged in code.",
+              "and code's own note follows the gate back")
         conn.close()
         bad = cv_screen.save_preferences({"values": {"cv_floor_score": 90}}, p.cfg, p.db)
         check(not bad["ok"] and bad["invalid"] and "at or under" in bad["note"],
@@ -431,14 +455,19 @@ def offer_checks() -> None:
         for body, want in (({"key": "location"}, False), ({"key": "rates", "text": "x"}, False)):
             got = cv_screen.save_section(body, p.cfg, p.db)
             check(got["ok"] is want and got.get("invalid"), f"{body} is refused")
-        for body in ({}, {"confirm": False, "scope": "open", "expect": 5},
-                     {"confirm": True, "scope": "open"}, {"confirm": True, "scope": "all", "expect": 5},
-                     {"confirm": True, "scope": "open", "expect": True}):
+        h = offer["ids_hash"]
+        for body in ({}, {"confirm": False, "scope": "open", "expect": 5, "ids_hash": h},
+                     {"confirm": True, "scope": "open", "ids_hash": h},
+                     {"confirm": True, "scope": "all", "expect": 5, "ids_hash": h},
+                     {"confirm": True, "scope": "open", "expect": True, "ids_hash": h},
+                     {"confirm": True, "scope": "open", "expect": 5},
+                     {"confirm": True, "scope": "open", "expect": 5, "ids_hash": "nothex"}):
             got = cv_screen.start_rescore(body, p.cfg, p.db, threading.Lock())
             check(not got["ok"] and got.get("invalid") and cv_screen.RUN["state"] == "idle",
-                  f"Rescore without a confirm that names the scope and the count starts nothing: {body}")
-        got = cv_screen.start_rescore({"confirm": True, "scope": "open", "expect": 4},
-                                      p.cfg, p.db, threading.Lock())
+                  f"Rescore without a confirm that names the scope, the count and the roles' "
+                  f"hash starts nothing: {body}")
+        got = cv_screen.start_rescore({"confirm": True, "scope": "open", "expect": 4,
+                                       "ids_hash": h}, p.cfg, p.db, threading.Lock())
         cv_screen.RUN["thread"].join(30)
         st = cv_screen.rescore_status()
         conn = rc.get_db(p.db)
@@ -448,13 +477,13 @@ def offer_checks() -> None:
         conn.close()
         busy = threading.Lock()
         busy.acquire()
-        got = cv_screen.start_rescore({"confirm": True, "scope": "open", "expect": 5},
-                                      p.cfg, p.db, busy)
+        got = cv_screen.start_rescore({"confirm": True, "scope": "open", "expect": 5,
+                                       "ids_hash": h}, p.cfg, p.db, busy)
         check(not got["ok"] and got["outcome"] == "busy",
               "and none starts while Check now holds the background lock")
         busy.release()
-        got = cv_screen.start_rescore({"confirm": True, "scope": "open", "expect": 5},
-                                      p.cfg, p.db, busy)
+        got = cv_screen.start_rescore({"confirm": True, "scope": "open", "expect": 5,
+                                       "ids_hash": h}, p.cfg, p.db, busy)
         cv_screen.RUN["thread"].join(60)
         st = cv_screen.rescore_status()
         conn = rc.get_db(p.db)
@@ -501,7 +530,8 @@ def stale_checks() -> None:
                   "the page's notice names the count, the versions and the cost on its button")
             status, got, _h = post(port, "/cv/rescore", {"confirm": True, "scope": "stale"})
             check(status == 400, "the route refuses a confirm without the count")
-            status, got, _h = post(port, "/cv/rescore", {"confirm": True, "scope": "stale", "expect": 38})
+            status, got, _h = post(port, "/cv/rescore", {"confirm": True, "scope": "stale", "expect": 38,
+                                                         "ids_hash": summary["ids_hash"]})
             check(status == 200 and got["outcome"] == "started" and got["count"] == 38,
                   "and starts one run for all 38 with it")
             for _ in range(200):
@@ -529,7 +559,8 @@ def stale_checks() -> None:
             status, _h, body = call(port, "GET", "/cv", headers={"Host": f"127.0.0.1:{port}"})
             check("roles were scored on an earlier version" not in body.decode("utf-8"),
                   "afterwards the page flags nothing")
-            status, got, _h = post(port, "/cv/rescore", {"confirm": True, "scope": "stale", "expect": 0})
+            status, got, _h = post(port, "/cv/rescore", {"confirm": True, "scope": "stale", "expect": 0,
+                                                         "ids_hash": rescore.ids_hash([])})
             st = cv_screen.RUN["thread"].join(10) or cv_screen.rescore_status()
             check(st["state"] == "done" and st["result"]["count"] == 0,
                   "a confirm for none scores none")
@@ -590,9 +621,26 @@ def page_checks() -> None:
               == {"Control+S", "Control+Z", "Control+Shift+Z"}
               and [ "".join(k) for k, _w in cv_screen.KEYS]
               == ["Tab", "Enter", "Esc", "AltShift↑↓", "CtrlS", "CtrlZ", "←→"]
-              and "so none fires while you type" in " ".join(page.split()),
+              and "Ctrl S saves a version even while you type in a line, by design" in " ".join(page.split())
+              and "With Rearrange or Design open, Ctrl S does nothing." in " ".join(page.split())
+              and "so none fires while you type" not in " ".join(page.split()),
               "the page has no single-key shortcuts and no switch for them: its keys are the "
-              "frames' Tab, Enter, Esc, Alt Shift arrows, Ctrl S, Ctrl Z and the arrows")
+              "frames' Tab, Enter, Esc, Alt Shift arrows, Ctrl S, Ctrl Z and the arrows, and "
+              "the panel says Ctrl S works while typing and not with a dialog open")
+        check(re.search(r'<h2 class="visually-hidden" id="sheet-h">The CV sheet</h2>\s*'
+                        r'<p class="phone-note">', page) is not None
+              and page.index('id="sheet-h"') < page.index('id="cv-sheet"')
+              and '<section class="panel tabs a-tabs" aria-labelledby="tabs-h">\n'
+                  '<h2 class="visually-hidden" id="tabs-h">' in page
+              and page.index('id="tabs-h"') < page.index('id="history"'),
+              "the sheet has its own visually hidden h2, and so does the tabs section, so the "
+              "tab panels' h3s sit under it and not under Master CV")
+        live = re.search(r'<p class="visually-hidden" id="rescore-live" role="status" '
+                         r'aria-live="polite"></p>', page)
+        run_box = re.search(r'<section class="notice" id="rescore-run"[^>]*>', page).group(0)
+        check(live is not None and "aria-live" not in run_box and "hidden" in run_box,
+              "Rescore's status region is on the page, empty, from the start, outside the "
+              "box that is unhidden in one step, which carries no live region of its own")
         check("Changing these changes how roles are scored." in page
               and 'class="sheet sheet-paper"' in page and "#f8f6f1" not in CV_CSS_ONLY(),
               "the page says plainly that changing preferences changes how roles are scored, "
@@ -765,7 +813,8 @@ def harness_checks(parity: dict) -> None:
                                   "viewText": cv_doc.render(cv_doc.load_doc(OLD)),
                                   "overFirst": over_pages[2]["first"],
                                   "keys": ["".join(k) for k, _w in cv_screen.KEYS],
-                                  "stale": {"count": stale["count"], "cost": stale["cost"]["words"]}}}
+                                  "stale": {"count": stale["count"], "cost": stale["cost"]["words"],
+                                            "ids_hash": stale["ids_hash"]}}}
             spec = tmp / "harness.json"
             spec.write_text(json.dumps(payload), encoding="utf-8")
         out = subprocess.run([node, str(REPO_ROOT / "test" / "cv_screen_harness.js"), str(spec)],
@@ -878,6 +927,17 @@ def box_checks() -> None:
           "the rollback never restores the backup")
     check("first open" in text and "nothing paid runs" in text.lower().replace("\n", " "),
           "it says what the first open does and that nothing paid runs without a confirm")
+    guarded = [line for line in text.splitlines()
+               if "git pull --ff-only" in line or "git reset --hard" in line]
+    check(len(guarded) == 2 and all(
+              "/cv/rescore/status | grep -o '\"state\": \"running\"'" in line
+              and line.index("rescore/status") < line.index("&& echo 'wait")
+              and ("git pull" not in line or line.index("rescore/status") < line.index("git pull"))
+              for line in guarded),
+          "the pull and the rollback both wait for a Rescore running in the dashboard, which "
+          "pgrep cannot see, as well as for a job")
+    check("cache_write_tokens" in text and "_migrate" in text,
+          "and it names the one new column and how it is added")
     sqls = re.findall(r'\bQ "([^"]+)"', text)
     with Profile() as p:
         conn = rc.get_db(p.db)
@@ -911,12 +971,412 @@ def docs_checks() -> None:
     check("run_cv_final_test.py" in run_all, "run_all.sh runs this runner")
 
 
+# ------------------------------------------------- the review's fixes, 16 Nov
+
+@contextlib.contextmanager
+def held_lock(db):
+    """Another writer holding the write lock, as an inbox run does for a whole
+    email, until release() is called."""
+    other = sqlite3.connect(db, timeout=1, check_same_thread=False)
+    other.execute("BEGIN IMMEDIATE")
+    state = {"held": True}
+
+    def release():
+        if state["held"]:
+            state["held"] = False
+            other.rollback()
+    try:
+        yield release
+    finally:
+        release()
+        other.close()
+
+
+@contextlib.contextmanager
+def scorer_watch(on_call):
+    """score_item.score_opportunity with on_call(n) run before each call. The
+    usage of each answer is given tokens, so the cost has something to count;
+    the reply is still the mock's."""
+    real = score_item.score_opportunity
+    n = [0]
+
+    def watched(*a, **k):
+        n[0] += 1
+        on_call(n[0])
+        scored, usage, note = real(*a, **k)
+        usage = {**usage, "input_tokens": 1000, "output_tokens": 200,
+                 "cache_read_tokens": 3000, "cache_write_tokens": 500}
+        return scored, usage, note
+    score_item.score_opportunity = watched
+    try:
+        yield n
+    finally:
+        score_item.score_opportunity = real
+
+
+def busy_rescore_checks() -> None:
+    """Rescore affected on a busy database: a paid reply is held and tried
+    again, one that still cannot be written is counted as not stored, and the
+    run's row in runs is written however the run ends."""
+    saved = (rescore.BUSY_TRIES, rescore.BUSY_PAUSE)
+    rescore.BUSY_TRIES, rescore.BUSY_PAUSE = 2, 1.0
+    try:
+        # Held, then let go during the pause: stored on the second try.
+        with Profile() as p:
+            conn = rc.get_db(p.db)
+            ids = [put(conn, cv_version=V_OLD) for _ in range(3)]
+            conn.execute("PRAGMA busy_timeout=200")
+            box = {}
+
+            def on_call(n):
+                if n == 2:
+                    box["cm"] = held_lock(p.db)
+                    release = box["cm"].__enter__()
+                    threading.Timer(0.5, release).start()
+            usage: dict = {}
+            with scorer_watch(on_call):
+                res = rescore.rescore_affected(conn, p.cfg, usage, "stale", 3)
+            box["cm"].__exit__(None, None, None)
+            check(res["rescored"] == 3 and res["unstored"] == 0
+                  and all(conn.execute("SELECT cv_version FROM opportunities WHERE id = ?",
+                                       (i,)).fetchone()[0] == V_NOW for i in ids),
+                  "a paid reply the database was too busy to take is held, tried again after "
+                  "a pause, and stored: all 3 rescored")
+            conn.close()
+        # Held past every try: counted as not stored, and the run goes on.
+        with Profile() as p:
+            conn = rc.get_db(p.db)
+            ids = [put(conn, cv_version=V_OLD) for _ in range(3)]
+            conn.execute("PRAGMA busy_timeout=200")
+            box = {}
+
+            def on_call(n):
+                if n == 2:
+                    box["cm"] = held_lock(p.db)
+                    box["release"] = box["cm"].__enter__()
+                if n == 3:
+                    box["release"]()
+            usage = {}
+            with scorer_watch(on_call):
+                res = rescore.rescore_affected(conn, p.cfg, usage, "stale", 3)
+            box["cm"].__exit__(None, None, None)
+            vers = [conn.execute("SELECT cv_version FROM opportunities WHERE id = ?",
+                                 (i,)).fetchone()[0] for i in ids]
+            row = conn.execute("SELECT items_in, items_new, input_tokens, cache_write_tokens,"
+                               " outcome, note FROM runs WHERE workflow = 'rescore'").fetchall()
+            check(res["ok"] and res["rescored"] == 2 and res["unstored"] == 1 and res["left"] == 0
+                  and vers == [V_NOW, V_OLD, V_NOW],
+                  "a reply still not writable after every try is counted as not stored, that "
+                  "role keeps its earlier score, and the run goes on to the next")
+            check(len(row) == 1 and tuple(row[0][:5]) == (3, 2, 3000, 1500, "partial")
+                  and "1 scored but not stored, the database busy" in row[0][5],
+                  "and the one run row holds the tokens of all three paid calls, cache writes "
+                  "included, and says one was not stored")
+            conn.close()
+        # The run stops part-way: its row in runs is written all the same.
+        with Profile() as p:
+            conn = rc.get_db(p.db)
+            [put(conn, cv_version=V_OLD) for _ in range(3)]
+            conn.close()
+            seen = {}
+
+            def on_call(n):
+                if n == 2:
+                    seen["cost"] = cv_screen.rescore_status()["cost_cents"]
+                if n == 3:
+                    raise RuntimeError("the model went away")
+            with scorer_watch(on_call):
+                summary = cv_screen.affected_summary(cv_screen._ro(p.db), p.cfg, "stale")
+                got = cv_screen.start_rescore({"confirm": True, "scope": "stale", "expect": 3,
+                                               "ids_hash": summary["ids_hash"]},
+                                              p.cfg, p.db, threading.Lock())
+                cv_screen.RUN["thread"].join(30)
+            st = cv_screen.rescore_status()
+            one = cv_screen.dollars_of({"input_tokens": 1000, "output_tokens": 200,
+                                        "cache_read_tokens": 3000, "cache_write_tokens": 500},
+                                       p.cfg.get("claude_model_score")) * 100
+            conn = rc.get_db(p.db)
+            row = conn.execute("SELECT items_in, items_new, input_tokens, outcome, note FROM runs"
+                               " WHERE workflow = 'rescore'").fetchall()
+            conn.close()
+            check(got["ok"] and abs(seen.get("cost", 0) - one) < 1e-9,
+                  f"while it runs the status carries the cost so far, {one:.2f} cents after one role")
+            check(st["state"] == "failed" and "2 roles were rescored and stored before it stopped"
+                  in st["note"] and abs(st["cost_cents"] - 2 * one) < 1e-9,
+                  "a run that stops says what was stored before it stopped and what it cost")
+            check(len(row) == 1 and tuple(row[0][:4]) == (3, 2, 2000, "failed")
+                  and "stopped: RuntimeError" in row[0][4],
+                  "and its row in runs is written anyway, with the tokens spent so far, so "
+                  "they reach the week's cost")
+    finally:
+        rescore.BUSY_TRIES, rescore.BUSY_PAUSE = saved
+
+
+def confirm_hash_checks() -> None:
+    """The confirm names its roles: the same count over another set is refused."""
+    with Profile() as p:
+        conn = rc.get_db(p.db)
+        ids = [put(conn, cv_version=V_OLD) for _ in range(3)]
+        conn.close()
+        summary = cv_screen.affected_summary(cv_screen._ro(p.db), p.cfg, "stale")
+        check(summary["ids_hash"] == rescore.ids_hash(ids) == rescore.ids_hash(ids[::-1])
+              and rescore.ids_hash(ids[:2] + [ids[2] + 1]) != summary["ids_hash"],
+              "the confirm carries a hash of its roles, the same in any order, another for "
+              "another set of the same size")
+        conn = rc.get_db(p.db)
+        conn.execute("UPDATE opportunities SET acknowledged_at = '2026-11-15T00:00:00Z'"
+                     " WHERE id = ?", (ids[0],))
+        conn.commit()
+        swapped = put(conn, cv_version=V_OLD)
+        conn.close()
+        got = cv_screen.start_rescore({"confirm": True, "scope": "stale", "expect": 3,
+                                       "ids_hash": summary["ids_hash"]},
+                                      p.cfg, p.db, threading.Lock())
+        cv_screen.RUN["thread"].join(30)
+        st = cv_screen.rescore_status()
+        conn = rc.get_db(p.db)
+        check(st["state"] == "refused" and st["result"]["outcome"] == "set_changed"
+              and "not the same 3" in st["note"]
+              and conn.execute("SELECT cv_version FROM opportunities WHERE id = ?",
+                               (swapped,)).fetchone()[0] == V_OLD
+              and not runs(conn, "rescore"),
+              "a confirm for 3 roles when 3 other roles are affected now is refused and "
+              "scores nothing, though the count is the same")
+        conn.close()
+        fresh = cv_screen.affected_summary(cv_screen._ro(p.db), p.cfg, "stale")
+        cv_screen.start_rescore({"confirm": True, "scope": "stale", "expect": 3,
+                                 "ids_hash": fresh["ids_hash"]}, p.cfg, p.db, threading.Lock())
+        cv_screen.RUN["thread"].join(30)
+        check(cv_screen.rescore_status()["state"] == "done"
+              and cv_screen.rescore_status()["result"]["rescored"] == 3,
+              "the control: the same confirm with the hash of the roles as they are runs")
+
+
+def busy_resort_checks() -> None:
+    """A preferences save on a busy database: the file is saved, nothing is
+    re-sorted, and the answer says so, so the page keeps its Re-sort action."""
+    with Profile() as p:
+        conn = rc.get_db(p.db)
+        oid = put(conn, cv_match=74)
+        conn.close()
+        with held_lock(p.db):
+            res = cv_screen.save_preferences({"values": {"cv_pass_score": 75}}, p.cfg, p.db)
+        conn = rc.get_db(p.db)
+        check(res["ok"] and res["saved"] and res["resorted"] is False
+              and b"cv_pass_score: 75" in p.prefs.read_bytes() and tier_of(conn, oid) == "top"
+              and "No role moved. Re-sort now tries again." in res["note"],
+              "with another writer holding the lock past the timeout, the line is saved, no "
+              "role moves, and the answer says resorted false with Re-sort now")
+        conn.close()
+        again = cv_screen.save_preferences({"values": {"cv_pass_score": 75}}, p.cfg, p.db)
+        conn = rc.get_db(p.db)
+        check(again["resorted"] and again["moved"] == 1 and tier_of(conn, oid) == "reading",
+              "and the same values sent again, once the lock is free, re-sort: 1 role moved")
+        conn.close()
+
+
+def partner_line_checks() -> None:
+    """A floor or pass mark whose partner line is missing is judged against
+    the readers' default for it."""
+    with Profile() as p:
+        text = p.prefs.read_bytes().decode()
+        p.prefs.write_bytes(re.sub(r"(?m)^cv_pass_score:.*\n", "", text).encode())
+        check(rc.read_scoring_prefs(p.cfg)["cv_pass_score"] is None
+              and rc.read_score_thresholds(p.cfg)["pass"] == 70,
+              "a file with no cv_pass_score line reads as the default, 70")
+        try:
+            rc.clean_scoring_prefs({"cv_floor_score": 80}, p.cfg)
+            check(False, "a Filtered floor of 80 with no pass mark line is refused")
+        except ValueError as err:
+            check("at or under the CV pass mark (70)" in str(err),
+                  f"a Filtered floor of 80 with no pass mark line is refused against the "
+                  f"default 70, which the readers would use: {err}")
+        check(rc.clean_scoring_prefs({"cv_floor_score": 60}, p.cfg) == {"cv_floor_score": "60"},
+              "the control: a floor of 60 under the default 70 is taken")
+        p.prefs.write_bytes(re.sub(r"(?m)^cv_floor_score:.*\n", "", text).encode())
+        try:
+            rc.clean_scoring_prefs({"cv_pass_score": 30}, p.cfg)
+            check(False, "a pass mark of 30 with no floor line is refused")
+        except ValueError as err:
+            check("(40) must be at or under the CV pass mark (30)" in str(err),
+                  "and a pass mark of 30 with no floor line is refused against the default 40")
+
+
+def pref_line_checks() -> None:
+    """Title, Keywords and Name: written in one step, every other byte kept,
+    and never a floor or a threshold."""
+    for crlf in (False, True):
+        with Profile(crlf=crlf) as p:
+            raw = p.prefs.read_bytes()
+            nl = b"\r\n" if crlf else b"\n"
+            written = []
+            real = rc._write_prefs
+
+            def watch(path, text):
+                written.append(Path(path))
+                real(path, text)
+            rc._write_prefs = watch
+            try:
+                old = re.search(rb"(?m)^keywords:[^\r\n]*", raw)
+                stored = rc.update_pref_line("keywords", "IEC 62304, ISO 13485", p.cfg)
+            finally:
+                rc._write_prefs = real
+            want = raw[:old.start()] + b"keywords: IEC 62304, ISO 13485" + raw[old.end():]
+            kind = "CRLF" if crlf else "line feed"
+            check(stored == "IEC 62304, ISO 13485" and p.prefs.read_bytes() == want
+                  and written == [p.prefs] and nl in p.prefs.read_bytes(),
+                  f"a keywords save goes through the one-step write and leaves every other "
+                  f"byte of a {kind} file as it was")
+    with Profile() as p:
+        raw = p.prefs.read_bytes()
+        for key, value in (("day_rate_floor_gbp", "650"), ("salary_floor_gbp", "90000"),
+                           ("cv_pass_score", "60"), ("cv_floor_score", "20")):
+            try:
+                rc.update_pref_line(key, value, p.cfg)
+                check(False, f"/profile/setting refuses {key}")
+            except ValueError as err:
+                check("Preferences tab" in str(err) and p.prefs.read_bytes() == raw,
+                      f"the one-line save refuses {key}, which only the Preferences tab "
+                      "saves, with its re-sort and history, and writes nothing")
+        check("day_rate_floor_gbp" not in rc.PREF_EDITABLE
+              and rc.read_pref_line("day_rate_floor_gbp", p.cfg) == "750",
+              "the floor is no longer a one-line setting, and still reads back")
+        tmpl = TEMPLATE.read_bytes()
+        p.prefs.unlink()
+        try:
+            rc.update_pref_line("keywords", "x", p.cfg)
+            check(False, "with no live file the one-line save writes nothing")
+        except ValueError:
+            check(TEMPLATE.read_bytes() == tmpl,
+                  "with no live file the one-line save refuses, and never writes the template")
+    with Profile() as p:
+        with serving(p.db) as port:
+            raw = p.prefs.read_bytes()
+            status, got, _h = post(port, "/profile/setting", {"key": "day_rate_floor_gbp",
+                                                              "value": "650"})
+            check(status == 422 and not got["ok"] and p.prefs.read_bytes() == raw,
+                  "the route refuses a floor: 422, and the file is as it was")
+            status, got, _h = post(port, "/profile/setting", {"key": "target_title",
+                                                              "value": "Head of Software Quality"})
+            check(status == 200 and got["ok"]
+                  and rc.read_pref_line("target_title", p.cfg) == "Head of Software Quality",
+                  "and still saves the title, as the CV page's Title button sends it")
+            status, got, _h = post(port, "/profile/setting", {"key": "first_name", "value": "Alex"})
+            check(status == 200 and rc.read_first_name(p.cfg) == "Alex",
+                  "and the first name Home greets")
+        page = serve_dashboard.render_cv_page({}).decode("utf-8")
+        check('data-pref-save="day_rate_floor_gbp"' not in page
+              and all(f'data-pref-save="{k}"' in page for k in ("target_title", "keywords", "first_name")),
+              "the CV page's one-line Save buttons are the title, keywords and name, no floor")
+
+
+def cache_token_checks() -> None:
+    """Cache-write tokens are recorded where usage is logged and priced at 1.25
+    times input."""
+    import types
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, api_key=None):
+            self.messages = self
+
+        def create(self, **kwargs):
+            seen.update(kwargs)
+            return types.SimpleNamespace(
+                content=[types.SimpleNamespace(type="text", text="{}")],
+                usage=types.SimpleNamespace(input_tokens=10, output_tokens=5,
+                                            cache_read_input_tokens=300,
+                                            cache_creation_input_tokens=1200),
+                model="claude-test-1", stop_reason="end_turn")
+    saved = (sys.modules.get("anthropic"), os.environ.get("RADAR_MOCK"))
+    key_name = rc.load_config().get("api_key_env", "ANTHROPIC_API_KEY")
+    saved_key = os.environ.get(key_name)
+    os.environ["RADAR_MOCK"] = "0"
+    os.environ[key_name] = "not-a-real-key"
+    sys.modules["anthropic"] = types.SimpleNamespace(Anthropic=FakeClient)
+    try:
+        _text, usage = rc.claude_call("claude-asked-for", "s", "u")
+    finally:
+        os.environ["RADAR_MOCK"] = saved[1] if saved[1] is not None else "1"
+        if saved_key is None:
+            os.environ.pop(key_name, None)
+        else:
+            os.environ[key_name] = saved_key
+        if saved[0] is None:
+            sys.modules.pop("anthropic", None)
+        else:
+            sys.modules["anthropic"] = saved[0]
+    check(usage["cache_write_tokens"] == 1200 and usage["cache_read_tokens"] == 300,
+          "a live call's usage carries the tokens it wrote to the prompt cache (the SDK faked, "
+          "nothing sent)")
+    total = rc.add_usage({}, usage)
+    rc.add_usage(total, {"input_tokens": 1})
+    check(total["cache_write_tokens"] == 1200 and total["input_tokens"] == 11,
+          "add_usage sums them, and a usage without them counts none")
+    with Profile() as p:
+        conn = rc.get_db(p.db)
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(runs)")}
+        rc.log_run(conn, "rescore", mode="live", items_in=1, items_new=1,
+                   model="claude-sonnet-4-6", usage=total)
+        got = conn.execute("SELECT cache_write_tokens FROM runs ORDER BY id DESC LIMIT 1").fetchone()[0]
+        conn.close()
+    check("cache_write_tokens" in cols and got == 1200,
+          "runs has a cache_write_tokens column, added by _migrate, and log_run fills it")
+    d = cv_screen.dollars_of({"input_tokens": 1_000_000, "cache_write_tokens": 1_000_000,
+                              "cache_read_tokens": 1_000_000}, "claude-sonnet-4-6")
+    check(abs(d - (3.0 + 3.0 * 1.25 + 3.0 * 0.1)) < 1e-9,
+          "a cache write is priced at 1.25 times the input price, a cache read at 0.1")
+    prep = (REPO_ROOT / "scripts" / "prepare_application.py").read_text(encoding="utf-8")
+    check('usage.get("cache_write_tokens", 0)' in prep,
+          "Prepare application's own run row records them too")
+
+
+def inbox_lag_checks() -> None:
+    """An inbox run sorts its roles on the floors as they stand once it holds
+    the write lock, not as they stood when it started."""
+    import base64
+    import process_email
+    with Profile() as p:
+        p.prefs.write_bytes(p.prefs.read_bytes().replace(b"day_rate_floor_gbp: 750",
+                                                         b"day_rate_floor_gbp: 700"))
+        body = ("Head of Software Quality\nCorbel Medical · Reading, UK\n£720 per day\n"
+                "https://example.invalid/corbel-quality\n")
+        b64 = base64.b64encode(json.dumps({"subject": "1 new job", "from": "alerts@jobs.example",
+                                           "date": "2026-11-16", "body_text": body,
+                                           "body_html": ""}).encode()).decode("ascii")
+        real = score_item.extract_opportunities
+
+        def mid_run(*a, **k):
+            # A save on the Preferences tab lands while the email is read.
+            p.prefs.write_bytes(p.prefs.read_bytes().replace(b"day_rate_floor_gbp: 700",
+                                                             b"day_rate_floor_gbp: 750"))
+            return real(*a, **k)
+        score_item.extract_opportunities = mid_run
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                code = process_email.main(["--mock", "--db", str(p.db), "--b64", b64])
+        finally:
+            score_item.extract_opportunities = real
+        conn = rc.get_db(p.db)
+        row = conn.execute("SELECT tier, gate_rate, gate_rate_note FROM opportunities").fetchone()
+        conn.close()
+        check(code == 0 and row is not None and tuple(row[:2]) == ("question", 0)
+              and "£750 floor" in row[2],
+              "a floor saved while an inbox run reads its email reaches that run's roles: "
+              "the floors are read again under the run's write lock, so £720 a day fails the "
+              "new £750 floor (read at the start only, it passed the old £700)")
+
+
+
 def main() -> int:
     argparse.ArgumentParser().parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     for fn in (write_checks, resort_checks, offer_checks, stale_checks, cost_checks,
-               page_checks, word_checks, route_checks):
+               page_checks, word_checks, route_checks, busy_rescore_checks,
+               confirm_hash_checks, busy_resort_checks, partner_line_checks,
+               pref_line_checks, cache_token_checks, inbox_lag_checks):
         fn()
     tmp = Path(tempfile.mkdtemp(prefix="radar-cvfinal-p-"))
     try:

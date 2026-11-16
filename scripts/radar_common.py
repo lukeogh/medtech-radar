@@ -262,6 +262,11 @@ _MIGRATIONS = (
     # The Watchlist. When a human added the company, NULL when it is not on
     # the list. Set by Add to Watchlist on Insights and cleared by its Undo.
     ("companies", "watched_at", "TEXT"),
+    # The tokens a call wrote to the prompt cache, which are billed at 1.25
+    # times the input price (cache_read_tokens are read back at 0.1 times).
+    # They were never recorded, so a run's cost read low. 0 on every row
+    # written before this, which is what was recorded, not what was spent.
+    ("runs", "cache_write_tokens", "INTEGER DEFAULT 0"),
 )
 
 # What the score record says about a row scored before the record existed.
@@ -817,11 +822,13 @@ def log_run(conn: sqlite3.Connection, workflow: str, mode: str = "live",
     usage = usage or {}
     conn.execute(
         "INSERT INTO runs (ts, workflow, mode, items_in, items_new, model,"
-        " input_tokens, output_tokens, cache_read_tokens, note, outcome)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        " input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,"
+        " note, outcome)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (now_iso(), workflow, mode, items_in, items_new, model,
          usage.get("input_tokens", 0), usage.get("output_tokens", 0),
-         usage.get("cache_read_tokens", 0), note, outcome),
+         usage.get("cache_read_tokens", 0), usage.get("cache_write_tokens", 0),
+         note, outcome),
     )
     conn.commit()
 
@@ -1415,7 +1422,8 @@ def claude_call(model: str, system_blocks: list | str, user_content: str,
                 "RADAR_MOCK=1 but no mock function supplied. Refusing to fake a result."
             )
         return mock_fn(user_content), {"input_tokens": 0, "output_tokens": 0,
-                                       "cache_read_tokens": 0, "mode": "mock",
+                                       "cache_read_tokens": 0,
+                                       "cache_write_tokens": 0, "mode": "mock",
                                        "model": "mock",
                                        "stop_reason": "end_turn"}
 
@@ -1442,6 +1450,8 @@ def claude_call(model: str, system_blocks: list | str, user_content: str,
         "input_tokens": getattr(response.usage, "input_tokens", 0) or 0,
         "output_tokens": getattr(response.usage, "output_tokens", 0) or 0,
         "cache_read_tokens": getattr(response.usage, "cache_read_input_tokens", 0) or 0,
+        # Billed at 1.25 times the input price, on the call that fills the cache.
+        "cache_write_tokens": getattr(response.usage, "cache_creation_input_tokens", 0) or 0,
         "mode": "live",
         "model": getattr(response, "model", None) or model,
         "stop_reason": getattr(response, "stop_reason", None),
@@ -1450,8 +1460,9 @@ def claude_call(model: str, system_blocks: list | str, user_content: str,
 
 
 def add_usage(total: dict, usage: dict) -> dict:
-    for key in ("input_tokens", "output_tokens", "cache_read_tokens"):
-        total[key] = total.get(key, 0) + usage.get(key, 0)
+    for key in ("input_tokens", "output_tokens", "cache_read_tokens",
+                "cache_write_tokens"):
+        total[key] = total.get(key, 0) + (usage.get(key, 0) or 0)
     return total
 
 
@@ -1639,11 +1650,15 @@ _FLOOR_LINES = (
 )
 
 
-# The labelled lines the dashboard may edit inside the preferences file.
-# The scorer reads the whole file, so a value set here flows into scoring
-# with no other plumbing. Everything else in that file stays Luke's prose.
+# The labelled lines the dashboard may edit inside the preferences file, one
+# at a time, through /profile/setting. The scorer reads the whole file, so a
+# value set here flows into scoring with no other plumbing. Everything else in
+# that file stays the owner's prose. The floors, the pass mark and the Filtered
+# floor are not here: they are saved only on the CV page's Preferences tab
+# (write_scoring_prefs, SCORING_PREFS below), which re-sorts the roles already
+# scored and keeps each move in score_history. A floor saved here would change
+# the gates with no re-sort and no history.
 PREF_EDITABLE = {
-    "day_rate_floor_gbp": "number",
     "target_title": "text",
     "keywords": "text",
     # Optional. The first name Home's welcome greets, so the name lives in the
@@ -1663,8 +1678,9 @@ def _prefs_path(config: dict | None = None) -> Path:
 
 
 def read_pref_line(key: str, config: dict | None = None) -> str | None:
-    """The value of one labelled line, or None when the line is absent."""
-    if key not in PREF_EDITABLE:
+    """The value of one labelled line, or None when the line is absent. Any
+    line the dashboard edits, on /profile/setting or the Preferences tab."""
+    if key not in PREF_EDITABLE and key not in SCORING_PREFS:
         raise ValueError(f"{key} is not a dashboard-editable line.")
     path = _prefs_path(config)
     if not path.exists():
@@ -1679,12 +1695,19 @@ def read_pref_line(key: str, config: dict | None = None) -> str | None:
 
 def update_pref_line(key: str, value: str,
                      config: dict | None = None) -> str:
-    """Surgically set one labelled line in the preferences file.
+    """Surgically set one labelled line in the live preferences file.
 
-    Replaces the line in place when it exists, otherwise appends a small
-    dashboard-managed section at the end. Never touches any other line,
-    the file is Luke's prose and stays that way. Returns the stored value.
+    Replaces the line in place when it exists, up to its own end, otherwise
+    appends a small dashboard-managed section at the end. Never touches any
+    other byte, line endings included: the file is the owner's prose and stays
+    that way. The file is written in one step (_write_prefs, a file beside it
+    renamed over it), so the scorer, reading it in another process, sees the
+    old file or the new one and never half of it. Never the tracked template.
+    Returns the stored value.
     """
+    if key in SCORING_PREFS:
+        raise ValueError(f"{key} is saved on the CV page's Preferences tab, "
+                         "which re-sorts the roles already scored.")
     if key not in PREF_EDITABLE:
         raise ValueError(f"{key} is not a dashboard-editable line.")
     value = " ".join(str(value or "").split())[:200]
@@ -1693,31 +1716,24 @@ def update_pref_line(key: str, value: str,
     if not value and key != "first_name":
         raise ValueError("An empty value would delete the line. Type "
                          "something, or edit the file by hand to remove it.")
-    if PREF_EDITABLE[key] == "number":
-        try:
-            number = float(value.replace("£", "").replace(",", ""))
-        except ValueError as err:
-            raise ValueError(f"{key} needs a plain number.") from err
-        if not 0 < number <= 10000:
-            raise ValueError(f"{key} of {number:g} is outside any sane "
-                             "day-rate range.")
-        value = f"{number:g}"
-    path = _prefs_path(config)
-    if not path.exists():
-        raise ValueError(f"No preferences file at {path} to edit.")
-    text = path.read_text(encoding="utf-8")
+    path, text = _prefs_text(config, live_only=True)
+    if path is None:
+        raise ValueError(f"No preferences file at {live_prefs_path(config)} "
+                         "to edit. Copy config/preferences.template.md there first.")
+    newline = "\r\n" if "\r\n" in text else "\n"
     line = f"{key}: {value}" if value else f"{key}:"
-    pattern = re.compile(rf"^{re.escape(key)}:.*$",
-                         re.IGNORECASE | re.MULTILINE)
-    if pattern.search(text):
-        text = pattern.sub(line, text, count=1)
+    found = re.search(rf"^{re.escape(key)}:[^\r\n]*", text,
+                      re.IGNORECASE | re.MULTILINE)
+    if found:
+        text = text[:found.start()] + line + text[found.end():]
     else:
         if "## Title and keywords." not in text:
-            text = (text.rstrip() + "\n\n## Title and keywords.\n\n"
-                    "Lines the dashboard's scoring panel manages. The "
-                    "scorer reads them as part of this file.\n\n")
-        text = text.rstrip() + "\n" + line + "\n"
-    path.write_text(text, encoding="utf-8")
+            text = (text.rstrip() + newline + newline + "## Title and keywords."
+                    + newline + newline + "Lines the dashboard's scoring panel "
+                    "manages. The scorer reads them as part of this file."
+                    + newline + newline)
+        text = text.rstrip() + newline + line + newline
+    _write_prefs(path, text)
     return value
 
 
@@ -1965,8 +1981,15 @@ def clean_scoring_prefs(values: dict, config: dict | None = None) -> dict:
             raise ValueError(f"{label} must be from {low:,} to {high:,}.")
         out[key] = number
     now = read_scoring_prefs(config)
+    # A partner line the file does not have (or holds as no plain number) is
+    # judged as the readers would read it, at its default, 70 or 40: a floor of
+    # 80 with no pass mark line would make read_score_thresholds throw both
+    # away for 70 and 40, and the saved line would mean nothing.
     passing = out.get("cv_pass_score", now.get("cv_pass_score"))
     floor = out.get("cv_floor_score", now.get("cv_floor_score"))
+    if "cv_pass_score" in out or "cv_floor_score" in out:
+        passing = DEFAULT_CV_PASS_SCORE if passing is None else passing
+        floor = DEFAULT_CV_FLOOR_SCORE if floor is None else floor
     if passing is not None and floor is not None and floor > passing:
         raise ValueError(f"The Filtered floor ({_plain_number(floor)}) must be at or "
                          f"under the CV pass mark ({_plain_number(passing)}).")

@@ -249,6 +249,10 @@ function words(w) {
   const n = C.expect.lines.length;
   const every = Array.from({ length: n }, (_x, i) => i + 1);
   say(w.calls.length === 0, 'the CV page sends nothing when it opens');
+  const liveRun = w.q('#rescore-live');
+  say(liveRun && liveRun.textContent === '' && !liveRun.hidden && !liveRun.closest('[hidden]')
+      && liveRun.getAttribute('role') === 'status' && w.q('#rescore-run').getAttribute('aria-live') === null,
+      'Rescore\'s status region is on the page from the start, empty and not hidden, and the box shown in one step has none of its own');
   say(JSON.stringify(numbers(w)) === JSON.stringify(every)
       && JSON.stringify(words(w)) === JSON.stringify(C.expect.words),
       `read, every line of the master is one .cvl[data-n] element, numbered 1 to ${n} as cv_store.cv_lines numbers the text, inside the part wrappers`);
@@ -386,6 +390,31 @@ function words(w) {
   say(w.api.state().edited === false, 'and Ctrl Z outside the line undoes it');
   w.key(w.q('.cv-part[data-part="s0"]'), 'Escape');
 
+  // ---- Ctrl S does nothing while Rearrange or Design is open
+  w.click(w.q('.cv-part[data-part="s0"]'));
+  const fs2 = w.q('.cv-part[data-part="s0"] textarea');
+  w.input(fs2, fs2.value + ' S.');
+  w.key(fs2, 'Escape');
+  w.key(w.q('.cv-part[data-part="s0"]'), 'Escape');
+  let quietCalls = w.calls.length;
+  [['#tb-rearrange', '#rearrange-dlg', '#rearrange-cancel'], ['#tb-design', '#design-dlg', '#design-cancel']]
+    .forEach(([btn, dlgSel, cancel]) => {
+      w.click(w.q(btn));
+      const evs = w.key(w.sandbox.document.activeElement || w.q(dlgSel), 's', { ctrlKey: true });
+      say(w.q(dlgSel).open && w.calls.length === quietCalls && evs.defaultPrevented,
+          'Ctrl S with ' + dlgSel.slice(1, -4) + ' open saves nothing, and is still kept from the browser');
+      w.click(w.q(cancel));
+    });
+  w.sandbox.document.activeElement = w.q('#main');
+  w.key(w.q('#main'), 's', { ctrlKey: true });
+  await settle();
+  say(w.calls.length === quietCalls + 1 && w.calls[w.calls.length - 1].url === '/cv/master/save',
+      'the control: with the dialog closed, the same Ctrl S saves');
+  w.answer({ ok: false, note: 'Not now.' }, 409);
+  await settle(); await settle();
+  w = world(page);
+  await settle();
+
   // ---- the toolbar and the tabs are one Tab stop each
   const tb = w.qa('#cv-toolbar button').filter((b) => !b.hidden && !b.closest('[hidden]'));
   say(tb.filter((b) => b.getAttribute('tabindex') === '0').length === 1, 'the toolbar is one Tab stop');
@@ -498,20 +527,39 @@ function words(w) {
   await settle();
   const rc = w.calls[w.calls.length - 1];
   say(w.calls.length === sent + 1 && rc.url === '/cv/rescore'
-      && JSON.stringify(JSON.parse(rc.opts.body)) === JSON.stringify({ confirm: true, scope: 'stale', expect: sum.count }),
-      'only the confirm sends the run, with the count it stated');
-  w.answer({ ok: true, outcome: 'started', state: 'running', count: sum.count, done: 0, failed: 0, left: 0 });
+      && JSON.stringify(JSON.parse(rc.opts.body)) === JSON.stringify({ confirm: true, scope: 'stale', expect: sum.count, ids_hash: sum.ids_hash }),
+      'only the confirm sends the run, with the count it stated and the hash of the roles it named');
+  w.answer({ ok: true, outcome: 'started', state: 'running', count: sum.count, done: 0, failed: 0, left: 0,
+             unstored: 0, cost_cents: 0, mode: 'live' });
   await settle(); await settle();
-  say(!w.q('#rescore-run').hidden && new RegExp(`Rescoring 1 of ${sum.count}`).test(text(w.q('#rescore-run-text'))),
-      'the run shows in the same place: "Rescoring 1 of ' + sum.count + '"');
+  say(!w.q('#rescore-run').hidden && new RegExp(`Rescoring 1 of ${sum.count}. Under a cent so far. `).test(text(w.q('#rescore-run-text'))),
+      'the run shows in the same place: "' + text(w.q('#rescore-run-text')).slice(0, 40) + '"');
+  say(text(w.q('#rescore-live')) === `Rescore started: ${sum.count} roles.`,
+      'and its first words are written into the status region that was there all along, so they are read out');
   const poll = w.calls[w.calls.length - 1];
   say(poll.url === '/cv/rescore/status', 'and the page asks how far it has got');
-  w.answer({ state: 'done', count: sum.count, cost_cents: 41.6,
-             result: { ok: true, count: sum.count, rescored: sum.count - 1, failed: 1, left: 0, rose: 3, fell: 1, mode: 'live' } });
+  w.answer({ state: 'running', count: sum.count, done: 1, failed: 0, left: 0, unstored: 0, cost_cents: 16.2, mode: 'live' });
   await settle(); await settle();
-  say(new RegExp(`Rescored ${sum.count - 1} of ${sum.count}, ${sum.count} paid calls, 42 cents. 4 roles moved tier: 3 rose, 1 fell. 1 role was not rescored`)
-        .test(text(w.q('#rescore-run-text'))) && w.q('#rescore-run').classList.contains('notice-ok'),
-      'done, it says what it did and what it cost, as the runs table logged it: ' + text(w.q('#rescore-run-text')).slice(0, 80));
+  say(new RegExp(`^Rescoring 2 of ${sum.count}. 16 cents so far. It carries on if you leave this page`).test(text(w.q('#rescore-run-text'))),
+      'the running line carries its cost so far, as the states frame draws it: "' + text(w.q('#rescore-run-text')).slice(0, 44) + '"');
+  w.flush();
+  await settle();
+  w.answer({ state: 'running', count: sum.count, done: 1, failed: 0, left: 0, unstored: 0, cost_cents: 0, mode: 'mock' });
+  await settle(); await settle();
+  say(/^Rescoring 2 of \d+. On the test mocks, nothing paid so far./.test(text(w.q('#rescore-run-text'))),
+      'on the mocks it says nothing is paid');
+  w.flush();
+  await settle();
+  w.answer({ state: 'done', count: sum.count, cost_cents: 41.6,
+             result: { ok: true, count: sum.count, rescored: sum.count - 2, failed: 1, unstored: 1, left: 0, rose: 3, fell: 1, mode: 'live' } });
+  await settle(); await settle();
+  const doneWords = text(w.q('#rescore-run-text'));
+  say(new RegExp(`Rescored ${sum.count - 2} of ${sum.count}, ${sum.count} paid calls, 42 cents. 4 roles moved tier: 3 rose, 1 fell. 1 role was not rescored`)
+        .test(doneWords) && w.q('#rescore-run').classList.contains('notice-ok'),
+      'done, it says what it did and what it cost, as the runs table logged it: ' + doneWords.slice(0, 80));
+  say(/1 role was scored and paid for but not stored: the database stayed busy, so it keeps its earlier score and is still flagged./.test(doneWords)
+      && text(w.q('#rescore-live')) === doneWords,
+      'it says what was paid for and not stored, and the status region says it all too');
 
   // ---- the Preferences tab
   w.click(w.q('#tab-settings'));
@@ -536,10 +584,23 @@ function words(w) {
   w.input(pass, '75');
   w.fire(w.q('#prefs-form'), 'submit');
   await settle();
+  w.answer({ ok: true, saved: true, resorted: false, values: { cv_pass_score: '75' },
+             note: 'Saved, but the roles could not be re-sorted, the database is busy (database is locked). No role moved. Re-sort now tries again.' });
+  await settle(); await settle();
+  const resortBtn = w.q('#prefs-say #prefs-resort');
+  say(resortBtn && text(resortBtn) === 'Re-sort now' && pass.getAttribute('data-was') === '70'
+      && pass.classList.contains('changed') && /No role moved/.test(text(w.q('#prefs-say'))),
+      'a save the database was too busy to re-sort keeps a Re-sort now action and leaves the field marked as changed from 70');
+  const beforeResort = w.calls.length;
+  w.click(resortBtn);
+  await settle();
+  say(w.calls.length === beforeResort + 1 && w.calls[w.calls.length - 1].url === '/cv/preferences'
+      && JSON.stringify(JSON.parse(w.calls[w.calls.length - 1].opts.body)) === JSON.stringify({ values: { cv_pass_score: '75' } }),
+      'and Re-sort now sends the same values again, not as a dry run, which saves and re-sorts');
   const saveCall = w.calls[w.calls.length - 1];
   say(saveCall.url === '/cv/preferences' && JSON.stringify(JSON.parse(saveCall.opts.body)) === JSON.stringify({ values: { cv_pass_score: '75' } }),
       'Save and re-sort sends only what changed');
-  w.answer({ ok: true, saved: true, values: { cv_pass_score: '75' }, note: 'Saved. 3 roles moved: 3 from Top to Reading.' });
+  w.answer({ ok: true, saved: true, resorted: true, values: { cv_pass_score: '75' }, note: 'Saved. 3 roles moved: 3 from Top to Reading.' });
   await settle(); await settle();
   say(text(w.q('#prefs-say')) === 'Saved. 3 roles moved: 3 from Top to Reading.' && !pass.classList.contains('changed'),
       'and says how many moved, the field no longer marked as changed');

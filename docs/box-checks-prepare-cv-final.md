@@ -55,23 +55,39 @@ one restart.
   open role, its count and cost first. **Rescore affected**, from that offer or
   from the notice over roles scored on an earlier CV, is one confirmed run over
   every affected role, in a thread of the dashboard, on the card scorer. The
-  route refuses a run whose count has grown past the one confirmed.
+  route refuses a run whose count has grown past the one confirmed, or whose
+  roles are not the ones the confirm named (a hash of their ids). A paid reply
+  the database is too busy to take, an inbox run holding the lock, is held and
+  tried again after a pause, then counted as not stored and said so; the run's
+  row in `runs` is written however it ends, with the tokens spent so far.
+- A one-line save on the Preferences tab (title, keywords, first name, through
+  `/profile/setting`) is now written in one step like the four scoring lines,
+  and `/profile/setting` no longer takes `day_rate_floor_gbp`: a floor changes
+  only on the Preferences tab, with its re-sort. An inbox run reads the floors
+  again once it holds its write lock.
 - Design writes `config/profile/cv.design.json` (font, size, spacing,
   margins), which the sheet and the Word file both use. Without it, the Word
   file is the template it has always been.
 - New guarded POST routes: `/cv/preferences`, `/cv/preferences/section`,
   `/cv/design`. New read only GET: `/cv/rescore/status`. `/cv/rescore` now
-  needs `{"confirm": true, "scope": ..., "expect": n}`; the old 25-a-press
+  needs `{"confirm": true, "scope": ..., "expect": n, "ids_hash": h}`; the old 25-a-press
   `--stale-cv` pass is no longer what the page runs (the script still has it).
 
 ### Both
 
 - The CV sheet is light paper on both pages; the rest of each page stays dark.
-- No table, no column, no migration, no n8n workflow, no scheduled job and no
-  radar.yaml change.
+- One new column, `runs.cache_write_tokens` (INTEGER, default 0): the tokens
+  each call wrote to the prompt cache, priced at 1.25 times input, which were
+  never recorded. It is added by the code itself (`radar_common._migrate`) the
+  first time anything opens the database after the pull, the dashboard or the
+  next scheduled job, like every column before it; rows already in `runs` read
+  0. The old code never reads it, so a rollback leaves it in place harmlessly.
+  No table, no n8n workflow, no scheduled job and no radar.yaml change.
 
-**What the first open after the deploy will do.** Either page reads and shows;
-it writes nothing and spends nothing. On Prepare application, the cost-first
+**What the first open after the deploy will do.** The first thing to open the
+database (the dashboard on its first write, or the next scheduled job) adds the
+one column `runs.cache_write_tokens`, and nothing else changes in it. Either
+page reads and shows; it writes nothing and spends nothing. On Prepare application, the cost-first
 button waits for a press. On the CV page, if roles are scored on an earlier CV
 than the active one, the notice above the sheet says how many and on which
 versions, and its button carries the count and the cost; pressing it opens a
@@ -110,6 +126,7 @@ echo '--- a design file is not there yet'; ls -l config/profile/cv.design.json 2
 echo '--- the roles the earlier-CV notice will count, by the CV their score names'; Q "SELECT COALESCE(cv_version, '(none)') AS cv_version, COUNT(*) AS roles FROM opportunities WHERE tier IS NOT NULL AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL AND acknowledged_at IS NULL AND COALESCE(score_basis, '') <> 'spec' AND applied_at IS NULL AND COALESCE(cv_version, '') <> '$A' GROUP BY cv_version ORDER BY roles DESC;"
 echo '--- open roles a location or sector change would offer to rescore'; Q "SELECT COUNT(*) AS open_roles FROM opportunities WHERE tier IS NOT NULL AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL AND acknowledged_at IS NULL AND COALESCE(score_basis, '') <> 'spec' AND applied_at IS NULL;"
 echo '--- what the live card rescores have cost, the runs the estimate reads'; Q "SELECT COUNT(*) AS runs, SUM(items_in) AS roles, SUM(input_tokens) AS input, SUM(output_tokens) AS output, SUM(cache_read_tokens) AS cached FROM runs WHERE workflow = 'rescore' AND mode = 'live' AND items_in > 0 AND input_tokens > 0;"
+echo '--- the runs columns (cache_write_tokens is not there yet; the first open after the pull adds it)'; Q "SELECT name FROM pragma_table_info('runs') WHERE name LIKE 'cache%';"
 echo '--- the counts, to compare after'; Q "SELECT (SELECT COUNT(*) FROM opportunities) AS roles, (SELECT COUNT(*) FROM score_history) AS history, (SELECT COUNT(*) FROM runs) AS runs;"
 echo '--- /health, then /cv today (expect 200)'; curl -s -m 15 -w '\n%{http_code}\n' $B/health; curl -s -m 15 -o /dev/null -w '%{http_code}\n' $B/cv
 ```
@@ -138,13 +155,16 @@ page; the page's number is the one that counts.
    cd /opt/biz-admin/medtech-radar && sudo -u radar git fetch origin && sudo -u radar git log --oneline HEAD..origin/main
    ```
 
-4. Pull, only when nothing is running. The commit you are on is saved first as
+4. Pull, only when nothing is running: no scheduled job, and no Rescore
+   affected in the dashboard, which runs as a thread there and so is not a
+   process `pgrep` can see, so the block also asks `/cv/rescore/status`. The
+   commit you are on is saved first as
    the rollback point, in `.git/rollback-prepare-cv-final`, and only if no
    rollback point is saved yet, so running this again keeps the first one.
    Nothing is pulled unless the point is there.
 
    ```bash
-   cd /opt/biz-admin/medtech-radar && { pgrep -a python | grep -E 'process_email|check_jobs|check_signals|build_digest|rescore|regate|backfill' && echo 'wait, something is running, nothing was pulled' || { { test -s .git/rollback-prepare-cv-final || sudo -u radar sh -c 'git rev-parse HEAD > .git/rollback-prepare-cv-final'; } && test -s .git/rollback-prepare-cv-final && echo "rollback point $(cat .git/rollback-prepare-cv-final)" && sudo -u radar git pull --ff-only && sudo -u radar git log --oneline -3; }; }
+   cd /opt/biz-admin/medtech-radar && { { pgrep -a python | grep -E 'process_email|check_jobs|check_signals|build_digest|rescore|regate|backfill' || curl -s -m 10 http://192.168.1.100:8787/cv/rescore/status | grep -o '"state": "running"'; } && echo 'wait, something is running (a job, or a Rescore in the dashboard), nothing was pulled' || { { test -s .git/rollback-prepare-cv-final || sudo -u radar sh -c 'git rev-parse HEAD > .git/rollback-prepare-cv-final'; } && test -s .git/rollback-prepare-cv-final && echo "rollback point $(cat .git/rollback-prepare-cv-final)" && sudo -u radar git pull --ff-only && sudo -u radar git log --oneline -3; }; }
    ```
 
 5. Before the restart, look at what a first save on the Preferences tab would
@@ -158,7 +178,8 @@ page; the page's number is the one that counts.
    match the file as it is now (a line edited by hand since those roles were
    scored); the first save will move exactly those roles, and say so.
 
-6. Restart the dashboard. No database step: nothing in the database changes.
+6. Restart the dashboard. No database step: the one new column is added by the
+   code on the first open, and nothing else in the database changes.
 
    ```bash
    docker restart medtech-radar
@@ -191,6 +212,7 @@ echo '--- no Jobs row holds a tailored score (expect 0)'; Q "SELECT COUNT(*) AS 
 echo '--- the CV page, its sheet and its Preferences tab (expect 200, 1, 1)'; curl -s -m 15 -o /dev/null -w '%{http_code}\n' $B/cv; curl -s -m 15 $B/cv | grep -c 'id="cv-sheet"'; curl -s -m 15 $B/cv | grep -c 'role="tabpanel" id="settings"'
 echo '--- the earlier-CV notice, if BEFORE counted any (its button carries the count and the cost)'; curl -s -m 15 $B/cv | grep -o 'Rescore [0-9]* roles*, [^<]*' | head -1 || echo 'no notice'
 echo '--- nothing is rescoring (expect "state": "idle")'; curl -s -m 15 $B/cv/rescore/status; echo
+echo '--- the new runs column, added on the first open (expect cache_read_tokens and cache_write_tokens)'; Q "SELECT name FROM pragma_table_info('runs') WHERE name LIKE 'cache%';"
 echo '--- the guard is in front of the new routes (enforce: 403; warn: 422 and nothing written)'; curl -s -m 15 -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' -d '{"values": {}}' $B/cv/preferences
 echo '--- the counts, the same as BEFORE (opening the pages writes nothing)'; Q "SELECT (SELECT COUNT(*) FROM opportunities) AS roles, (SELECT COUNT(*) FROM score_history) AS history, (SELECT COUNT(*) FROM runs) AS runs;"
 echo '--- the preferences file, the same four lines as BEFORE'; grep -nE '^(day_rate_floor_gbp|salary_floor_gbp|cv_pass_score|cv_floor_score):' config/profile/preferences.md
@@ -228,17 +250,21 @@ cd /opt/biz-admin/medtech-radar && sudo -u radar env PYTHONDONTWRITEBYTECODE=1 /
 ## Rollback
 
 Code only, for both pages at once. The backup from step 2 is never restored:
-nothing in the database changed shape, and restoring it would throw away what
+nothing in the database changed shape but the one added column, which the old
+code never reads, and restoring it would throw away what
 happened since.
 
 ```bash
-cd /opt/biz-admin/medtech-radar && { pgrep -a python | grep -E 'process_email|check_jobs|check_signals|build_digest|rescore|regate|backfill' && echo 'wait, something is running, nothing was rolled back' || { test -s .git/rollback-prepare-cv-final && sudo -u radar git reset --hard "$(cat .git/rollback-prepare-cv-final)" && sudo -u radar git log --oneline -1 && docker restart medtech-radar; }; }
+cd /opt/biz-admin/medtech-radar && { { pgrep -a python | grep -E 'process_email|check_jobs|check_signals|build_digest|rescore|regate|backfill' || curl -s -m 10 http://192.168.1.100:8787/cv/rescore/status | grep -o '"state": "running"'; } && echo 'wait, something is running (a job, or a Rescore in the dashboard), nothing was rolled back' || { test -s .git/rollback-prepare-cv-final && sudo -u radar git reset --hard "$(cat .git/rollback-prepare-cv-final)" && sudo -u radar git log --oneline -1 && docker restart medtech-radar; }; }
 ```
 
-Do not roll back while a Rescore is running (AFTER's status line says
-`running`): the restart stops it mid-run. Each role it finished is stored, the
-rest keep their earlier scores, and its run row is not written, so its tokens
-are not in the week's cost.
+The block will not roll back while a Rescore is running in the dashboard
+(`/cv/rescore/status` says `"state": "running"`), as it will not while a job
+runs: the restart would stop it mid-run, each role it finished stored, the rest
+keeping their earlier scores, and its run row, written by the run itself when it
+ends, never written, so its tokens would not be in the week's cost. Wait for the
+run to finish, or for the status to say `done`, and run the block again. If the
+dashboard does not answer, nothing is running in it.
 
 What a rollback leaves:
 

@@ -163,11 +163,15 @@ def main() -> int:
         cfg2 = {"prefs_file": str(prefs)}
         check(radar_common.read_pref_line("day_rate_floor_gbp", cfg2) == "650",
               "a labelled line reads back")
-        stored = radar_common.update_pref_line("day_rate_floor_gbp", "£700",
-                                               cfg2)
-        check(stored == "700"
-              and radar_common.read_rate_floor(cfg2) == 700.0,
-              "editing the floor updates the one line the banding reads")
+        # The floor is saved only on the CV page's Preferences tab, which
+        # re-sorts (test/run_cv_final_test.py), never as a one-line setting.
+        try:
+            radar_common.update_pref_line("day_rate_floor_gbp", "£700", cfg2)
+            check(False, "the floor is refused as a one-line setting")
+        except ValueError:
+            check(radar_common.read_rate_floor(cfg2) == 650.0,
+                  "the floor is refused as a one-line setting, and the file keeps 650")
+        radar_common.update_pref_line("keywords", "IEC 62304", cfg2)
         text_after = prefs.read_text(encoding="utf-8")
         check("Prose stays untouched." in text_after
               and "More prose after." in text_after,

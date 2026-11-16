@@ -127,12 +127,22 @@ def cents_words(low: float, high: float) -> str:
     return f"about {max(lo, 0)} to {hi} cents"
 
 
+# What the prompt cache costs beside the input price: a token read back from
+# it is billed at a tenth, a token written to it at 1.25 times.
+CACHE_READ_PRICE = 0.1
+CACHE_WRITE_PRICE = 1.25
+
+
 def dollars_of(usage: dict, model: str | None) -> float:
-    """What a run's tokens cost, priced as Home prices the week."""
+    """What a run's tokens cost, at the prices Home uses for the week, with the
+    tokens written to the prompt cache at 1.25 times the input price."""
     p_in, p_out = build_dashboard.PRICES_PER_MTOK.get(model or "",
                                                       build_dashboard.PRICE_FALLBACK)
-    return ((usage.get("input_tokens", 0) * p_in + usage.get("output_tokens", 0) * p_out
-             + usage.get("cache_read_tokens", 0) * p_in * 0.1) / 1_000_000)
+    return (((usage.get("input_tokens") or 0) * p_in
+             + (usage.get("output_tokens") or 0) * p_out
+             + (usage.get("cache_read_tokens") or 0) * p_in * CACHE_READ_PRICE
+             + (usage.get("cache_write_tokens") or 0) * p_in * CACHE_WRITE_PRICE)
+            / 1_000_000)
 
 
 def rescore_cost(conn, n: int, config: dict | None = None) -> dict:
@@ -150,7 +160,8 @@ def rescore_cost(conn, n: int, config: dict | None = None) -> dict:
     if conn is not None and n:
         try:
             rows = conn.execute(
-                "SELECT model, items_in, input_tokens, output_tokens, cache_read_tokens"
+                "SELECT model, items_in, input_tokens, output_tokens, cache_read_tokens,"
+                " cache_write_tokens"
                 " FROM runs WHERE workflow = 'rescore' AND mode = 'live'"
                 " AND items_in > 0 AND input_tokens > 0"
                 " ORDER BY id DESC LIMIT ?", (COST_RUNS_LOOKED_AT,)).fetchall()
@@ -159,7 +170,8 @@ def rescore_cost(conn, n: int, config: dict | None = None) -> dict:
         items = sum(r[1] for r in rows)
         if items:
             dollars = sum(dollars_of({"input_tokens": r[2], "output_tokens": r[3],
-                                      "cache_read_tokens": r[4]}, r[0]) for r in rows)
+                                      "cache_read_tokens": r[4],
+                                      "cache_write_tokens": r[5]}, r[0]) for r in rows)
             seen = dollars * 100 / items
             runs = len(rows)
             low, high = min(low, n * seen), max(high, n * seen)
@@ -198,7 +210,8 @@ def affected_summary(conn, config: dict, scope: str) -> dict | None:
                 f" WHERE id IN ({marks}) GROUP BY v ORDER BY v DESC", found["ids"]):
             groups[row["v"]] = row["n"]
     cost = rescore_cost(conn, len(found["ids"]), config)
-    return {"scope": scope, "count": len(found["ids"]), "spec": found["spec"],
+    return {"scope": scope, "count": len(found["ids"]), "ids_hash": found["ids_hash"],
+            "spec": found["spec"],
             "applied": found["applied"], "acknowledged": found["acknowledged"],
             "cv_version": found["cv_version"], "cost": cost,
             "groups": [{"version": v, "count": n, "day": day_of(v) if v else "no recorded CV"}
@@ -349,8 +362,13 @@ def save_preferences(body, config: dict, db_path: Path) -> dict:
 
     Gates that cannot be worked out again in code are left as the scorer
     judged them and counted: a rate the advert states that Radar holds no
-    figure for (kept_as_scored), and roles never gated at all (ungated),
-    which wait for rescore.py.
+    figure for (kept_as_scored), and roles never gated at all (ungated). No
+    run on this page reaches the second: rescore.py --regate scores them, by
+    hand on the box, and the note says so, with their cost.
+
+    A database too busy to re-sort (another writer holding the lock past the
+    busy timeout) leaves the file saved and the roles as they were, with
+    resorted False, and the page keeps its Re-sort action until one goes in.
     """
     if not isinstance(body, dict):
         return {"ok": False, "invalid": True, "note": "Send the values to save."}
@@ -369,21 +387,26 @@ def save_preferences(body, config: dict, db_path: Path) -> dict:
         conn = radar_common.get_db(Path(db_path))
     except sqlite3.Error as err:
         return {"ok": not dry, "saved": not dry, "values": values, "resorted": False,
-                "note": f"Saved, but the roles could not be re-sorted: {err}. "
-                        "Save again to re-sort them."}
+                "note": ("Saved, but the" if not dry else "The")
+                        + f" roles could not be re-sorted: {err}. "
+                        + ("No role moved. Re-sort now tries again." if not dry else "")}
     try:
         res = regate_rates.regate(conn, config, floors, write=not dry,
                                   thresholds=marks, cv_gate_again=True,
                                   writer="cv_preferences")
+        # The roles rescore.py --regate would score: no tier, a score from
+        # before the gates, open, not acknowledged, not applied for.
         ungated = conn.execute(
             "SELECT COUNT(*) FROM opportunities WHERE tier IS NULL"
             " AND (cv_match IS NOT NULL OR combined IS NOT NULL)"
+            " AND acknowledged_at IS NULL"
             " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
             " AND " + radar_common.NOT_APPLIED_SQL).fetchone()[0]
         applied = conn.execute(
             "SELECT COUNT(*) FROM opportunities WHERE tier IS NOT NULL"
             " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
             " AND " + radar_common.APPLIED_SQL).fetchone()[0]
+        ungated_cost = rescore_cost(conn, ungated) if ungated else None
     except sqlite3.OperationalError as err:
         try:
             conn.rollback()
@@ -392,7 +415,7 @@ def save_preferences(body, config: dict, db_path: Path) -> dict:
         return {"ok": not dry, "saved": not dry, "values": values, "resorted": False,
                 "note": ("Saved, but the" if not dry else "The")
                         + f" roles could not be re-sorted, the database is busy ({err}). "
-                        + ("Save again to re-sort them." if not dry else "")}
+                        + ("No role moved. Re-sort now tries again." if not dry else "")}
     finally:
         conn.close()
     moved = res["tier_moves_total"]
@@ -410,9 +433,12 @@ def save_preferences(body, config: dict, db_path: Path) -> dict:
                      "Radar holds no figure for, so the Rate gate stays as the "
                      "scorer judged it.")
     if ungated:
+        them = "it" if ungated == 1 else "them"
         words.append(f"{plural(ungated, 'role')} scored before the gates "
-                     f"{'was' if ungated == 1 else 'were'} never gated and "
-                     f"{'is' if ungated == 1 else 'are'} left for a rescore.")
+                     f"{'has' if ungated == 1 else 'have'} no tier, so no re-sort "
+                     f"reaches {them} and nothing on this page rescores {them}: "
+                     "python scripts/rescore.py --regate, run by hand on the box, "
+                     f"scores {them} on the model, {ungated_cost['words']}.")
     if applied:
         words.append(f"{plural(applied, 'role')} you applied for "
                      f"{'keeps its' if applied == 1 else 'keep their'} tier.")
@@ -477,9 +503,11 @@ def rescore_status() -> dict:
 def start_rescore(body, config: dict, db_path: Path, background_lock) -> dict:
     """Start one confirmed Rescore affected run, in a thread of the server.
 
-    body is {"confirm": true, "scope": "stale" or "open", "expect": n}, n the
-    count the confirm stated. The run reaches every affected role, at most n
-    (rescore.rescore_affected refuses a count that has grown). It shares
+    body is {"confirm": true, "scope": "stale" or "open", "expect": n,
+    "ids_hash": h}, n the count the confirm stated and h the hash of the roles
+    it was of (rescore.ids_hash). The run reaches exactly those roles:
+    rescore.rescore_affected refuses a count that has grown, or another set of
+    roles. Its cost so far is kept on the status as it goes. It shares
     background_lock with Check now, so two runs never overlap. The answer
     comes at once; rescore_status says how far it has got, and the page asks
     every second or two.
@@ -489,10 +517,13 @@ def start_rescore(body, config: dict, db_path: Path, background_lock) -> dict:
                 "note": "Rescoring spends real tokens. Send {\"confirm\": true} "
                         "with the scope and the count you were shown."}
     scope, expect = body.get("scope"), body.get("expect")
+    confirmed = body.get("ids_hash")
     if scope not in rescore.AFFECTED_SCOPES or not isinstance(expect, int) \
-            or isinstance(expect, bool) or not 0 <= expect <= 5000:
+            or isinstance(expect, bool) or not 0 <= expect <= 5000 \
+            or not (isinstance(confirmed, str) and re.fullmatch(r"[0-9a-f]{16}", confirmed)):
         return {"ok": False, "invalid": True,
-                "note": "scope must be stale or open, and expect the count you were shown."}
+                "note": "scope must be stale or open, expect the count you were shown, "
+                        "and ids_hash the roles it was of."}
     with _RUN_LOCK:
         if RUN.get("state") == "running":
             return {"ok": False, "outcome": "busy", "note": "A rescore is already running."}
@@ -501,31 +532,42 @@ def start_rescore(body, config: dict, db_path: Path, background_lock) -> dict:
                     "note": "Another background run is in progress. Try again in a minute."}
         RUN.clear()
         RUN.update(state="running", scope=scope, count=expect, done=0, failed=0,
-                   left=0, started=radar_common.now_iso(), cost_cents=0.0)
+                   left=0, unstored=0, started=radar_common.now_iso(), cost_cents=0.0,
+                   mode="mock" if radar_common.mock_mode_active() else "live")
+    usage: dict = {}
+    tally: dict = {}
+    model = config.get("claude_model_score")
 
     def progress(done, failed, left, _oid, _what):
         with _RUN_LOCK:
-            RUN.update(done=done, failed=failed, left=left)
+            RUN.update(done=done, failed=failed, left=left,
+                       unstored=tally.get("unstored", 0),
+                       cost_cents=dollars_of(usage, model) * 100)
 
     def work():
         conn = None
-        usage: dict = {}
         try:
             conn = radar_common.get_db(Path(db_path))
-            res = rescore.rescore_affected(conn, config, usage, scope, expect, progress)
-            spent = dollars_of(usage, config.get("claude_model_score")) * 100
+            res = rescore.rescore_affected(conn, config, usage, scope, expect, progress,
+                                           confirmed_hash=confirmed, tally=tally)
+            spent = dollars_of(usage, model) * 100
             with _RUN_LOCK:
                 if res.get("ok"):
                     RUN.update(state="done", result=res, cost_cents=spent,
                                done=res["rescored"], failed=res["failed"], left=res["left"],
-                               finished=radar_common.now_iso())
+                               unstored=res["unstored"], finished=radar_common.now_iso())
                 else:
                     RUN.update(state="refused", result=res, note=res.get("note"),
                                finished=radar_common.now_iso())
         except Exception as err:  # noqa: BLE001  a failed run says so on the page
             with _RUN_LOCK:
-                RUN.update(state="failed", note=f"The run stopped: {type(err).__name__}: {err}",
-                           cost_cents=dollars_of(usage, config.get("claude_model_score")) * 100,
+                stored = RUN.get("done", 0)
+                RUN.update(state="failed",
+                           note=f"The run stopped: {type(err).__name__}: {err}. "
+                                f"{plural(stored, 'role')} {'was' if stored == 1 else 'were'} "
+                                "rescored and stored before it stopped; the rest keep "
+                                "their earlier scores.",
+                           cost_cents=dollars_of(usage, model) * 100,
                            finished=radar_common.now_iso())
         finally:
             if conn is not None:
@@ -789,8 +831,9 @@ def _keys_html() -> str:
     rows = "".join(f"<dt>{_kbd(*k)}</dt><dd>{esc(w)}</dd>" for k, w in KEYS)
     return f"""<h2 id="keys-h">Keys on this page</h2>
 <dl class="keys">{rows}</dl>
-<p class="help">Every key here goes with Ctrl or Alt, or moves focus, so none fires
-while you type.</p>"""
+<p class="help">Every key here goes with Ctrl or Alt, or moves focus. Ctrl S saves a
+version even while you type in a line, by design; no other key here acts on
+what you type. With Rearrange or Design open, Ctrl S does nothing.</p>"""
 
 
 def _rescore_blocks(stale: dict | None, active: str | None, run: dict) -> str:
@@ -812,10 +855,11 @@ You saved {esc(active or 'the master')} at {esc(short_when(active))}{esc(reads)}
 <div class="notice-body"><span class="notice-mark">""" + _icon("warn") + """</span><div class="notice-text" id="rescore-confirm-text"></div></div>
 <div class="notice-acts"><button type="button" class="btn btn-primary" id="rescore-go"></button><button type="button" class="btn btn-ghost" id="rescore-cancel">Cancel</button></div>
 </section>
-<section class="notice" id="rescore-run" hidden aria-live="polite" tabindex="-1">
+<section class="notice" id="rescore-run" hidden tabindex="-1" aria-labelledby="rescore-run-text">
 <div class="notice-body"><span class="notice-mark" id="rescore-mark"></span><div class="notice-text"><p id="rescore-run-text"></p>
 <div class="bar" id="rescore-bar" role="progressbar" aria-label="Rescore progress" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"><span style="width:0%"></span></div></div></div>
-</section>"""
+</section>
+<p class="visually-hidden" id="rescore-live" role="status" aria-live="polite"></p>"""
 
 
 def render_page(config: dict, db_path: Path | None, jobs: dict | None = None,
@@ -934,7 +978,8 @@ Prepare application tailors from. Every save is a new dated version.</p>
 <dt>CV gate</dt><dd>Passes at {_num(marks['pass'])}, Filtered under {_num(marks['floor'])}</dd>
 <dt>Roles</dt><dd>{esc(reads_open)}</dd></dl>
 </section>"""
-    tabs = f"""<section class="panel tabs a-tabs" aria-label="History, preferences and import">
+    tabs = f"""<section class="panel tabs a-tabs" aria-labelledby="tabs-h">
+<h2 class="visually-hidden" id="tabs-h">History, preferences and import</h2>
 <div class="tablist" role="tablist" aria-label="About the CV" id="cv-tabs">
 <button type="button" class="tab" role="tab" id="tab-history" aria-controls="history" aria-selected="true" tabindex="0">History<span class="count">{len(hist)}</span></button>
 <button type="button" class="tab" role="tab" id="tab-settings" aria-controls="settings" aria-selected="false" tabindex="-1">Preferences</button>
@@ -945,6 +990,7 @@ Prepare application tailors from. Every save is a new dated version.</p>
 <div class="tabpanel" role="tabpanel" id="import" aria-labelledby="tab-import" tabindex="0" hidden>{_import_html(active_number)}</div>
 </section>"""
     work = f"""<div class="a-work"><div class="canvas">
+<h2 class="visually-hidden" id="sheet-h">The CV sheet</h2>
 <p class="phone-note">On a phone the CV is for reading: Edit beside each section opens its lines as fields.</p>
 {_toolbar_html(problem is None and not viewing)}
 {over}
@@ -1842,7 +1888,9 @@ CV_SCREEN_JS = r"""
 
   // ------------------------------------------------- keys
   // Only the combinations the design draws, and no single-key shortcuts: Ctrl S
-  // saves a version, from anywhere; Ctrl Z undoes and Ctrl Shift Z redoes the
+  // saves a version, from anywhere, a line being typed in included (the keys
+  // panel says so), but does nothing while Rearrange or Design is open, whose
+  // choices are not yet in the CV; Ctrl Z undoes and Ctrl Shift Z redoes the
   // unsaved edits outside a field, where a field's own undo is left to it. Alt
   // Shift and the arrows are the editor's, Left and Right the toolbar's and
   // the tabs'.
@@ -1851,6 +1899,7 @@ CV_SCREEN_JS = r"""
     var k = (e.key || '').toLowerCase();
     if (k === 's') {
       e.preventDefault();
+      if (dialogOpen()) return;
       if (saveBtn && !saveBtn.hidden && !saveBtn.disabled) saveBtn.click();
       return;
     }
@@ -1918,6 +1967,21 @@ CV_SCREEN_JS = r"""
   if (confirmBox) confirmBox.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') { e.preventDefault(); closeConfirm(true); }
   });
+  // The run's words go into #rescore-live too, a status region that is on the
+  // page, empty, from the start, so the first of them is read out: the box
+  // itself is unhidden and filled in one step. Only a change of state or of
+  // the roles done is written there, not every poll.
+  var runLive = $('rescore-live');
+  var lastSaid = '';
+  function sayRun(words) {
+    if (!runLive || words === lastSaid) return;
+    lastSaid = words;
+    runLive.textContent = words;
+  }
+  function centsWords(c) {
+    var n = Math.round(c || 0);
+    return n < 1 ? 'under a cent' : (n === 1 ? '1 cent' : n + ' cents');
+  }
   function showRun(st) {
     if (!runBox) return;
     runBox.hidden = false;
@@ -1926,34 +1990,48 @@ CV_SCREEN_JS = r"""
     var spent = Math.round(st.cost_cents || 0);
     var bar = runBar ? runBar.querySelector('span') : null;
     if (runBar) { runBar.setAttribute('aria-valuemax', String(n || 1)); runBar.setAttribute('aria-valuenow', String(st.done || 0)); }
-    if (bar && bar.style) bar.style.width = (n ? Math.round(100 * ((st.done || 0) + (st.failed || 0) + (st.left || 0)) / n) : 100) + '%';
+    var through = (st.done || 0) + (st.failed || 0) + (st.left || 0) + (st.unstored || 0);
+    if (bar && bar.style) bar.style.width = (n ? Math.round(100 * through / n) : 100) + '%';
     if (st.state === 'running') {
       runBox.className = 'notice notice-info';
       if (mark) mark.innerHTML = ICON.spin;
-      var at = Math.min(n, (st.done || 0) + (st.failed || 0) + (st.left || 0) + 1);
-      runText.textContent = 'Rescoring ' + at + ' of ' + n + '. It carries on if you leave this '
-        + 'page; Jobs updates each role as it is done.';
+      var at = Math.min(n, through + 1);
+      runText.textContent = 'Rescoring ' + at + ' of ' + n + '. '
+        + (st.mode === 'mock' ? 'On the test mocks, nothing paid so far. '
+          : centsWords(st.cost_cents).replace(/^u/, 'U') + ' so far. ')
+        + 'It carries on if you leave this page; Jobs updates each role as it is done.'
+        + (st.unstored ? ' ' + plural(st.unstored, 'role') + ' scored but not stored so far: the database was busy.' : '');
       if (runBar) runBar.hidden = false;
+      sayRun(through === 0 ? 'Rescore started: ' + plural(n, 'role') + '.' : runText.textContent);
     } else if (st.state === 'done') {
       var r = st.result || {};
       runBox.className = 'notice notice-ok';
       if (mark) mark.innerHTML = ICON.tick;
+      var paid = r.rescored + r.failed + (r.unstored || 0);
       var words = 'Rescored ' + r.rescored + ' of ' + r.count + ', ' + (r.mode === 'mock'
         ? 'on the test mocks, so nothing was paid.'
-        : plural(r.rescored + r.failed, 'paid call') + ', ' + (spent < 1 ? 'under a cent' : spent + ' cents') + '.');
+        : plural(paid, 'paid call') + ', ' + (spent < 1 ? 'under a cent' : spent + ' cents') + '.');
       var movedN = (r.rose || 0) + (r.fell || 0);
       words += movedN ? ' ' + plural(movedN, 'role') + ' moved tier: ' + r.rose + ' rose, ' + r.fell + ' fell.'
         : ' No role moved tier.';
       if (r.failed) words += ' ' + plural(r.failed, 'role') + ' ' + (r.failed === 1 ? 'was' : 'were')
         + ' not rescored: the reply could not be used, so ' + (r.failed === 1 ? 'it keeps its' : 'they keep their') + ' earlier score.';
+      if (r.unstored) words += ' ' + plural(r.unstored, 'role') + ' ' + (r.unstored === 1 ? 'was' : 'were')
+        + ' scored and paid for but not stored: the database stayed busy, so '
+        + (r.unstored === 1 ? 'it keeps its' : 'they keep their') + ' earlier score and '
+        + (r.unstored === 1 ? 'is' : 'are') + ' still flagged.';
       if (r.left) words += ' ' + plural(r.left, 'role') + ' applied for or scored on the full description meanwhile ' + (r.left === 1 ? 'was' : 'were') + ' left alone.';
       runText.textContent = words + ' Reload the page to see what is still flagged.';
       if (runBar) runBar.hidden = true;
+      sayRun(runText.textContent);
     } else if (st.state === 'refused' || st.state === 'failed') {
       runBox.className = 'notice notice-bad';
       if (mark) mark.innerHTML = ICON.bad;
-      runText.textContent = (st.note || 'The run did not start.') + ' Reload the page to see the count as it is now.';
+      runText.textContent = (st.note || 'The run did not start.')
+        + (st.state === 'failed' && st.cost_cents ? ' It had cost ' + centsWords(st.cost_cents) + '.' : '')
+        + ' Reload the page to see the count as it is now.';
       if (runBar) runBar.hidden = true;
+      sayRun(runText.textContent);
     }
   }
   var polling = false;
@@ -1964,14 +2042,14 @@ CV_SCREEN_JS = r"""
       polling = false;
       showRun(st);
       if (st.state === 'running') setTimeout(poll, 1500);
-      else announce(runText.textContent);
     }).catch(function () { polling = false; setTimeout(poll, 4000); });
   }
   if (goBtn) goBtn.addEventListener('click', function () {
     if (!confirming || goBtn.disabled) return;
     var summary = confirming;
     goBtn.disabled = true;
-    post('/cv/rescore', JSON.stringify({ confirm: true, scope: summary.scope, expect: summary.count }))
+    post('/cv/rescore', JSON.stringify({ confirm: true, scope: summary.scope, expect: summary.count,
+                                         ids_hash: summary.ids_hash }))
       .then(function (r) {
         goBtn.disabled = false;
         closeConfirm(false);
@@ -2046,6 +2124,11 @@ CV_SCREEN_JS = r"""
     });
     form.addEventListener('submit', function (e) {
       e.preventDefault();
+      submitPrefs();
+    });
+  }
+  function submitPrefs() {
+    {
       var values = changedValues();
       var bad = KEYS.filter(function (k) {
         return k in values && !/^\s*£?\s*[0-9][0-9,]*(\.[0-9]+)?\s*$/.test(values[k]);
@@ -2069,6 +2152,20 @@ CV_SCREEN_JS = r"""
           if (r.j.invalid && at) { field(at).setAttribute('aria-invalid', 'true'); field(at).focus(); }
           return;
         }
+        if (r.j.saved && r.j.resorted === false) {
+          // Saved, but the roles were not re-sorted (the database was busy).
+          // The fields stay marked as changed from what the roles were
+          // sorted on, so the next press saves the same values and re-sorts.
+          var again = document.createElement('button');
+          again.type = 'button';
+          again.className = 'btn btn-secondary';
+          again.id = 'prefs-resort';
+          again.textContent = 'Re-sort now';
+          say.textContent = '';
+          say.appendChild(document.createTextNode((r.j.note || 'Saved, but not re-sorted.') + ' '));
+          say.appendChild(again);
+          return;
+        }
         if (r.j.saved) {
           Object.keys(r.j.values || {}).forEach(function (k) {
             var f = field(k);
@@ -2080,8 +2177,17 @@ CV_SCREEN_JS = r"""
         btn.disabled = false;
         sayIn(say, 'The server did not answer, so nothing was saved.', true);
       });
-    });
+    }
   }
+  // Re-sort now, after a save the database was too busy to re-sort: the same
+  // values again, which writes the same lines and re-sorts.
+  if (say) say.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('#prefs-resort') : null;
+    if (!b || !form) return;
+    var btn = $('prefs-save');
+    if (btn) btn.focus();
+    submitPrefs();
+  });
   var offered = null;
   var sectionSay = $('section-say');
   document.addEventListener('click', function (e) {
