@@ -2,7 +2,8 @@
 tokens, the type scale and the spacing, as plain CSS and a few lines of script.
 
 From the round-2 design (design/round-1 branch, design/jobs/round-2, 14 Nov
-2026), dark only for now. The Jobs page is built on these tokens throughout.
+2026), dark only, with one approved exception: the CV sheet is light paper
+(the --sheet-* tokens and the .sheet-paper wrapper). The Jobs page is built on these tokens throughout.
 The other pages keep their bodies as they were and get the top bar over them;
 the names their own stylesheet uses (--paper, --ink-1 and the rest) are
 pointed at the same dark palette here, so a page reads as one product while
@@ -54,8 +55,36 @@ FRAME_CSS = """
   --tint-blue:#131b20; --tint-sand:#1a1a17; --tint-sage:#141b17;
   --tint-clay:#1c1716; --tint-stone:#161b1f;
   --panel-rule:rgba(230,235,238,.10);
+  /* The CV sheet's light paper: the one approved exception to dark only
+     (design/README.md, prepare-application/final and cv/final, decisions of
+     15 Nov). Ink on paper: 15.0, 7.8 and 5.5 to 1; accent 6.3, the focus
+     ring 5.7 and the strong rule 3.4 to 1, all on --sheet-paper. */
+  --sheet-paper:#f8f6f1; --sheet-surface:#ffffff; --sheet-sunken:#efece5;
+  --sheet-ink-1:#1c2125; --sheet-ink-2:#454f56; --sheet-ink-3:#5b666e;
+  --sheet-rule:#ddd8ce; --sheet-rule-strong:#7d8388;
+  --sheet-accent:#0a6570; --sheet-accent-quiet:#5d8f95; --sheet-accent-wash:#e2f0f1;
+  --sheet-negative:#a8281c; --sheet-positive:#1d6b3f; --sheet-caution:#7a5300;
+  --sheet-caution-wash:#f6ecd6; --sheet-focus:#9a4d00;
+  --sheet-shadow:0 1px 2px rgba(0,0,0,.35),0 8px 24px rgba(0,0,0,.35);
 }
 @media (prefers-reduced-motion:reduce){:root{--dur:0ms}}
+/* Wrap a CV sheet in .sheet-paper and everything inside it, the editor
+   included, reads the paper's colours through the names it already uses. */
+.sheet-paper{
+  color-scheme:light;background:var(--sheet-paper);color:var(--sheet-ink-1);box-shadow:var(--sheet-shadow);
+  --paper:var(--sheet-paper); --surface:var(--sheet-surface); --surface-sunk:var(--sheet-sunken);
+  --surface-sunken:var(--sheet-sunken); --canvas:var(--sheet-paper); --row-hover:var(--sheet-sunken);
+  --ink-1:var(--sheet-ink-1); --ink-2:var(--sheet-ink-2); --ink-3:var(--sheet-ink-3);
+  --text-1:var(--sheet-ink-1); --text-2:var(--sheet-ink-2); --text-3:var(--sheet-ink-3);
+  --hairline:var(--sheet-rule); --hairline-strong:var(--sheet-rule-strong);
+  --border-subtle:var(--sheet-rule); --border-strong:var(--sheet-rule-strong);
+  --accent:var(--sheet-accent); --accent-hover:var(--sheet-accent); --accent-quiet:var(--sheet-accent-quiet);
+  --accent-wash:var(--sheet-accent-wash); --accent-tint:var(--sheet-accent-wash); --row-selected:var(--sheet-accent-wash);
+  --fail:var(--sheet-negative); --negative:var(--sheet-negative); --settled:var(--sheet-positive);
+  --positive:var(--sheet-positive); --caution:var(--sheet-caution); --tint-sand:var(--sheet-caution-wash);
+  --caution-tint:var(--sheet-caution-wash); --focus:var(--sheet-focus); --focus-gap:var(--sheet-paper);
+}
+@media (forced-colors:active){.sheet-paper{box-shadow:none;border:1px solid CanvasText}}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--focus-gap,var(--surface))}
 @media (forced-colors:active){:focus-visible{outline-color:Highlight}}
 .visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
