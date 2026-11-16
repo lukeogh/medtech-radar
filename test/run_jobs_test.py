@@ -655,6 +655,9 @@ def page_checks(tmp: Path) -> None:
                  for name in ("home", "insights", "archive")}
         pages["cv"] = serve_dashboard.render_cv_page().decode("utf-8")
         pages["jobs"] = serve_dashboard.render_jobs(None, {})[1].decode("utf-8")
+    def unsheeted(text: str) -> str:
+        """The page's CSS without the CV sheet's paper, the one approved light block."""
+        return re.sub(r"\.sheet-paper\{\s*color-scheme:light", ".sheet-paper{", text)
     for name, text in pages.items():
         bar = text.split('<header class="appbar">', 1)[1].split("</header>", 1)[0] \
             if '<header class="appbar">' in text else ""
@@ -663,8 +666,10 @@ def page_checks(tmp: Path) -> None:
               f"the {name} page has the top bar, with no Watchlist link until that page exists")
         check("data-appearance-set" not in text and "radar-appearance" not in text
               and re.search(r"<html [^>]*data-appearance", text) is None
-              and text.rfind("color-scheme:dark") > text.rfind("color-scheme:light"),
-              f"the {name} page is dark only, with no light or auto switch")
+              and unsheeted(text).rfind("color-scheme:dark") > unsheeted(text).rfind("color-scheme:light")
+              and text.count("color-scheme:light") - unsheeted(text).count("color-scheme:light") <= 1,
+              f"the {name} page is dark only, with no light or auto switch; the CV sheet's "
+              "paper is the one light block")
     check('<a href="/" aria-current="page">Home</a>' in pages["home"]
           and '<a href="/cv" aria-current="page">CV</a>' in pages["cv"],
           "the bar marks the page it is on")
