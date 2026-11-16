@@ -159,7 +159,8 @@ echo '--- the guard is in front of the new routes (enforce: 403; warn: 400, noth
 
 Expect `2`; your suggestions, waiting until you answer them; the watched
 companies from before under `before this change`; the same row counts as
-BEFORE unless you logged a contact or added a company; `200 1`, `200`; `1`,
+BEFORE apart from what the watcher run in step 8 stored (signals, and the
+companies they name) and any contact you logged or company you added; `200 1`, `200`; `1`,
 `1`; and `403` (enforce) or `400` (warn).
 
 ## Rollback

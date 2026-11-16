@@ -246,6 +246,9 @@ def log_checks(tmp: Path) -> None:
           and t["outcome"] == "reply" and t["company_id"] == h and t["touched_at"] == iso(NOW),
           "a contact logged today keeps its next step, due date, outcome and company")
     r = wl.log_contact(conn, h, {**base, "date": day(-20), "next_step": "Old step.", "due": day(-19)}, NOW)
+    check(not r["ok"] and r["field"] == "next_step" and "newest contact" in r["note"],
+          "a contact before the newest one cannot set the next step, which would never show")
+    r = wl.log_contact(conn, h, {**base, "date": day(-20)}, NOW)
     th = wl.thread_of(wl.contacts_for(conn, h), NOW.date())
     check(r["ok"] and th["next_step"] == "Follow up if Rosa has not replied.",
           "a contact logged for an earlier day is kept and does not replace the newer thread")
@@ -273,6 +276,8 @@ def log_checks(tmp: Path) -> None:
     r = wl.set_thread(conn, a, "", "", NOW)
     r = wl.set_thread(conn, a, r["before"]["next_step"], r["before"]["due"], NOW, restore=True)
     check(r["ok"] and r["thread"]["state"] == "nodate", "Undo of a cleared undated step puts it back undated")
+    r = wl.set_thread(conn, a, "Sneaky.", day(-30), NOW, restore=True)
+    check(not r["ok"] and r["field"] == "due", "Undo cannot set a due date before the contact")
     tid = conn.execute("SELECT MAX(id) FROM touches").fetchone()[0]
     check(wl.set_outcome(conn, tid, "conversation")["ok"] and not wl.set_outcome(conn, tid, "maybe")["ok"],
           "what came back changes to an outcome on the list only")
@@ -333,9 +338,12 @@ def suggestion_checks(tmp: Path) -> None:
     check(not wl.is_watched(conn, okara["company_id"])
           and conn.execute("SELECT unwatched_at FROM companies WHERE id = ?", (okara["company_id"],)).fetchone()[0]
           is None, "Undo takes it off again, with no removal recorded")
-    wl.add_by_name(conn, company_id=okara["company_id"], now=NOW)
+    added = wl.add_by_name(conn, company_id=okara["company_id"], now=NOW)
     gone = "Okara Diagnostics" not in [x["name"] for x in wl.suggestions(conn, NOW)["waiting"]]
-    wl.unwatch(conn, okara["company_id"], NOW, undo_add=True)
+    stale = wl.unwatch(conn, okara["company_id"], NOW, undo_add=True, since=ago(99))
+    check(not stale["ok"] and wl.is_watched(conn, okara["company_id"]),
+          "an Undo for another add is refused and the company stays on the Watchlist")
+    wl.unwatch(conn, okara["company_id"], NOW, undo_add=True, since=added["since"])
     check(gone and "Okara Diagnostics" in [x["name"] for x in wl.suggestions(conn, NOW)["waiting"]],
           "adding a suggested company by name answers its suggestion, and Undo puts it back waiting")
     vb = next(w for w in waiting if w["name"] == "Vantage Bio")
@@ -352,6 +360,18 @@ def suggestion_checks(tmp: Path) -> None:
     for w in wl.suggestions(conn, NOW)["waiting"]:
         if w["name"].startswith("Extra"):
             wl.answer_suggestion(conn, w["id"], "dismiss", NOW)
+    # Undo never takes the waiting suggestions past five.
+    full = wl.suggestions(conn, NOW)["waiting"]
+    extra_c = company(conn, "Cap Filler")
+    signal(conn, extra_c, "Cap Filler", 85, 0, kind="market")
+    wl.refresh_suggestions(conn, NOW)
+    if wl.waiting_count(conn) >= wl.WAITING_MAX:
+        r = wl.answer_suggestion(conn, vb["id"], "undo", NOW)
+        check(not r["ok"] and "already waiting" in r["note"], "Undo of a dismiss never makes six wait")
+    else:
+        check(False, f"the cap test needed five waiting ({len(full)})")
+    cf = next(w for w in wl.suggestions(conn, NOW)["waiting"] if w["name"] == "Cap Filler")
+    wl.answer_suggestion(conn, cf["id"], "dismiss", NOW)
     fid = signal(conn, c["Vantage Bio"], "Vantage Bio", 40, 0, kind="funding")
     wl.refresh_suggestions(conn, NOW)
     back = next((x for x in wl.suggestions(conn, NOW)["waiting"] if x["name"] == "Vantage Bio"), None)
@@ -386,6 +406,22 @@ def suggestion_checks(tmp: Path) -> None:
     wl.refresh_suggestions(conn, later + timedelta(minutes=1))
     check("Watched Co" in [x["name"] for x in wl.suggestions(conn, later)["waiting"]],
           "but is on a new signal since")
+    # Dismissed, then added by the owner, then removed: a new signal can suggest it again.
+    lt = company(conn, "Late Twice")
+    signal(conn, lt, "Late Twice", 80, -14, kind="market")
+    t2 = later + timedelta(minutes=2)
+    for w in wl.suggestions(conn, t2)["waiting"]:
+        if w["name"] != "Late Twice":
+            wl.answer_suggestion(conn, w["id"], "dismiss", t2)
+    wl.refresh_suggestions(conn, t2)
+    ltw = next(w for w in wl.suggestions(conn, t2)["waiting"] if w["name"] == "Late Twice")
+    wl.answer_suggestion(conn, ltw["id"], "dismiss", t2)
+    wl.add_by_name(conn, company_id=lt, now=t2 + timedelta(minutes=1))
+    wl.unwatch(conn, lt, t2 + timedelta(minutes=2))
+    signal(conn, lt, "Late Twice", 81, -16, kind="market")
+    wl.refresh_suggestions(conn, t2 + timedelta(days=2))
+    check("Late Twice" in [x["name"] for x in wl.suggestions(conn, t2 + timedelta(days=2))["waiting"]],
+          "a company dismissed, then added and removed, is suggested again on a new signal")
     conn.close()
 
 
@@ -436,7 +472,8 @@ def arrival_checks(tmp: Path) -> None:
     m = wl.build_model(conn, CFG, NOW)
     check(not m["arrivals"] and m["rows"][0]["arrival"], "the arrival is said once; the label stays for the day")
     check(not wl.build_model(conn, CFG, NOW + timedelta(days=1))["rows"][0]["arrival"], "and goes the next day")
-    wl.unwatch(conn, s, NOW, undo_add=True)
+    since = conn.execute("SELECT watched_at FROM companies WHERE id = ?", (s,)).fetchone()[0]
+    wl.unwatch(conn, s, NOW, undo_add=True, since=since)
     row = conn.execute("SELECT watched_at, watched_via, unwatched_at FROM companies WHERE id = ?", (s,)).fetchone()
     check(tuple(row) == (None, None, None), "Insights' Undo puts it back as it was, with no removal recorded")
     p = wl.add_person(conn, s, "Imke Vos", "Head of Quality", NOW)
@@ -512,6 +549,15 @@ def reread_checks(tmp: Path) -> None:
     check(r2["ok"] and row2["what_they_build"] == row["what_they_build"]
           and json.loads(row2["fact_sources"])["what_they_build"] == sources["what_they_build"],
           "a field the new reading leaves empty keeps the old fact and its source")
+    saved_mock = enrich_company.get_mock_fn
+    enrich_company.get_mock_fn = lambda: (lambda _u: "not json at all")
+    try:
+        r4 = wl.reread(conn, v, CFG, NOW)
+    finally:
+        enrich_company.get_mock_fn = saved_mock
+    row4 = conn.execute("SELECT * FROM companies WHERE id = ?", (v,)).fetchone()
+    check(not r4["ok"] and row4["enriched_at"] == row2["enriched_at"] and row4["enrich_status"] == row2["enrich_status"],
+          "an unreadable reply to Read again leaves the earlier reading, its date and status as they were")
     empty = company(conn, "Nothing Known Ltd")
     conn.commit()
     r3 = wl.reread(conn, empty, CFG, NOW)
@@ -628,7 +674,10 @@ def route_checks(tmp: Path) -> None:
                                                                             "anyway": True}), w)
         check(s == 409 and json.loads(b)["not_found"] and s4 == 200, "add by name: not found, then anyway")
         new_id = json.loads(b4)["id"]
-        s5 = call(port, "POST", "/watchlist/remove", json.dumps({"company_id": new_id, "undo_add": True}), w)[0]
+        s5x = call(port, "POST", "/watchlist/remove", json.dumps({"company_id": new_id, "undo_add": True}), w)[0]
+        check(s5x == 409 and wl.is_watched(rc.get_db(db), new_id), "an Undo without the add's own stamp is refused")
+        s5 = call(port, "POST", "/watchlist/remove", json.dumps({"company_id": new_id, "undo_add": True,
+                                                                 "since": json.loads(b4)["since"]}), w)[0]
         check(s5 == 200 and not wl.is_watched(rc.get_db(db), new_id), "and its Undo")
         s6 = call(port, "POST", "/watchlist/remove", json.dumps({"company_id": h}), w)[0]
         s7 = call(port, "POST", "/watchlist/restore", json.dumps({"company_id": h}), w)[0]
