@@ -16,7 +16,8 @@ company, person, story and role here is invented, as the design's are.
    empty closes the thread, no future contact, the date and what came back
    are kept, and a company not on the Watchlist joins it. Move the date,
    Clear the next step and their Undo.
-4. Suggestions: buying windows, funding rounds and stories at 70 or more,
+4. Suggestions: buying windows, funding rounds at 40 or more and stories at
+   70 or more,
    in code, never added by Radar; five at most, strongest first; folded after
    14 days; a dismissed company back once, marked, only on a stronger kind;
    a removed company only on a signal since; Accept, Dismiss, Undo and
@@ -289,9 +290,11 @@ def log_checks(tmp: Path) -> None:
 def suggestion_checks(tmp: Path) -> None:
     _p, conn = fresh(tmp, "suggest")
     c = {n: company(conn, n) for n in ("Okara Diagnostics", "PDX Diagnostics", "Vantage Bio", "Low Story",
-                                       "Hidden Story", "Old Funding", "Watched Co", "Dead Co", "Edge Story")}
+                                       "Hidden Story", "Old Funding", "Watched Co", "Dead Co", "Edge Story",
+                                       "Low Funding")}
     signal(conn, c["Okara Diagnostics"], "Okara Diagnostics", 90, 1, kind="buying-window", source="job-advert")
-    signal(conn, c["PDX Diagnostics"], "PDX Diagnostics", 20, 1, kind="funding")
+    signal(conn, c["PDX Diagnostics"], "PDX Diagnostics", 40, 1, kind="funding")
+    signal(conn, c["Low Funding"], "Low Funding", 39, 1, kind="funding")
     signal(conn, c["Vantage Bio"], "Vantage Bio", 72, 3, kind="accelerator")
     signal(conn, c["Low Story"], "Low Story", 69, 1, kind="market")
     signal(conn, c["Edge Story"], "Edge Story", 70, 2, kind="market")
@@ -308,7 +311,10 @@ def suggestion_checks(tmp: Path) -> None:
     s = wl.suggestions(conn, NOW)["waiting"]
     names = [x["name"] for x in s]
     check(names == ["Okara Diagnostics", "PDX Diagnostics", "Vantage Bio", "Edge Story"],
-          f"a buying window, a funding round and stories at 70 or more, strongest kind first ({names})")
+          f"a buying window, a funding round at 40 and stories at 70 or more, strongest kind first ({names})")
+    check("Low Funding" not in names and wl.signal_kind({"story_type": "funding", "relevance": 39}) is None
+          and wl.signal_kind({"story_type": "funding", "relevance": 40}) == "funding",
+          "a funding round at 39 suggests nothing; at 40 it does")
     check("Low Story" not in names and "Hidden Story" not in names and "Old Funding" not in names,
           "not a story at 69, a hidden story, or a signal over 30 days old")
     check("Watched Co" not in names and "Dead Co" not in names and "Unknown company" not in names,

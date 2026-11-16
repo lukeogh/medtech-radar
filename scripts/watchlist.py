@@ -21,8 +21,8 @@ The rules, in one place:
   Watchlist company's thread counts.
 - Suggestions are worked out in code after each signal watcher run
   (refresh_suggestions), never by a model: a company Radar has seen and the
-  owner does not watch, with a buying window, a funding round or an Insights
-  story at 70 or more found in the last 30 days. At most five wait, strongest
+  owner does not watch, with a buying window, a funding round at 40 or more
+  or an Insights story at 70 or more, found in the last 30 days. At most five wait, strongest
   first (a buying window, then a funding round, then a story, then by
   relevance and newest). One unanswered for 14 days is folded into Dismissed
   quietly. A dismissed company comes back once, marked, and only on a
@@ -45,6 +45,7 @@ from datetime import date, datetime, timedelta, timezone
 import radar_common as rc
 
 SUGGEST_BAR = 70          # an Insights story suggests a company from here
+FUNDING_BAR = 40          # a funding round suggests a company from here (decided 16 Nov)
 WAITING_MAX = 5           # suggestions waiting at once
 FOLD_DAYS = 14            # an unanswered suggestion folds into Dismissed
 DISMISSED_DAYS = 90       # the Dismissed fold keeps this long
@@ -455,7 +456,8 @@ def signal_kind(s: dict) -> str | None:
     if s.get("source_id") == "job-advert" or stype == "buying-window":
         return "buying-window"
     if stype == "funding":
-        return "funding"
+        # Under 40 it is not a suggestion at all: under the story bar too.
+        return "funding" if (s.get("relevance") or 0) >= FUNDING_BAR else None
     if (s.get("relevance") or 0) >= SUGGEST_BAR:
         return "story"
     return None

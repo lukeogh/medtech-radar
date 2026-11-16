@@ -318,7 +318,8 @@ def suggestions_section(model: dict, folded: bool) -> str:
              else "None waiting.")
     ran = wl.hm(model.get("watcher_ran")) if model.get("watcher_ran") else ""
     note = (f"From buying windows (a first quality or software hire at a company you have contacted), "
-            f"funding rounds and Insights stories at {wl.SUGGEST_BAR} or more, for companies you do not watch. "
+            f"funding rounds at {wl.FUNDING_BAR} or more and Insights stories at {wl.SUGGEST_BAR} or more, "
+            f"for companies you do not watch. "
             f"Checked after each watcher run" + (f", the last at {ran}." if ran else "."))
     body = (f'<ul class="sg-list">{"".join(suggestion_card(s) for s in waiting)}</ul>' if waiting
             else '<p class="sec-note">Radar has nothing to suggest just now. It looks again after the next '

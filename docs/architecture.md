@@ -561,7 +561,7 @@ only; its script writes through guarded POST routes in serve_dashboard.py
 - Suggestions live in `watch_suggestions`, worked out in code by
   `refresh_suggestions` at the end of each signal watcher run (not a spot
   check of one source): an unwatched company with a buying window, a funding
-  round or a story at 70 or more found in the last 30 days, at most five
+  round at 40 or more or a story at 70 or more found in the last 30 days, at most five
   waiting, strongest first. Fourteen days unanswered folds one into Dismissed
   (`dismissed_by = 'radar'`); a dismissed company comes back once
   (`came_back`), only on a stronger kind of signal; a removed one only on a
