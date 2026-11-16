@@ -221,10 +221,15 @@ UNSCORABLE = ("RADAR-UNSCORABLE Director of Software\nNebulon Health · Ghent, "
               "Belgium\n€900 per day\nhttps://example.invalid/nebulon-record\n")
 
 
-# The tier ladder exactly as it stood before the thresholds moved out of the
-# code, with 70 and 40 written into it. The new code must agree with this at
-# the default thresholds on every input it can be given.
+# The tier ladder with 70 and 40 written into it, as the rate change
+# (claude/rate-not-stated) left the rule. The code must agree with this at the
+# default thresholds on every input it can be given.
 def reference_ladder(gates: dict, cv):
+    """The tier rule written apart from the code. Since the rate change a
+    gate the tier needs must pass, so a gate never judged is not a pass,
+    and Rate passes or is not stated for a Top prospect. A None Rate here
+    is never judged; not stated is radar_common.NOT_STATED, which
+    run_rate_test.py covers."""
     failed = [n for n in ("sector", "cv", "location", "rate")
               if gates.get(n) is False]
     real = bool(gates["sector"]) or (cv is not None and cv >= 40)
@@ -235,10 +240,13 @@ def reference_ladder(gates: dict, cv):
     if not real:
         out.update(tier="filtered", filter_reason="not a real leadership role")
         return out, real
-    if not failed:
-        out["tier"] = "top"
+    passes = lambda n: gates.get(n) is True  # noqa: E731
+    if not (passes("sector") and passes("cv")):
         return out, real
-    if len(failed) == 1 and failed[0] in ("location", "rate"):
+    movable = [n for n in ("location", "rate") if gates.get(n) is False]
+    if not movable and passes("location") and passes("rate"):
+        out["tier"] = "top"
+    elif len(movable) == 1:
         out["tier"] = "question"
     return out, real
 
@@ -270,7 +278,7 @@ def prompt_version_checks() -> None:
           "version of the rubric they were built from, and a card is scored "
           "with the file above the full description marker")
     head = text.split("-->")[0]
-    check(text.lstrip().startswith("<!--") and "v2.0, 3 August 2026" in head
+    check(text.lstrip().startswith("<!--") and "v2.1, 16 November 2026" in head
           and "-->" in text[:600],
           "the human label stays in the header of scorer.md, now as a comment")
     check(not re.search(r"\b(68|70)\b", text) and "cv_pass_score" in text,
@@ -427,7 +435,7 @@ def tier_checks() -> None:
                 wrong.append((combo, cv))
     check(not wrong,
           f"at 70 and 40 the tier ladder, the CV gate and is_real agree with "
-          f"the old code on all {combos} combinations of gates and CV number "
+          f"the rule on all {combos} combinations of gates and CV number "
           f"({len(wrong)} differ)")
 
     G = lambda **k: {"sector": True, "cv": True, "location": True, "rate": True, **k}
@@ -922,7 +930,9 @@ def regate_checks() -> None:
         quiet = regate_rates.regate(conn, CFG, FLOORS, write=False)
         loud = regate_rates.regate(conn, CFG, FLOORS, write=False,
                                    thresholds={"pass": 70, "floor": 60})
-        check(row_of(conn, low)["tier"] == "reading" and quiet["rows_changed"] == 0
+        # rows_changed counts the Rate columns too, which a row with no figure
+        # gets written as not stated, so the tier is what is held here.
+        check(row_of(conn, low)["tier"] == "reading" and quiet["tier_moves"] == {}
               and loud["tier_moves"] == {"reading to filtered": 1},
               "the floor from the preferences reaches a regate, so 55 filters under 60")
         regate_rates.regate(conn, CFG, FLOORS, write=True,

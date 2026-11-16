@@ -399,21 +399,8 @@ def mock_scorer(user_content: str) -> str:
                  "hybrid" if "hybrid" in loc_low else "local")
     loc_pass = loc_class in ("remote", "hybrid", "local")
 
-    stated = bool(salary.strip())
-    per_day = "per day" in salary.lower() or "day rate" in salary.lower()
-    digits = "".join(ch if ch.isdigit() else " " for ch in salary).split()
-    amount = max((float(d) for d in digits), default=None) if digits else None
-    # Two floors, no conversion, mirroring the prompt. The code gate
-    # overrides this wherever the extractor stored a figure, so this is
-    # the fallback a silent advert falls through to.
-    if not stated:
-        rate_pass, basis, value = True, "unstated", None
-    elif per_day:
-        value, basis = amount, "day-rate"
-        rate_pass = amount is not None and amount >= 750
-    else:
-        value, basis = amount, "salary"
-        rate_pass = amount is not None and amount >= 100000
+    # Rate is code's alone, from the extractor's pay columns, so the reply
+    # carries no rate verdict and no question, as the prompt asks.
     engagement_type, engagement_note = engagement.classify(f"{title} {salary}")
 
     reply = {
@@ -430,14 +417,10 @@ def mock_scorer(user_content: str) -> str:
                               "workable from home" if loc_pass else
                               "full time on site beyond commuting distance"),
         "location_class": loc_class,
-        "gate_rate": rate_pass,
-        "gate_rate_note": ("rate unstated, that's your first question" if not stated
-                           else f"{'at or above' if rate_pass else 'below'} the floor"),
-        "rate_stated": stated, "rate_value": value, "rate_basis": basis,
         "ir35": "outside" if "outside ir35" in salary.lower() else "",
         "engagement_type": engagement_type, "engagement_note": engagement_note,
         "one_line_why": "Judged against the four gates.",
-        "question_text": "", "suggested_action": "Read it and decide.",
+        "suggested_action": "Read it and decide.",
         "act_by": "",
     }
     card_reasons = _mock_card_reasons(opp)
@@ -547,3 +530,30 @@ def mock_drafter(user_content: str) -> str:
             "ahead. If IEC 62304 or ISO 13485 ever land on your desk, happy "
             "to compare notes. Always good to know the neighbours.")
     return _json.dumps({"comment": comment, "connection_note": note})
+
+
+# The rate change (claude/rate-not-stated, prompt 3c8e6c63) as edits to
+# prompts/scorer.md, each (the text now, the text before). prompt_before_rate
+# undoes them and gives the file as Prepare application final left it,
+# 1b1ffb78, so the runners that hold an earlier prompt byte for byte still can.
+RATE_PROMPT_EDITS = [
+    ('<!-- MedTech Radar scorer prompt. v2.1, 16 November 2026. Four gates, no combined score. Rate is judged in code and the model gives no rate verdict and no question. -->\n',
+     '<!-- MedTech Radar scorer prompt. v2.0, 3 August 2026. Four gates, no combined score. -->\n'),
+    ('Rate is judged in code from the pay the advert states, against the floors in\nthe preferences file. Do not judge it and do not return a rate verdict, a rate\nnote or a question. An advert with no figure is not stated, which code reads as\nneither a pass nor a fail.\n',
+     "Two floors are in the preferences file, day_rate_floor_gbp and\nsalary_floor_gbp. Each stated figure meets the floor of its own kind. Never\nconvert one into the other:\n\n- A stated **day rate** gates against the day floor. rate_basis day-rate.\n- A stated **annual salary** gates against the salary floor, as stated, never\n  divided into a day rate. rate_basis salary.\n- A stated **hourly rate** times eight gates against the day floor. rate_basis\n  hourly.\n- Stated at or above its floor, pass. Stated below its floor, fail.\n- A **range** gates on its **top** figure, and the entry shows the whole range.\n- **Unstated passes**, rate_basis unstated, and the note reads exactly, rate\n  unstated, that's your first question.\n"),
+    ('Return gate results only. The tier is derived in code from your gates and the\nRate gate code judges, not by you, so do not name one. Code also writes the one\nquestion a role in the middle tier carries, so do not write one.\n',
+     'Return gate results only. The tier is derived in code from your gates, not by you,\nso do not name one.\n'),
+    (' "ir35": "", "engagement_type": "", "engagement_note": "",\n "one_line_why": "", "suggested_action": "", "act_by": "",\n',
+     ' "gate_rate": true, "gate_rate_note": "", "rate_stated": true,\n "rate_value": null, "rate_basis": "", "ir35": "",\n "engagement_type": "", "engagement_note": "",\n "one_line_why": "", "question_text": "", "suggested_action": "", "act_by": "",\n'),
+    ('advert says, beside the card fields. Judge the same gates by the same rules as\nabove, and leave Rate to code as above. What the description says outranks\nwhat the card guessed, so where it settles the sector, the location or the type\nof engagement differently from the card, the description wins.\n',
+     'advert says, beside the card fields. Judge the same four gates by the same rules\nas above. What the description says outranks what the card guessed, so where it\nsettles the sector, the location, the pay or the type of engagement differently\nfrom the card, the description wins.\n'),
+]
+
+
+def prompt_before_rate(text: str) -> str:
+    """scorer.md with the rate change taken out, the file at 1b1ffb78."""
+    for now, before in RATE_PROMPT_EDITS:
+        if text.count(now) != 1:
+            raise ValueError("the scorer prompt is not the one the rate change left")
+        text = text.replace(now, before)
+    return text

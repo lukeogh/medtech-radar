@@ -283,6 +283,7 @@ SYMBOLS = """<svg width="0" height="0" style="position:absolute" aria-hidden="tr
 <symbol id="st-cau" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 2.4a5.6 5.6 0 0 0 0 11.2z" fill="currentColor"/></symbol>
 <symbol id="st-neg" viewBox="0 0 16 16"><path d="M4.2 4.2l7.6 7.6m0-7.6l-7.6 7.6" stroke="currentColor" stroke-width="1.8"/></symbol>
 <symbol id="st-neu" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+<symbol id="st-ask" viewBox="0 0 16 16"><path d="M5.4 5.9a2.6 2.6 0 1 1 3.9 2.3c-.9.5-1.3 1.1-1.3 2v.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="8" cy="13.2" r="1.1" fill="currentColor"/></symbol>
 <symbol id="ic-doc" viewBox="0 0 16 16"><path d="M4 1.8h5.2L12.2 4.8v9.4H4z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M9 1.8v3.2h3.2M6 8h4.2M6 10.6h4.2" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
 <symbol id="ic-launch" viewBox="0 0 16 16"><path d="M7 3H3.6A1.6 1.6 0 0 0 2 4.6v7.8A1.6 1.6 0 0 0 3.6 14h7.8a1.6 1.6 0 0 0 1.6-1.6V9" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 2H14v4.5M14 2 7.5 8.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
 <symbol id="ic-down" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
@@ -295,17 +296,23 @@ def _use(symbol: str, size: int = 12) -> str:
             f'focusable="false"><use href="#{symbol}"></use></svg>')
 
 
+# Each gate state's mark: its class, its symbol and its word on the role pane.
+# Not stated is neutral in colour and has its own shape, a question mark, so it
+# never rests on colour alone and never reads as a pass or a fail.
+STATE_MARKS = {radar_common.PASSES: ("mk-pass", "st-pos", "Passes"),
+               radar_common.FAILS: ("mk-fail", "st-neg", "Fails"),
+               radar_common.NOT_STATED: ("mk-ns", "st-ask", "Not stated"),
+               radar_common.NOT_JUDGED: ("mk-nj", "st-neu", "Not judged")}
+
+
 def gate_words(o: dict, gate: str, name: str) -> tuple[str, str, str]:
     """(mark class, symbol, the mark's name in words) for one gate."""
-    value = o.get(f"gate_{gate}")
+    state = radar_common.gate_state(o, gate)
+    cls, symbol, _word = STATE_MARKS[state]
+    if state == radar_common.NOT_STATED:
+        return cls, symbol, f"{name} not stated, that's your first question"
     note = _clean(o.get(f"gate_{gate}_note"))
-    if value is None:
-        cls, symbol, verdict = "mk-nj", "st-neu", "not judged"
-    elif int(value):
-        cls, symbol, verdict = "mk-pass", "st-pos", "passes"
-    else:
-        cls, symbol, verdict = "mk-fail", "st-neg", "fails"
-    words = f"{name} {verdict}" + (f", {note}" if note else "")
+    words = f"{name} {state}" + (f", {note}" if note else "")
     return cls, symbol, words
 
 
@@ -366,13 +373,15 @@ def location_text(o: dict) -> str:
 
 
 def lead_line(o: dict) -> str:
-    """The row's one line: the open question on a One question away role, the
-    rate question on a Top role that states no pay, else the scorer's line."""
-    unstated = (o.get("rate_band") or "unstated") == "unstated"
-    if o.get("tier") == "question" and o.get("question_text"):
-        return bd.sentence(o["question_text"])
-    if o.get("tier") == "top" and unstated:
-        return "Rate not stated. Ask before anything else."
+    """The row's one line: the open question on a One question away role,
+    about the gate that fails and nothing else, else the scorer's line. A Top
+    prospect carries no question; its Rate mark says when the rate is the
+    first thing to ask."""
+    if o.get("tier") == "question":
+        question = radar_common.question_kept(o.get("question_text"),
+                                              radar_common.gates_of(o))
+        if question:
+            return bd.sentence(question)
     return bd.sentence(o.get("one_line_why") or "")
 
 
@@ -755,14 +764,15 @@ def score_html(o: dict) -> str:
         tier_line = "Not scored yet"
     gates = []
     for gate, name, _letter in GATES:
-        value = o.get(f"gate_{gate}")
-        if value is None:
-            cls, symbol, word = "is-neu", "st-neu", "Not judged"
-        elif int(value):
-            cls, symbol, word = "is-pos", "st-pos", "Passes"
-        else:
-            cls, symbol, word = "is-neg", "st-neg", "Fails"
+        state = radar_common.gate_state(o, gate)
+        _mk, symbol, word = STATE_MARKS[state]
+        cls = {radar_common.PASSES: "is-pos",
+               radar_common.FAILS: "is-neg"}.get(state, "is-neu")
         note = o.get(f"gate_{gate}_note") or ""
+        if state == radar_common.NOT_STATED:
+            # A note an older score wrote may pass or fail it. Code's is said
+            # here whatever is stored.
+            note = radar_common.RATE_NOT_STATED_NOTE
         gates.append(f'<div class="gate"><span class="gate-name">{name}</span>'
                      f'<span class="gate-status {cls}">{_use(symbol)}{word}</span>'
                      f'<span class="gate-note">{esc(note)}</span></div>')
@@ -1415,6 +1425,7 @@ a{color:inherit}
 .mk-pass{color:var(--text-3)}
 .mk-fail{color:var(--negative)}
 .mk-nj{color:var(--neutral)}
+.mk-ns{color:var(--neutral)}
 .mk-tip{display:none;position:absolute;right:-4px;bottom:calc(100% + 4px);z-index:6;width:max-content;max-width:min(400px,calc(100cqi - 32px));padding:1px 8px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface);box-shadow:var(--shadow-overlay);color:var(--text-1);font-size:12px;line-height:16px;font-weight:400;text-align:left;white-space:normal}
 .mk:hover .mk-tip,.mk:focus-visible .mk-tip{display:block}
 .mk.tip-off .mk-tip{display:none}

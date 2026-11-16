@@ -96,7 +96,8 @@ CFG = radar_common.load_config()
 FLOORS = radar_common.read_rate_floors(CFG)
 SPEC = radar_common.SCORE_BASIS_SPEC
 CARD = radar_common.SCORE_BASIS_CARD
-NEW_VERSION = "1b1ffb78"     # the prompt now: each partly or missing ask's short reason too
+RATE_VERSION = "3c8e6c63"    # the prompt now: Rate is code's, no rate verdict and no question
+NEW_VERSION = "1b1ffb78"     # the prompt before that: each partly or missing ask's short reason too
 SENTENCE_VERSION = "422cdad4"  # the prompt before the reasons, with each ask's sentence
 PART_B_VERSION = "22353628"  # the prompt this change left, before the advert sentences
 OLD_VERSION = "97f11cce"     # the prompt Brief 3 left
@@ -390,7 +391,14 @@ def card_block(title, company="Veltrix Diagnostics",
 # ------------------------------------------------------------- the prompt
 
 def prompt_checks() -> None:
-    whole = (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8")
+    current = (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8")
+    # Everything below holds the prompt as the reasons and the asks left it,
+    # 1b1ffb78. The rate change since (3c8e6c63) is taken out first, by the
+    # one list of its edits in mocks.
+    whole = mocks.prompt_before_rate(current)
+    check(radar_common.prompt_hash(current) == RATE_VERSION
+          and radar_common.prompt_hash(whole) == NEW_VERSION,
+          f"take the rate change out and the file is {NEW_VERSION}")
     card, spec = score_item.split_rubric(whole)
     block = card[card.index("## The reasons\n"):card.index("## Voice\n")]
     flat = " ".join(block.split())
@@ -452,18 +460,17 @@ def prompt_checks() -> None:
     check(radar_common.prompt_hash(old) == OLD_VERSION,
           f"take the reasons out and the file is the one Brief 3 left, "
           f"{OLD_VERSION}: nothing else the prompt asks for changed")
-    version = radar_common.prompt_version()
-    check(version == NEW_VERSION and version != OLD_VERSION
-          and radar_common.prompt_hash(whole) == version,
-          f"so the prompt version moves, from {OLD_VERSION} to {version}")
+    version = radar_common.prompt_hash(whole)
+    check(version == NEW_VERSION and version != OLD_VERSION,
+          f"so the prompt version moved, from {OLD_VERSION} to {version}")
     with captured_stderr():
         blocks = score_item.build_scorer_system(CFG)
         spec_blocks = score_item.build_scorer_system(CFG, basis=SPEC)
     check("## The reasons" in blocks[0]["text"] and "### The reasons" not in blocks[0]["text"]
           and "### The reasons" in spec_blocks[0]["text"]
-          and blocks.prompt_version == spec_blocks.prompt_version == version,
+          and blocks.prompt_version == spec_blocks.prompt_version == RATE_VERSION,
           "a card is sent the reasons above the marker and a full description "
-          "both parts, and both are stamped with the new version")
+          "both parts, and both are stamped with the version of the file now")
 
 
 # ------------------------------------------------------- the matching rule
@@ -705,7 +712,7 @@ def card_path_checks() -> None:
                         and rec["basis"] == CARD and rec["dropped"] == 1
                         and kinds == [(row["title"], None), (row["location"], None),
                                       (None, "not_found"), (None, "too_long")]
-                        and row["prompt_version"] == NEW_VERSION
+                        and row["prompt_version"] == RATE_VERSION
                         and rec["gates"] == {name: row[f"gate_{name}"]
                                              for name in radar_common.GATE_NAMES})
         check(all(good) and len(good) == 2,
@@ -1202,8 +1209,19 @@ def no_rescore_checks() -> None:
         oid = env.role(title="Director D", company="Delta Diagnostics", description=None,
                        salary_rate="£500 per day", pay_currency="GBP", pay_period="day",
                        pay_min=500.0, pay_max=500.0, score_reasons=rec)
-        # No stored figure, so the regate leaves its gates as the score gave them.
+        # A stated figure that passes, stored as code writes it, so the regate
+        # leaves its gates as the score gave them. (A role with no figure on
+        # file is not stated now, which a regate writes on a row that held a
+        # pass, run_rate_test.py checks that.)
+        pay800 = {"salary_rate": "£800 per day", "pay_currency": "GBP",
+                  "pay_period": "day", "pay_min": 800.0, "pay_max": 800.0}
+        judged, _pay = regate_rates.judge_row(
+            {**pay800, "tier": "top", "gate_sector": 1, "gate_cv": 1,
+             "gate_location": 1, "cv_match": 80}, FLOORS, CFG)
         steady = env.role(title="Director F", company="Phi Diagnostics", description=None,
+                          **pay800, **{k: judged[k] for k in (
+                              "gate_rate", "gate_rate_note", "rate_stated",
+                              "rate_value", "rate_basis", "rate_band")},
                           score_reasons=reasons_record(
                               [{"reason": "The rate", "quote": "£800 per day",
                                 "quote_dropped": None}], gates=ALL_PASS))
@@ -1704,7 +1722,8 @@ def part_b_prompt() -> str:
     """scorer.md as this change left it, before each ask carried its advert
     sentence and each partly or missing ask its short reason: the prompt the
     box page below deploys, stamped PART_B_VERSION."""
-    whole = (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8")
+    whole = mocks.prompt_before_rate(
+        (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8"))
     why = whole[whole.index("\nFor partly and missing, give why"):
                 whole.index("\ncv_match comes from this same evidence.")]
     whole = whole.replace(why, "").replace(', "why": ""}],', '}],')

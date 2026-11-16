@@ -171,7 +171,7 @@ page; the page's number is the one that counts.
    move with today's values. Read only: a dry run on a read only connection.
 
    ```bash
-   cd /opt/biz-admin/medtech-radar && sudo -u radar env PYTHONDONTWRITEBYTECODE=1 /opt/biz-admin/radar-venv/bin/python -c "import sys, sqlite3; sys.path.insert(0, 'scripts'); import radar_common as rc, regate_rates as rr; cfg = rc.load_config(); c = sqlite3.connect('file:db/radar.sqlite?mode=ro', uri=True); c.row_factory = sqlite3.Row; r = rr.regate(c, cfg, rc.read_rate_floors(cfg), write=False, thresholds=rc.read_score_thresholds(cfg), cv_gate_again=True); print('open roles judged:', r['open_rows'], '| would move:', r['tier_moves_total'], r['tier_moves'], '| rate kept as scored:', r['kept_as_scored'])"
+   cd /opt/biz-admin/medtech-radar && sudo -u radar env PYTHONDONTWRITEBYTECODE=1 /opt/biz-admin/radar-venv/bin/python -c "import sys, sqlite3; sys.path.insert(0, 'scripts'); import radar_common as rc, regate_rates as rr; cfg = rc.load_config(); c = sqlite3.connect('file:db/radar.sqlite?mode=ro', uri=True); c.row_factory = sqlite3.Row; r = rr.regate(c, cfg, rc.read_rate_floors(cfg), write=False, thresholds=rc.read_score_thresholds(cfg), cv_gate_again=True); print('open roles judged:', r['open_rows'], '| would move:', r['tier_moves_total'], r['tier_moves'], '| rate kept as scored or unclear:', r.get('kept_as_scored', r.get('rate_unclear')))"
    ```
 
    Expect `would move: 0 {}`. A number above 0 means some stored gates do not

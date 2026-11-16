@@ -303,6 +303,9 @@ def resort_checks() -> None:
                            failed_gates='["sector"]', gate_cv_note="Passes the CV gate.")
         cv45 = [put(conn, cv_match=45, gate_cv=0, tier="reading", failed_gates='["cv"]')
                 for _ in range(2)]
+        # The scorer said a rate was stated and Radar holds no figure for it.
+        # Rate is code's now, so both read not stated: the pass stays Top, and
+        # the fail, One question away on the scorer's word, moves up to Top.
         prose_rate = put(conn, rate_stated=1, gate_rate=1)            # no figure stored
         prose_fail = put(conn, rate_stated=1, gate_rate=0, tier="question",
                          failed_gates='["rate"]', question_text="Would they move on the rate")
@@ -319,16 +322,19 @@ def resort_checks() -> None:
         res = cv_screen.save_preferences({"values": {"day_rate_floor_gbp": 760}, "dry_run": True},
                                          p.cfg, p.db)
         conn = rc.get_db(p.db)
-        check(res["ok"] and res["moved"] == 4 and res["moves"] == {"top to question": 4}
+        check(res["ok"] and res["moved"] == 5
+              and res["moves"] == {"top to question": 4, "question to top": 1}
               and p.prefs.read_bytes() == raw and all(tier_of(conn, i) == "top" for i in day)
               and conn.execute("SELECT COUNT(*) FROM score_history").fetchone()[0] == 0
               and not runs(conn, "regate"),
-              "a dry run of a day-rate floor of 760 says 4 roles would move, three at 720 and "
-              "the one at 750, and writes nothing: not the file, not a tier, not the history")
+              "a dry run of a day-rate floor of 760 says 5 roles would move, three at 720 and "
+              "the one at 750, and the rate the scorer failed with no figure on file, and "
+              "writes nothing: not the file, not a tier, not the history")
         conn.close()
         res = cv_screen.save_preferences({"values": {"day_rate_floor_gbp": 750}}, p.cfg, p.db)
         conn = rc.get_db(p.db)
-        check(res["ok"] and res["moved"] == 3 and res["moves"] == {"top to question": 3}
+        check(res["ok"] and res["moved"] == 4
+              and res["moves"] == {"top to question": 3, "question to top": 1}
               and all(tier_of(conn, i) == "question" for i in day)
               and tier_of(conn, day_edge) == "top" and tier_of(conn, day_high) == "top",
               "a day-rate floor of 750 moves exactly the three roles at 720 to One question "
@@ -343,14 +349,19 @@ def resort_checks() -> None:
               "the page counts the 2 applied it left")
         hist = history_of(conn, day[0])
         check(hist == [("replaced", "cv_preferences", "top")]
-              and runs(conn, "regate")[-1][1] == 3
+              and runs(conn, "regate")[-1][1] == 4
               and runs(conn, "regate")[-1][3].startswith("from the CV page, pass 70 floor 40"),
               "each move keeps the score it replaced in score_history first, writer "
               "cv_preferences, and the re-sort is one regate run that says it came from the CV page")
-        check(res["kept_as_scored"] == 2 and tier_of(conn, prose_rate) == "top"
-              and tier_of(conn, prose_fail) == "question",
-              "the two roles whose advert states a rate Radar holds no figure for keep the "
-              "scorer's Rate gate and are counted (kept_as_scored 2)")
+        unclear = [conn.execute("SELECT gate_rate, rate_stated, question_text FROM opportunities"
+                                " WHERE id = ?", (i,)).fetchone() for i in (prose_rate, prose_fail)]
+        check(res["rate_unclear"] == 2 and tier_of(conn, prose_rate) == "top"
+              and tier_of(conn, prose_fail) == "top"
+              and all(tuple(u) == (None, 0, None) for u in unclear)
+              and "2 roles may state a rate Radar holds no figure for, so Rate reads not "
+                  "stated on them." in res["note"],
+              "the two roles the scorer said state a rate Radar holds no figure for read not "
+              "stated, in code, and the page counts them and says so (rate_unclear 2)")
         check(res["ungated"] == 1 and tier_of(conn, ungated) is None
               and "no re-sort reaches it and nothing on this page rescores it" in res["note"]
               and "python scripts/rescore.py --regate, run by hand on the box" in res["note"]
@@ -391,7 +402,9 @@ def resort_checks() -> None:
         check(tier_of(conn, cv74_reading) == "reading"
               and note_of(cv74_reading)[0] == 0
               and note_of(cv74_reading)[1].startswith("CV match 74 against the pass mark of 75")
-              and history_of(conn, cv74_reading) == [("replaced", "cv_preferences", "reading")],
+              # Two kept scores: the first save wrote its Rate as not stated, as it
+              # has no figure on file, and this one its CV gate.
+              and history_of(conn, cv74_reading) == [("replaced", "cv_preferences", "reading")] * 2,
               "a CV gate that flips while its tier stands is written with its note, and the "
               "score it replaced is kept in score_history first")
         conn.close()

@@ -27,8 +27,11 @@ stated. Nothing converts between them.
 day_rate_floor_gbp: 750
 salary_floor_gbp: 100000
 
-A stated figure under its floor is one question away, would they move on the
-rate. An unstated rate passes and is the first question to ask.
+Rate is judged in code from the stated figure, never by the scorer. A stated
+figure at or above its floor passes and one under it fails, which is one
+question away, would they move on the rate. A rate with no figure, competitive
+included, is not stated. That's neither a pass nor a fail, and it's the first
+question to ask.
 
 ## Location and travel.
 

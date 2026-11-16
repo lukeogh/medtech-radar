@@ -354,6 +354,46 @@ its `tier_moves_total` is the check that the thresholds moved nothing.
 `test/run_record_test.py` checks the record, the history, the thresholds, the
 cut off replies and the migration on a copy of a database in the old shape.
 
+## The Rate gate and the tier
+
+A gate has one of four states, kept in one place, `radar_common.gate_state`:
+passes, fails, not stated and not judged. Not stated means the advert gives
+nothing for the gate to judge, and it is neither a pass nor a fail. Only Rate can
+be not stated today. Sector or Location could join it by adding a check to
+`radar_common.STATABLE_GATES`, and the pages and the tier follow from that table.
+
+Rate is code's alone, from the extractor's pay columns, never the scorer's. A
+figure on file (`radar_common.pay_on_file`: a positive amount, a year, day or hour
+period, pounds or euros) passes at or above its floor and fails under it, by the
+floor rules `gate_pay` has always applied. No figure, competitive included, is
+not stated: `gate_rate` NULL, `rate_stated` 0, `rate_basis` and `rate_band`
+unstated and code's note. Since prompt `3c8e6c63` the scorer is asked for no rate
+verdict and no question, and anything it returns for them is not read. A figure
+that only a full job spec states is not on file, so it reads not stated. The
+dry run counts those rows (`rate_unclear`).
+
+`score_item.derive_tier` turns the four states into a tier, so the same states
+always give the same tier:
+
+- Top prospects. Sector, CV and Location pass, and Rate passes or is not stated.
+- One question away. Sector and CV pass, and exactly one of Location and Rate
+  fails.
+- Reading. Everything else: Sector or CV failing, Location and Rate both failing,
+  or a Sector, CV or Location gate never judged.
+- Filtered is unchanged, the CV match under the Filtered floor or not a real role.
+
+The question on a One question away role is code's (`radar_common.question_for`)
+and asks only about the gate that fails. A question stored before is kept where it
+asks about that gate alone and replaced where it asks about pay on a role whose
+Rate does not fail (`radar_common.question_kept`), at render and by the re-sort. A
+Top prospect carries no question. Its Rate mark, a question mark in the neutral
+colour, says "Rate not stated, that's your first question".
+
+The re-sort is `regate_rates.regate`, free, the path Preferences uses when a floor
+changes. `python scripts/regate_rates.py` reports what it would do and writes
+nothing. `--write` looks first and writes nothing while `rate_unclear` is above
+nought, unless `--unclear-ok` says to. It sends nothing, no push and no email.
+
 ## Roles applied for
 
 The Applied button in an expanded Jobs row says "I applied for this". It
@@ -627,7 +667,8 @@ its sha256, and the score records the version it was made against in
 however often the page is opened, and one that has changed is scored once more.
 The score is stamped `spec`, with the prompt version, the model and the date, the
 score it replaces goes to `score_history` first, and the new one is recorded
-there. The four gates and the tiers are the scorer's and `derive_tier`'s as ever.
+there. The gates and the tiers are the scorer's, code's Rate gate and
+`derive_tier`'s as ever.
 A tier that moves is recorded in the history on the score that moved it
 (`tier_from`), reported on the page, and never dismisses anything. A role that
 moves to Filtered stops being listed on the Jobs page, which counts Filtered
@@ -1045,11 +1086,12 @@ changing its own lines and leaving every other byte as it was. A change to the
 day-rate or salary floor, the CV pass mark or the Filtered floor is a re-sort in
 code, for free: `regate_rates.regate` with `cv_gate_again`, which judges the CV
 gate again from the stored CV match. That is exact because since phase three the
-CV gate has only ever been code's (`score_item.cv_gate`); the rate gate is exact
-wherever a pay figure is stored, and the floor reaches `derive_tier`. What cannot
-be worked out again is left as the scorer judged it and counted on the page: a
-rate the advert states that Radar holds no figure for, roles never gated, and
-the Location and Sector gates, which the model judges from the prose. Roles never
+CV gate has only ever been code's (`score_item.cv_gate`); the rate gate is
+code's on every role, a stored figure judged against its floor and no figure not
+stated, and the floor reaches `derive_tier`. What cannot be worked out again is
+counted on the page: roles with a number in the pay text but no figure Radar can
+judge (`rate_unclear`, which read not stated), roles never gated, and the Location
+and Sector gates, which the model judges from the prose. Roles never
 gated have no tier, so no re-sort and no run on the page reaches them; the page
 says so, with their cost, and names `scripts/rescore.py --regate`, run by hand on
 the box, as what scores them. A re-sort keeps each replaced score in

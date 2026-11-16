@@ -4,9 +4,11 @@ The two floors replaced one converted floor. Every open row that stored a
 pay figure is gated again in code, a day rate against the day floor, an
 hourly rate times eight against the day floor, an annual salary against
 the salary floor, and its tier is derived again from the stored gates.
-A row with no stored figure keeps the gate the scorer gave it and still
-has its tier derived again, because the converted-salary exception that
-kept salary fails out of One question away is gone.
+A row with no stored figure is not stated, neither a pass nor a fail,
+whatever the scorer stored, and its tier is derived again too. The same
+four gate states always give the same tier (score_item.derive_tier).
+--write looks first and writes nothing when rows have a number in the pay
+text but no figure on file, unless --unclear-ok says to.
 
 Open means not closed, dismissed or expired. Acknowledged rows are open.
 A role marked applied is left alone as well: its tier stays what it was on
@@ -15,6 +17,7 @@ Rows with no tier were never gated and are left for rescore.py.
 
   python scripts/regate_rates.py            dry run, counts and a sample
   python scripts/regate_rates.py --write    write the new gates and tiers
+  --unclear-ok                              with --write, write past rate_unclear rows
   --db PATH                                 alternate database path
 
 The tier is derived again with the CV pass mark and the Filtered floor from
@@ -34,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -94,8 +98,7 @@ def judge_row(row: dict, floors: dict, config: dict | None = None,
     """
     gates = {"sector": _flag(row.get("gate_sector")),
              "cv": _flag(row.get("gate_cv")),
-             "location": _flag(row.get("gate_location")),
-             "rate": _flag(row.get("gate_rate"))}
+             "location": _flag(row.get("gate_location"))}
     new = {c: row.get(c) for c in _GATE_COLS}
     thresholds = thresholds or rc.read_score_thresholds(config)
     if cv_gate_again and row.get("cv_match") is not None:
@@ -109,26 +112,42 @@ def judge_row(row: dict, floors: dict, config: dict | None = None,
         ours = str(row.get("gate_cv_note") or "").startswith(CV_NOTE_LEAD)
         if flipped or ours:
             new["gate_cv_note"] = cv_gate_note(row["cv_match"], thresholds["pass"])
+    # The Rate gate is code's from the pay on file, whatever the scorer
+    # stored: a figure passes or fails against its floor, no figure is not
+    # stated. So every row's rate says the same thing for the same pay.
     pay = rc.gate_pay(row.get("pay_currency"), row.get("pay_period"),
                       row.get("pay_min"), row.get("pay_max"), floors, config)
-    if pay["gate"] is not None:
-        gates["rate"] = pay["gate"]
-        new.update(gate_rate=int(pay["gate"]),
-                   gate_rate_note=score_item.rate_gate_note(pay),
-                   rate_stated=1, rate_value=pay["figure"],
-                   rate_basis=pay["basis"], rate_band=pay["band"])
+    gates["rate"] = score_item.rate_gate(pay)
+    new.update(gate_rate=rc.gate_column(gates["rate"]),
+               gate_rate_note=score_item.rate_gate_note(pay),
+               rate_stated=0 if pay["gate"] is None else 1,
+               rate_value=pay["figure"], rate_basis=pay["basis"],
+               rate_band=pay["band"])
     cv = row.get("cv_match")
     real = score_item.is_real(gates["sector"], cv, thresholds["floor"])
     tier_info = score_item.derive_tier(gates, cv, real, thresholds["floor"])
     new["tier"] = tier_info["tier"]
     new["failed_gates"] = json.dumps(tier_info["failed_gates"])
     new["filter_reason"] = tier_info["filter_reason"]
-    if tier_info["tier"] == "question":
-        new["question_text"] = (row.get("question_text")
-                                or score_item.question_for(gates, {}))
-    else:
-        new["question_text"] = None
+    new["question_text"] = (rc.question_kept(row.get("question_text"), gates)
+                            if tier_info["tier"] == "question" else None)
     return new, pay
+
+
+def pay_hint(row: dict) -> bool:
+    """Whether something stored hints the advert gave a pay figure Radar holds
+    none for: the scorer said a rate was stated, the card's pay text holds a
+    number, or a full job spec's pay quote does."""
+    if row.get("rate_stated") == 1:
+        return True
+    if re.search(r"[0-9]", str(row.get("salary_rate") or "")):
+        return True
+    try:
+        working = json.loads(row.get("score_working") or "null")
+    except (TypeError, ValueError):
+        working = None
+    quote = working.get("rate_quote") if isinstance(working, dict) else None
+    return bool(re.search(r"[0-9]", str(quote or "")))
 
 
 def regate(conn, config: dict, floors: dict, write: bool = False,
@@ -137,10 +156,18 @@ def regate(conn, config: dict, floors: dict, write: bool = False,
     """Judge every open, scored, not applied role again in code. See the
     module's notes. cv_gate_again and writer are the CV page's re-sort's:
     it judges the CV gate again as well, and its history rows and its run
-    say they came from the CV page. kept_as_scored counts the rows whose
-    rate gate cannot be judged again in code, because the advert states a
-    rate (or failed on one) that Radar holds no figure for, so the scorer's
-    own verdict stands."""
+    say they came from the CV page.
+
+    The Rate gate is code's on every row: a figure on file passes or fails,
+    no figure is not stated. rate_unclear counts, and rate_unclear_sample
+    lists, the rows with no figure on file where something stored hints the
+    advert gave one anyway (the scorer said a rate was stated, or the pay text
+    holds a number), because those read not stated only for want of a figure
+    Radar could judge. rate_before and rate_after count the Rate gate as the
+    rows held it and as they hold it after, tiers_before and tiers_after the
+    tiers, and gate_not_judged the rows that miss a Sector, CV or Location
+    verdict and so cannot be Top or One question away. A dry run counts all
+    of it and writes nothing."""
     thresholds = thresholds or rc.read_score_thresholds(config)
     if write:
         # The write lock before the rows are chosen. Between choosing a row
@@ -156,13 +183,37 @@ def regate(conn, config: dict, floors: dict, write: bool = False,
     gate_flips = {"pass to fail": 0, "fail to pass": 0}
     judged = 0
     cv_gate_stale = 0
-    kept_as_scored = 0
+    unclear, unclear_sample = 0, []
+    rate_before: dict[str, int] = {}
+    rate_after: dict[str, int] = {}
+    tiers_before: dict[str, int] = {}
+    tiers_after: dict[str, int] = {}
+    not_judged = 0
+    questions_replaced = 0
     sample = []
     updates = []
     for row in rows:
         row = dict(row)
         had = _flag(row.get("gate_rate"))
         new, pay = judge_row(row, floors, config, thresholds, cv_gate_again)
+        before = (rc.NOT_JUDGED if had is None else rc.PASSES if had else rc.FAILS)
+        after = rc.gate_state({**row, **new}, "rate")
+        rate_before[before] = rate_before.get(before, 0) + 1
+        rate_after[after] = rate_after.get(after, 0) + 1
+        tiers_before[row["tier"]] = tiers_before.get(row["tier"], 0) + 1
+        tiers_after[new["tier"]] = tiers_after.get(new["tier"], 0) + 1
+        if any(row.get(f"gate_{g}") is None for g in ("sector", "cv", "location")):
+            not_judged += 1
+        if (new["tier"] == "question" and row.get("question_text")
+                and new["question_text"] != row.get("question_text")):
+            questions_replaced += 1
+        if pay["gate"] is None and pay_hint(row):
+            unclear += 1
+            if len(unclear_sample) < 50:
+                unclear_sample.append({"id": row["id"], "title": row.get("title"),
+                                       "company": row.get("company"),
+                                       "pay": row.get("salary_rate"),
+                                       "scorer_said_stated": row.get("rate_stated") == 1})
         # The CV gate a row holds was judged against the pass mark in force
         # when it was scored, and a regate leaves it. Count the rows where
         # that no longer matches the pass mark now, so a changed
@@ -170,9 +221,6 @@ def regate(conn, config: dict, floors: dict, write: bool = False,
         if (row.get("cv_match") is not None and new.get("gate_cv") is not None
                 and bool(new["gate_cv"]) != (row["cv_match"] >= thresholds["pass"])):
             cv_gate_stale += 1
-        if (pay["gate"] is None and row.get("gate_rate") is not None
-                and (row.get("rate_stated") == 1 or not row["gate_rate"])):
-            kept_as_scored += 1
         if pay["gate"] is not None:
             judged += 1
             if had is True and not pay["gate"]:
@@ -218,7 +266,13 @@ def regate(conn, config: dict, floors: dict, write: bool = False,
             "judged_in_code": judged, "rows_changed": len(updates),
             "history_rows_written": kept,
             "gate_flips": gate_flips, "cv_gate_stale": cv_gate_stale,
-            "kept_as_scored": kept_as_scored,
+            "rate_before": dict(sorted(rate_before.items())),
+            "rate_after": dict(sorted(rate_after.items())),
+            "tiers_before": dict(sorted(tiers_before.items())),
+            "tiers_after": dict(sorted(tiers_after.items())),
+            "gate_not_judged": not_judged,
+            "questions_replaced": questions_replaced,
+            "rate_unclear": unclear, "rate_unclear_sample": unclear_sample,
             "tier_moves": dict(sorted(moves.items())),
             "tier_moves_total": sum(moves.values()), "sample": sample}
 
@@ -230,12 +284,27 @@ def main(argv=None) -> int:
     ap.add_argument("--write", action="store_true",
                     help="write the new gates and tiers, otherwise report only")
     ap.add_argument("--db", metavar="PATH", help="alternate database path")
+    ap.add_argument("--unclear-ok", action="store_true",
+                    help="with --write, write even when some rows have a number in "
+                         "the pay text but no figure on file (rate_unclear)")
     args = ap.parse_args(argv)
     rc.load_env()
     config = rc.load_config()
     floors = rc.read_rate_floors(config)  # loud failure before anything else
     thresholds = rc.read_score_thresholds(config)
     conn = rc.get_db(Path(args.db).resolve()) if args.db else rc.get_db()
+    if args.write and not args.unclear_ok:
+        # Look first, writing nothing. A row whose pay text holds a number
+        # Radar has no figure for would read not stated, which is a call the
+        # owner makes on the list, not one the script makes alone.
+        look = regate(conn, config, floors, write=False, thresholds=thresholds)
+        if look["rate_unclear"]:
+            print(json.dumps(look, indent=2))
+            print(f"Nothing written. {look['rate_unclear']} rows have a number in the "
+                  "pay text but no figure on file, listed in rate_unclear_sample. Look "
+                  "at them, then run again with --write --unclear-ok to write.",
+                  file=sys.stderr)
+            return 2
     print(json.dumps(regate(conn, config, floors, write=args.write,
                             thresholds=thresholds), indent=2))
     return 0

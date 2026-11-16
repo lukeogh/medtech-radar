@@ -2698,7 +2698,9 @@ def page_checks() -> None:
               "an ask that moved carries what it was, and the score lists what changed")
         gates = part(inner, "gates")
         rate = page_text(part(inner, "rate"))
-        check('<th scope="col">This copy</th>' in gates and page_text(gates).count("✓ Passes") == 8
+        # Competitive salary is no figure, so Rate is not stated in both columns.
+        check('<th scope="col">This copy</th>' in gates and page_text(gates).count("✓ Passes") == 6
+              and page_text(gates).count("? Not stated") == 2
               and "Competitive salary" in rate and "Not read yet" not in rate
               and "CV lines as numbered in the tailored copy as it was scored" in page_text(inner),
               "the tailored score shows its own four gates, the pay line read from its "
@@ -3935,8 +3937,10 @@ def static_checks() -> None:
     flows = [p.name for p in sorted((REPO_ROOT / "workflows").glob("*.json"))
              if re.search(r"/prepare/cv|/cv/master|tailored|cv_doc|cv_word", p.read_text(encoding="utf-8"))]
     check(not flows, f"no n8n workflow runs any of it or posts to it ({flows})")
-    check(radar_common.prompt_version() == "1b1ffb78",
-          "the scorer prompt is the one Prepare application final left, 1b1ffb78 (the "
+    check(radar_common.prompt_hash(mocks.prompt_before_rate(
+              (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8"))) == "1b1ffb78",
+          "the scorer prompt, the rate change taken out, is the one Prepare application "
+          "final left, 1b1ffb78 (the "
           "quoted reasons' 22353628 with each ask's advert sentence and short reason): the CV page "
           "changed nothing in it")
     serve = (REPO_ROOT / "scripts" / "serve_dashboard.py").read_text(encoding="utf-8")

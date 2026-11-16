@@ -357,12 +357,25 @@ def _tag(text_html: str, cls: str = "") -> str:
     return f'<span class="tag{(" " + cls) if cls else ""}">{text_html}</span>'
 
 
-def _gate_mark(value) -> str:
-    if value == 1 or value is True:
+def _gate_mark(state) -> str:
+    """One gate's mark from its state (radar_common.gate_state). A rate the
+    advert does not state has its own mark, never a pass or a fail."""
+    if state == rc.PASSES:
         return '<span class="pass">&#10003; Passes</span>'
-    if value == 0 or value is False:
+    if state == rc.FAILS:
         return '<span class="fail">&#10007; Fails</span>'
+    if state == rc.NOT_STATED:
+        return '<span class="none">? Not stated</span>'
     return '<span class="none">Not judged</span>'
+
+
+def _copy_state(row: dict, record: dict, gate: str) -> str:
+    """A tailored copy's gate state. The copy is scored on the same advert, so
+    a gate the advert leaves silent is not stated on the copy too."""
+    if rc.gate_state(row, gate) == rc.NOT_STATED:
+        return rc.NOT_STATED
+    value = (record.get("gates") or {}).get(gate)
+    return rc.NOT_JUDGED if value is None else rc.PASSES if int(value) else rc.FAILS
 
 
 def master_diff(master_text: str | None, copy_text: str | None) -> tuple[int, list[str]]:
@@ -712,20 +725,24 @@ def gates_summary(m: dict) -> str:
     row = m["row"]
     if not row.get("tier"):
         return "No gates judged yet."
-    role = [row.get(f"gate_{g}") for g, _l, _n in GATE_ROWS]
+    role = [rc.gate_state(row, g) for g, _l, _n in GATE_ROWS]
     record = m["record"] if m["standing"]["kind"] in ("current", "earlier") else None
-    copy = [((record or {}).get("gates") or {}).get(g) for g, _l, _n in GATE_ROWS]
+    copy = [_copy_state(row, record, g) for g, _l, _n in GATE_ROWS] if record else []
     tier_words = {"top": "a Top prospect", "question": "One question away",
                   "reading": "in Reading", "filtered": "Filtered"}.get(row.get("tier"),
                                                                      row.get("tier"))
-    if all(v == 1 for v in role) and (record is None or all(v == 1 for v in copy)):
+    if all(v == rc.PASSES for v in role) and (record is None
+                                              or all(v == rc.PASSES for v in copy)):
         return (f"All four pass{' on both' if record else ''}, so the role stays "
                 f"{tier_words}.")
-    failed = [n for (g, _l, n), v in zip(GATE_ROWS, role) if v == 0]
+    failed = [n for (g, _l, n), v in zip(GATE_ROWS, role) if v == rc.FAILS]
+    silent = [n for (g, _l, n), v in zip(GATE_ROWS, role) if v == rc.NOT_STATED]
+    said = (f" {', '.join(silent)} isn't stated, so it's your first question."
+            if silent else "")
     if failed:
         on = "the full spec" if m["on_description"] else "the card"
-        return f"{', '.join(failed)} fails on {on}, so the role is {tier_words}."
-    return f"The role is {tier_words}."
+        return f"{', '.join(failed)} fails on {on}, so the role is {tier_words}.{said}"
+    return f"The role is {tier_words}.{said}"
 
 
 # ------------------------------------------------------------- the gates
@@ -754,9 +771,9 @@ def gates_html(m: dict) -> str:
     for g, letter, name in GATE_ROWS:
         label = f"CV match, {passmark} or more" if g == "cv" else name
         cells = [f'<th scope="row"><span class="letter" aria-hidden="true">{letter}</span>'
-                 f'{esc(label)}</th>', f'<td>{_gate_mark(row.get(f"gate_{g}"))}</td>']
+                 f'{esc(label)}</th>', f'<td>{_gate_mark(rc.gate_state(row, g))}</td>']
         if record:
-            cells.append(f'<td>{_gate_mark((record.get("gates") or {}).get(g))}</td>')
+            cells.append(f'<td>{_gate_mark(_copy_state(row, record, g))}</td>')
         role_note, copy_note = notes[g]
         if record:
             # Each column's Why is its own score's, said apart, so a mark is
