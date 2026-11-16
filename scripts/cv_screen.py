@@ -614,11 +614,8 @@ KEYS = (
     (("Ctrl", "Z"), "Undo, outside a line; with Shift, redo"),
     (("←", "→"), "Along the toolbar and the tabs"),
 )
-SINGLE_KEYS = (
-    ("?", "Go to this list of keys"),
-    ("H", "History tab"), ("P", "Preferences tab"), ("W", "Word import tab"),
-    ("A", "Add section"), ("R", "Rearrange"), ("D", "Design"),
-)
+# The page has no single-key shortcuts (the owner's call, 16 Nov, as the design's
+# notes frame drew it): every key above goes with Ctrl or Alt, or moves focus.
 ADD_CHOICES = ("Selected projects", "Talks and writing", "Languages", "Publications")
 
 
@@ -626,9 +623,9 @@ def _toolbar_html(editable: bool) -> str:
     dis = "" if editable else ' aria-disabled="true"'
     return f"""<div class="toolbar" role="toolbar" aria-label="CV" id="cv-toolbar">
 <span class="wide-only">
-<button type="button" class="btn btn-ghost" id="tb-add" aria-haspopup="menu" aria-expanded="false" aria-controls="add-menu" aria-keyshortcuts="A"{dis}>{_icon('plus')}Add section</button>
-<button type="button" class="btn btn-ghost" id="tb-rearrange" aria-haspopup="dialog" aria-keyshortcuts="R"{dis}>{_icon('sort')}Rearrange</button>
-<button type="button" class="btn btn-ghost" id="tb-design" aria-haspopup="dialog" aria-keyshortcuts="D">{_icon('pen')}Design</button>
+<button type="button" class="btn btn-ghost" id="tb-add" aria-haspopup="menu" aria-expanded="false" aria-controls="add-menu"{dis}>{_icon('plus')}Add section</button>
+<button type="button" class="btn btn-ghost" id="tb-rearrange" aria-haspopup="dialog"{dis}>{_icon('sort')}Rearrange</button>
+<button type="button" class="btn btn-ghost" id="tb-design" aria-haspopup="dialog">{_icon('pen')}Design</button>
 <span class="sep" aria-hidden="true"></span>
 </span>
 <button type="button" class="btn btn-ghost btn-icon" id="tb-undo" aria-label="Undo" aria-keyshortcuts="Control+Z" aria-disabled="true">{_icon('undo')}</button>
@@ -790,14 +787,10 @@ saved. Nothing changes until you choose.</p>
 
 def _keys_html() -> str:
     rows = "".join(f"<dt>{_kbd(*k)}</dt><dd>{esc(w)}</dd>" for k, w in KEYS)
-    singles = "".join(f"<dt>{_kbd(k)}</dt><dd>{esc(w)}</dd>" for k, w in SINGLE_KEYS)
-    return f"""<h2 id="keys-h" tabindex="-1">Keys on this page</h2>
+    return f"""<h2 id="keys-h">Keys on this page</h2>
 <dl class="keys">{rows}</dl>
-<h3 class="sub-h">Single keys</h3>
-<p class="keys-toggle"><label class="check"><input type="checkbox" id="keys-on" checked> Single-key shortcuts on</label></p>
-<dl class="keys" id="single-keys">{singles}</dl>
-<p class="help">Single keys never fire while you type in a field, and can be turned
-off here for speech input or if you press them by accident.</p>"""
+<p class="help">Every key here goes with Ctrl or Alt, or moves focus, so none fires
+while you type.</p>"""
 
 
 def _rescore_blocks(stale: dict | None, active: str | None, run: dict) -> str:
@@ -943,9 +936,9 @@ Prepare application tailors from. Every save is a new dated version.</p>
 </section>"""
     tabs = f"""<section class="panel tabs a-tabs" aria-label="History, preferences and import">
 <div class="tablist" role="tablist" aria-label="About the CV" id="cv-tabs">
-<button type="button" class="tab" role="tab" id="tab-history" aria-controls="history" aria-selected="true" tabindex="0" aria-keyshortcuts="H">History<span class="count">{len(hist)}</span></button>
-<button type="button" class="tab" role="tab" id="tab-settings" aria-controls="settings" aria-selected="false" tabindex="-1" aria-keyshortcuts="P">Preferences</button>
-<button type="button" class="tab" role="tab" id="tab-import" aria-controls="import" aria-selected="false" tabindex="-1" aria-keyshortcuts="W">Word import</button>
+<button type="button" class="tab" role="tab" id="tab-history" aria-controls="history" aria-selected="true" tabindex="0">History<span class="count">{len(hist)}</span></button>
+<button type="button" class="tab" role="tab" id="tab-settings" aria-controls="settings" aria-selected="false" tabindex="-1">Preferences</button>
+<button type="button" class="tab" role="tab" id="tab-import" aria-controls="import" aria-selected="false" tabindex="-1">Word import</button>
 </div>
 <div class="tabpanel" role="tabpanel" id="history" aria-labelledby="tab-history" tabindex="0">{_history_html(hist, viewing, compare, counts)}</div>
 <div class="tabpanel" role="tabpanel" id="settings" aria-labelledby="tab-settings" tabindex="0" hidden>{_prefs_html(prefs, config)}</div>
@@ -1193,7 +1186,6 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .keys dd{color:var(--text-2)}
 .a-keys h2:focus{outline:none}
 .a-keys h2:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
-.keys-toggle{margin-top:8px}
 .field{display:flex;flex-direction:column;gap:4px;padding:12px 0;border:0;border-bottom:1px solid var(--border-subtle);margin:0;min-width:0}
 .field:last-of-type{border-bottom:0}
 .field > label,.field > legend{font:600 14px/20px var(--font-sans);color:var(--text-1);padding:0}
@@ -1849,47 +1841,23 @@ CV_SCREEN_JS = r"""
   window.addEventListener('hashchange', fromHash);
 
   // ------------------------------------------------- keys
-  var keysToggle = $('keys-on');
-  function keysOn() { return store('radar-cv-keys') !== 'off'; }
-  if (keysToggle) {
-    keysToggle.checked = keysOn();
-    keysToggle.addEventListener('change', function () {
-      store('radar-cv-keys', keysToggle.checked ? 'on' : 'off');
-    });
-  }
+  // Only the combinations the design draws, and no single-key shortcuts: Ctrl S
+  // saves a version, from anywhere; Ctrl Z undoes and Ctrl Shift Z redoes the
+  // unsaved edits outside a field, where a field's own undo is left to it. Alt
+  // Shift and the arrows are the editor's, Left and Right the toolbar's and
+  // the tabs'.
   document.addEventListener('keydown', function (e) {
+    if (!e.ctrlKey || e.altKey || e.metaKey) return;
     var k = (e.key || '').toLowerCase();
-    // Ctrl S saves, Ctrl Z and Ctrl Shift Z undo and redo outside a field.
-    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
-      if (k === 's') {
-        e.preventDefault();
-        if (saveBtn && !saveBtn.hidden && !saveBtn.disabled) saveBtn.click();
-        return;
-      }
-      if ((k === 'z' || k === 'y') && !typing(e.target) && E && !dialogOpen()) {
-        e.preventDefault();
-        if (k === 'y' || e.shiftKey) E.redo(); else E.undo();
-        return;
-      }
-      return;
-    }
-    if (e.defaultPrevented || e.altKey || e.isComposing) return;
-    if (typing(e.target) || dialogOpen() || (menu && !menu.hidden)) return;
-    if (e.target && e.target.closest && e.target.closest('#cv-editor')) {
-      if (k !== '?') return;
-    }
-    if (!keysOn()) return;
-    if (e.key === '?') {
+    if (k === 's') {
       e.preventDefault();
-      var h = $('keys-h');
-      if (h) { h.focus(); if (h.scrollIntoView) h.scrollIntoView({ block: 'center' }); }
+      if (saveBtn && !saveBtn.hidden && !saveBtn.disabled) saveBtn.click();
       return;
     }
-    if (e.shiftKey || k.length !== 1) return;
-    var tabKey = { h: 'tab-history', p: 'tab-settings', w: 'tab-import' }[k];
-    if (tabKey) { e.preventDefault(); selectTab($(tabKey), true); return; }
-    var btn = { a: addBtn, r: rBtn, d: dBtn }[k];
-    if (btn && shown(btn) && enabled(btn)) { e.preventDefault(); btn.click(); }
+    if (k === 'z' && !typing(e.target) && E && !dialogOpen()) {
+      e.preventDefault();
+      if (e.shiftKey) E.redo(); else E.undo();
+    }
   });
 
   // ------------------------------------------------- Rescore affected

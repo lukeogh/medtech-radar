@@ -32,7 +32,7 @@ What it checks:
 - the page estimate and the design: the browser's sums are the server's under
   node, and the Word file takes the design,
 - the page's script under node (test/cv_screen_harness.js): parts, Enter and
-  Escape, Undo, Ctrl S, Alt Shift arrows, the single keys and their switch, the
+  Escape, Undo, Ctrl S, Ctrl Z, Alt Shift arrows, no single key doing anything, the
   toolbar and the tabs, Add section, Rearrange, Design, Rescore's confirm, the
   Preferences tab, the read-only older version and the phone's Edit,
 - the box checks: every query in docs/box-checks-cv-final-part.md runs on a
@@ -585,6 +585,14 @@ def page_checks() -> None:
               "the Preferences tab is the panel /cv#settings names, with Home's lines in it")
         home = (REPO_ROOT / "scripts" / "home_page.py").read_text(encoding="utf-8")
         check('href="/cv#settings"' in home, "and Home still links there")
+        check('id="keys-on"' not in page and "Single" not in page
+              and set(re.findall(r'aria-keyshortcuts="([^"]+)"', page))
+              == {"Control+S", "Control+Z", "Control+Shift+Z"}
+              and [ "".join(k) for k, _w in cv_screen.KEYS]
+              == ["Tab", "Enter", "Esc", "AltShift↑↓", "CtrlS", "CtrlZ", "←→"]
+              and "so none fires while you type" in " ".join(page.split()),
+              "the page has no single-key shortcuts and no switch for them: its keys are the "
+              "frames' Tab, Enter, Esc, Alt Shift arrows, Ctrl S, Ctrl Z and the arrows")
         check("Changing these changes how roles are scored." in page
               and 'class="sheet sheet-paper"' in page and "#f8f6f1" not in CV_CSS_ONLY(),
               "the page says plainly that changing preferences changes how roles are scored, "
@@ -756,6 +764,7 @@ def harness_checks(parity: dict) -> None:
                                   "pages": cv_doc.estimate_pages(lines), "version": V_NOW,
                                   "viewText": cv_doc.render(cv_doc.load_doc(OLD)),
                                   "overFirst": over_pages[2]["first"],
+                                  "keys": ["".join(k) for k, _w in cv_screen.KEYS],
                                   "stale": {"count": stale["count"], "cost": stale["cost"]["words"]}}}
             spec = tmp / "harness.json"
             spec.write_text(json.dumps(payload), encoding="utf-8")
@@ -904,6 +913,8 @@ def docs_checks() -> None:
 
 def main() -> int:
     argparse.ArgumentParser().parse_args()
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     for fn in (write_checks, resort_checks, offer_checks, stale_checks, cost_checks,
                page_checks, word_checks, route_checks):
         fn()
