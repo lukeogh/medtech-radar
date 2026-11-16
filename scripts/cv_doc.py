@@ -42,6 +42,7 @@ Standard library only.
 from __future__ import annotations
 
 import difflib
+import math
 import re
 import unicodedata
 
@@ -757,3 +758,109 @@ def change_word(change: dict) -> str:
         return "gone"
     up = _RANK.get(change.get("to"), 0) - _RANK.get(change.get("from"), 0)
     return "better" if up > 0 else "worse"
+
+
+# ------------------------------------------------- pages, and Design
+
+# How the sheet and the Word file look: the CV page's Design dialog. One
+# column always, no tables, images, headers or footers, so a tracking system
+# reads the file as plainly as a person does. The default is the template
+# cv_word has always written: Arial, 10.5 pt, 2 cm at the sides, 1.8 cm top
+# and bottom. Margins name the sides; top and bottom are 2 mm less.
+DESIGN_CHOICES = {
+    "font": ("Arial", "Calibri", "Georgia"),
+    "size": (10.0, 10.5, 11.0),
+    "spacing": ("compact", "standard", "relaxed"),
+    "margins": (15, 20, 25),
+}
+DESIGN_DEFAULT = {"font": "Arial", "size": 10.5, "spacing": "standard", "margins": 20}
+
+# What the page estimate works from. The width of an average character, in
+# ems, for each font; the space before and after a paragraph at each spacing;
+# a line's height as a share of its size, as Word sets single spacing for
+# these fonts; and the bullet's indent. An estimate: Word decides the breaks.
+_CHAR_EM = {"Arial": 0.5, "Calibri": 0.46, "Georgia": 0.54}
+_SPACING = {"compact": 0.5, "standard": 1.0, "relaxed": 1.5}
+_LINE_HEIGHT = 1.15
+_BULLET_INDENT_PT = 18.0
+_PT_PER_MM = 72 / 25.4
+
+
+def clean_design(value) -> dict:
+    """A design as a request or the stored file gives it, each choice one of
+    DESIGN_CHOICES, the default for anything missing or not allowed."""
+    out = dict(DESIGN_DEFAULT)
+    if isinstance(value, dict):
+        for key, allowed in DESIGN_CHOICES.items():
+            got = value.get(key)
+            if key == "size" and isinstance(got, (int, float)) and not isinstance(got, bool):
+                got = float(got)
+            if key == "margins" and isinstance(got, float) and got == int(got):
+                got = int(got)
+            if got in allowed and not isinstance(got, bool):
+                out[key] = got
+    return out
+
+
+def design_sizes(design: dict) -> dict:
+    """Point sizes for the Word styles under a design: the body at its size,
+    the headings in the template's proportions (18, 13 and 11 to 10.5)."""
+    body = float(design["size"])
+    return {"Normal": body, "Heading 1": round(body * 18 / 10.5, 1),
+            "Heading 2": round(body * 13 / 10.5, 1),
+            "Heading 3": round(body * 11 / 10.5, 1), "List Bullet": body}
+
+
+def estimate_pages(lines: list, design: dict | None = None) -> list[dict]:
+    """Where the A4 pages of the Word file would break, estimated from the
+    template's sizes: [{"page": 1, "first": 1, "last": 48}, ...], with the
+    first and last line numbers on each page (blank lines go with the page
+    before). A heading never ends a page, as Word keeps it with what follows.
+    The same sums are CV_MODEL_JS's pages(), which test/run_cv_test.py holds
+    to these answers, so the sheet's breaks and the page count agree.
+    """
+    design = clean_design(design)
+    sizes = design_sizes(design)
+    spacing = _SPACING[design["spacing"]]
+    em = _CHAR_EM[design["font"]]
+    side = design["margins"] * _PT_PER_MM
+    usable = (297 - 2 * (design["margins"] - 2)) * _PT_PER_MM
+    width = 210 * _PT_PER_MM - 2 * side
+
+    def height(line: str) -> float:
+        if not line:
+            return 0.0
+        style, words, indent, before = "Normal", line, 0.0, 0.0
+        for mark, name in (("### ", "Heading 3"), ("## ", "Heading 2"), ("# ", "Heading 1")):
+            if line.startswith(mark):
+                style, words = name, line[len(mark):]
+                before = 0.0 if name == "Heading 1" else 12 * spacing
+                break
+        else:
+            if line.startswith("- "):
+                words, indent = line[2:], _BULLET_INDENT_PT
+        size = sizes[style]
+        per_line = max(1, math.floor((width - indent)
+                                     / (size * em * (1.05 if style != "Normal" else 1.0))))
+        rows = max(1, -(-len(words) // per_line))
+        return before + rows * size * _LINE_HEIGHT + 4 * spacing
+
+    heights = [height(line) for line in lines]
+    pages: list[dict] = []
+    used = 0.0
+    for i, line in enumerate(lines):
+        n, h = i + 1, heights[i]
+        if not line:
+            if pages:
+                pages[-1]["last"] = n
+            continue
+        need = h
+        if line.startswith("#"):
+            nxt = next((heights[j] for j in range(i + 1, len(lines)) if lines[j]), 0.0)
+            need = h + nxt
+        if not pages or (used > 0 and used + need > usable):
+            pages.append({"page": len(pages) + 1, "first": n, "last": n})
+            used = 0.0
+        used += h
+        pages[-1]["last"] = n
+    return pages or [{"page": 1, "first": 1, "last": len(lines)}]

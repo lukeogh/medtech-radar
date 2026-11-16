@@ -22,7 +22,10 @@ the preferences file (cv_pass_score and cv_floor_score, 70 and 40 when the
 lines are missing). The floor reaches every row. The pass mark reaches new
 scores only, because the CV gate a row holds was judged when it was scored,
 so cv_gate_stale counts the rows whose gate no longer matches the pass mark
-now, and only a re-score changes them. Before --write overwrites a row, the
+now, and only a re-score or the CV page changes them: a pass mark saved on the
+CV page's Preferences tab re-sorts the open roles through regate() with
+cv_gate_again, which judges the CV gate again from the stored CV match. Before
+--write overwrites a row, the
 score it holds is kept in score_history. A dry run writes nothing, history
 included.
 """
@@ -40,7 +43,9 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import radar_common as rc  # noqa: E402
 import score_item  # noqa: E402
 
-_GATE_COLS = ("gate_rate", "gate_rate_note", "rate_stated", "rate_value",
+# gate_cv is here for the CV page's re-sort, which judges the CV gate again
+# from the stored CV match (cv_gate_again). Everything else leaves it as it is.
+_GATE_COLS = ("gate_cv", "gate_rate", "gate_rate_note", "rate_stated", "rate_value",
               "rate_basis", "rate_band", "tier", "failed_gates",
               "filter_reason", "question_text")
 
@@ -50,7 +55,8 @@ def _flag(value):
 
 
 def judge_row(row: dict, floors: dict, config: dict | None = None,
-              thresholds: dict | None = None) -> tuple[dict, dict]:
+              thresholds: dict | None = None,
+              cv_gate_again: bool = False) -> tuple[dict, dict]:
     """The rate gate and the tier for one row, from its stored columns.
 
     Returns (new, pay): new holds a value for every column in _GATE_COLS,
@@ -64,12 +70,22 @@ def judge_row(row: dict, floors: dict, config: dict | None = None,
     gate itself stays as the scorer stored it, judged against the pass mark
     in force when the row was scored, so changing cv_pass_score reaches new
     scores and cv_floor_score reaches a regate.
+
+    cv_gate_again, which only the CV page's re-sort asks for, judges the CV
+    gate again too, against the pass mark in thresholds. That is exact: since
+    phase three (3 Aug) the CV gate has only ever been code's, the stored CV
+    match at or above the pass mark (score_item.cv_gate), so the number it was
+    judged from is on the row. A row with no CV match keeps its unknown gate.
     """
     gates = {"sector": _flag(row.get("gate_sector")),
              "cv": _flag(row.get("gate_cv")),
              "location": _flag(row.get("gate_location")),
              "rate": _flag(row.get("gate_rate"))}
     new = {c: row.get(c) for c in _GATE_COLS}
+    thresholds = thresholds or rc.read_score_thresholds(config)
+    if cv_gate_again and row.get("cv_match") is not None:
+        gates["cv"] = score_item.cv_gate(row["cv_match"], thresholds["pass"])
+        new["gate_cv"] = int(gates["cv"])
     pay = rc.gate_pay(row.get("pay_currency"), row.get("pay_period"),
                       row.get("pay_min"), row.get("pay_max"), floors, config)
     if pay["gate"] is not None:
@@ -79,7 +95,6 @@ def judge_row(row: dict, floors: dict, config: dict | None = None,
                    rate_stated=1, rate_value=pay["figure"],
                    rate_basis=pay["basis"], rate_band=pay["band"])
     cv = row.get("cv_match")
-    thresholds = thresholds or rc.read_score_thresholds(config)
     real = score_item.is_real(gates["sector"], cv, thresholds["floor"])
     tier_info = score_item.derive_tier(gates, cv, real, thresholds["floor"])
     new["tier"] = tier_info["tier"]
@@ -94,7 +109,15 @@ def judge_row(row: dict, floors: dict, config: dict | None = None,
 
 
 def regate(conn, config: dict, floors: dict, write: bool = False,
-           thresholds: dict | None = None) -> dict:
+           thresholds: dict | None = None, cv_gate_again: bool = False,
+           writer: str = "regate_rates") -> dict:
+    """Judge every open, scored, not applied role again in code. See the
+    module's notes. cv_gate_again and writer are the CV page's re-sort's:
+    it judges the CV gate again as well, and its history rows and its run
+    say they came from the CV page. kept_as_scored counts the rows whose
+    rate gate cannot be judged again in code, because the advert states a
+    rate (or failed on one) that Radar holds no figure for, so the scorer's
+    own verdict stands."""
     thresholds = thresholds or rc.read_score_thresholds(config)
     if write:
         # The write lock before the rows are chosen. Between choosing a row
@@ -110,19 +133,23 @@ def regate(conn, config: dict, floors: dict, write: bool = False,
     gate_flips = {"pass to fail": 0, "fail to pass": 0}
     judged = 0
     cv_gate_stale = 0
+    kept_as_scored = 0
     sample = []
     updates = []
     for row in rows:
         row = dict(row)
         had = _flag(row.get("gate_rate"))
-        new, pay = judge_row(row, floors, config, thresholds)
+        new, pay = judge_row(row, floors, config, thresholds, cv_gate_again)
         # The CV gate a row holds was judged against the pass mark in force
         # when it was scored, and a regate leaves it. Count the rows where
         # that no longer matches the pass mark now, so a changed
         # cv_pass_score shows what it has not reached.
-        if (row.get("cv_match") is not None and row.get("gate_cv") is not None
-                and bool(row["gate_cv"]) != (row["cv_match"] >= thresholds["pass"])):
+        if (row.get("cv_match") is not None and new.get("gate_cv") is not None
+                and bool(new["gate_cv"]) != (row["cv_match"] >= thresholds["pass"])):
             cv_gate_stale += 1
+        if (pay["gate"] is None and row.get("gate_rate") is not None
+                and (row.get("rate_stated") == 1 or not row["gate_rate"])):
+            kept_as_scored += 1
         if pay["gate"] is not None:
             judged += 1
             if had is True and not pay["gate"]:
@@ -144,7 +171,7 @@ def regate(conn, config: dict, floors: dict, write: bool = False,
         # The score a row holds is kept in the history before it is
         # overwritten, one transaction for the whole pass.
         for params in updates:
-            if rc.archive_score(conn, params[-1], "regate_rates"):
+            if rc.archive_score(conn, params[-1], writer):
                 kept += 1
             conn.execute(
                 "UPDATE opportunities SET "
@@ -153,7 +180,10 @@ def regate(conn, config: dict, floors: dict, write: bool = False,
         conn.commit()
         rc.log_run(conn, "regate", mode="live", items_in=len(rows),
                    items_new=sum(moves.values()),
-                   note=f"floors day {floors['day']:g} salary {floors['salary']:g}, "
+                   note=("from the CV page, " if writer != "regate_rates" else "")
+                        + (f"pass {thresholds['pass']:g} floor {thresholds['floor']:g}, "
+                           if cv_gate_again else "")
+                        + f"floors day {floors['day']:g} salary {floors['salary']:g}, "
                         + (", ".join(f"{n} {k}" for k, n in sorted(moves.items()))
                            or "no tier moved"))
     elif write:
@@ -165,6 +195,7 @@ def regate(conn, config: dict, floors: dict, write: bool = False,
             "judged_in_code": judged, "rows_changed": len(updates),
             "history_rows_written": kept,
             "gate_flips": gate_flips, "cv_gate_stale": cv_gate_stale,
+            "kept_as_scored": kept_as_scored,
             "tier_moves": dict(sorted(moves.items())),
             "tier_moves_total": sum(moves.values()), "sample": sample}
 

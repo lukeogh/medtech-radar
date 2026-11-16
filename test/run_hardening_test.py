@@ -109,8 +109,10 @@ CALLS: list[str] = []
 # guard in this runner proves it reached the route and does nothing else.
 STUBS = (
     (serve_dashboard, "run_watcher", {"ok": True, "summary": {}}),
-    (serve_dashboard, "run_stale_rescore",
-     {"ok": True, "stale_rescored": 0, "remaining_stale": 0}),
+    (serve_dashboard, "run_cv_rescore", {"ok": True, "outcome": "started"}),
+    (serve_dashboard, "save_cv_preferences", {"ok": True, "moved": 0}),
+    (serve_dashboard, "save_cv_section", {"ok": True, "offer": None}),
+    (serve_dashboard, "save_cv_design", {"ok": True, "design": {}}),
     (serve_dashboard, "set_acknowledged", {"ok": True, "id": 1}),
     (serve_dashboard, "set_read", {"ok": True, "id": 1}),
     (serve_dashboard, "set_lifecycle", {"ok": True, "id": 1}),
@@ -179,7 +181,11 @@ ROUTES = (
     ("/sig/ack", b'{"id": 1}', {}, "set_signal_state"),
     ("/sig/unack", b'{"id": 1}', {}, "set_signal_state"),
     ("/cv/preview", b"A CV.", {"X-Filename": "cv.txt"}, "extract_markdown"),
-    ("/cv/rescore", b'{"confirm": true}', {}, "run_stale_rescore"),
+    ("/cv/rescore", b'{"confirm": true, "scope": "stale", "expect": 1}', {},
+     "run_cv_rescore"),
+    ("/cv/preferences", b'{"values": {"cv_pass_score": 70}}', {}, "save_cv_preferences"),
+    ("/cv/preferences/section", b'{"key": "location", "text": "x"}', {}, "save_cv_section"),
+    ("/cv/design", b'{"font": "Arial"}', {}, "save_cv_design"),
     ("/cv/confirm", b'{"token": "t"}', {}, "confirm"),
     ("/cv/discard", b'{"token": "t"}', {}, "discard"),
 )

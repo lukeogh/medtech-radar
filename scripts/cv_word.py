@@ -58,12 +58,12 @@ def _docx():
     return docx
 
 
-def _plain_style(style, size: float, bold: bool) -> None:
+def _plain_style(style, size: float, bold: bool, font_name: str = FONT) -> None:
     """One font, black, no theme colour, no caps, no spacing tricks."""
     from docx.oxml.ns import qn
     from docx.shared import Pt, RGBColor
     font = style.font
-    font.name = FONT
+    font.name = font_name
     font.size = Pt(size)
     font.bold = bold
     font.italic = False
@@ -76,7 +76,7 @@ def _plain_style(style, size: float, bold: bool) -> None:
     for attr in list(fonts.attrib):
         del fonts.attrib[attr]
     for which in ("w:ascii", "w:hAnsi", "w:cs", "w:eastAsia"):
-        fonts.set(qn(which), FONT)
+        fonts.set(qn(which), font_name)
 
 
 def _bullet_number(document) -> str:
@@ -104,13 +104,22 @@ def _list_paragraph(paragraph, num_id: str) -> None:
     ppr.append(num)
 
 
-def build(text: str, title: str = "") -> bytes:
+def build(text: str, title: str = "", design: dict | None = None) -> bytes:
     """The Word file for a saved copy, as bytes.
 
     text is the saved copy, in the editor's layout. title goes in the file's
     properties, with the CV's owner as its author, and nothing else of the
-    machine's is written into it.
+    machine's is written into it. design is the CV page's Design (font, text
+    size, spacing, margins, cv_doc.DESIGN_CHOICES), read from the profile
+    (cv_store.read_design) when not given; with none saved it is the template
+    this has always written. Every design keeps the rules above.
     """
+    if design is None:
+        import cv_store
+        design = cv_store.read_design()
+    design = cv_doc.clean_design(design)
+    sizes = cv_doc.design_sizes(design)
+    spacing = {"compact": 0.5, "standard": 1.0, "relaxed": 1.5}[design["spacing"]]
     docx = _docx()
     from docx.enum.section import WD_ORIENT
     from docx.shared import Cm, Pt
@@ -124,17 +133,18 @@ def build(text: str, title: str = "") -> bytes:
     section = document.sections[0]
     section.orientation = WD_ORIENT.PORTRAIT
     section.page_width, section.page_height = Cm(21.0), Cm(29.7)
-    section.left_margin = section.right_margin = Cm(2.0)
-    section.top_margin = section.bottom_margin = Cm(1.8)
+    section.left_margin = section.right_margin = Cm(design["margins"] / 10)
+    section.top_margin = section.bottom_margin = Cm((design["margins"] - 2) / 10)
 
-    for name, size in SIZES.items():
-        _plain_style(document.styles[name], size, name.startswith("Heading"))
+    for name, size in sizes.items():
+        _plain_style(document.styles[name], size, name.startswith("Heading"),
+                     design["font"])
     for name in ("Heading 1", "Heading 2", "Heading 3"):
         fmt = document.styles[name].paragraph_format
-        fmt.space_before = Pt(12 if name != "Heading 1" else 0)
-        fmt.space_after = Pt(4)
+        fmt.space_before = Pt(12 * spacing if name != "Heading 1" else 0)
+        fmt.space_after = Pt(4 * spacing)
         fmt.keep_with_next = True
-    document.styles["Normal"].paragraph_format.space_after = Pt(4)
+    document.styles["Normal"].paragraph_format.space_after = Pt(4 * spacing)
     num_id = _bullet_number(document)
 
     for line in cv_doc._lines_of(text):

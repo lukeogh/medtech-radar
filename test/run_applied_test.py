@@ -2744,6 +2744,9 @@ EXCEPTIONS = {
     ("rescore.py", "_rescore_rows", "SET cv_match"):
         "the write lock is taken and the role looked at again after the "
         "model answers and before this runs, see rescore_checks",
+    ("cv_screen.py", "save_preferences", "APPLIED_SQL"):
+        "counts the applied roles a re-sort leaves alone, so the CV page can "
+        "say they keep their tier; it writes nothing",
     # ---- bookkeeping that is true whoever has applied for the role
     ("build_digest.py", "commit_token", "status = 'digested'"):
         "marks the rows a digest that went out already carried, and applied "
