@@ -134,7 +134,7 @@ CARD_PART_SHA256 = "437b69dc53cde07c857e18311eb6bbbd12ecc5f4c89d49e70aa598bf1cdb
 CARD_PART_LENGTH = 4806
 
 HEADER = build_dashboard.WRITE_HEADER
-PROXY = "medtech-radar.keogh.cloud"
+PROXY = "radar.example.test"
 ISO = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 # The button a page offers, as an element. The page's script names the same
 # attribute in a selector, so the bare word proves nothing about the page.

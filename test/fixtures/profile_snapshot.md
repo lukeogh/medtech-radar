@@ -21,7 +21,7 @@ Fenmoor Energy.
 Standards. IEC 62304, ISO 13485, ISO 14971, IEC 81001-5-1, FDA 524B awareness,
 EU MDR and IVDR pathways.
 
-Toolchain. SpiraPlan and regulated ALM configuration. Comfortable with n8n,
+Toolchain. Jama Connect and regulated ALM configuration. Comfortable with n8n,
 Docker, Proxmox and self-hosting.
 
 Service lines. A software testing practice under RennieQA, and a senior
