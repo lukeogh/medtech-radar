@@ -328,39 +328,63 @@ function words(w) {
       'and the lines are numbered again from 1 in their new order');
   w.api.undo();
   say(titles() === was0, 'Undo puts it back');
+  w.q('.cv-part[data-part="s1"]').focus();
+  w.key(w.q('.cv-part[data-part="s1"]'), 'ArrowUp', { altKey: true, shiftKey: true });
+  say(w.api.sections()[0].title === C.expect.sections[1]
+      && w.sandbox.document.activeElement === w.q('.cv-part[data-part="s0"]'),
+      'Alt Shift Up moves it the other way');
+  w.api.undo();
 
-  // ---- single keys, and their manners
-  w.sandbox.document.activeElement = w.q('#main');
-  w.key(w.q('#main'), 'p');
-  say(w.q('#tab-settings').getAttribute('aria-selected') === 'true' && !w.q('#settings').hidden && w.q('#history').hidden,
-      'P opens the Preferences tab');
-  w.key(w.q('#main'), 'w');
-  say(!w.q('#import').hidden, 'W opens Word import');
-  w.key(w.q('#main'), 'h');
-  say(!w.q('#history').hidden, 'H opens History');
-  w.key(w.q('#pref-cv_pass_score'), 'p');
-  say(w.q('#settings').hidden, 'a single key typed in a field is only typing');
-  w.click(w.q('.cv-part[data-part="s0"]'));
-  w.key(w.q('.cv-part[data-part="s0"]'), 'p');
-  say(w.q('#settings').hidden, 'and one pressed on the sheet does nothing either');
-  w.key(w.q('#main'), 'p', { ctrlKey: true });
-  say(w.q('#settings').hidden, 'and none fires with Ctrl');
-  const toggle = w.q('#keys-on');
-  toggle.checked = false;
-  w.fire(toggle, 'change');
-  w.key(w.q('#main'), 'p');
-  say(w.q('#settings').hidden && w.store['radar-cv-keys'] === 'off',
-      'turned off in the keys panel, single keys do nothing, and it is remembered (WCAG 2.1.4)');
-  toggle.checked = true;
-  w.fire(toggle, 'change');
-  w.key(w.q('#main'), '?');
-  say(w.sandbox.document.activeElement === w.q('#keys-h'), '? goes to the keys');
-  ['tb-add', 'tb-rearrange', 'tb-design', 'tb-undo', 'tb-redo', 'tb-save'].forEach((id) => {
-    if (!w.q('#' + id).getAttribute('aria-keyshortcuts')) say(false, id + ' names its shortcut');
+  // ---- no single-key shortcuts, only the combinations the frames draw
+  const snapshot = () => JSON.stringify([w.qa('[role="tab"]').map((t) => t.getAttribute('aria-selected')),
+    w.q('#add-menu').hidden, w.q('#rearrange-dlg').open, w.q('#design-dlg').open, titles(),
+    w.api.state().edited, w.calls.length]);
+  const quiet = snapshot();
+  const places = [['#main', 'the page'], ['.cv-part[data-part="s0"]', 'a section of the sheet'],
+                  ['#tab-history', 'a tab'], ['#tb-add', 'the toolbar']];
+  let still = 0;
+  let unclaimed = 0;
+  places.forEach(([sel, _where]) => {
+    const el = w.q(sel);
+    w.sandbox.document.activeElement = el;
+    ['h', 'p', 'w', 'a', 'r', 'd', 'e', 'j', 'k', 'm', '?', '1'].forEach((k) => {
+      const ev = w.key(el, k, k === '?' ? { shiftKey: true } : {});
+      if (snapshot() === quiet && w.sandbox.document.activeElement === el) still += 1;
+      if (!ev.defaultPrevented) unclaimed += 1;
+    });
   });
+  say(still === 48 && unclaimed === 48,
+      'no single key does anything anywhere on the page: H, P, W, A, R, D, ? and the rest change no tab, open no menu or dialog, move no focus and are not claimed');
+  say(!w.q('#keys-on') && !/Single/.test(text(w.q('.a-keys')))
+      && w.qa('[aria-keyshortcuts]').every((b) => /^(Control|Alt)\+/.test(b.getAttribute('aria-keyshortcuts'))),
+      'there is no single-key switch, the keys panel lists none, and every aria-keyshortcuts names Ctrl or Alt');
+  say(JSON.stringify(w.qa('.a-keys dt').map((d) => text(d))) === JSON.stringify(C.expect.keys),
+      'the keys panel lists exactly the keys the frames draw: ' + w.qa('.a-keys dt').map((d) => text(d)).join(', '));
   say(w.q('#tb-save').getAttribute('aria-keyshortcuts') === 'Control+S'
-      && w.q('#tb-undo').getAttribute('aria-keyshortcuts') === 'Control+Z',
-      'the toolbar buttons carry their shortcuts in aria-keyshortcuts');
+      && w.q('#tb-undo').getAttribute('aria-keyshortcuts') === 'Control+Z'
+      && w.q('#tb-redo').getAttribute('aria-keyshortcuts') === 'Control+Shift+Z',
+      'Save version, Undo and Redo carry their combinations in aria-keyshortcuts');
+  // Ctrl Y, Cmd Z and Alt Z are not the frames' and do nothing.
+  w.click(w.q('.cv-part[data-part="s0"]'));
+  const fy = w.q('.cv-part[data-part="s0"] textarea');
+  w.input(fy, fy.value + ' Y.');
+  w.sandbox.document.activeElement = w.q('#main');
+  w.key(w.q('#main'), 'y', { ctrlKey: true });
+  w.key(w.q('#main'), 'z', { metaKey: true });
+  w.key(w.q('#main'), 'z', { altKey: true });
+  say(w.api.state().edited === true, 'Ctrl Y, Cmd Z and Alt Z undo nothing');
+  // While typing: Ctrl Z is the field's own undo, never the page's.
+  const fz = w.q('.cv-part[data-part="s0"] textarea');
+  w.sandbox.document.activeElement = fz;
+  const evz = w.key(fz, 'z', { ctrlKey: true });
+  say(!evz.defaultPrevented && w.api.state().edited === true,
+      'Ctrl Z in a line is left to the line itself, so the page undoes nothing while you type');
+  w.key(fz, 'ArrowDown', { altKey: true, shiftKey: true });
+  say(titles() === was0, 'Alt Shift Down in a line being edited moves nothing');
+  w.sandbox.document.activeElement = w.q('#main');
+  w.key(w.q('#main'), 'z', { ctrlKey: true });
+  say(w.api.state().edited === false, 'and Ctrl Z outside the line undoes it');
+  w.key(w.q('.cv-part[data-part="s0"]'), 'Escape');
 
   // ---- the toolbar and the tabs are one Tab stop each
   const tb = w.qa('#cv-toolbar button').filter((b) => !b.hidden && !b.closest('[hidden]'));
