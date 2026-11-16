@@ -2786,6 +2786,11 @@ EXCEPTIONS = {
         "the company page is the history of everything on file, applied or not",
     ("insights_page.py", "company_html", "SELECT id, title, tier, applied_at"):
         "a story page lists the company's roles as links, and an applied one says Applied",
+    ("watchlist.py", "_open_roles", "SELECT company_id, COUNT(*) AS n FROM opportunities"):
+        "the Watchlist's Roles on Jobs column counts the company's roles on Jobs, the Applied "
+        "view included, and changes no row",
+    ("watchlist.py", "record", "SELECT * FROM opportunities WHERE company_id = ?"):
+        "the Watchlist record lists the company's roles as links, and an applied one says Applied",
 }
 LIFECYCLE = ("acknowledged_at", "closed_at", "dismissed_at", "expired_at")
 WRITES = re.compile(r"\b(UPDATE|DELETE FROM)\s+opportunities\b")
