@@ -27,8 +27,8 @@ What the change touches on the box:
   next step with no date shows "No date set" and never counts as due. Logging
   a contact for a company not on the Watchlist adds it.
 - Suggestions are worked out in code at the end of each signal watcher run
-  (no model call): buying windows, funding rounds and Insights stories at 70
-  or more, from the last 30 days, five at most. Nothing joins the Watchlist
+  (no model call): buying windows, funding rounds at 40 or more and Insights
+  stories at 70 or more, from the last 30 days, five at most. Nothing joins the Watchlist
   until you press Add. The first run after the deploy fills them.
 - Home gets its fifth figure, threads due, and a Threads due group in Needs
   you today, counting only Watchlist companies.
