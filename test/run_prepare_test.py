@@ -3228,6 +3228,14 @@ def page_script_checks() -> None:
             render_inner(env, main_role), "gaps")))}
         saved = prep.save_copy(main_role, master, env.db, CFG)
         saved["html"] = render_inner(env, main_role)
+        import cv_doc
+        estimate = cv_doc.estimate_pages(cv_store.cv_lines(master), cv_store.read_design())
+        pages_estimate = {"firsts": [pg["first"] for pg in estimate],
+                          "words": prepare_page.pages_words(estimate, cv_store.read_design())}
+        first_line = next(l for l in cv_store.cv_lines(master) if l and not l.startswith("#"))
+        rescored = prep.rescore_copy(main_role, master.replace(first_line, first_line + " and more", 1),
+                                     env.db, CFG)
+        rescored["html"] = render_inner(env, main_role)
         applied = env.role(title="Head of Software", company="Pyxis Diagnostics")
         prep.open_copy(applied, env.db, CFG)
         prep.save_copy(applied, master, env.db, CFG)
@@ -3242,8 +3250,9 @@ def page_script_checks() -> None:
         "ids": {"before": before, "main": main_role, "applied": applied},
         "pages": {"before": before_page, "fromJobs": from_jobs, "main": main_page,
                   "applied": applied_page},
-        "answers": {"failed": failed, "scored": scored, "saved": saved},
-        "counts": counts,
+        "answers": {"failed": failed, "scored": scored, "saved": saved,
+                    "rescored": rescored},
+        "counts": counts, "pages_estimate": pages_estimate,
     }
     with tempfile.TemporaryDirectory() as tmp:
         data = Path(tmp) / "data.json"
