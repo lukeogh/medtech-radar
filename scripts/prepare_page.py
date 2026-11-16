@@ -1881,6 +1881,9 @@ details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bott
 .pa-dialog > p:not(.row-btns):not(.sub){font-size:14px;line-height:20px;color:var(--text-2)}
 .pa-dialog .btn{height:auto;min-height:32px;white-space:normal}
 
+/* Touch, at every width: the buttons, the shortcut switch and every summary
+   are 44px, as on the CV page (cv_screen, pointer:coarse). */
+@media (pointer:coarse){.pa .btn,.pa .btn-sm,.pa .switch,.pa summary,.note-toggle{min-height:44px}.pa .btn-sm,.pa .switch{height:auto}.pa-why summary{padding:12px 0}}
 @media (max-width:767.98px){
   html{scroll-padding-top:16px;scroll-padding-bottom:136px}
   .pa{padding:24px 16px 48px}
@@ -1916,9 +1919,6 @@ details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bott
   .note.is-closed{background:var(--canvas);box-shadow:var(--shadow-overlay)}
   .note{box-shadow:var(--shadow-overlay)}
 }
-/* Touch, at every width: the buttons, the shortcut switch and every summary
-   are 44px, as on the CV page (cv_screen, pointer:coarse). */
-@media (pointer:coarse){.pa .btn,.pa .btn-sm,.pa .switch,.pa summary,.note-toggle{min-height:44px}.pa .btn-sm,.pa .switch{height:auto}.pa-why summary{padding:12px 0}}
 @media (forced-colors:active){.note,.fig,.tag,.kbd{border:1px solid CanvasText}.cvl.pa-lit{outline:2px solid Highlight}}
 """
 
@@ -1973,10 +1973,12 @@ SHEET_CSS = r"""
   .pa-sheet .cvl-ops button,.pa-sheet .cv-add button{min-height:44px;min-width:44px}
 }
 @media (max-width:767.98px){
-  .pa-sheet{padding:20px 14px 20px 40px;--sheet-pad-side:14px}
+  .pa-sheet{padding:20px 14px 20px 40px}
+  .pa-break{margin:16px -14px 12px -40px;padding:6px 14px 6px 40px}
   .pa-sheet .cvl{grid-template-columns:1em minmax(0,1fr)}
   .pa-sheet .cvl-n{left:-36px;width:28px;font-size:10px}
-  .pa-sheet .cvl-ops{grid-column:1 / 3;justify-content:flex-end}
+  .pa-sheet .cvl-ops{grid-column:1 / 3;justify-content:flex-end;display:none;opacity:1}
+  .pa-sheet .cvl:focus-within .cvl-ops,.pa-sheet .cvl.pa-on .cvl-ops{display:flex}
   .pa-sheet .cvl.pa-over::before{left:-38px}
 }
 """
@@ -2503,10 +2505,14 @@ PREPARE_SCRIPT = r"""
       // Rescore role's answer, put in by the editor, which says the outcome
       // in #cv-say: focus goes to the Score heading and the same words are
       // said, with the copy's figure.
+      // After the editor has said its words, which it does once it has put
+      // the parts in.
       pressed = null;
-      var copyFig = figure('copy');
-      landed(((cvSay && cvSay.textContent) || 'Rescored.')
-        + (copyFig ? ' This copy now scores ' + copyFig + '.' : ''));
+      Promise.resolve().then(function () {
+        var copyFig = figure('copy');
+        landed(((cvSay && cvSay.textContent) || 'Rescored.')
+          + (copyFig ? ' This copy now scores ' + copyFig + '.' : ''));
+      });
     }
     return true;
   }

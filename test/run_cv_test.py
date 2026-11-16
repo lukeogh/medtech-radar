@@ -2540,8 +2540,9 @@ def page_checks() -> None:
               "even for a role with no copy yet")
         left, right = page.index('id="cv-pane"'), page.index('id="prepare-body"')
         pane = page[left:right]
-        check('<div class="sheet-paper pa-sheet" id="cv-pane">' in page and left < right
-              and 'id="cv-editor"' in pane and 'data-slot="notes"' in pane
+        wrap = page[page.index('class="sheet-wrap"'):right]
+        check('<div class="sheet-paper pa-sheet" id="cv-pane"' in page and left < right
+              and 'id="cv-editor"' in pane and 'data-slot="notes"' in wrap
               and 'id="cv-editor"' not in render_inner(env, oid),
               "the page puts the CV on its paper sheet with the margin notes beside it, "
               "the editor outside the parts a press swaps")
@@ -2609,7 +2610,8 @@ def page_checks() -> None:
         data = pane_data(page)
         check(not data["needsCopy"] and data["lines"] == lines,
               "with a copy, the page shows the copy and asks for nothing")
-        check(f"Made from the master CV {MASTER_LABEL[0]}" in page_text(page)
+        check("Made from the master CV, " + prepare_page.version_words(MASTER_LABEL[0])
+              in page_text(page)
               and data["hash"] == cv_store.cv_hash(COPY_TEXT) and data["saved"] is None,
               "and says which master it was made from, and hands its script the "
               "version of the copy it shows")

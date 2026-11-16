@@ -273,6 +273,104 @@ const key = (w, target, k, extra) => w.fire(target, 'keydown', Object.assign({ k
       && w.qa('#prepare-body template').length === 0 && w.calls.length === 4 && w.timers.length === 0,
       'the scored answer fills the score, the notes and the rest in place, offers no button, and sends nothing more');
 
+  // ----------------------------- the status region and focus after a press
+  w = world(data.pages.before);
+  await settle();
+  const live = w.q('#pa-live');
+  say(!!live && txt(live) === '' && !live.closest('[data-slot]') && live.getAttribute('role') === 'status',
+      'the status region is on the page from the start, empty, outside every part a press redraws');
+  w.click(w.q('[data-pa-fetch]'));
+  await settle();
+  say(/^Working\. The advert is read from LinkedIn once/.test(txt(w.q('#pa-live'))),
+      'a press writes its working message into that region, which was there before it');
+  w.answer({ ok: true, outcome: 'scored', html: data.answers.scored });
+  await settle(); await settle();
+  say(w.document.activeElement === w.q('#score-h') && w.q('#score-h').getAttribute('tabindex') === '-1'
+      && /^Scored once\. The full spec CV match is \d+\.$/.test(txt(w.q('#pa-live'))),
+      'when the press finishes, focus moves to the Score heading and the region says the outcome: "' + txt(w.q('#pa-live')) + '"');
+  w = world(data.pages.before);
+  await settle();
+  w.click(w.q('[data-pa-fetch]'));
+  await settle();
+  w.answer({ ok: false, note: 'The write guard refused this request.' });
+  await settle(); await settle();
+  say(/refused/.test(txt(w.q('#pa-live'))) && w.document.activeElement !== w.q('#score-h'),
+      'a refusal is said in the region too, and focus stays where it was');
+
+  // Rescore role, the other paid press, through the editor.
+  w = world(data.pages.main);
+  await settle(); await settle();
+  const rescore = w.q('[data-cv-act="rescore"]');
+  w.click(rescore);
+  await settle();
+  say(w.calls.length === 1 && w.calls[0].url === '/prepare/cv/rescore'
+      && /^Rescoring\./.test(txt(w.q('#pa-live'))),
+      'Rescore role sends one rescore and says it is working in the region');
+  w.answer(data.answers.rescored);
+  await settle(); await settle();
+  say(w.document.activeElement === w.q('#score-h')
+      && /^Rescored\. CV match .*This copy now scores \d+\.$/.test(txt(w.q('#pa-live'))),
+      'and when it lands focus moves to the Score heading and the region says what moved: "' + txt(w.q('#pa-live')) + '"');
+
+  // --------------------------------------------- the sheet's A4 pages
+  w = world(data.pages.main);
+  await settle(); await settle();
+  const breaks = w.qa('#cv-editor .pa-break');
+  const after = breaks.map((b) => {
+    const kids = b.parentNode.children;
+    const next = kids[kids.indexOf(b) + 1];
+    return next ? Number(next.getAttribute('data-n')) : null;
+  });
+  say(breaks.length === data.pages_estimate.firsts.length - 1
+      && JSON.stringify(after) === JSON.stringify(data.pages_estimate.firsts.slice(1))
+      && txt(w.q('#pa-pages')) === data.pages_estimate.words,
+      'the sheet breaks into the A4 pages the CV page estimates for its Design, at lines '
+      + JSON.stringify(after) + ', and says how many under it');
+  const firstLine = w.qa('#cv-editor .cvl-bullet textarea[data-edit], #cv-editor .cvl-plain textarea[data-edit]')[0];
+  firstLine.value = firstLine.value + ' and a great deal more about the work of the role'.repeat(160);
+  w.fire(firstLine, 'input');
+  await settle(); await settle();
+  const grown = w.qa('#cv-editor .pa-break');
+  const limit = w.q('#cv-editor .pa-break.is-limit');
+  const overFrom = limit ? Number(limit.parentNode.children[limit.parentNode.children.indexOf(limit) + 1].getAttribute('data-n')) : null;
+  const over = w.qa('#cv-editor .cvl.pa-over').map((r) => Number(r.getAttribute('data-n')));
+  say(grown.length >= 2 && !!limit && /^Over the two-page limit\. /.test(limit.getAttribute('aria-label'))
+      && over.length > 0 && over.every((n) => n >= overFrom)
+      && /^About \d+ pages of A4 in the Word file.*Over the two-page limit from line \d+/.test(txt(w.q('#pa-pages')))
+      && w.q('#pa-pages').classList.contains('is-over'),
+      'and drawn again as the copy is edited: a copy grown past two pages gets its breaks, the limit marked, the lines past it marked in the margin, and the count under it ('
+      + grown.length + ' breaks, over from line ' + overFrom + ')');
+
+  // ------------------------------- the add chips beside the edited line
+  w = world(data.pages.main);
+  await settle(); await settle();
+  say(w.qa('#cv-editor .cv-add').length > 0 && w.qa('#cv-editor .cv-add.pa-add-on').length === 0,
+      'no add chip is shown before a line is edited');
+  const one = w.q('#cv-editor textarea[data-edit="h.0"]').closest('.cvl');
+  w.fire(one.querySelector('textarea'), 'focusin');
+  const on = w.qa('#cv-editor .cv-add.pa-add-on');
+  const kids = one.parentNode.children;
+  const between = (c) => {
+    const i = kids.indexOf(one); const j = kids.indexOf(c);
+    return j > i && kids.slice(i + 1, j).every((k) => k.classList.contains('cv-add')
+      || k.classList.contains('cvl-bullet') || k.classList.contains('cvl-plain') || k.classList.contains('pa-break'));
+  };
+  say(on.length === 1 && on.every((c) => c.parentNode === one.parentNode && between(c))
+      && txt(on[0]) === '+ Headline line' && one.classList.contains('pa-on'),
+      'editing a line shows the add chips of its run, and only those, and marks the line for its buttons on touch');
+  w.click(w.q('#cv-editor [data-add="line"][data-at="s0"]'));
+  await settle();
+  const added = w.q('#cv-editor textarea[data-edit="s0.l0"]');
+  w.fire(added, 'focusin');
+  const moved = w.qa('#cv-editor .cv-add.pa-add-on');
+  say(!!added && added.closest('.cvl').classList.contains('pa-on')
+      && w.qa('#cv-editor .cvl.pa-on').length === 1 && moved.length > 0
+      && moved.every((c) => c.parentNode.getAttribute('data-part') === 's0'),
+      'editing a line in another part moves them there, and the first line no longer shows its buttons');
+  w.fire(w.q('[data-pa-apply]'), 'focusin');
+  say(w.qa('#cv-editor .cv-add.pa-add-on').length === 0 && w.qa('#cv-editor .cvl.pa-on').length === 0,
+      'and leaving the sheet hides them again');
+
   // ---------------------------------------------------------- the notes
   w = world(data.pages.main);
   await settle(); await settle();
