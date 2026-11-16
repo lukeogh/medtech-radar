@@ -3168,6 +3168,115 @@ def box_query_checks() -> None:
                  "run through Python only")
 
 
+
+# ------------------------------------------- the box page for the final page
+
+FINAL_DOC = REPO_ROOT / "docs" / "box-checks-prepare-cv-final.md"
+
+
+def final_doc_part() -> str:
+    """Prepare application's part of the shared box page: from its own
+    heading to the CV page's, or to the end while the CV part is not merged."""
+    text = FINAL_DOC.read_text(encoding="utf-8")
+    start = text.index("## Prepare application")
+    end = text.find("\n## The CV page", start)
+    return text[start:] if end < 0 else text[start:end]
+
+
+def final_box_checks() -> None:
+    text = FINAL_DOC.read_text(encoding="utf-8")
+    for heading in ("## BEFORE", "## The deploy, one block at a time", "## AFTER",
+                    "## Rollback"):
+        if heading not in text:
+            check(False, f"the box page has {heading!r}")
+            break
+    else:
+        check(True, "the box page has BEFORE, the deploy one block at a time, AFTER and "
+                    "Rollback")
+    part_text = final_doc_part()
+    blocks = re.findall(r"```bash\n(.*?)```", part_text, re.S)
+    check(len(blocks) >= 6 and all(b.strip() for b in blocks),
+          f"Prepare's part has {len(blocks)} command blocks and none is empty")
+    code = "\n".join(blocks)
+    bare_git = [ln for ln in code.splitlines()
+                if re.search(r"(?<![\w-])git ", ln)
+                and not re.search(r"sudo -u radar (?:git |sh -c 'git )", ln)]
+    loose = [code[max(0, m.start() - 40):m.end()] for m in re.finditer(r'"\$PY"', code)
+             if not code[:m.start()].endswith("PYTHONDONTWRITEBYTECODE=1 ")]
+    check(not bare_git and not loose,
+          f"git runs as radar and python with PYTHONDONTWRITEBYTECODE=1 "
+          f"({bare_git[:2]}, {loose[:2]})")
+    rollback = part_text[part_text.index("## Rollback"):]
+    rb_code = "\n".join(re.findall(r"```bash\n(.*?)```", rollback, re.S))
+    check("backup" not in rb_code and "restore" not in rb_code and " cp " not in rb_code
+          and "is never restored" in rollback,
+          "the rollback is code only and never restores the backup")
+    snippets = re.findall(r'-c "((?:[^"\\]|\\.)*)"', code)
+    snippets += re.findall(r"-c '([^']*)'", code)
+    # grep -c is a count, not Python: only what imports something is a program.
+    snippets = [s for s in snippets if "import " in s]
+    bad = []
+    for s in snippets:
+        src = s.replace('\\"', '"')
+        if src.startswith("git "):
+            continue
+        try:
+            compile(src, "<box>", "exec")
+        except SyntaxError as err:
+            bad.append(f"{src[:50]} ({err.msg})")
+    check(len(snippets) >= 4 and not bad,
+          f"every python -c in Prepare's part compiles ({len(snippets)} of them, {bad[:2]})")
+    queries = re.findall(r'Q "([^"]+)"', code)
+    inline = [s.replace('\\"', '"') for s in snippets if "sqlite3.connect" in s and "SELECT" in s]
+    inline_sql = [re.search(r'c\.execute\("([^"]+)"\)', s).group(1) for s in inline
+                  if re.search(r'c\.execute\("([^"]+)"\)', s)]
+    check(len(queries) >= 9 and all(not any(ch in q for ch in ('"', "$", "`", "\\", "!"))
+                                    for q in queries),
+          f"Prepare's part hands over {len(queries)} queries, none with a character the "
+          "shell would read")
+    with canonical_master() as master, fresh() as env:
+        oid = env.role(description=SENTENCE_ADVERT)
+        before = {q: run_sql(env.db, q) for q in queries + inline_sql}
+        env.prepare(oid)
+        prep.open_copy(oid, env.db, CFG)
+        first = next(l for l in cv_store.cv_lines(master) if l and not l.startswith("#"))
+        prep.rescore_copy(oid, master.replace(first, first + " and more", 1), env.db, CFG)
+        env.sql("UPDATE opportunities SET prompt_version = ? WHERE id = ?",
+                (radar_common.prompt_version(), oid))
+        after = {q: run_sql(env.db, q) for q in queries + inline_sql}
+        failed = [q[:60] for q, r in list(before.items()) + list(after.items())
+                  if isinstance(r, str)]
+        check(not failed, f"every query in Prepare's part runs, before a press and after "
+                          f"one ({failed[:2]})")
+        tailored = next(q for q in queries if "jobs_rows_with_a_tailored_score" in q)
+        sentences = next(q for q in queries if "sentences_kept" in q)
+        twice = next(q for q in queries if "scored_twice" in q)
+        calls = next(q for q in queries if "workflow = 'prepare'" in q)
+        check(after[tailored] == [(0,)] and after[twice] == [(0,)]
+              and after[sentences] and after[sentences][0][2] == 1
+              and after[sentences][0][3] == 3
+              and before[calls][0][0] == 0 and after[calls][0][0] == 2,
+              "and they say what the page says: no Jobs row with a tailored score after a "
+              "Rescore role, no description scored twice, the sentences kept and dropped, "
+              f"and the calls ({after[sentences]}, {after[calls]})")
+        env.sql("UPDATE opportunities SET cv_version = 'tailored-x' WHERE id = ?", (oid,))
+        check(run_sql(env.db, tailored) == [(1,)],
+              "and the tailored-score proof catches a Jobs row that holds one")
+    check("422cdad4" in part_text and "22353628" in part_text
+          and radar_common.prompt_version() == "422cdad4",
+          "the box page names both prompt versions, and the new one is the file's")
+
+
+def run_sql(db, sql):
+    conn = sqlite3.connect(db)
+    try:
+        return [tuple(r) for r in conn.execute(sql).fetchall()]
+    except sqlite3.Error as err:
+        return f"{type(err).__name__}: {err}"
+    finally:
+        conn.close()
+
+
 def docs_checks() -> None:
     doc = (REPO_ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
     check("## Prepare application" in doc, "the architecture notes have a section on it")
@@ -3203,7 +3312,7 @@ def main() -> int:
                     fetch_reuse_checks, page_checks, jobs_page_checks, server_checks,
                     sentence_checks, tailored_never_on_jobs_checks, board_store_checks,
                     notes_checks, page_script_checks, static_checks, box_query_checks,
-                    docs_checks):
+                    final_box_checks, docs_checks):
         # One section that raises is one FAIL that names it. The sections
         # after it still run, so a mistake in the first does not hide the rest.
         try:

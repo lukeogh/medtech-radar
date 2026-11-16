@@ -540,23 +540,19 @@ deploy.
 ## Prepare application
 
 The Prepare application link in an expanded Jobs row opens `GET /prepare/<id>`,
-a page that only reads. It shows the role, the advert's full description, the
-score made against it, each ask the advert makes with the CV lines that evidence
-it, and the pay the description names. Its address carries `go=1`. A page opened
-with that, for a role with work to do, tells its script to make the one write
-this feature has, `POST /prepare` with the role id, behind the guard every other
-write is behind. The browser also has to say the click came from this site, with
-`Sec-Fetch-Site: same-origin`, as it does for a link followed from the Jobs page.
-A link from another site or a sibling site, a typed address, a bookmark and a
-browser that sends no such header all get the button instead, so no other page can
-send a browser to an address that spends money. Browsers send that header only to
-https addresses and to localhost, so through the https proxy name the link starts
-the work at once, and by the plain http LAN address it opens the button, one click
-more. The script cleans the address before it posts, so a reload, the back button
-and a second tab open the page and do nothing more, and a page opened any other
-way offers a button instead. A refusal or a request that failed gives the button
-back. The page reads on a read-only connection. An id that
-is not plain digits, or not a role, is a 404.
+a page that only reads and never spends on opening, however it is opened
+(decisions of 15 Nov). It shows the role, the advert's full description, the
+scores, each ask the advert makes beside the CV line that evidences it, and the
+pay the description names. The one write this feature has, `POST /prepare` with
+the role id, behind the guard every other write is behind, is made by the page's
+own button, which states its cost first ("About 3 cents, 1 call: Fetch and score
+the full description"), one press at a time. Until 15 Nov the link carried
+`go=1` and the page started the work on opening when the browser said, with
+`Sec-Fetch-Site: same-origin`, that the click came from this site; that path is
+gone. The server reads neither the address nor the header, the Jobs links carry
+no `go=1`, and an old bookmark that still has it opens the page and its button.
+A refusal or a request that failed gives the button back. The page reads on a
+read-only connection. An id that is not plain digits, or not a role, is a 404.
 
 What one POST does for an open role. If the row stores no description, it
 fetches the advert's public LinkedIn page once, with `check_jobs.fetch_job_page`,
@@ -624,7 +620,8 @@ reports the asks that are unevidenced.
 The ceiling. `MAX_TOKENS` is still 1,024 for the extractor, and for the pay
 backfill, which passes no ceiling of its own. A card had it too
 until the quoted reasons gave a card's score `CARD_MAX_TOKENS`, 2,048, see
-"Quoted reasons" below. A full description's call uses `SPEC_MAX_TOKENS`, 6,144.
+"Quoted reasons" below. A full description's call uses `SPEC_MAX_TOKENS`, 8,192 since
+each ask carries its advert sentence (6,144 before, see "The final page" below).
 The largest reply the prompt allows is 9,961 characters, 8,220 of them before
 the reasons, about 2,490 tokens at four characters a token and 3,320 at a
 pessimistic three, so the ceiling is a little under twice the pessimistic count;
@@ -719,6 +716,59 @@ CV page's re-score button does, and a route to linkedin.com, which nothing else 
 dashboard runs needs. Rolling back is code only. The columns stay and old code
 ignores them, a spec score on a row reads fine, and a full description that was
 stored stays. `test/run_prepare_test.py` checks all of it.
+
+### The final page (15 Nov)
+
+The page is drawn by `scripts/prepare_page.py`, from design/prepare-application/final
+and the decisions of 15 Nov; `build_dashboard.py` keeps thin names
+(`render_prepare_page`, `render_prepare_inner`, `PREPARE_CSS`, `PREPARE_SCRIPT`)
+for the callers that import them. The role head; the rail of Score, Application,
+Rate line and Gates; the job description; and the work: the tailored CV's head,
+the bar of its buttons, the gaps and the sheet with its margin notes. Side by side
+from 1800px, a band of two columns with the description folded from 1024px, one
+column on a phone with the gates and the description folded and the bar at the foot.
+
+Three scores sit side by side: the card's (the row's own, or the newest card score
+the history kept), the full spec's, which is the role's and what the Jobs row
+shows, and this copy's. The copy's is stored on the copy and in `score_history`
+marked `tailored` (`prepare_application._store_tailored`), and nothing writes it to
+`opportunities`; the Prepare runner holds the row byte for byte across a Rescore
+role.
+
+The CV sheet is light paper inside the dark page, the one approved exception to
+dark only: the editor sits inside `.sheet-paper`, whose tokens are in
+`page_frame.py`. The editor is `cv_page.py`'s; this page does not restyle it. Its
+margin notes are a layer beside the sheet, found by the editor's
+`.cvl[data-n]`, numbered as `cv_store.cv_lines`. Gaps come first, above the sheet;
+each met or partly ask stands beside the first line it cites that is still in the
+copy; met notes fold to one line and open on a click or on focus. `PREPARE_SCRIPT`
+finds each cited line again by its words as the copy is edited (`RadarCv.findLine`),
+marks an ask stale when a line it cited is edited away, recounts, and moves the
+note with its line; the marks themselves change only on Rescore role. It sets no
+timer. Mark applied (key M) posts `/apply`, which stamps the role with the saved
+CV (`applications.stamp_applied`) and moves it to Applied (`on_applied`); with an
+edit not saved, or nothing saved, it asks first in a dialog on the page. Undo (Z)
+posts `/unapply`. Save CV puts the role in Preparing through
+`applications.on_saved`, as it did. The keys keep the Jobs page's manners: never
+while typing, never with a modifier, and a switch, shared with Jobs and the board,
+turns them off.
+
+What a press changes comes back as parts: `render_prepare_inner` answers with one
+`<template data-part>` for each slot of the page but the editor, the editor puts
+the answer into `#prepare-body` as it always has, and the page script moves each
+part into its slot. `cv_page.py` gains one additive hook, `window.RadarCvEditor`
+(`edited()` and `leaving()`), so the page can tell an edited copy and reload after
+Mark applied without the leave prompt.
+
+Each ask now carries the advert sentence it came from. The full description prompt
+asks for it (prompt `422cdad4`, from `22353628`), and `score_item.normalise_asks`
+holds it to the stored description by the reasons' own rule, `_hold_quote`, which is
+`radar_common.find_verbatim` with whole words: kept only where the description has
+it word for word, as the description's characters, and otherwise `None` with
+`sentence_dropped` saying why. An ask whose sentence was not found shows without a
+quoted sentence. A reply can now be 25 asks each with a sentence of 25 words, so
+`SPEC_MAX_TOKENS` is 8,192, where the worst reply is 65 per cent of it (it was
+6,144). What a press costs is about 3 cents; the cost note has the sums.
 
 ## The CV page and the tailored CV
 
@@ -963,8 +1013,8 @@ lengths the full description's count uses (1,842) and four reasons of 20 words
 with quotes of 25 (1,741), about 900 tokens at four characters a token and 1,194
 at three, which is over 1,024. So a card's score has its own `CARD_MAX_TOKENS`,
 2,048, where the pessimistic count is 58 per cent of the ceiling, and the
-extractor and the pay backfill keep 1,024. A full description's ceiling is
-6,144, see Prepare application. `docs/cost-note.md` prices the reasons: about
+extractor and the pay backfill keep 1,024. A full description's ceiling was
+6,144, and is 8,192 since the advert sentences, see Prepare application. `docs/cost-note.md` prices the reasons: about
 180 output tokens for four typical reasons and 160 to 190 tokens of prompt,
 about 0.3 cents a score on either path.
 
