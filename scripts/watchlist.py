@@ -307,16 +307,21 @@ def watch(conn, company_id, via: str, signal_id=None, now=None) -> dict:
     return {"ok": True, "id": company_id, "watched_at": stamp}
 
 
-def unwatch(conn, company_id, now=None, undo_add: bool = False) -> dict:
+def unwatch(conn, company_id, now=None, undo_add: bool = False, since=None) -> dict:
     """Take a company off. Its contacts, signals and roles stay on file and its
     thread stops counting. undo_add is the Undo right after an add, which puts
-    the company back as it was before, never marked as removed. Does not
-    commit."""
+    the company back as it was before, never marked as removed; since is the
+    watched_at that add returned, and an Undo whose add found the company
+    already watched, or that comes after another add, is refused, so it never
+    takes off a company that was watched before. Does not commit."""
     row = conn.execute("SELECT id, watched_at FROM companies WHERE id = ?", (company_id,)).fetchone()
     if row is None:
         return {"ok": False, "note": "That company is no longer on file. Reload the page."}
     if not row["watched_at"]:
         return {"ok": True, "id": company_id, "already": True}
+    if undo_add and (not since or row["watched_at"] != since):
+        return {"ok": False, "note": "That company was already on your Watchlist before this add, so Undo "
+                                     "leaves it there. Use Remove from Watchlist on its record."}
     if undo_add:
         # The suggestion the add answered (watch stamps it with the add's own
         # moment) is waiting again, as if the add never happened.
@@ -338,8 +343,11 @@ def restore(conn, company_id, now=None) -> dict:
         return {"ok": False, "note": "That company is no longer on file. Reload the page."}
     if row["watched_at"]:
         return {"ok": True, "id": company_id, "already": True}
+    stamp = iso(moment_of(now))
     conn.execute("UPDATE companies SET watched_at = COALESCE(watched_was, ?), watched_was = NULL"
-                 " WHERE id = ?", (iso(moment_of(now)), company_id))
+                 " WHERE id = ?", (stamp, company_id))
+    conn.execute("UPDATE watch_suggestions SET accepted_at = ? WHERE company_id = ?"
+                 " AND accepted_at IS NULL AND dismissed_at IS NULL", (stamp, company_id))
     return {"ok": True, "id": company_id}
 
 
@@ -435,7 +443,7 @@ def add_by_name(conn, name=None, company_id=None, anyway: bool = False, now=None
         return {"ok": True, "already": True, "id": c["id"], "name": c["display_name"],
                 "since": day_words(c["watched_at"])}
     out = watch(conn, c["id"], "name", None, now)
-    out.update({"name": c["display_name"], "unknown": bool(c.get("_new"))})
+    out.update({"name": c["display_name"], "unknown": bool(c.get("_new")), "since": out.get("watched_at")})
     return out
 
 
@@ -509,16 +517,18 @@ def refresh_suggestions(conn, now=None) -> dict:
         dismissed = [h for h in rows if h["dismissed_at"]]
         last = rows[-1] if rows else None
         came_back = 0
-        if last and last["dismissed_at"]:
+        # A dismissal the owner later answered by adding the company (and then
+        # removing it) no longer holds it back: the removal rule above already
+        # asked for a signal since.
+        gone = companies[cid].get("unwatched_at")
+        if last and last["dismissed_at"] and not (gone and gone > last["dismissed_at"]):
             if any(h["came_back"] for h in dismissed):
                 continue          # it has had its one return
             if KIND_RANK[kind] <= max(KIND_RANK.get(h["kind"], 0) for h in dismissed):
                 continue          # only a stronger kind of signal brings it back
             came_back = 1
         fresh.append((key, cid, kind, s, came_back))
-    free = WAITING_MAX - conn.execute(
-        "SELECT COUNT(*) FROM watch_suggestions WHERE accepted_at IS NULL AND dismissed_at IS NULL"
-    ).fetchone()[0]
+    free = WAITING_MAX - waiting_count(conn)
     fresh.sort(key=lambda f: f[0], reverse=True)
     for key, cid, kind, s, came_back in fresh[:max(free, 0)]:
         conn.execute("INSERT INTO watch_suggestions (company_id, kind, signal_id, relevance,"
@@ -527,6 +537,14 @@ def refresh_suggestions(conn, now=None) -> dict:
         made += 1
     return {"folded": folded, "made": made, "upgraded": upgraded,
             "held": max(len(fresh) - max(free, 0), 0)}
+
+
+def waiting_count(conn) -> int:
+    """The suggestions waiting that the page shows: unanswered, for a company
+    not on the Watchlist."""
+    return conn.execute(
+        "SELECT COUNT(*) FROM watch_suggestions s JOIN companies c ON c.id = s.company_id"
+        " WHERE s.accepted_at IS NULL AND s.dismissed_at IS NULL AND c.watched_at IS NULL").fetchone()[0]
 
 
 def _suggestion(conn, sid) -> dict | None:
@@ -547,7 +565,7 @@ def answer_suggestion(conn, sid: int, action: str, now=None) -> dict:
         if s["accepted_at"] or s["dismissed_at"]:
             return {"ok": False, "note": f"{name} has already been answered, perhaps in another tab. "
                                          "Reload the page."}
-        out = watch(conn, s["company_id"], "suggestion", s["signal_id"], now)
+        out = watch(conn, s["company_id"], "suggestion", s["signal_id"], stamp)
         conn.execute("UPDATE watch_suggestions SET accepted_at = ? WHERE id = ?", (stamp, sid))
         out.update({"name": name, "company_id": s["company_id"]})
         return out
@@ -559,8 +577,12 @@ def answer_suggestion(conn, sid: int, action: str, now=None) -> dict:
                      " WHERE id = ?", (stamp, sid))
         return {"ok": True, "id": sid, "name": name}
     if action == "undo":
+        if (s["accepted_at"] or s["dismissed_at"]) and waiting_count(conn) >= WAITING_MAX:
+            return {"ok": False, "note": f"{WAITING_MAX} suggestions are already waiting, so {name} stays "
+                                         "where it is. Add or dismiss one first."}
         if s["accepted_at"]:
-            unwatch(conn, s["company_id"], now, undo_add=True)
+            if c.get("watched_at") == s["accepted_at"]:
+                unwatch(conn, s["company_id"], now, undo_add=True, since=s["accepted_at"])
             conn.execute("UPDATE watch_suggestions SET accepted_at = NULL WHERE id = ?", (sid,))
         elif s["dismissed_at"]:
             conn.execute("UPDATE watch_suggestions SET dismissed_at = NULL, dismissed_by = NULL"
@@ -573,9 +595,7 @@ def answer_suggestion(conn, sid: int, action: str, now=None) -> dict:
             return {"ok": False, "note": f"{name} is not in Dismissed. Reload the page."}
         if c.get("watched_at"):
             return {"ok": False, "note": f"{name} is already on your Watchlist."}
-        waiting = conn.execute("SELECT COUNT(*) FROM watch_suggestions WHERE accepted_at IS NULL"
-                               " AND dismissed_at IS NULL").fetchone()[0]
-        if waiting >= WAITING_MAX:
+        if waiting_count(conn) >= WAITING_MAX:
             return {"ok": False, "note": f"{WAITING_MAX} suggestions are already waiting. "
                                          "Add or dismiss one first."}
         conn.execute("UPDATE watch_suggestions SET dismissed_at = NULL, dismissed_by = NULL,"
@@ -666,6 +686,12 @@ def log_contact(conn, company_id, fields: dict, now=None) -> dict:
     if refusal:
         return {"ok": False, "field": refusal[0], "note": refusal[1]}
     touched = iso(moment) if contact_day == today else f"{when}T12:00:00Z"
+    newest = (contacts_for(conn, company_id) or [None])[0]
+    if step and newest and (newest.get("touched_at") or "") > touched:
+        return {"ok": False, "field": "next_step",
+                "note": f"The thread follows the newest contact, on {day_words(newest['touched_at'])}, so a "
+                        "contact before it cannot set the next step. Leave the next step empty, or move the "
+                        "date on the thread."}
     cur = conn.execute(
         "INSERT INTO touches (company, touched_at, channel, note, next_action, next_action_date,"
         " outcome, company_id) VALUES (?,?,?,?,?,?,?,?)",
@@ -688,11 +714,11 @@ def set_thread(conn, company_id, step, due, now=None, restore: bool = False) -> 
     if not contacts:
         return {"ok": False, "note": "There is no contact to set a next step on. Log a contact first."}
     last = contacts[0]
-    if restore:
+    if restore and step and not due:
+        # Undo of a cleared step that was on file with no date, from before a
+        # date was needed. Nothing else is let past the rule.
         clean_step = rc.sanitise_free_text(" ".join(str(step or "").split()))[:STEP_MAX] or None
-        clean_due = clean_date(due) if due else None
-        if due and clean_due is None:
-            return {"ok": False, "field": "due", "note": "Give the due date as a date."}
+        clean_due = None
     else:
         clean_step, clean_due, refusal = clean_next(step, due, uk_day(last["touched_at"]))
         if refusal:
@@ -795,13 +821,16 @@ def reread(conn, company_id, config: dict, now=None) -> dict:
                                      "read from yet. It reads the facts when one names the company."}
     res = enrich_company.enrich_company(conn, company_id, src["item"], config, None, force=True,
                                         site_url=src["site"], item_label=src["label"])
-    conn.commit()
-    rc.log_run(conn, "enrich", mode="mock" if rc.mock_mode_active() else "live",
-               items_in=1, items_new=1 if res.get("enriched") else 0,
-               model=config.get("claude_model_extract"), usage=res.get("usage") or {},
-               note=f"Read again from the Watchlist: {res.get('status')}"[:500],
-               outcome="ok" if res.get("enriched") else "failed")
-    conn.commit()
+    enrich_company._busy_retry(conn.commit, tries=4)
+    # The run row records what the call cost, so it is written even when the
+    # reading itself could not be, and tried again while the database is busy.
+    enrich_company._busy_retry(lambda: rc.log_run(
+        conn, "enrich", mode="mock" if rc.mock_mode_active() else "live",
+        items_in=1, items_new=1 if res.get("enriched") else 0,
+        model=config.get("claude_model_extract"), usage=res.get("usage") or {},
+        note=f"Read again from the Watchlist: {res.get('status')}"[:500],
+        outcome="ok" if res.get("enriched") else "failed"), tries=4)
+    enrich_company._busy_retry(conn.commit, tries=4)
     import cv_screen
     cents = round(cv_screen.dollars_of(res.get("usage") or {}, config.get("claude_model_extract")) * 100, 2)
     return {"ok": bool(res.get("enriched")), "id": company_id, "status": res.get("status"),

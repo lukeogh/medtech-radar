@@ -311,8 +311,9 @@ def page_checks(tmp: Path) -> None:
     check(f'data-act="watch" data-cid="{off_story["company_id"]}" data-signal="{off_story["id"]}"' in html,
           "Add to Watchlist carries the story's signal id")
     check("act(b,'/watchlist/add',add," in html and "via:'insights'" in html and "add.signal_id=sid" in html
-          and "'/watchlist/remove',{company_id:cid2,undo_add:true}" in html,
-          "the script sends via insights and the signal id, and its Undo sends undo_add")
+          and "'/watchlist/remove',{company_id:cid2,undo_add:true,since:since[cid2]||''}" in html
+          and "since[cid]=res.already?null:res.watched_at;" in html,
+          "the script sends via insights and the signal id, and its Undo sends undo_add with the add's own stamp")
     check('class="on-list" href="/watchlist?company=' in html and "a.href='/watchlist?company='+cid" in html
           and "/company/" not in html,
           "On your Watchlist leads to the company on the Watchlist, drawn or added, never /company/")
@@ -446,7 +447,10 @@ def route_checks(tmp: Path) -> None:
         check(st == 200 and w["watched_at"] and w["watched_via"] == "insights"
               and w["watched_signal_id"] == off["id"],
               "Add to Watchlist stamps the company, via insights, with the story it came from")
-        st, _ = call(port, "POST", "/watchlist/remove", {"company_id": off["company_id"], "undo_add": True})
+        st0, _ = call(port, "POST", "/watchlist/remove", {"company_id": off["company_id"], "undo_add": True})
+        check(st0 == 409, "an Undo without the add's own stamp is refused, so it never takes off an older add")
+        st, _ = call(port, "POST", "/watchlist/remove", {"company_id": off["company_id"], "undo_add": True,
+                                                          "since": w["watched_at"]})
         c = ro(db)
         w = c.execute("SELECT watched_at, watched_via, watched_signal_id, unwatched_at, watched_was"
                       " FROM companies WHERE id = ?", (off["company_id"],)).fetchone()

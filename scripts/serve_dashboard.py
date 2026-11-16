@@ -401,7 +401,7 @@ def split_story(signal_id: int) -> dict:
 
 
 def set_watched(company_id: int, on: bool, via: str = "insights", signal_id=None,
-                undo_add: bool = False) -> dict:
+                undo_add: bool = False, since=None) -> dict:
     """Add a company to the Watchlist, or take it off. From Insights, the add
     remembers the story it came from and the Watchlist says so on the next
     visit; Insights' Undo is undo_add, which puts the company back as it was
@@ -416,8 +416,12 @@ def set_watched(company_id: int, on: bool, via: str = "insights", signal_id=None
         if on:
             result = watchlist.watch(conn, company_id, via, sid)
         else:
-            result = watchlist.unwatch(conn, company_id, undo_add=undo_add)
-        conn.commit()
+            result = watchlist.unwatch(conn, company_id, undo_add=undo_add,
+                                       since=since if isinstance(since, str) else None)
+        if result.get("ok"):
+            conn.commit()
+        else:
+            conn.rollback()
         return result
     return _write(go)
 
@@ -1324,7 +1328,8 @@ def watchlist_post(path: str, body: dict) -> tuple:
     if path == "/watchlist/add":
         return set_watched(cid, True, str(body.get("via") or "insights"), body.get("signal_id")), None
     if path == "/watchlist/remove":
-        return set_watched(cid, False, undo_add=bool(body.get("undo_add"))), None
+        return set_watched(cid, False, undo_add=bool(body.get("undo_add")),
+                           since=body.get("since")), None
     if path == "/watchlist/restore":
         return watchlist_write(lambda c: watchlist.restore(c, cid)), None
     if path == "/touch/log":

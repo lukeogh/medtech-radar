@@ -408,7 +408,6 @@ button,select,textarea{font:inherit}
 .drafts .btn{margin-top:8px}
 .log-line{margin-top:24px;max-width:72ch;color:var(--text-2);font-size:14px;line-height:20px}
 .log-line a{color:var(--accent);text-underline-offset:2px}
-  background:var(--surface-sunken);color:var(--text-1);font-size:15px;line-height:22px}
 .watch-done{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
 .shown{color:var(--text-2);font-size:13px;line-height:20px}
 .ranked a,.ranked .meta,.fold-list a,.fold-list .meta,.earlier li a,.earlier .meta,.plain-list a,.plain-list .meta,
@@ -845,6 +844,7 @@ PAGE_SCRIPT = r"""
         return {ok:false,note:'No usable answer came back, so that may not have saved. Reload to check.'}; }); })
       .catch(function(){ return {ok:false,note:'The dashboard did not answer. Nothing was saved.'}; });
   }
+  var since={};
   function act(b, path, body, done){
     if(b.dataset.busy) return; busy(b,true); closeToast();
     post(path, body).then(function(res){ busy(b,false);
@@ -879,7 +879,8 @@ PAGE_SCRIPT = r"""
     if(kind==='watch'){
       var cid=Number(b.dataset.cid), name=b.dataset.company, sid=Number(b.dataset.signal);
       var add={company_id:cid,via:'insights'}; if(sid) add.signal_id=sid;
-      act(b,'/watchlist/add',add,function(){
+      act(b,'/watchlist/add',add,function(res){
+        since[cid]=res.already?null:res.watched_at;
         restore[cid]=[];
         document.querySelectorAll('button[data-act="watch"][data-cid="'+cid+'"]').forEach(function(x){
           var w=watched(cid,name); restore[cid].push({w:w,b:x}); x.replaceWith(w);
@@ -891,7 +892,7 @@ PAGE_SCRIPT = r"""
     }
     if(kind==='unwatch'){
       var cid2=Number(b.dataset.cid), name2=b.dataset.company, mine=b.closest('.watch-done');
-      act(b,'/watchlist/remove',{company_id:cid2,undo_add:true},function(){
+      act(b,'/watchlist/remove',{company_id:cid2,undo_add:true,since:since[cid2]||''},function(){
         (restore[cid2]||[]).forEach(function(p){ p.w.replaceWith(p.b); if(p.w===mine) p.b.focus(); });
         setLine('[data-watch-line="'+cid2+'"]','Not on your Watchlist.');
         announce(name2+' is off your Watchlist.');

@@ -158,6 +158,20 @@ def fact_sources(parsed: dict, site_text: str, site_url: str | None,
     return out
 
 
+def _busy_retry(fn, tries: int = 1, pause: float = 3.0):
+    """fn(), tried again after a pause while the database is busy, so a reply
+    already paid for is kept rather than lost to another writer's lock."""
+    import sqlite3
+    import time
+    for attempt in range(tries):
+        try:
+            return fn()
+        except sqlite3.OperationalError as err:
+            if attempt + 1 >= tries or "locked" not in str(err).lower() and "busy" not in str(err).lower():
+                raise
+            time.sleep(pause)
+
+
 def enrich_company(conn, company_id: int, item_text: str, config: dict,
                    budget: dict | None = None, force: bool = False,
                    site_url: str | None = None,
@@ -209,6 +223,9 @@ def enrich_company(conn, company_id: int, item_text: str, config: dict,
         try:
             parsed = radar_common.extract_json(text)
         except (ValueError, json.JSONDecodeError):
+            if force and row["enriched_at"]:
+                result["status"] = "failed, unparseable model output"
+                return result
             conn.execute(
                 "UPDATE companies SET enriched_at = ?, enrich_status = ?"
                 " WHERE id = ?",
@@ -229,12 +246,18 @@ def enrich_company(conn, company_id: int, item_text: str, config: dict,
                 old_sources = json.loads(row["fact_sources"] or "{}")
             except (TypeError, ValueError, IndexError, KeyError):
                 old_sources = {}
+            old_ok = str(row["enrich_status"] or "").startswith("ok")
             for key in FACT_KEYS:
                 if not values.get(key) and row[key] and row[key] != "[]":
                     values[key] = row[key]
                     if isinstance(old_sources, dict) and key in old_sources:
                         sources[key] = old_sources[key]
-        conn.execute(
+                    elif row["enriched_at"]:
+                        sources[key] = {"from": "site" if old_ok else "item",
+                                        "label": ("The company site or the first story" if old_ok
+                                                  else "The first story or advert Radar saw"),
+                                        "at": row["enriched_at"]}
+        _busy_retry(lambda: conn.execute(
             "UPDATE companies SET what_they_build = ?, stage = ?, country = ?,"
             " city = ?, ecosystem = ?, software_content = ?, people = ?,"
             " enriched_at = ?, enrich_status = ?, site_url = COALESCE(?, site_url),"
@@ -242,7 +265,8 @@ def enrich_company(conn, company_id: int, item_text: str, config: dict,
             (values["what_they_build"], values["stage"], values["country"],
              values["city"], values["ecosystem"], values["software_content"],
              values["people"] or "[]", now, status,
-             site_url if site_text else None, json.dumps(sources), company_id))
+             site_url if site_text else None, json.dumps(sources), company_id)),
+            tries=4 if force else 1)
         parsed = {**parsed, "country": values["country"], "city": values["city"]}
         # Enrichment is the moment a company's country becomes known, so it
         # is also the moment its region can be decided. Doing it here keeps

@@ -450,7 +450,10 @@ def _thread_from(rec: dict, th: dict) -> str:
         return (f"Nothing is logged with {name} yet. Log a contact below when you first reach out, "
                 "with a next step and its date.")
     if state == "closed":
-        return (f"The last contact, {noun.replace('the ', '', 1)} on {set_day}, was logged without a next step, "
+        what = noun.replace('the ', '', 1)
+        lead = (f"The last contact, on {set_day}," if what == "contact"
+                else f"The last contact, {what} on {set_day},")
+        return (f"{lead} was logged without a next step, "
                 "so the thread closed. Log a contact with a next step to open it again.")
     base = f"The next step you set on {set_day}, when you logged {noun}."
     off = "" if counts else " It does not count on Home while the company is off your Watchlist."
@@ -603,7 +606,7 @@ def contacts_block(rec: dict, lv: int) -> str:
                 newer = contacts[i - 1]
                 after = (f" Followed by the {wl.day_words(newer.get('touched_at'))} "
                          f"{channel_words(newer.get('channel')).lower()}.")
-            set_line = f'<p class="set">{esc(f"Next step set: {step}{due}.{after}")}</p>'
+            set_line = f'<p class="set">{esc(f"Next step set: {step.rstrip(chr(46))}{due}.{after}")}</p>'
         out = str(t.get("outcome") or "none")
         opts = "".join(f'<option value="{esc(k)}"{" selected" if k == out else ""}>{esc(v)}</option>'
                        for k, v in outcomes.items())
@@ -1308,7 +1311,9 @@ WATCHLIST_SCRIPT = r"""
         undo.disabled = true;
         post(f.undo.url, f.undo.body).then(function (r) {
           if (r && r.ok) {
-            go(f.undo.go || null, { name: f.name, text: f.undo.done, tone: 'ok', where: f.where }, f.undo.focus || null);
+            if (f.undo.sg) sset(SG, 'open');
+            go(f.undo.go || null, { name: f.name, text: f.undo.done, tone: 'ok', where: f.where, focusNote: true },
+               f.undo.focus || null);
           } else {
             undo.disabled = false;
             say((r && r.note) || 'The undo did not go through. Reload the page.');
@@ -1381,7 +1386,7 @@ WATCHLIST_SCRIPT = r"""
       try { f = JSON.parse(raw); } catch (e) { f = null; }
       if (f && f.text && (!f.at || Date.now() - f.at < 120000)) {
         var target = showNote(f);
-        if (f.undo && target && target.focus) { sset(FOCUS, null); target.focus(); }
+        if ((f.undo || f.focusNote) && target && target.focus) { sset(FOCUS, null); target.focus(); }
       }
     }
     var want = sget(FOCUS);
@@ -1417,8 +1422,14 @@ WATCHLIST_SCRIPT = r"""
   // ---- single-key shortcuts and their switch
   var sw = document.getElementById('keys-switch');
   function paintSwitch() {
-    if (!sw) return;
     var on = keysOn();
+    document.querySelectorAll('[aria-keyshortcuts], [data-keys-off]').forEach(function (n) {
+      var k = n.getAttribute('aria-keyshortcuts') || n.getAttribute('data-keys-off');
+      if (k === 'Escape') return;
+      if (on) { n.setAttribute('aria-keyshortcuts', k); n.removeAttribute('data-keys-off'); }
+      else { n.setAttribute('data-keys-off', k); n.removeAttribute('aria-keyshortcuts'); }
+    });
+    if (!sw) return;
     sw.setAttribute('aria-checked', on ? 'true' : 'false');
     sw.querySelector('.sw-word').textContent = on ? 'On' : 'Off';
   }
@@ -1444,8 +1455,22 @@ WATCHLIST_SCRIPT = r"""
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
     if (typing(e.target)) return;
     if (document.querySelector('.appbar.menu-open')) return;
-    if (!keysOn()) return;
     var key = e.key || '';
+    // Esc and Enter are not single-character keys, so the switch leaves them on.
+    if (state.view === 'table' && key === 'Escape' && state.selected) {
+      e.preventDefault();
+      go('/watchlist', null, 'row:' + state.selected);
+      return;
+    }
+    if (state.view === 'table' && key === 'Enter' && state.selected) {
+      var t0 = e.target;
+      if (t0 === document.body || t0 === main || (t0 && t0.tagName === 'TR')) {
+        var h0 = document.getElementById('rec-h');
+        if (h0) { e.preventDefault(); h0.focus(); }
+      }
+      return;
+    }
+    if (!keysOn()) return;
     if (key === '/') {
       var add = document.getElementById('add-name');
       if (add) { e.preventDefault(); add.focus(); }
@@ -1460,18 +1485,6 @@ WATCHLIST_SCRIPT = r"""
     }
     if (state.view !== 'table') return;
     if (k === 'j' || k === 'k') { e.preventDefault(); step(k === 'j' ? 1 : -1); return; }
-    if (key === 'Escape' && state.selected) {
-      e.preventDefault();
-      go('/watchlist', null, 'row:' + state.selected);
-      return;
-    }
-    if (key === 'Enter' && state.selected) {
-      var t = e.target;
-      if (t === document.body || t === main || (t && t.tagName === 'TR')) {
-        var h = document.getElementById('rec-h');
-        if (h) { e.preventDefault(); h.focus(); }
-      }
-    }
   });
 
   // ---- add a company by name: a combobox
@@ -1565,7 +1578,7 @@ WATCHLIST_SCRIPT = r"""
                      text: r.unknown ? 'is on your Watchlist, added by hand. Radar has not seen it, so its facts read '
                                        + 'Not known until a story or an advert names it.'
                                      : 'is on your Watchlist, added by hand. Its row is in the table.',
-                     undo: { url: '/watchlist/remove', body: { company_id: r.id, undo_add: true },
+                     undo: { url: '/watchlist/remove', body: { company_id: r.id, undo_add: true, since: r.since },
                              done: 'is off your Watchlist again.' } });
           return;
         }
@@ -1680,7 +1693,7 @@ WATCHLIST_SCRIPT = r"""
     post('/watchlist/suggestion', { id: id, action: action }).then(function (r) {
       if (!r.ok) { b.disabled = false; refusal(r.note); return; }
       if (panel && panel.classList.contains('is-open')) sset(SG, 'open');
-      var undo = { url: '/watchlist/suggestion', body: { id: id, action: 'undo' } };
+      var undo = { url: '/watchlist/suggestion', body: { id: id, action: 'undo' }, sg: true };
       if (action === 'accept') {
         undo.done = 'is back in the suggestions, not on your Watchlist.';
         go(null, { name: name, tone: 'ok', undo: undo,
@@ -1688,11 +1701,13 @@ WATCHLIST_SCRIPT = r"""
       } else if (action === 'dismiss') {
         undo.done = 'is back in the suggestions.';
         go(null, { name: name, undo: undo,
-                   text: 'dismissed. Radar will not suggest it again for this ' + type + '. '
-                     + (kind === 'buying-window'
-                        ? 'It stays in Dismissed for 90 days, with Suggest again.'
-                        : 'A ' + (kind === 'funding' ? 'buying window' : 'buying window or a funding round')
-                          + ' later can bring it back once, marked as dismissed before.') });
+                   text: 'dismissed. ' + (kind === 'buying-window'
+                        ? 'Radar will not suggest it again. It stays in Dismissed for 90 days, with Suggest again.'
+                        : kind === 'funding'
+                          ? 'Radar will not suggest it again on a funding round or a story. A buying window later '
+                            + 'can bring it back once, marked as dismissed before.'
+                          : 'Radar will not suggest it again on another story. A funding round or a buying window '
+                            + 'later can bring it back once, marked as dismissed before.') });
       } else {
         sset(SG, 'focus');
         go(null, { name: name, tone: 'ok', text: 'is back in the suggestions.' });
@@ -1757,6 +1772,8 @@ WATCHLIST_SCRIPT = r"""
         var value = item.getAttribute('data-state');
         var words = item.textContent.trim();
         closeMenu(true);
+        if (value === 'dead' && !window.confirm('Set ' + state.name + ' to Not pursuing? It outranks every '
+            + 'other state, and only another state from this menu changes it.')) return;
         post('/company/state', { id: cid, state: value, confirm: true }).then(function (r) {
           if (!r.ok) { refusal(r.note, recErr); return; }
           go(null, recNote('The state is now ' + words + '.'), 'record');
@@ -1784,7 +1801,8 @@ WATCHLIST_SCRIPT = r"""
     post('/watchlist/add', { company_id: cid, via: 'name' }).then(function (r) {
       if (!r.ok) { watchBtn.disabled = false; refusal(r.note, recErr); return; }
       go(null, { name: state.name, tone: 'ok', where: 'record', text: 'is on your Watchlist.',
-                 undo: { url: '/watchlist/remove', body: { company_id: cid, undo_add: true },
+                 undo: r.already ? null : { url: '/watchlist/remove', body: { company_id: cid, undo_add: true,
+                                                                              since: r.watched_at },
                          done: 'is off your Watchlist again.' } }, 'record');
     });
   });
@@ -1903,8 +1921,11 @@ WATCHLIST_SCRIPT = r"""
       }
       var how = f('log-channel').selectedOptions[0].textContent.toLowerCase();
       var text = 'Contact logged: ' + (/^[aeiou]/.test(how) ? 'an ' : 'a ') + how + ' on ' + dayWords(body.date) + '. '
-        + (body.next_step ? 'The next step is now ' + body.next_step + ', due ' + dayWords(body.due) + '.'
-                          : 'No next step, so the thread is closed.');
+        + (body.next_step ? 'The next step is now ' + body.next_step.replace(/\.$/, '') + ', due '
+                              + dayWords(body.due) + '.'
+           : (r.thread && (r.thread.state === 'closed' || r.thread.state === 'none'))
+             ? 'No next step, so the thread is closed.'
+             : 'It was before the newest contact, so the thread still follows that one.');
       if (r.added) text += ' ' + (r.name || state.name) + ' joined your Watchlist.';
       go(null, recNote(text), 'record');
     });
