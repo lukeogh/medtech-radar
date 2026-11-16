@@ -103,15 +103,15 @@ OLD_VERSION = "97f11cce"     # the prompt Brief 3 left
 
 # The master CV, in the editor's layout, so that a tailored copy can be made.
 MASTER_DOC = {
-    "name": "Luke Keogh",
+    "name": "Alex Rennie",
     "headline": ["Software Director, regulated medical devices and IVD",
-                 "Chichester, West Sussex"],
+                 "Guildford, Surrey"],
     "sections": [
         {"title": "Summary", "entries": [], "lines": [
             {"b": False, "t": "Software leader in regulated industries since "
                               "2011, IEC 62304 and ISO 13485 throughout."}]},
         {"title": "Experience", "lines": [], "entries": [
-            {"heading": "Software Director, Axithra, 2023 to now", "lines": [
+            {"heading": "Software Director, Hartwell Infusion, 2023 to now", "lines": [
                 {"b": True, "t": "Lead software for a Class C IVD under IEC 62304."},
                 {"b": True, "t": "Oversaw FDA clearance for a Class B IVD."}]}]},
         {"title": "Skills", "entries": [], "lines": [
@@ -119,8 +119,8 @@ MASTER_DOC = {
     ],
 }
 MASTER_TEXT = cv_doc.render(MASTER_DOC)
-COPY_TEXT = MASTER_TEXT.replace("Chichester, West Sussex",
-                                "Chichester, West Sussex, UK", 1)
+COPY_TEXT = MASTER_TEXT.replace("Guildford, Surrey",
+                                "Guildford, Surrey, UK", 1)
 OTHER_TEXT = COPY_TEXT.replace("Lead software for", "Led software for", 1)
 score_item.load_cv_text = lambda config: (MASTER_TEXT,
                                           "config/profile/cv-20261110-090000.md")

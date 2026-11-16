@@ -2312,7 +2312,7 @@ def page_checks() -> None:
               "with their text, and the one with none is listed apart")
         check("“£700 to £800 per day”" in text,
               "the rate line quotes the advert's own words")
-        check(FIXTURE_LINES[32] not in text and "Luke Keogh" not in text
+        check(FIXTURE_LINES[32] not in text and "Alex Rennie" not in text
               and FIXTURE_LINES[6] not in text,
               "and no CV line that was not cited is in the parts beside the sheet")
         check(not BUTTON.search(inner), "with nothing pending there is no button")

@@ -427,7 +427,7 @@ def mock_scorer(user_content: str) -> str:
         "gate_cv_note": f"evidence supports {cv}",
         "gate_location": loc_pass,
         "gate_location_note": ("relocation required" if relocation else
-                              "workable from West Sussex" if loc_pass else
+                              "workable from home" if loc_pass else
                               "full time on site beyond commuting distance"),
         "location_class": loc_class,
         "gate_rate": rate_pass,
