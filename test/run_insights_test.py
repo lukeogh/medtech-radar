@@ -13,11 +13,15 @@
 4. The pages, from the fictional sample week: Top stories (the lead and
    four), Most relevant 1 to 10, the four sections, More stories under 40 and
    the Hidden fold; the story page with every report, Not the same story,
-   the drafts, Log a contact and the company; a section page; a quiet week
-   and a stopped watcher. No suggestions and no I did it anywhere.
+   the drafts, a link to log a contact on the Watchlist (no form of its own)
+   and the company; On your Watchlist leads to /watchlist?company=<id>; Add
+   to Watchlist sends via insights and the story's signal id, and its Undo
+   undo_add; a section page; a quiet week and a stopped watcher. No
+   suggestions and no I did it anywhere.
 5. The routes through the real server and its write guard: /story/hide and
-   /story/show (the whole event), /story/split, /watchlist/add and /remove,
-   /touch/log, and the read-only pages and fonts.
+   /story/show (the whole event), /story/split, /watchlist/add (recording
+   the story it came from) and /remove (Undo puts the company back as it
+   was), /touch/log, and the read-only pages and fonts.
 
 No network beyond a loopback server this runner starts, no model, no n8n.
 Exits non-zero on any failure.
@@ -294,10 +298,24 @@ def page_checks(tmp: Path) -> None:
     story = insights_page.render_story(conn, sid)
     check(story.count('<li><span class="src">') == 3 and story.count("Not the same story") == 2,
           "the story page lists every report and offers Not the same story on all but the lead")
-    check("Drafts to copy" in story and "Copy the comment" in story and "Log a contact" in story,
-          "the story page holds the drafts with Copy and Log a contact")
-    check("About Selwick Photonics" in story and "Enschede" in story and "/company/" in story,
-          "the story page shows the company's facts and links its record")
+    lead_cid = model["top"][0]["company_id"]
+    check("Drafts to copy" in story and "Copy the comment" in story,
+          "the story page holds the drafts with Copy")
+    check("logform" not in story and "<form" not in story and "<textarea" not in story
+          and f'href="/watchlist?company={lead_cid}">Log a contact on the Watchlist' in story,
+          "the story page has no Log a contact form of its own and links to the Watchlist to log one")
+    check("About Selwick Photonics" in story and "Enschede" in story
+          and f'class="rec" href="/watchlist?company={lead_cid}"' in story and "/company/" not in story,
+          "the story page shows the company's facts and links its record on the Watchlist")
+    off_story = next(s for s in model["stories"] if s["company_id"] and not s["watched"])
+    check(f'data-act="watch" data-cid="{off_story["company_id"]}" data-signal="{off_story["id"]}"' in html,
+          "Add to Watchlist carries the story's signal id")
+    check("act(b,'/watchlist/add',add," in html and "via:'insights'" in html and "add.signal_id=sid" in html
+          and "'/watchlist/remove',{company_id:cid2,undo_add:true}" in html,
+          "the script sends via insights and the signal id, and its Undo sends undo_add")
+    check('class="on-list" href="/watchlist?company=' in html and "a.href='/watchlist?company='+cid" in html
+          and "/company/" not in html,
+          "On your Watchlist leads to the company on the Watchlist, drawn or added, never /company/")
     any_report = model["top"][0]["reports"][-1]["id"]
     check(insights_page.render_story(conn, any_report) is not None, "any report's id opens its story")
     hw = next(s for s in model["stories"] if s["company"] == "PDX Diagnostics")
@@ -419,16 +437,23 @@ def route_checks(tmp: Path) -> None:
         n = insights_page.find_story(insights_page.build_model(c), ids[0])["count"]
         c.close()
         check(st == 200 and k == f"solo-{ids[2]}" and n == 2, "Not the same story splits one report off for good")
-        st, _ = call(port, "POST", "/watchlist/add", {"company_id": off["company_id"]})
+        st, _ = call(port, "POST", "/watchlist/add", {"company_id": off["company_id"], "via": "insights",
+                                                     "signal_id": off["id"]})
         c = ro(db)
-        w = c.execute("SELECT watched_at FROM companies WHERE id = ?", (off["company_id"],)).fetchone()[0]
+        w = c.execute("SELECT watched_at, watched_via, watched_signal_id FROM companies WHERE id = ?",
+                      (off["company_id"],)).fetchone()
         c.close()
-        check(st == 200 and w, "Add to Watchlist stamps the company")
-        st, _ = call(port, "POST", "/watchlist/remove", {"company_id": off["company_id"]})
+        check(st == 200 and w["watched_at"] and w["watched_via"] == "insights"
+              and w["watched_signal_id"] == off["id"],
+              "Add to Watchlist stamps the company, via insights, with the story it came from")
+        st, _ = call(port, "POST", "/watchlist/remove", {"company_id": off["company_id"], "undo_add": True})
         c = ro(db)
-        w = c.execute("SELECT watched_at FROM companies WHERE id = ?", (off["company_id"],)).fetchone()[0]
+        w = c.execute("SELECT watched_at, watched_via, watched_signal_id, unwatched_at, watched_was"
+                      " FROM companies WHERE id = ?", (off["company_id"],)).fetchone()
         c.close()
-        check(st == 200 and w is None, "its Undo takes the company off again")
+        check(st == 200 and w["watched_at"] is None and w["watched_via"] is None
+              and w["watched_signal_id"] is None and w["unwatched_at"] is None and w["watched_was"] is None,
+              "its Undo puts the company back as it was, never marked as removed")
         check(call(port, "POST", "/watchlist/add", {"company_id": 999999})[0] == 409, "an unknown company is refused")
         st, _ = call(port, "POST", "/touch/log", {"company_id": off["company_id"], "channel": "comment",
                                                  "note": "Commented on the post."})

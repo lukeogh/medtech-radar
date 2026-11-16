@@ -514,8 +514,8 @@ script.
   a group of Needs you today: urgent signals (a story at the fast bar or over,
   found in the last seven days, hiring stories included), new Top prospects
   and new One question away roles (unread, the Jobs page's New), and
-  application follow-ups due today or overdue (the board's next steps). Threads
-  due joins when the Watchlist page is built.
+  application follow-ups due today or overdue (the board's next steps), and
+  threads due (`watchlist.threads_due`, Watchlist companies only).
 - Five lights from `job_health`: On time, Late, Stale, Off or Dry run, each with
   its own mark. The phone push has no run of its own, so its light comes from
   the signal watcher's runs and the ntfy address in radar.yaml.
@@ -536,6 +536,52 @@ circle and the add-a-source form. Its scoring panel moved to the CV page's
 Settings (`/cv#settings`), with the first name beside the scorer's lines.
 `test/run_home_test.py` checks it, and `docs/box-checks-home-final.md` is the
 deploy.
+
+## Watchlist
+
+Built from design/watchlist/final and the owner's decisions of 15 Nov 2026.
+`scripts/watchlist.py` holds the rules and every read and write;
+`scripts/watchlist_page.py` draws `/watchlist` (the table, with a company's
+record beside it at `/watchlist?company=<id>` from 1024 wide) and
+`/watchlist/<id>` (the record as its own view, for a phone). The page reads
+only; its script writes through guarded POST routes in serve_dashboard.py
+(`WATCHLIST_POSTS`, dispatched by `watchlist_post`).
+
+- On the Watchlist means `companies.watched_at` is set. `watched_via` says how
+  it joined (insights, suggestion, name, contact) and `watched_signal_id` the
+  story it came from. Remove clears `watched_at` and keeps the rest, the thread
+  among it, which stops counting; Undo puts back the first date.
+- A thread is a company's newest contact in `touches` (newest `touched_at`,
+  then id), skipping the rows Set state writes (`kind = 'state'`). It is open
+  when that contact set `next_action`; it is due when `next_action_date` is
+  today or earlier, UK time. A next step logged here needs a due date; one on
+  file with no date shows No date set and is never due. Home's fifth figure
+  and the table's tags both read `thread_of`, and only Watchlist companies
+  count.
+- Suggestions live in `watch_suggestions`, worked out in code by
+  `refresh_suggestions` at the end of each signal watcher run (not a spot
+  check of one source): an unwatched company with a buying window, a funding
+  round or a story at 70 or more found in the last 30 days, at most five
+  waiting, strongest first. Fourteen days unanswered folds one into Dismissed
+  (`dismissed_by = 'radar'`); a dismissed company comes back once
+  (`came_back`), only on a stronger kind of signal; a removed one only on a
+  signal since its removal. Nothing joins until the owner presses Add.
+- Add by name looks among the companies Radar has seen, ignoring capitals,
+  spacing and endings such as Ltd (`loose_name`, for lookup only; the natural
+  key stays `normalise_company`). An unknown name is added only when asked, as
+  a bare row whose facts stay Not known.
+- People added by hand are `company_people`, beside the published chief
+  executive and chief technology officer in `companies.people`.
+- Read again (`watchlist.reread`) calls `enrich_company` with `force`: one
+  polite fetch of `companies.site_url` (or a site the newest story names, never
+  a guess) and one call to the fast model, on a press, with the cost from
+  `reread_cost` shown first, logged as an enrich run. Each fact keeps its
+  source and date in `companies.fact_sources`; a field the new reading leaves
+  empty keeps the old fact.
+
+`test/run_watchlist_test.py` checks it, `test/seed_watchlist_sample.py` seeds
+the design's invented world for looking at the page, and
+`docs/box-checks-watchlist-final.md` is the deploy.
 
 ## Prepare application
 

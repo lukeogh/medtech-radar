@@ -8,10 +8,12 @@ in page_frame.py, dark only. At /, with every item at its own address,
 What is on it, top to bottom:
 - The welcome: the date, the greeting (by the first name on the optional
   first_name line of the owner's preferences file, never a name in the code),
-  one sentence saying what needs the owner, and four figures, each a link to
+  one sentence saying what needs the owner, and five figures, each a link to
   where those items live and each equal to a group of the list below: urgent
-  signals, new Top prospects, new One question away roles and application
-  follow-ups due. Threads due joins when the Watchlist page is built.
+  signals, new Top prospects, new One question away roles, threads due and
+  application follow-ups due. Threads due are read from watchlist.threads_due,
+  the rule the Watchlist's tags use: a Watchlist company's next step due today
+  or overdue, UK date; a next step with no date never counts.
 - Radar's five jobs as lights, a mark in a ring, a colour and a word (On time,
   Late, Stale, Off, Dry run or, for the inbox, Quiet), from
   radar_common.job_health, the verdict
@@ -24,7 +26,8 @@ What is on it, top to bottom:
 - Week by week: new Top prospects and signals at 40 or more over the last
   four weeks, rebuilt from what is stored (week_model says exactly how).
 - Needs you today: Radar's jobs that need a look, urgent signals, new Top
-  prospects, new One question away roles and application follow-ups due, with
+  prospects, new One question away roles, threads due and application
+  follow-ups due, with
   the selected item's detail beside the list, or under its row on a phone.
 
 Done (key E) takes an item off Home and only off Home, in the home_done table;
@@ -40,6 +43,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import sqlite3
 from datetime import date, datetime, timedelta, timezone
 
 import applications as ap
@@ -47,6 +51,7 @@ import build_dashboard as bd
 import jobs_page as jp
 import page_frame
 import radar_common as rc
+import watchlist
 
 esc = bd.esc
 
@@ -55,7 +60,7 @@ SIGNAL_BAR = 40           # the mark of a buying window (insights_page.BUYING)
 URGENT_DAYS = 7           # an urgent signal is on Home for the week it was found
 WAIT_SHOWN = 3            # Waiting on you items the tile lists
 KEY_MAX = 300             # the longest item key the routes take
-KEY_RE = re.compile(r"^(signal|role|app|radar):.+")
+KEY_RE = re.compile(r"^(signal|role|thread|app|radar):.+")
 
 HIRING = rc.HIRING_TYPES
 CODE_TYPES = {"job-advert": "buying-window", "qa-tripwire": "first-hire"}
@@ -101,7 +106,7 @@ DOES = {"inbox": "Reads job alert emails, then stores and scores the roles.",
 ENDED = {"ok": "Finished", "partial": "Finished, with failures", "failed": "Failed"}
 GROUPS = (("radar", "Radar"), ("urgent", "Urgent signals"),
           ("top", "Top prospects"), ("question", "One question away"),
-          ("apps", "Applications"))
+          ("threads", "Threads due"), ("apps", "Applications"))
 
 
 # ================================================================ time
@@ -491,6 +496,10 @@ def build_items(data: dict, config: dict, conn, now: datetime, light_list: list,
         for o in jmodel["tiers"][tier]:
             if o.get("_unread"):
                 items.append(_role_item(o, group, now))
+    # ---- Threads due: a Watchlist company's next step due today or overdue,
+    # by the Watchlist's own rule, most overdue first.
+    for t in threads_due(conn, now):
+        items.append(_thread_item(t, now))
     # ---- Application follow-ups due today or overdue.
     today = uk(now).date()
     due = [a for a in bmodel["waiting"] if a.get("id") is not None and a.get("next_step")
@@ -590,6 +599,35 @@ def _role_item(o: dict, group: str, now: datetime) -> dict:
             "company_id": o.get("company_id"), "company": o.get("company")}
 
 
+def threads_due(conn, now: datetime) -> list:
+    """watchlist.threads_due on Home's read-only connection. A database the
+    Watchlist's columns have not reached yet has no threads due."""
+    try:
+        return watchlist.threads_due(conn, now)
+    except sqlite3.OperationalError:
+        return []
+
+
+def _thread_item(t: dict, now: datetime) -> dict:
+    th = t["thread"]
+    last = th.get("last") or {}
+    cid = int(t["company_id"])
+    words, cls = _due_tag(th["due_date"], now)
+    channel = CHANNEL_WORDS.get(last.get("channel") or "other", "other")
+    contact = f"Last contact {day(last.get('touched_at'))}, {channel}" if last.get("touched_at") else ""
+    return {"kind": "thread", "group": "threads", "id": f"thread-{cid}",
+            # The due date is in the key, so a thread Done today comes back
+            # when its date is moved and it falls due again.
+            "key": f"thread:{cid}:{th['due_date']}", "title": t["name"],
+            "fig": "", "seen": day(th["due_date"]), "seen_label": "Due ",
+            "meta": contact,
+            "tag": (f'<span class="tag tag-{cls}">{_use("st-cau" if cls == "caution" else "st-neu")}'
+                    f'{esc(words)}</span>') if words else "",
+            "lead": th.get("next_step") or "", "thread": th, "place": t.get("place") or "",
+            "open": (f"/watchlist?company={cid}", "Open it on the Watchlist", False),
+            "company_id": cid, "company": t["name"]}
+
+
 def _app_item(a: dict, now: datetime) -> dict:
     words, cls = _due_tag(a.get("next_step_due"), now)
     stage = a.get("stage") or "applied"
@@ -637,10 +675,13 @@ def build_model(conn, data: dict, config: dict, now=None, item: str | None = Non
     counts = {g: sum(1 for i in todo if i["group"] == g) for g, _w in GROUPS}
     overdue = sum(1 for i in todo if i["group"] == "apps"
                   and ap.parse(i["app"].get("next_step_due")).date() < uk(moment).date())
+    threads_overdue = sum(1 for i in todo if i["group"] == "threads"
+                          and i["thread"]["state"] == "overdue")
     company_ids = {i.get("company_id") for i in shown if i.get("company_id")}
     return {
         "now": moment, "show": show, "items": shown, "todo": todo, "done": gone,
         "selected": selected, "missing": missing, "counts": counts, "overdue": overdue,
+        "threads_overdue": threads_overdue,
         "lights": light_list, "jobs": bd.job_verdicts(data), "jmodel": jmodel, "bmodel": bmodel,
         "week": week_model(data, top_history(conn), moment),
         "name": rc.read_first_name(config), "data": data, "config": config,
@@ -653,6 +694,8 @@ def build_model(conn, data: dict, config: dict, now=None, item: str | None = Non
 FIGURES = (("urgent", "urgent signal", "urgent signals", "#group-urgent"),
            ("top", "new Top prospect", "new Top prospects", "/jobs#group-top"),
            ("question", "new One question away", "new One question away", "/jobs#group-question"),
+           # The Watchlist sorts its threads due first.
+           ("threads", "thread due", "threads due", "/watchlist"),
            ("apps", "application follow-up due", "application follow-ups due",
             "/jobs?show=applied"))
 JOB_PHRASES = {"inbox": "the inbox", "signals": "the signal watcher", "check": "the advert checker",
@@ -680,6 +723,8 @@ def status_sentence(model: dict) -> str:
         parts.append(_n(c["top"], "new Top prospect"))
     if c["question"]:
         parts.append(f"{c['question']} new One question away {'role' if c['question'] == 1 else 'roles'}")
+    if c["threads"]:
+        parts.append(_n(c["threads"], "thread due", "threads due"))
     if c["apps"]:
         parts.append(f"{c['apps']} {apps_word(model, c['apps'])}")
     for i in model["todo"]:
@@ -758,7 +803,7 @@ def figures_html(model: dict) -> str:
         out.append(f'<a class="ht-figlink{" is-zero" if not n else ""}" id="figure-{key}" '
                    f'href="{esc(href)}" data-group="{key}"><span class="ht-fignum">{n}</span>'
                    f'<span class="ht-figword">{esc(word)}</span></a>')
-    return (f'<nav class="ht-figs ht-figs-4" aria-label="What needs you, by kind">'
+    return (f'<nav class="ht-figs ht-figs-5" aria-label="What needs you, by kind">'
             f'{"".join(out)}</nav>')
 
 
@@ -1008,6 +1053,9 @@ def group_head(group: str, items: list, model: dict) -> str:
             meta = f'<span class="head-meta">Relevance {fast} and over</span>'
     elif group in ("top", "question"):
         count = f"{n} new"
+    elif group == "threads":
+        late = sum(1 for i in items if i["thread"]["state"] == "overdue")
+        count = (f'{n} <span class="group-new">· {late} overdue</span>' if late else f"{n} due today")
     else:
         late = sum(1 for i in items if ap.parse(i["app"].get("next_step_due")).date()
                    < uk(model["now"]).date())
@@ -1194,6 +1242,28 @@ def _body_app(i: dict, uid: str, now: datetime) -> str:
     return "".join(out)
 
 
+def _body_thread(i: dict, uid: str, now: datetime) -> str:
+    th = i["thread"]
+    last = th.get("last") or {}
+    words, _cls = _due_tag(th["due_date"], now)
+    due = f"Due {day(th['due_date'])}"
+    if words.startswith("Overdue"):
+        due += ", o" + words[1:]
+    elif words == "Due today":
+        due += ", today"
+    paras = [f'<p class="ny-para">{esc(th.get("next_step") or "")}</p>',
+             f'<p class="text-meta ny-under">{esc(due)}. You set this step on the Watchlist. '
+             'Move its date, or log a contact, there.</p>']
+    out = [_sec(f"{uid}-next", "Next step", "".join(paras))]
+    channel = CHANNEL_WORDS.get(last.get("channel") or "other", "other")
+    rows = [("Company", esc(i.get("company") or "")),
+            ("Where", esc(i.get("place") or "")),
+            ("Last contact", esc(f"{day(last.get('touched_at'))}, {channel}") if last.get("touched_at") else ""),
+            ("Note", esc(last.get("note") or ""))]
+    out.append(_sec(f"{uid}-details", "Details", _facts(rows)))
+    return "".join(out)
+
+
 def _context_company(i: dict, model: dict) -> str:
     cid = i.get("company_id")
     c = model["companies"].get(cid) if cid else None
@@ -1277,6 +1347,7 @@ def detail_html(i: dict, model: dict, prev_id, next_id) -> str:
                             f"found {day_time((i.get('story') or {}).get('found'))}"],
                  "role": [dict(GROUPS).get(i["group"], ""), i.get("company") or "",
                           f"first seen {day_time(jp.first_seen(i['role']))}" if i.get("role") else ""],
+                 "thread": ["Thread due", i.get("place") or ""],
                  "app": ["Application follow-up", i.get("company") or "",
                          ap.STAGE_WORDS.get((i.get("app") or {}).get("stage") or "applied", "")]}[i["kind"]]
     meta = '<span aria-hidden="true">·</span>'.join(f"<span>{esc(b)}</span>" for b in meta_bits if b)
@@ -1321,6 +1392,9 @@ def detail_html(i: dict, model: dict, prev_id, next_id) -> str:
         elif i["kind"] == "app":
             note = ("Done takes this off Home, and Undo last puts it back. The step stays on the board "
                     "until you change or clear it there.")
+        elif i["kind"] == "thread":
+            note = ("Done takes this off Home, and Undo last puts it back. The step stays on the "
+                    "Watchlist until you move its date or log a contact there; a new date brings it back.")
         else:
             note = f"Done takes this off Home, and Undo last puts it back. {i.get('stays', '')}".strip()
     check = ""
@@ -1338,6 +1412,9 @@ def detail_html(i: dict, model: dict, prev_id, next_id) -> str:
         context = _context_company(i, model)
     elif i["kind"] == "role":
         body = _body_role(i, uid)
+        context = _context_company(i, model)
+    elif i["kind"] == "thread":
+        body = _body_thread(i, uid, model["now"])
         context = _context_company(i, model)
     else:
         body = _body_app(i, uid, model["now"])
@@ -1369,7 +1446,7 @@ def empty_html(model: dict) -> str:
             '<a class="link link-block" href="/jobs">Open Jobs</a>')
     return ('<div class="empty"><p>Nothing needs you today. An item arrives here when a role is '
             'scored Top prospect or One question away, a signal reaches '
-            f'{int(model["data"].get("fast") or 75)}, an application step falls due or a Radar job '
+            f'{int(model["data"].get("fast") or 75)}, a thread or an application step falls due or a Radar job '
             f'needs a look.</p>{link}</div>')
 
 
@@ -1479,12 +1556,13 @@ def main_payload(conn, data: dict, config: dict, item: str | None = None, show: 
 
 def clean_key(value) -> str:
     """An item key as the routes take it, or raises ValueError: one printable
-    line, at most KEY_MAX characters, naming one of the four kinds."""
+    line, at most KEY_MAX characters, naming one of the five kinds."""
     if not isinstance(value, str):
         raise ValueError("key must be text")
     key = value.strip()
     if not key or len(key) > KEY_MAX or not key.isprintable() or not KEY_RE.match(key):
-        raise ValueError("key must name a Home item, like role:..., signal:..., app:... or radar:...")
+        raise ValueError("key must name a Home item, like role:..., signal:..., thread:..., app:... "
+                         "or radar:...")
     return key
 
 
@@ -1782,7 +1860,11 @@ a{color:inherit}
 .hf-hero .ht-greet{font-size:28px;line-height:36px}
 .hf-hero .ht-strip{border-top-color:var(--hf-hero-line)}
 .hf-bento{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:stretch}
-@container htw (max-width:719.98px){.ht-figs-4 > .ht-figlink:last-child{grid-column:auto}}
+/* Five figures (Home final): two, two, then the fifth across the width with its words beside the number;
+   three and two from 720px of welcome; five across from 960px. */
+@container htw (max-width:719.98px){.ht-figs-5 > .ht-figlink:last-child{grid-column:1 / -1;flex-direction:row;align-items:baseline;gap:12px}}
+@container htw (min-width:720px) and (max-width:959.98px){.ht-figs.ht-figs-5{grid-template-columns:repeat(6,minmax(0,1fr))}.ht-figs-5 > .ht-figlink{grid-column:span 2}.ht-figs-5 > .ht-figlink:nth-child(n + 4){grid-column:span 3}}
+@container htw (min-width:960px){.ht-figs.ht-figs-5{grid-template-columns:repeat(5,minmax(0,1fr))}}
 @container htw (min-width:720px){.hf-hero .ht-welcome-in{padding:24px 24px 16px}.hf-hero .ht-figs{margin-top:12px}.hf-hero .ht-strip{margin-top:16px}}
 @container htw (min-width:720px) and (max-width:1599.98px){.hf-hero .ht-status{max-width:none}.hf-hero .ht-figlink{flex-direction:row;align-items:baseline;gap:10px;padding:10px 16px}}
 @container htw (min-width:960px) and (max-width:1599.98px){
@@ -1793,18 +1875,18 @@ a{color:inherit}
   .hf-hero .ht-quiet{grid-area:quiet}
   .hf-hero .ht-asof{grid-area:asof;align-self:center;margin-top:0}
   .hf-hero .ht-figs{grid-area:figs}
-  .hf-hero .ht-figs.ht-figs-4{grid-template-columns:repeat(4,minmax(max-content,1fr))}
+  .hf-hero .ht-figs.ht-figs-5{grid-template-columns:repeat(5,minmax(max-content,1fr))}
   .hf-hero .ht-strip{grid-area:strip}
 }
 @container htw (min-width:1600px){
-  .hf-hero .ht-welcome-in{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);grid-template-areas:"date figs" "greet figs" "status figs" "quiet figs" "asof figs" "strip strip";column-gap:64px;row-gap:6px;padding:40px 40px 20px}
+  .hf-hero .ht-welcome-in{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);grid-template-areas:"date figs" "greet figs" "status figs" "quiet figs" "asof figs" "strip strip";column-gap:64px;row-gap:6px;padding:40px 40px 20px}
   .hf-hero .ht-date{grid-area:date;font-size:16px;line-height:24px}
   .hf-hero .ht-greet{grid-area:greet;font-size:40px;line-height:52px}
   .hf-hero .ht-status{grid-area:status;max-width:64ch;font-size:20px;line-height:30px}
   .hf-hero .ht-quiet{grid-area:quiet;max-width:64ch;font-size:16px;line-height:24px}
   .hf-hero .ht-asof{grid-area:asof}
   .hf-hero .ht-figs{grid-area:figs;align-self:center;margin-top:0;gap:16px}
-  .hf-hero .ht-figs.ht-figs-4{grid-template-columns:repeat(4,minmax(max-content,1fr))}
+  .hf-hero .ht-figs.ht-figs-5{grid-template-columns:repeat(5,minmax(max-content,1fr))}
   .hf-hero .ht-figlink{padding:20px 20px}
   .hf-hero .ht-fignum{font-size:48px;line-height:56px}
   .hf-hero .ht-figword{font-size:16px;line-height:24px}

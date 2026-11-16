@@ -21,10 +21,11 @@ from __future__ import annotations
 import html
 from datetime import datetime
 
-# The pages in the bar, in order. The Watchlist is in the design and stays out
-# of the bar until the page exists.
+# The pages in the bar, in order, as the designs draw it: the Watchlist sits
+# between Insights and CV.
 NAV = (("home", "/", "Home"), ("jobs", "/jobs", "Jobs"),
-       ("insights", "/insights", "Insights"), ("cv", "/cv", "CV"))
+       ("insights", "/insights", "Insights"), ("watchlist", "/watchlist", "Watchlist"),
+       ("cv", "/cv", "CV"))
 
 FRAME_CSS = """
 :root{

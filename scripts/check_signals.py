@@ -56,6 +56,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import draft_outreach
 import radar_common as rc  # noqa: E402
 import applications  # noqa: E402
+import watchlist  # noqa: E402
 
 WATCHLIST_PATH = REPO_ROOT / "config" / "watchlist.yaml"
 RUBRIC_PATH = REPO_ROOT / "prompts" / "signal-scorer.md"
@@ -939,6 +940,19 @@ def main(argv=None) -> int:
 
         if push_live:
             catch_up_pushes(conn, config, result)
+        # The Watchlist's suggestions, worked out in code from what this run
+        # and the ones before it stored: never a model call, never a company
+        # added. A spot check of one source leaves them alone. A fault is
+        # noted and does not fail the run.
+        if not args.source:
+            try:
+                result["suggestions"] = watchlist.refresh_suggestions(conn)
+                conn.commit()
+            except Exception as err:                # noqa: BLE001
+                conn.rollback()
+                result["errors"] += 1
+                result["notes"].append(f"watchlist suggestions: "
+                                       f"{type(err).__name__}: {err}")
     except BaseException as err:                   # noqa: BLE001
         failure = err
     finally:
@@ -954,6 +968,10 @@ def main(argv=None) -> int:
     if board and (board["closed"] or board["follow_ups"] or board["made"]):
         note += (f", board: {board['closed']} closed as no reply, "
                  f"{board['follow_ups']} follow-ups added, {board['made']} made")
+    sugg = result.get("suggestions")
+    if sugg and (sugg["made"] or sugg["folded"]):
+        note += (f", watchlist: {sugg['made']} suggested, "
+                 f"{sugg['folded']} folded into dismissed")
     if result["failed_sources"]:
         note += (f", {len(result['failed_sources'])} failed: "
                  + "; ".join(result["failed_sources"]))

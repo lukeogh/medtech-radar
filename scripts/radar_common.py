@@ -267,6 +267,30 @@ _MIGRATIONS = (
     # They were never recorded, so a run's cost read low. 0 on every row
     # written before this, which is what was recorded, not what was spent.
     ("runs", "cache_write_tokens", "INTEGER DEFAULT 0"),
+    # The Watchlist final (design/watchlist/final). How a company joined:
+    # insights (Add to Watchlist on a story), suggestion (Radar suggested it
+    # and the owner added it), name (added by name on the Watchlist) or
+    # contact (a contact was logged for a company not on it), and the story
+    # it came from where there was one. arrival_seen_at is when the Watchlist
+    # first said it had arrived from Insights, so the next visit says so once.
+    # unwatched_at is when it was last taken off; its thread stays on file
+    # and stops counting, and adding it again restores it. watched_was keeps
+    # the watched_at a removal cleared, for Remove's Undo.
+    ("companies", "watched_via", "TEXT"),
+    ("companies", "watched_signal_id", "INTEGER"),
+    ("companies", "arrival_seen_at", "TEXT"),
+    ("companies", "unwatched_at", "TEXT"),
+    ("companies", "watched_was", "TEXT"),
+    # The site the enricher read, so Read again can make its one polite fetch
+    # of the same page, and the source and date of each fact as JSON
+    # ({"stage": {"from": "site"|"item", "label": "...", "at": "..."}}), set
+    # when the facts are read. NULL on a company read before they were kept.
+    ("companies", "site_url", "TEXT"),
+    ("companies", "fact_sources", "TEXT"),
+    # What a touch is. NULL for a contact; state for the row Set state writes
+    # to say who changed a company's state, which is not a contact and never
+    # opens, closes or moves a thread.
+    ("touches", "kind", "TEXT"),
 )
 
 # What the score record says about a row scored before the record existed.
@@ -400,6 +424,16 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # behind its own flag like the backfills above. After that Save CV, Mark
     # applied and the board make applications as they go, and the scheduled
     # rule (applications.run_rules) makes any that something else left out.
+    # The rows Set state has always written are marked as what they are,
+    # once per database, so a state change never reads as the newest contact
+    # and closes the thread it sat on top of.
+    done_kind = conn.execute(
+        "SELECT value FROM meta WHERE key = 'migrated_touch_kind'").fetchone()
+    if not done_kind:
+        conn.execute("UPDATE touches SET kind = 'state' WHERE kind IS NULL"
+                     " AND channel = 'other' AND note LIKE 'State set to %'")
+        conn.execute("INSERT OR IGNORE INTO meta (key, value)"
+                     " VALUES ('migrated_touch_kind', '1')")
     done_apps = conn.execute(
         "SELECT value FROM meta WHERE key = 'migrated_applications'").fetchone()
     if not done_apps:

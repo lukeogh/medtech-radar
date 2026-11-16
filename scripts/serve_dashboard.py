@@ -92,6 +92,7 @@ import home_page
 import prepare_application
 import score_item
 import tailored_cv
+import watchlist
 
 REPO_ROOT = radar_common.REPO_ROOT
 
@@ -105,6 +106,7 @@ STATIC = {
 ARGS = None
 WATCH_LOCK = threading.Lock()
 WATCH_TIMEOUT = 600        # seconds Check now waits for the watcher
+REREAD_LOCK = threading.Lock()   # one Read again at a time
 
 
 def render(page_name: str = "archive", query: dict | None = None) -> bytes:
@@ -398,43 +400,106 @@ def split_story(signal_id: int) -> dict:
     return _write(go)
 
 
-def set_watched(company_id: int, on: bool) -> dict:
-    """Add a company to the Watchlist, or take it off (the Undo)."""
+def set_watched(company_id: int, on: bool, via: str = "insights", signal_id=None,
+                undo_add: bool = False) -> dict:
+    """Add a company to the Watchlist, or take it off. From Insights, the add
+    remembers the story it came from and the Watchlist says so on the next
+    visit; Insights' Undo is undo_add, which puts the company back as it was
+    rather than marking it removed. Remove on the Watchlist keeps the thread
+    on file and stops it counting (watchlist.unwatch)."""
+    if via not in watchlist.VIA_WORDS:
+        via = "insights"
+    sid = signal_id if isinstance(signal_id, int) and not isinstance(signal_id, bool) else None
+
     def go(conn):
-        row = conn.execute("SELECT id, watched_at FROM companies WHERE id = ?",
-                           (company_id,)).fetchone()
-        if row is None:
-            return {"ok": False, "note": "That company is no longer on file. Reload the page."}
-        if on and row["watched_at"]:
-            return {"ok": True, "id": company_id, "already": True}
-        conn.execute("UPDATE companies SET watched_at = ? WHERE id = ?",
-                     (radar_common.now_iso() if on else None, company_id))
+        radar_common.begin_write(conn)
+        if on:
+            result = watchlist.watch(conn, company_id, via, sid)
+        else:
+            result = watchlist.unwatch(conn, company_id, undo_add=undo_add)
         conn.commit()
-        return {"ok": True, "id": company_id}
+        return result
     return _write(go)
 
 
-LOG_CHANNELS = ("comment", "connection-note", "engagement", "artefact", "other")
+LOG_CHANNELS = tuple(watchlist.CHANNEL_WORDS)
 
 
-def log_contact(company_id: int, channel: str, note) -> dict:
-    """Log a contact from a story page: one touch, by a human, nothing booked."""
-    if channel not in LOG_CHANNELS:
-        return {"ok": False, "note": "Choose how the contact was made from the list."}
-    text = radar_common.sanitise_free_text(str(note or "").strip())[:500] or None
-
+def log_contact(company_id: int, body: dict) -> dict:
+    """Log a contact from the Watchlist's record: its date, how, a note, what
+    came back, and the next step with its due date (watchlist.log_contact).
+    A company not on the Watchlist joins it."""
     def go(conn):
-        row = conn.execute("SELECT display_name FROM companies WHERE id = ?",
-                           (company_id,)).fetchone()
-        if row is None:
-            return {"ok": False, "note": "That company is no longer on file. Reload the page."}
-        conn.execute("INSERT INTO touches (company, touched_at, channel, note, company_id)"
-                     " VALUES (?,?,?,?,?)",
-                     (row["display_name"], radar_common.now_iso(), channel,
-                      text or "Logged from the Insights story page.", company_id))
-        conn.commit()
-        return {"ok": True, "id": company_id}
+        radar_common.begin_write(conn)
+        result = watchlist.log_contact(conn, company_id, body)
+        if result.get("ok"):
+            conn.commit()
+        else:
+            conn.rollback()
+        return result
     return _write(go)
+
+
+def watchlist_write(fn) -> dict:
+    """Run one Watchlist write under the write lock: commit what succeeded,
+    roll back what was refused."""
+    def go(conn):
+        radar_common.begin_write(conn)
+        result = fn(conn)
+        if result.get("ok"):
+            conn.commit()
+        else:
+            conn.rollback()
+        return result
+    return _write(go)
+
+
+def render_watchlist(company_id=None, view: str = "table"):
+    """The Watchlist: the table with the record beside it (view table) or one
+    company's record as its own view (view record, /watchlist/<id>). Read
+    only. None when a record's company is not on file."""
+    import watchlist_page
+    config = radar_common.load_config()
+    conn = _insights_conn()
+    try:
+        data_jobs = None
+        try:
+            data_jobs = radar_common.job_health(conn)
+        except Exception:  # noqa: BLE001  the bar's inbox line is optional
+            data_jobs = None
+        model = watchlist.build_model(conn, config, company_id=company_id)
+    finally:
+        conn.close()
+    if view == "record" and model["selected"] is None:
+        return None
+    return watchlist_page.render_page(model, data_jobs, view).encode("utf-8")
+
+
+def find_companies(query: str) -> dict:
+    conn = _insights_conn()
+    try:
+        return {"ok": True, "matches": watchlist.find_names(conn, query)}
+    finally:
+        conn.close()
+
+
+def run_reread(company_id: int, confirmed: bool) -> dict:
+    """Read again: one polite fetch and one model call, on a press only and
+    only once its cost was shown (the page sends confirm after showing it)."""
+    if not confirmed:
+        conn = _insights_conn()
+        try:
+            return {"ok": False, "confirm": True, **watchlist.reread_cost(conn, radar_common.load_config())}
+        finally:
+            conn.close()
+    if not REREAD_LOCK.acquire(blocking=False):
+        return {"ok": False, "note": "A Read again is already running. Wait for it to finish."}
+    try:
+        def go(conn):
+            return watchlist.reread(conn, company_id, radar_common.load_config())
+        return _write(go)
+    finally:
+        REREAD_LOCK.release()
 
 
 def render_prepare(item_id: int, go: bool = False):
@@ -662,8 +727,8 @@ def set_company_state(company_id: int, state: str, confirmed: bool) -> dict:
             f"State set to {state.replace('-', ' ')}"
             + (f" from {row['state'].replace('-', ' ')}." if row["state"] else "."))
         conn.execute(
-            "INSERT INTO touches (company, touched_at, channel, note, company_id)"
-            " VALUES (?,?,?,?,?)",
+            "INSERT INTO touches (company, touched_at, channel, note, company_id, kind)"
+            " VALUES (?,?,?,?,?,'state')",
             (row["display_name"], now, "other", note, company_id))
         conn.commit()
         return {"ok": True, "id": company_id, "state": state,
@@ -1135,9 +1200,13 @@ def set_signal_state(item_id: int, action: str) -> dict:
             next_action, next_date = week_three_booking(channel)
             conn.execute(
                 "INSERT INTO touches (company, touched_at, channel, note,"
-                " next_action, next_action_date) VALUES (?,?,?,?,?,?)",
+                " next_action, next_action_date, company_id)"
+                " VALUES (?,?,?,?,?,?,?)",
                 (row["company"] or "Unknown company", now, channel, note,
-                 next_action, next_date))
+                 next_action, next_date,
+                 radar_common.resolve_company(conn, row["company"])
+                 if not radar_common.is_placeholder_company(row["company"])
+                 else None))
             conn.commit()
             out = {"ok": True, "id": item_id, "channel": channel}
             if next_date:
@@ -1204,6 +1273,70 @@ def run_watcher() -> dict:
         return {"ok": False, "note": "the watcher run timed out"}
     finally:
         WATCH_LOCK.release()
+
+
+# ------------------------------------------------------------ the Watchlist's writes
+
+WATCHLIST_POSTS = ("/watchlist/add", "/watchlist/remove", "/watchlist/restore",
+                   "/watchlist/add-name", "/watchlist/suggestion", "/watchlist/arrived",
+                   "/watchlist/thread", "/watchlist/person", "/watchlist/person/remove",
+                   "/watchlist/reread", "/touch/log")
+
+
+def _int(body: dict, name: str):
+    value = body.get(name)
+    if (not isinstance(value, int) or isinstance(value, bool)
+            or not -2 ** 63 <= value < 2 ** 63):
+        return None
+    return value
+
+
+def watchlist_post(path: str, body: dict) -> tuple:
+    """(result, None) or (None, the 400 note) for one Watchlist POST."""
+    if path == "/watchlist/suggestion":
+        sid = _int(body, "id")
+        action = str(body.get("action") or "")
+        if sid is None or action not in ("accept", "dismiss", "undo", "again"):
+            return None, "id must be an integer and action accept, dismiss, undo or again"
+        return watchlist_write(lambda c: watchlist.answer_suggestion(c, sid, action)), None
+    if path == "/watchlist/arrived":
+        ids = body.get("company_ids")
+        if not isinstance(ids, list):
+            return None, "company_ids must be a list of integers"
+        return watchlist_write(lambda c: {"ok": True, "marked": watchlist.mark_arrivals_seen(c, ids)}), None
+    if path == "/watchlist/add-name":
+        cid = body.get("company_id")
+        if cid is not None and _int(body, "company_id") is None:
+            return None, "company_id must be an integer"
+        name = body.get("name")
+        if cid is None and not isinstance(name, str):
+            return None, "send company_id or name"
+        return watchlist_write(lambda c: watchlist.add_by_name(
+            c, name=name, company_id=cid, anyway=bool(body.get("anyway")))), None
+    if path == "/watchlist/person/remove":
+        pid = _int(body, "id")
+        if pid is None:
+            return None, "id must be an integer"
+        return watchlist_write(lambda c: watchlist.remove_person(c, pid, bool(body.get("undo")))), None
+    cid = _int(body, "company_id")
+    if cid is None:
+        return None, "company_id must be an integer"
+    if path == "/watchlist/add":
+        return set_watched(cid, True, str(body.get("via") or "insights"), body.get("signal_id")), None
+    if path == "/watchlist/remove":
+        return set_watched(cid, False, undo_add=bool(body.get("undo_add"))), None
+    if path == "/watchlist/restore":
+        return watchlist_write(lambda c: watchlist.restore(c, cid)), None
+    if path == "/touch/log":
+        return log_contact(cid, body), None
+    if path == "/watchlist/thread":
+        return watchlist_write(lambda c: watchlist.set_thread(
+            c, cid, body.get("next_step"), body.get("due"), restore=bool(body.get("restore")))), None
+    if path == "/watchlist/person":
+        return watchlist_write(lambda c: watchlist.add_person(c, cid, body.get("name"), body.get("title"))), None
+    if path == "/watchlist/reread":
+        return run_reread(cid, bool(body.get("confirm"))), None
+    return None, "unknown Watchlist route"
 
 
 # ------------------------------------------------------------ the write guard
@@ -1584,6 +1717,38 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, body, "text/html; charset=utf-8")
             return
+        if path == "/watchlist/find":
+            query = parse_qs(urlsplit(self.path).query)
+            text = (query.get("q") or [""])[0][:120]
+            try:
+                payload = find_companies(text)
+            except sqlite3.OperationalError as err:
+                payload = {"ok": False, "note": f"database busy, try again. {err}"}
+            self._send(200, json.dumps(payload).encode(), "application/json")
+            return
+        if path == "/watchlist" or path.startswith("/watchlist/"):
+            raw = path[len("/watchlist"):].strip("/")
+            query = parse_qs(urlsplit(self.path).query)
+            if raw and not (raw.isascii() and raw.isdigit() and len(raw) <= 18):
+                self._send(404, b"Nothing here. The Watchlist is at /watchlist.",
+                           "text/plain; charset=utf-8")
+                return
+            picked = raw or (query.get("company") or [""])[0]
+            if picked and not (picked.isascii() and picked.isdigit() and len(picked) <= 18):
+                picked = ""
+            try:
+                body = render_watchlist(int(picked) if picked else None,
+                                        "record" if raw else "table")
+            except Exception as err:  # noqa: BLE001
+                self._send(500, f"Render failed. {type(err).__name__}: {err}"
+                           .encode(), "text/plain; charset=utf-8")
+                return
+            if body is None:
+                self._send(404, b"No company with that id. The Watchlist is at /watchlist.",
+                           "text/plain; charset=utf-8")
+                return
+            self._send(200, body, "text/html; charset=utf-8")
+            return
         if path.startswith("/static/fonts/"):
             name = path[len("/static/fonts/"):]
             target = FONT_DIR / name
@@ -1940,19 +2105,18 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
             return
-        if path in ("/watchlist/add", "/watchlist/remove", "/touch/log"):
+        if path in WATCHLIST_POSTS:
             body = self._read_json_body()
-            cid = body.get("company_id") if isinstance(body, dict) else None
-            if (not isinstance(cid, int) or isinstance(cid, bool)
-                    or not -2 ** 63 <= cid < 2 ** 63):
-                self._send(400, b'{"ok": false, "note": "company_id must be an integer"}',
+            if not isinstance(body, dict):
+                self._send(400, b'{"ok": false, "note": "send a JSON object"}',
                            "application/json")
                 return
-            if path == "/touch/log":
-                result = log_contact(cid, str(body.get("channel") or ""), body.get("note"))
-            else:
-                result = set_watched(cid, path == "/watchlist/add")
-            self._send(200 if result["ok"] else 409,
+            result, bad = watchlist_post(path, body)
+            if bad:
+                self._send(400, json.dumps({"ok": False, "note": bad}).encode(),
+                           "application/json")
+                return
+            self._send(200 if result.get("ok") or result.get("confirm") else 409,
                        json.dumps(result).encode(), "application/json")
             return
         if path in ("/sig/done", "/sig/ack", "/sig/unack"):

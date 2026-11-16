@@ -133,6 +133,8 @@ STUBS = (
     (serve_dashboard, "split_story", {"ok": True, "id": 1}),
     (serve_dashboard, "set_watched", {"ok": True, "id": 1}),
     (serve_dashboard, "log_contact", {"ok": True, "id": 1}),
+    (serve_dashboard, "watchlist_write", {"ok": True, "id": 1}),
+    (serve_dashboard, "run_reread", {"ok": True, "id": 1}),
     (radar_common, "update_pref_line", "stored"),
     (radar_common, "add_job_source", {"id": "stub-alert"}),
     (cv_store, "extract_markdown", "# stub"),
@@ -174,9 +176,19 @@ ROUTES = (
     ("/story/hide", b'{"id": 1}', {}, "set_story_hidden"),
     ("/story/show", b'{"id": 1}', {}, "set_story_hidden"),
     ("/story/split", b'{"id": 1}', {}, "split_story"),
+    # The Watchlist's writes, all through serve_dashboard.watchlist_post
+    # (its WATCHLIST_POSTS), each proved by the function it ends in.
     ("/watchlist/add", b'{"company_id": 1}', {}, "set_watched"),
     ("/watchlist/remove", b'{"company_id": 1}', {}, "set_watched"),
     ("/touch/log", b'{"company_id": 1, "channel": "comment"}', {}, "log_contact"),
+    ("/watchlist/restore", b'{"company_id": 1}', {}, "watchlist_write"),
+    ("/watchlist/add-name", b'{"name": "x"}', {}, "watchlist_write"),
+    ("/watchlist/suggestion", b'{"id": 1, "action": "accept"}', {}, "watchlist_write"),
+    ("/watchlist/arrived", b'{"company_ids": [1]}', {}, "watchlist_write"),
+    ("/watchlist/thread", b'{"company_id": 1, "next_step": "", "due": ""}', {}, "watchlist_write"),
+    ("/watchlist/person", b'{"company_id": 1, "name": "x", "title": "y"}', {}, "watchlist_write"),
+    ("/watchlist/person/remove", b'{"id": 1}', {}, "watchlist_write"),
+    ("/watchlist/reread", b'{"company_id": 1}', {}, "run_reread"),
     ("/sig/done", b'{"id": 1}', {}, "set_signal_state"),
     ("/sig/ack", b'{"id": 1}', {}, "set_signal_state"),
     ("/sig/unack", b'{"id": 1}', {}, "set_signal_state"),
@@ -410,13 +422,21 @@ def server_tree() -> ast.Module:
 def post_routes_in_source() -> set[str]:
     """Every path the server's POST router compares against, read off the AST.
 
-    It sees path == "/x", path in ("/x", "/y") and path.startswith("/x"). A
-    route written in any other shape is not seen here, and the guard does not
-    depend on this list, because the verb check below pins that do_POST asks
-    the guard before it does anything else.
+    It sees path == "/x", path in ("/x", "/y"), path in NAME where NAME is a
+    module-level tuple of paths (WATCHLIST_POSTS) and path.startswith("/x").
+    A route written in any other shape is not seen here, and the guard does
+    not depend on this list, because the verb check below pins that do_POST
+    asks the guard before it does anything else.
     """
     found: set[str] = set()
-    for node in ast.walk(server_tree()):
+    tree = server_tree()
+    named = {}
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, (ast.Tuple, ast.List, ast.Set))):
+            named[node.targets[0].id] = node.value.elts
+    for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "_route_post":
             for sub in ast.walk(node):
                 values = []
@@ -424,6 +444,9 @@ def post_routes_in_source() -> set[str]:
                         and isinstance(sub.left, ast.Name)
                         and sub.left.id == "path"):
                     for comp in sub.comparators:
+                        if isinstance(comp, ast.Name):
+                            values += named.get(comp.id, [])
+                            continue
                         values += (comp.elts if isinstance(
                             comp, (ast.Tuple, ast.List, ast.Set)) else [comp])
                 elif (isinstance(sub, ast.Call)

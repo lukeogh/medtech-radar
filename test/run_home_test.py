@@ -12,7 +12,7 @@ invented, as the design's are.
 2. The lights: each job_health verdict in one of five words, On time, Late,
    Stale, Off or Dry run, each with its own mark; the phone push worked out
    from the signal watcher's runs and the ntfy address.
-3. The model on a seeded typical day: four figures, each equal to its group
+3. The model on a seeded typical day: five figures, each equal to its group
    of Needs you today, the status sentence counting the same, an applied role
    in no count and no list (the control: undo it and it is counted), the
    funnel as the Jobs tabs count, the applications tile from the board, the
@@ -21,7 +21,7 @@ invented, as the design's are.
    changes, an application step back when its date changes, and the item where
    it lives untouched (the database apart from home_done is byte for byte
    the same).
-5. The page: one h1, the four figures and no Threads due, the lights in words,
+5. The page: one h1, the five figures, the lights in words,
    every control a link or a button, the item addresses, the Done view, the
    fragment, and no light or dark switch.
 6. The states: a quiet day, the first week, no applications yet and a Radar
@@ -34,6 +34,11 @@ invented, as the design's are.
 9. The box checks: no command block is empty, every query in them runs on a
    seeded database, every python -c compiles, and the rollback never
    restores the backup.
+10. Threads due: the fifth figure equals its group, read by the Watchlist's
+   own rule (watchlist.threads_due): only a Watchlist company's next step due
+   today or overdue counts; one not on the Watchlist, one with no date and
+   one due tomorrow do not; removing the company stops it counting; Done
+   holds until the date moves.
 """
 
 from __future__ import annotations
@@ -66,6 +71,7 @@ import build_dashboard as bd  # noqa: E402
 import home_page as hp  # noqa: E402
 import radar_common as rc  # noqa: E402
 import serve_dashboard  # noqa: E402
+import watchlist  # noqa: E402
 
 failures: list[str] = []
 CFG = rc.load_config()
@@ -545,6 +551,116 @@ def model_checks(tmp: Path) -> None:
           "the groups come most urgent first: Radar, urgent signals, Top, One question away, applications")
 
 
+# ================================================================ 3b. threads due
+
+def thread_checks(tmp: Path) -> None:
+    """The fifth figure and its group, from watchlist.threads_due."""
+    db = tmp / "threads.sqlite"
+    seed_home(db)
+    conn = rc.get_db(db)
+    cids = {r["display_name"]: r["id"] for r in conn.execute("SELECT id, display_name FROM companies")}
+
+    def touch(name, step, due, days_ago=20, channel="comment"):
+        conn.execute("INSERT INTO touches (company, touched_at, channel, next_action, next_action_date,"
+                     " company_id) VALUES (?,?,?,?,?,?)",
+                     (name, ago(days_ago), channel, step, due, cids[name]))
+    # Watched and due: one overdue by a day, one due today.
+    touch("Lumenhal Photonics", "Send the connection note to the chief executive.", uk_day(-1))
+    touch("Kinross Optics", "One genuine engagement with their content, brief.", uk_day(0), 19,
+          "connection-note")
+    # Watched and not due: a next step with no date, one due tomorrow.
+    touch("Brandt Cardio", "Comment on the next post", None)
+    touch("PDX Diagnostics", "Ask about the analyser launch", uk_day(1))
+    # Due today, but not on the Watchlist.
+    touch("Marchetti Devices", "Reply to the interim brief", uk_day(0))
+    for name in ("Lumenhal Photonics", "Kinross Optics", "Brandt Cardio", "PDX Diagnostics"):
+        watchlist.watch(conn, cids[name], "name")
+    conn.commit()
+    conn.close()
+    lum, kin = cids["Lumenhal Photonics"], cids["Kinross Optics"]
+    m = model_of(db)
+    group = [i for i in m["todo"] if i["group"] == "threads"]
+    check(m["counts"]["threads"] == len(group) == 2
+          and [i["company_id"] for i in group] == [lum, kin],
+          f"the fifth figure equals the Threads due group, most overdue first "
+          f"({m['counts']['threads']}, {[i['title'] for i in group]})")
+    ro = reader(db)
+    try:
+        rule = watchlist.threads_due(ro)
+    finally:
+        ro.close()
+    check(m["counts"]["threads"] == len(rule) and [t["company_id"] for t in rule] == [lum, kin],
+          "and is the Watchlist's own rule, watchlist.threads_due")
+    check(all(i["company_id"] != cids["Marchetti Devices"] for i in group),
+          "a thread due today for a company not on the Watchlist is not counted")
+    check(all(i["company_id"] != cids["Brandt Cardio"] for i in group),
+          "a next step with no date is not counted")
+    check(all(i["company_id"] != cids["PDX Diagnostics"] for i in group),
+          "a thread due tomorrow is not counted")
+    check(hp.status_sentence(m) == "Five things need you: 1 urgent signal, 3 new Top prospects, "
+          "2 new One question away roles, 2 threads due and 1 application follow-up due today.",
+          f"the status sentence counts threads due fourth, as Home final ({hp.status_sentence(m)})")
+    first, second = group
+    check(first["title"] == "Lumenhal Photonics" and first["lead"] == "Send the connection note to the chief executive."
+          and first["seen"] == hp.day(uk_day(-1)) and first["meta"] == f"Last contact {hp.day(ago(20))}, comment"
+          and "Overdue by 1 day" in first["tag"] and 'tag-caution' in first["tag"] and "#st-cau" in first["tag"],
+          "a thread item: the company, its next step, Due, Last contact and an Overdue tag with its mark")
+    check("Due today" in second["tag"] and second["meta"].endswith(", connection note"),
+          "one due today says Due today")
+    check(first["open"] == (f"/watchlist?company={lum}", "Open it on the Watchlist", False)
+          and first["key"] == f"thread:{lum}:{uk_day(-1)}" and hp.clean_key(first["key"]) == first["key"],
+          "it opens on the Watchlist and is keyed on the company and its due date")
+    check([g for g, _w in hp.GROUPS].index("threads") == [g for g, _w in hp.GROUPS].index("question") + 1
+          == [g for g, _w in hp.GROUPS].index("apps") - 1,
+          "Threads due sits after One question away and before Applications")
+    html = page_of(db)
+    fig = re.search(r'<a class="ht-figlink" id="figure-threads" href="([^"]+)" data-group="threads">'
+                    r'<span class="ht-fignum">(\d+)</span><span class="ht-figword">([^<]+)</span>', html)
+    check(fig is not None and fig.groups() == ("/watchlist", "2", "threads due"),
+          f"the figure: 2 threads due, linking to the Watchlist ({fig.groups() if fig else None})")
+    head = html.split('id="group-threads"', 1)[1][:200] if 'id="group-threads"' in html else ""
+    check('Threads due<span class="group-count">2 <span class="group-new">· 1 overdue</span>' in html
+          and head and html.index('id="group-question"') < html.index('id="group-threads"')
+          < html.index('id="group-apps"'),
+          "the group is drawn between One question away and Applications, its overdue counted")
+    check(f'href="/?item=thread-{lum}"' in html and f'data-key="thread:{lum}:{uk_day(-1)}"' in html,
+          "each thread has its own address and Done key")
+    sel = page_of(db, item=f"thread-{lum}")
+    check(f'href="/watchlist?company={lum}" data-open' in sel and "Thread due" in sel,
+          "its detail opens it on the Watchlist")
+    # Done holds until the date moves.
+    conn = rc.get_db(db)
+    hp.mark_done(conn, first["key"], first["title"])
+    conn.close()
+    m2 = model_of(db)
+    check(m2["counts"]["threads"] == 1
+          and all(i["company_id"] != lum for i in m2["todo"] if i["group"] == "threads"),
+          "Done takes a thread off Home and out of the figure")
+    conn = rc.get_db(db)
+    conn.execute("UPDATE touches SET next_action_date = ? WHERE company_id = ? AND next_action IS NOT NULL",
+                 (uk_day(0), lum))
+    conn.commit()
+    conn.close()
+    m3 = model_of(db)
+    check(m3["counts"]["threads"] == 2
+          and any(i["key"] == f"thread:{lum}:{uk_day(0)}" for i in m3["todo"]),
+          "and a new due date brings it back")
+    # Removing the company stops it counting; adding it again restores it.
+    conn = rc.get_db(db)
+    watchlist.unwatch(conn, kin)
+    conn.commit()
+    conn.close()
+    m4 = model_of(db)
+    check(m4["counts"]["threads"] == 1
+          and all(i["company_id"] != kin for i in m4["todo"] if i["group"] == "threads"),
+          "removing a company from the Watchlist stops its thread counting")
+    conn = rc.get_db(db)
+    watchlist.restore(conn, kin)
+    conn.commit()
+    conn.close()
+    check(model_of(db)["counts"]["threads"] == 2, "the control: back on the Watchlist, it counts again")
+
+
 # ================================================================ 4. Done
 
 def done_checks(tmp: Path) -> None:
@@ -802,9 +918,9 @@ def page_checks(tmp: Path) -> None:
     body = html.split("<body>", 1)[1]
     check(body.count("<h1") == 1 and 'id="welcome-h"' in body, "one h1, the greeting")
     figs = re.findall(r'id="figure-(\w+)"', body)
-    check(figs == ["urgent", "top", "question", "apps"] and "threads due" not in body.lower()
-          and "Threads due" not in body,
-          f"four figures and no Threads due anywhere ({figs})")
+    check(figs == ["urgent", "top", "question", "threads", "apps"]
+          and 'class="ht-figs ht-figs-5"' in body and 'id="group-threads"' not in body,
+          f"five figures, threads due fourth, and no Threads due group with none due ({figs})")
     strip = body.split('class="ht-strip-list"', 1)[1].split("</ul>", 1)[0]
     lights = re.findall(r'data-job="(\w+)"><span class="ht-light (is-\w+)"><span class="ht-lamp">'
                         r'<svg[^>]*><use href="#(st-\w+)"></use></svg></span>([A-Za-z ]+)</span>', strip)
@@ -890,7 +1006,7 @@ def state_checks(tmp: Path) -> None:
     check(said == "1 of 1 live source answered at its last check, and 1 is not switched on yet.",
           f"one live source and one off read in the singular (got {said!r})")
     check("sources answering" not in html, "the old count of every source is gone")
-    check(html.count('class="ht-figlink is-zero"') == 4, "the four figures stay, each at 0, dimmed")
+    check(html.count('class="ht-figlink is-zero"') == 5, "the five figures stay, each at 0, dimmed")
     check("ny-is-empty" in html and "Look through the 1 One question away role on Jobs" in html,
           "the list block gives one fact and one next step")
     gone = page_of(db, item="radar-signals")
@@ -1129,7 +1245,8 @@ def main() -> int:
         tmp_path = Path(tmp)
         for section in (name_checks, light_checks, model_checks, done_checks, episode_checks,
                         review_checks, greeting_page_checks, week_exact_checks, page_checks,
-                        state_checks, route_checks, script_checks, harness_checks, box_doc_checks):
+                        state_checks, thread_checks, route_checks, script_checks, harness_checks,
+                        box_doc_checks):
             try:
                 section(tmp_path)
             except Exception as err:  # noqa: BLE001  one section stopping is a failure
