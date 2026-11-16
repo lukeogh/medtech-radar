@@ -35,7 +35,7 @@ What it checks:
   Escape, Undo, Ctrl S, Ctrl Z, Alt Shift arrows, no single key doing anything, the
   toolbar and the tabs, Add section, Rearrange, Design, Rescore's confirm, the
   Preferences tab, the read-only older version and the phone's Edit,
-- the box checks: every query in docs/box-checks-cv-final-part.md runs on a
+- the box checks: every query in docs/box-checks-prepare-cv-final.md runs on a
   seeded database and every python -c compiles.
 
 Exits non zero on any failure with readable FAIL lines.
@@ -80,7 +80,7 @@ import serve_dashboard  # noqa: E402
 failures: list[str] = []
 HEADER = build_dashboard.WRITE_HEADER
 TEMPLATE = REPO_ROOT / "config" / "preferences.template.md"
-BOX_DOC = REPO_ROOT / "docs" / "box-checks-cv-final-part.md"
+BOX_DOC = REPO_ROOT / "docs" / "box-checks-prepare-cv-final.md"
 
 
 def check(cond, label: str) -> None:
@@ -862,7 +862,7 @@ def box_checks() -> None:
         check(False, f"{BOX_DOC.name} exists")
         return
     text = BOX_DOC.read_text(encoding="utf-8")
-    for heading in ("## BEFORE", "## DEPLOY", "## AFTER", "## ROLLBACK"):
+    for heading in ("## BEFORE", "## The deploy, one block at a time", "## AFTER", "## Rollback"):
         check(heading in text, f"the box checks have a {heading[3:]} section")
     blocks = re.findall(r"```(?:sh|bash)?\n(.*?)```", text, re.S)
     check(blocks and all(b.strip() for b in blocks), f"none of its {len(blocks)} command blocks is empty")
@@ -873,8 +873,8 @@ def box_checks() -> None:
            if re.search(r'(/bin/python|"\$PY"|\bpython) -c', line)]
     check(pys and all("PYTHONDONTWRITEBYTECODE=1" in line for line in pys),
           "every python line runs with PYTHONDONTWRITEBYTECODE=1")
-    check("radar.sqlite.bak" not in text.split("## ROLLBACK", 1)[1]
-          and "cp " not in text.split("## ROLLBACK", 1)[1],
+    check("radar.sqlite.bak" not in text.split("## Rollback", 1)[1]
+          and "cp " not in text.split("## Rollback", 1)[1],
           "the rollback never restores the backup")
     check("first open" in text and "nothing paid runs" in text.lower().replace("\n", " "),
           "it says what the first open does and that nothing paid runs without a confirm")
