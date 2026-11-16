@@ -492,6 +492,9 @@ def mock_enricher(user_content: str) -> str:
             "software_content": "Embedded firmware and a clinician facing results application.",
             "people": [{"name": "Anke De Vos", "role": "ceo"},
                        {"name": "Pieter Maes", "role": "cto"}],
+            "sources": {"what_they_build": "site", "stage": "item", "country": "item",
+                        "city": "item", "ecosystem": "item",
+                        "software_content": "site", "people": "site"},
         })
     if "northvale" in low:
         return _json.dumps({

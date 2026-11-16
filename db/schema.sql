@@ -304,6 +304,46 @@ CREATE TABLE IF NOT EXISTS home_done (
   title     TEXT
 );
 
+-- The Watchlist's suggestions (design/watchlist/final, decisions of 15 Nov
+-- 2026). Radar suggests a company it has seen and the owner does not watch,
+-- from a buying window, a funding round or an Insights story at 70 or more,
+-- worked out in code after each signal watcher run (watchlist.refresh_
+-- suggestions), never by a model. kind is the strongest signal behind it and
+-- signal_id that signal. A suggestion waits until the owner adds it
+-- (accepted_at) or dismisses it (dismissed_at, dismissed_by owner); one left
+-- unanswered for 14 days is folded into Dismissed by Radar (dismissed_by
+-- radar). came_back is 1 on the one return a dismissed company is allowed,
+-- and only on a stronger kind of signal than it was dismissed on. Nothing
+-- joins the Watchlist from here until the owner presses Add. Rows are never
+-- deleted. Nullable throughout apart from the keys.
+CREATE TABLE IF NOT EXISTS watch_suggestions (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id    INTEGER NOT NULL,
+  kind          TEXT NOT NULL CHECK (kind IN ('buying-window','funding','story')),
+  signal_id     INTEGER,
+  relevance     INTEGER,
+  suggested_at  TEXT NOT NULL,
+  accepted_at   TEXT,
+  dismissed_at  TEXT,
+  dismissed_by  TEXT CHECK (dismissed_by IS NULL OR dismissed_by IN ('owner','radar')),
+  came_back     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_watch_suggestions_company ON watch_suggestions(company_id);
+
+-- People the owner added by hand to a company's record, with a name and a
+-- title, beside the published chief executive and chief technology officer
+-- the enricher keeps in companies.people. removed_at hides one, never
+-- deleting it.
+CREATE TABLE IF NOT EXISTS company_people (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id  INTEGER NOT NULL,
+  name        TEXT NOT NULL,
+  title       TEXT,
+  added_at    TEXT NOT NULL,
+  removed_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_company_people_company ON company_people(company_id);
+
 -- Small key value store, e.g. last_digest_ts.
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,

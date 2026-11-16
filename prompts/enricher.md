@@ -1,4 +1,4 @@
-# MedTech Radar company enricher prompt. v1.0, 2026-08-02.
+# MedTech Radar company enricher prompt. v1.1, 2026-11-16 (a source per field, for the Watchlist).
 
 Model target. `claude_model_extract` from config/radar.yaml, the fast model.
 Caller. scripts/enrich_company.py sends this file as the system prompt, once per
@@ -52,7 +52,14 @@ No em dashes, no semicolons, no colons inside sentences, no exclamation marks.
 Plain sentences that end in full stops. The caller sanitises anyway, but text
 that arrives clean survives the trip better.
 
+## Sources
+
+For every field you filled, say where the evidence for it came from in
+`sources`: "site" when the company's own site text stated it, "item" when the
+item text did. Leave a field you left empty out of `sources`. When both said
+it, give "site".
+
 Return strict JSON in exactly this shape, nothing else. No markdown fences, no
 commentary.
 
-{"what_they_build": "", "stage": "", "country": "", "city": "", "ecosystem": "", "software_content": "", "people": []}
+{"what_they_build": "", "stage": "", "country": "", "city": "", "ecosystem": "", "software_content": "", "people": [], "sources": {}}

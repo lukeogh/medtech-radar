@@ -661,9 +661,9 @@ def page_checks(tmp: Path) -> None:
     for name, text in pages.items():
         bar = text.split('<header class="appbar">', 1)[1].split("</header>", 1)[0] \
             if '<header class="appbar">' in text else ""
-        check(bar and "Watchlist" not in bar and 'href="/cv"' in bar
+        check(bar and 'href="/watchlist"' in bar and 'href="/cv"' in bar
               and 'href="/insights"' in bar and 'href="/jobs"' in bar,
-              f"the {name} page has the top bar, with no Watchlist link until that page exists")
+              f"the {name} page has the top bar, with the Watchlist link back in it")
         check("data-appearance-set" not in text and "radar-appearance" not in text
               and re.search(r"<html [^>]*data-appearance", text) is None
               and unsheeted(text).rfind("color-scheme:dark") > unsheeted(text).rfind("color-scheme:light")

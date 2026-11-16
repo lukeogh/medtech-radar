@@ -16,13 +16,18 @@ radar_common.event_key_for), led by the highest-scoring one.
 Three pages, all read only:
   /insights                    the front page
   /insights/story/<id>         one story: summary, why it matters, every
-                               report, the company, its roles, drafts and
-                               Log a contact (<id> is any report's signal id)
+                               report, the company, its roles, drafts and a
+                               link to log a contact on the Watchlist (<id> is
+                               any report's signal id)
   /insights/section/<key>      every open story in one section
 
 The page's script writes through the guarded POST routes serve_dashboard.py
-adds for it: /story/hide, /story/show, /story/split, /watchlist/add,
-/watchlist/remove and /touch/log. Nothing here fetches, scores or writes.
+adds for it: /story/hide, /story/show, /story/split, /watchlist/add (with
+via insights and the story's signal id, so the Watchlist can say where the
+company came from) and /watchlist/remove (Undo, with undo_add, which puts the
+company back as it was). Contacts are logged on the Watchlist, at
+/watchlist?company=<id>, which is also where On your Watchlist leads. Nothing
+here fetches, scores or writes.
 """
 
 from __future__ import annotations
@@ -401,12 +406,9 @@ button,select,textarea{font:inherit}
 .drafts p.text{margin-top:4px;padding:12px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);
   background:var(--surface);color:var(--text-1);white-space:pre-wrap}
 .drafts .btn{margin-top:8px}
-.logform{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;margin-top:12px;max-width:560px}
-.logform label{display:grid;gap:4px;color:var(--text-2);font-size:14px;line-height:20px}
-.logform select,.logform textarea{padding:8px;border:1px solid var(--border-strong);border-radius:var(--radius-2);
+.log-line{margin-top:24px;max-width:72ch;color:var(--text-2);font-size:14px;line-height:20px}
+.log-line a{color:var(--accent);text-underline-offset:2px}
   background:var(--surface-sunken);color:var(--text-1);font-size:15px;line-height:22px}
-.logform textarea{min-height:88px;resize:vertical}
-.logform .btn{justify-self:start;max-width:100%;white-space:normal;overflow-wrap:anywhere;height:auto;min-height:32px;padding:6px 12px;text-align:left}
 .watch-done{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
 .shown{color:var(--text-2);font-size:13px;line-height:20px}
 .ranked a,.ranked .meta,.fold-list a,.fold-list .meta,.earlier li a,.earlier .meta,.plain-list a,.plain-list .meta,
@@ -459,10 +461,12 @@ def watch_html(s: dict) -> str:
     if not s["company_id"]:
         return ""
     if s["watched"]:
-        return (f'<a class="on-list" href="/company/{esc(s["company_id"])}">{ICON_CHECK}'
-                f'On your Watchlist<span class="visually-hidden">: {esc(s["company"])}, open its record</span></a>')
+        return (f'<a class="on-list" href="/watchlist?company={esc(s["company_id"])}">{ICON_CHECK}'
+                f'On your Watchlist<span class="visually-hidden">: {esc(s["company"])}, open it on the Watchlist'
+                '</span></a>')
     return (f'<button type="button" class="btn" data-act="watch" data-cid="{esc(s["company_id"])}" '
-            f'data-company="{esc(s["company"])}">Add to Watchlist<span class="visually-hidden">: '
+            f'data-signal="{esc(s["id"])}" data-company="{esc(s["company"])}">Add to Watchlist'
+            f'<span class="visually-hidden">: '
             f'{esc(s["company"])}</span></button>')
 
 
@@ -709,7 +713,7 @@ def company_html(conn, s: dict, others: list | None = None) -> str:
     cid = esc(c["id"])
     watch_line = (f'On your Watchlist since {_day(c["watched_at"])}.' if s["watched"]
                   else "Not on your Watchlist.")
-    parts.append(f'<a class="rec" href="/company/{cid}">{esc(c["display_name"])}’s record</a>'
+    parts.append(f'<a class="rec" href="/watchlist?company={cid}">{esc(c["display_name"])}’s record</a>'
                  f'<span class="meta"><span data-watch-line="{cid}">{esc(watch_line)}</span> '
                  f'<span data-contact-line="{cid}">{esc(contact)}</span></span>')
     roles = conn.execute(
@@ -747,13 +751,13 @@ def drafts_html(s: dict) -> str:
 
 
 def log_html(s: dict) -> str:
+    """Contacts are logged on the Watchlist, with the next step and its due
+    date, so the story page links there."""
     if not s["company_id"]:
         return ""
-    opts = "".join(f'<option value="{v}">{w}</option>' for v, w in CHANNELS)
-    return (f'<h2 id="log-h">Log a contact</h2><form class="logform" data-cid="{esc(s["company_id"])}" '
-            f'aria-labelledby="log-h"><label>How<select name="channel">{opts}</select></label>'
-            f'<label>Note, optional<textarea name="note" maxlength="500"></textarea></label>'
-            f'<button type="submit" class="btn">Log a contact with {esc(s["company"])}</button></form>')
+    return (f'<p class="log-line">Contacts with {esc(s["company"])} are logged on the Watchlist, with '
+            f'the next step and its due date. <a href="/watchlist?company={esc(s["company_id"])}">'
+            f'Log a contact on the Watchlist<span class="visually-hidden">: {esc(s["company"])}</span></a></p>')
 
 
 def story_body(conn, model: dict, s: dict) -> str:
@@ -853,8 +857,8 @@ PAGE_SCRIPT = r"""
   function setLine(sel, text){ document.querySelectorAll(sel).forEach(function(n){ n.textContent=text; }); }
 
   function watched(cid, name){
-    var wrap=el('span','watch-done'), a=el('a','on-list'); a.href='/company/'+cid; a.innerHTML=CHECK;
-    a.appendChild(document.createTextNode('On your Watchlist')); a.appendChild(vh(': '+name+', open its record'));
+    var wrap=el('span','watch-done'), a=el('a','on-list'); a.href='/watchlist?company='+cid; a.innerHTML=CHECK;
+    a.appendChild(document.createTextNode('On your Watchlist')); a.appendChild(vh(': '+name+', open it on the Watchlist'));
     var u=el('button','btn quiet','Undo'); u.type='button'; u.dataset.act='unwatch'; u.dataset.cid=cid; u.dataset.company=name;
     u.appendChild(vh(': take '+name+' off your Watchlist'));
     wrap.appendChild(a); wrap.appendChild(u); return wrap;
@@ -873,20 +877,21 @@ PAGE_SCRIPT = r"""
       return;
     }
     if(kind==='watch'){
-      var cid=Number(b.dataset.cid), name=b.dataset.company;
-      act(b,'/watchlist/add',{company_id:cid},function(){
+      var cid=Number(b.dataset.cid), name=b.dataset.company, sid=Number(b.dataset.signal);
+      var add={company_id:cid,via:'insights'}; if(sid) add.signal_id=sid;
+      act(b,'/watchlist/add',add,function(){
         restore[cid]=[];
         document.querySelectorAll('button[data-act="watch"][data-cid="'+cid+'"]').forEach(function(x){
           var w=watched(cid,name); restore[cid].push({w:w,b:x}); x.replaceWith(w);
           if(x===b) w.querySelector('a').focus(); });
         setLine('[data-watch-line="'+cid+'"]','On your Watchlist from today.');
-        announce(name+' is on your Watchlist. Undo is next to it.');
+        announce(name+' is on your Watchlist, which will show it arrived from this story. Undo is next to it.');
       });
       return;
     }
     if(kind==='unwatch'){
       var cid2=Number(b.dataset.cid), name2=b.dataset.company, mine=b.closest('.watch-done');
-      act(b,'/watchlist/remove',{company_id:cid2},function(){
+      act(b,'/watchlist/remove',{company_id:cid2,undo_add:true},function(){
         (restore[cid2]||[]).forEach(function(p){ p.w.replaceWith(p.b); if(p.w===mine) p.b.focus(); });
         setLine('[data-watch-line="'+cid2+'"]','Not on your Watchlist.');
         announce(name2+' is off your Watchlist.');
@@ -931,16 +936,6 @@ PAGE_SCRIPT = r"""
         b.replaceWith(a); a.focus(); announce('Split off into a story of its own.');
       });
     }
-  });
-  document.querySelectorAll('form.logform').forEach(function(form){
-    form.addEventListener('submit',function(e){
-      e.preventDefault(); var btn=form.querySelector('button[type=submit]');
-      var word=form.channel.options[form.channel.selectedIndex].text.toLowerCase();
-      act(btn,'/touch/log',{company_id:Number(form.dataset.cid),channel:form.channel.value,note:form.note.value},function(){
-        form.note.value=''; setLine('[data-contact-line="'+form.dataset.cid+'"]','Last contact today ('+word+').');
-        announce('Contact logged.');
-      });
-    });
   });
   document.querySelectorAll('.fold-btn').forEach(function(btn){
     btn.addEventListener('click',function(){

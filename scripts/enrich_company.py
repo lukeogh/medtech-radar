@@ -124,29 +124,73 @@ def _clean_people(value) -> str:
     return json.dumps(out)
 
 
+# The facts and the source each one came from. The model says, per field,
+# whether the company's own site or the item stated it; code keeps only
+# those two answers and falls back to whichever text it actually sent.
+FACT_KEYS = ("what_they_build", "stage", "country", "city", "ecosystem",
+             "software_content", "people")
+
+
+def _host(url: str) -> str:
+    try:
+        return url.split("//", 1)[1].split("/", 1)[0].lower()
+    except IndexError:
+        return ""
+
+
+def fact_sources(parsed: dict, site_text: str, site_url: str | None,
+                 item_label: str | None, at: str) -> dict:
+    """{field: {"from", "label", "at"}} for every field the reading filled."""
+    said = parsed.get("sources") if isinstance(parsed.get("sources"), dict) else {}
+    out = {}
+    for key in FACT_KEYS:
+        value = parsed.get(key)
+        if not value or value == "[]":
+            continue
+        src = str(said.get(key) or "").strip().lower()
+        if src not in ("site", "item"):
+            src = "site" if site_text else "item"
+        if src == "site" and not site_text:
+            src = "item"
+        label = (f"Company site, {_host(site_url or '')}" if src == "site"
+                 else (item_label or "The story or advert Radar first saw"))
+        out[key] = {"from": src, "label": radar_common.sanitise_free_text(label)[:200], "at": at}
+    return out
+
+
 def enrich_company(conn, company_id: int, item_text: str, config: dict,
-                   budget: dict | None = None) -> dict:
+                   budget: dict | None = None, force: bool = False,
+                   site_url: str | None = None,
+                   item_label: str | None = None) -> dict:
     """Enrich one company if it has never been enriched. Never raises.
 
     budget is a mutable dict carrying "spent" and "cap" so one run's calls
     are counted across many companies. Omit it for a single deliberate call.
+
+    force is the Watchlist's Read again, pressed by the owner with the cost
+    shown first: it reads a company already read, once more, with one polite
+    fetch of site_url (the site read before, or one the item names, never a
+    guess) and one call. A field the new reading leaves empty keeps what was
+    read before, with its old source and date, so a thinner page never wipes
+    a fact. item_label names the item for the facts' sources.
     """
     result = {"enriched": False, "status": None, "usage": {}}
     try:
         row = conn.execute(
-            "SELECT display_name, enriched_at FROM companies WHERE id = ?",
+            "SELECT * FROM companies WHERE id = ?",
             (company_id,)).fetchone()
         if row is None:
             result["status"] = "no such company"
             return result
-        if row["enriched_at"]:
+        if row["enriched_at"] and not force:
             result["status"] = "already enriched"
             return result
-        if budget is not None and budget.get("spent", 0) >= budget.get("cap", 0):
+        if (not force and budget is not None
+                and budget.get("spent", 0) >= budget.get("cap", 0)):
             result["status"] = "cap reached this run"
             return result
 
-        site_url = candidate_site(item_text)
+        site_url = site_url or candidate_site(item_text)
         site_text, fetch_note = fetch_site(site_url, config)
 
         user = json.dumps({
@@ -174,16 +218,32 @@ def enrich_company(conn, company_id: int, item_text: str, config: dict,
             return result
 
         status = "ok" if site_text else f"text-only, {fetch_note or 'no site text'}"
+        now = radar_common.now_iso()
+        values = {k: _clean(parsed.get(k)) for k in FACT_KEYS if k != "people"}
+        people = _clean_people(parsed.get("people"))
+        values["people"] = people if json.loads(people) else ""
+        sources = fact_sources({**parsed, **values}, site_text, site_url, item_label, now)
+        if force:
+            # Read again: a field the new reading left empty keeps the old one.
+            try:
+                old_sources = json.loads(row["fact_sources"] or "{}")
+            except (TypeError, ValueError, IndexError, KeyError):
+                old_sources = {}
+            for key in FACT_KEYS:
+                if not values.get(key) and row[key] and row[key] != "[]":
+                    values[key] = row[key]
+                    if isinstance(old_sources, dict) and key in old_sources:
+                        sources[key] = old_sources[key]
         conn.execute(
             "UPDATE companies SET what_they_build = ?, stage = ?, country = ?,"
             " city = ?, ecosystem = ?, software_content = ?, people = ?,"
-            " enriched_at = ?, enrich_status = ? WHERE id = ?",
-            (_clean(parsed.get("what_they_build")), _clean(parsed.get("stage")),
-             _clean(parsed.get("country")), _clean(parsed.get("city")),
-             _clean(parsed.get("ecosystem")),
-             _clean(parsed.get("software_content")),
-             _clean_people(parsed.get("people")),
-             radar_common.now_iso(), status, company_id))
+            " enriched_at = ?, enrich_status = ?, site_url = COALESCE(?, site_url),"
+            " fact_sources = ? WHERE id = ?",
+            (values["what_they_build"], values["stage"], values["country"],
+             values["city"], values["ecosystem"], values["software_content"],
+             values["people"] or "[]", now, status,
+             site_url if site_text else None, json.dumps(sources), company_id))
+        parsed = {**parsed, "country": values["country"], "city": values["city"]}
         # Enrichment is the moment a company's country becomes known, so it
         # is also the moment its region can be decided. Doing it here keeps
         # the mirror honest without waiting for a rules change.

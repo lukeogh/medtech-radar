@@ -93,6 +93,7 @@ run_one "jobs page        (test/run_jobs_test.py)" "test/run_jobs_test.py"
 run_one "insights page    (test/run_insights_test.py)" "test/run_insights_test.py"
 run_one "applications board (test/run_board_test.py)" "test/run_board_test.py"
 run_one "home page        (test/run_home_test.py)" "test/run_home_test.py"
+run_one "watchlist        (test/run_watchlist_test.py)" "test/run_watchlist_test.py"
 
 echo
 echo "=========================================================================="
