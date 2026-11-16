@@ -43,15 +43,30 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import radar_common as rc  # noqa: E402
 import score_item  # noqa: E402
 
-# gate_cv is here for the CV page's re-sort, which judges the CV gate again
-# from the stored CV match (cv_gate_again). Everything else leaves it as it is.
-_GATE_COLS = ("gate_cv", "gate_rate", "gate_rate_note", "rate_stated", "rate_value",
+# gate_cv and its note are here for the CV page's re-sort, which judges the CV
+# gate again from the stored CV match (cv_gate_again). Everything else leaves
+# them as they are. The note is a column here so that a gate the re-sort flips
+# gets code's words beside it, and the row is kept in score_history first.
+_GATE_COLS = ("gate_cv", "gate_cv_note", "gate_rate", "gate_rate_note", "rate_stated", "rate_value",
               "rate_basis", "rate_band", "tier", "failed_gates",
               "filter_reason", "question_text")
 
 
 def _flag(value):
     return None if value is None else bool(value)
+
+
+# How a CV gate note written by code starts, so that a later re-sort can tell
+# its own words from the scorer's.
+CV_NOTE_LEAD = "CV match "
+
+
+def cv_gate_note(cv_match, pass_mark) -> str:
+    """One plain line saying what code judged and against which pass mark, as
+    score_item.rate_gate_note says it for the rate."""
+    verdict = "at or above" if cv_match >= pass_mark else "below"
+    return (f"{CV_NOTE_LEAD}{cv_match:g} against the pass mark of {pass_mark:g},"
+            f" {verdict}, judged in code.")
 
 
 def judge_row(row: dict, floors: dict, config: dict | None = None,
@@ -86,6 +101,14 @@ def judge_row(row: dict, floors: dict, config: dict | None = None,
     if cv_gate_again and row.get("cv_match") is not None:
         gates["cv"] = score_item.cv_gate(row["cv_match"], thresholds["pass"])
         new["gate_cv"] = int(gates["cv"])
+        # The scorer's note was written for the gate it judged. A gate this
+        # flips, or one whose note code already wrote, gets code's words, so a
+        # fail mark never sits beside a note that says it passes. A gate that
+        # stands keeps the scorer's note.
+        flipped = _flag(row.get("gate_cv")) is not gates["cv"]
+        ours = str(row.get("gate_cv_note") or "").startswith(CV_NOTE_LEAD)
+        if flipped or ours:
+            new["gate_cv_note"] = cv_gate_note(row["cv_match"], thresholds["pass"])
     pay = rc.gate_pay(row.get("pay_currency"), row.get("pay_period"),
                       row.get("pay_min"), row.get("pay_max"), floors, config)
     if pay["gate"] is not None:

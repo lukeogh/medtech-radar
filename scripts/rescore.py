@@ -19,9 +19,12 @@ forces RADAR_MOCK and the deterministic test mocks, --db isolates tests,
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import sqlite3
 import sys
+import time
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -44,16 +47,39 @@ def _now_spec(conn, opportunity_id) -> bool:
                         + NOT_SPEC_SQL, (opportunity_id,)).fetchone() is not None
 
 
+# A reply the model has been paid for is never thrown away because the
+# database is busy. Another writer (an inbox run holds the write lock for a
+# whole email, model calls and all) can hold the lock past the connection's
+# five seconds; the reply is then held, and its write tried again after a
+# pause, BUSY_TRIES times in all. One that still cannot be written is counted
+# as not stored, said so, and the run goes on to the next role.
+BUSY_TRIES = 3
+BUSY_PAUSE = 10.0      # seconds between tries
+
+
+def _is_busy(err: Exception) -> bool:
+    words = str(err).lower()
+    return "locked" in words or "busy" in words
+
+
 def _rescore_rows(conn, config, usage_total, rows,
-                  progress=None) -> tuple[int, int]:
+                  progress=None, tally: dict | None = None) -> tuple[int, int]:
     """Score each row's advert card again, one commit a row. progress, when
     given, is called after each row with (done, failed, left alone, row id,
-    what happened): rescored, failed or left. Returns (rescored, failed)."""
+    what happened): rescored, failed, left or unstored. tally, when given, is
+    filled as the run goes with left and unstored, the paid replies that could
+    not be written because the database stayed busy (BUSY_TRIES). Returns
+    (rescored, failed)."""
+    if tally is None:
+        tally = {}
+    tally.setdefault("left", 0)
+    tally.setdefault("unstored", 0)
     if not rows:
         return 0, 0
     left = 0
 
     def told(what, oid):
+        tally["left"] = left
         if progress is not None:
             progress(fixed, failed, left, oid, what)
     _, score_fn = scoring.get_mock_fns()
@@ -102,19 +128,6 @@ def _rescore_rows(conn, config, usage_total, rows,
                      else "It still has no score."), file=sys.stderr)
             told("failed", row["id"])
             continue
-        # Applied for while the model was answering. The write lock first,
-        # then look again, so that nothing can be applied for between this
-        # look and the commit below. The role keeps the score it was applied
-        # with, and nothing is written or kept for it. The same look keeps a
-        # score made on the full description in the meantime, by a Prepare
-        # application click, from being replaced by this card score.
-        radar_common.begin_write(conn)
-        if (radar_common.role_is_applied(conn, row["id"])
-                or _now_spec(conn, row["id"])):
-            conn.rollback()
-            left += 1
-            told("left", row["id"])
-            continue
         gate_cols = ("gate_sector", "gate_sector_note", "gate_cv", "gate_cv_note",
                      "gate_location", "gate_location_note", "gate_rate",
                      "gate_rate_note", "tier", "failed_gates", "question_text",
@@ -122,31 +135,71 @@ def _rescore_rows(conn, config, usage_total, rows,
                      "ir35", "location_class", "engagement_type", "engagement_note")
         # How the new score was made, stored beside it.
         record_cols = ("score_basis", "prompt_version", "score_model", "scored_at")
-        # The score being replaced goes to the history first, in the same
-        # transaction, then the new one is written and recorded too.
-        radar_common.archive_score(conn, row["id"], "rescore")
-        # The reasons go with the new score, their quotes held to the card it
-        # was made on, so the reasons of the score it replaces never stay.
-        conn.execute(
-            "UPDATE opportunities SET cv_match = ?, one_line_why = ?,"
-            " red_flags = ?, suggested_action = ?, act_by = ?, thread_type = ?,"
-            " notes = NULL, cv_version = ?, score_reasons = ?, "
-            + ", ".join(f"{c} = ?" for c in gate_cols + record_cols)
-            + " WHERE id = ?",
-            (scored["cv_match"], scored["one_line_why"],
-             json.dumps(scored["red_flags"]), scored["suggested_action"],
-             scored["act_by"], scored["thread_type"], cv_version,
-             scored.get("score_reasons"))
-            + tuple(scored.get(c) for c in gate_cols + record_cols)
-            + (row["id"],))
-        radar_common.record_score(conn, row["id"], "rescore")
-        # Commit per row. Python's sqlite3 opens an implicit write
-        # transaction at the first UPDATE, and holding it across the next
-        # live model call would starve every other writer past the busy
-        # timeout. One row, one commit, the lock is held for microseconds.
-        conn.commit()
-        fixed += 1
-        told("rescored", row["id"])
+        outcome = None
+        for attempt in range(max(1, BUSY_TRIES)):
+            try:
+                # Applied for while the model was answering. The write lock
+                # first, then look again, so that nothing can be applied for
+                # between this look and the commit below. The role keeps the
+                # score it was applied with, and nothing is written or kept
+                # for it. The same look keeps a score made on the full
+                # description in the meantime, by a Prepare application
+                # click, from being replaced by this card score.
+                radar_common.begin_write(conn)
+                if (radar_common.role_is_applied(conn, row["id"])
+                        or _now_spec(conn, row["id"])):
+                    conn.rollback()
+                    outcome = "left"
+                    break
+                # The score being replaced goes to the history first, in the
+                # same transaction, then the new one is written and recorded.
+                radar_common.archive_score(conn, row["id"], "rescore")
+                # The reasons go with the new score, their quotes held to the
+                # card it was made on, so the reasons of the score it replaces
+                # never stay.
+                conn.execute(
+                    "UPDATE opportunities SET cv_match = ?, one_line_why = ?,"
+                    " red_flags = ?, suggested_action = ?, act_by = ?, thread_type = ?,"
+                    " notes = NULL, cv_version = ?, score_reasons = ?, "
+                    + ", ".join(f"{c} = ?" for c in gate_cols + record_cols)
+                    + " WHERE id = ?",
+                    (scored["cv_match"], scored["one_line_why"],
+                     json.dumps(scored["red_flags"]), scored["suggested_action"],
+                     scored["act_by"], scored["thread_type"], cv_version,
+                     scored.get("score_reasons"))
+                    + tuple(scored.get(c) for c in gate_cols + record_cols)
+                    + (row["id"],))
+                radar_common.record_score(conn, row["id"], "rescore")
+                # Commit per row. Python's sqlite3 opens an implicit write
+                # transaction at the first UPDATE, and holding it across the
+                # next live model call would starve every other writer past
+                # the busy timeout. One row, one commit, the lock is held for
+                # microseconds.
+                conn.commit()
+                outcome = "rescored"
+                break
+            except sqlite3.OperationalError as err:
+                if not _is_busy(err):
+                    raise
+                try:
+                    conn.rollback()
+                except sqlite3.Error:
+                    pass
+                if attempt + 1 < BUSY_TRIES:
+                    # The reply is held, paid for, and tried again.
+                    time.sleep(BUSY_PAUSE)
+        if outcome == "left":
+            left += 1
+            told("left", row["id"])
+        elif outcome == "rescored":
+            fixed += 1
+            told("rescored", row["id"])
+        else:
+            tally["unstored"] += 1
+            print(f"rescore: id {row['id']} was scored but not stored, the "
+                  f"database stayed busy over {BUSY_TRIES} tries. Its previous "
+                  "score is kept.", file=sys.stderr)
+            told("unstored", row["id"])
     return fixed, failed
 
 
@@ -239,6 +292,14 @@ _OPEN_SCORED = ("tier IS NOT NULL"
                 " AND expired_at IS NULL")
 
 
+def ids_hash(ids) -> str:
+    """Which roles a confirm was shown, as 16 hex characters: the same set of
+    ids gives the same hash in any order, and another set of the same size
+    does not."""
+    return hashlib.sha256(",".join(str(int(i)) for i in sorted(ids))
+                          .encode("ascii")).hexdigest()[:16]
+
+
 def affected(conn, config, scope: str) -> dict:
     """The rows one Rescore affected run would score, and the rows left out.
 
@@ -270,23 +331,48 @@ def affected(conn, config, scope: str) -> dict:
         "SELECT id FROM opportunities WHERE " + reach
         + " AND acknowledged_at IS NULL AND " + radar_common.NOT_APPLIED_SQL
         + " AND " + NOT_SPEC_SQL + " ORDER BY id", args)]
-    return {"ids": ids, "cv_version": current,
+    return {"ids": ids, "ids_hash": ids_hash(ids), "cv_version": current,
             "applied": count(radar_common.APPLIED_SQL),
             "spec": count("NOT " + NOT_SPEC_SQL + " AND " + radar_common.NOT_APPLIED_SQL),
             "acknowledged": count("acknowledged_at IS NOT NULL AND " + NOT_SPEC_SQL
                                   + " AND " + radar_common.NOT_APPLIED_SQL)}
 
 
+def _log_run_held(conn, **kwargs) -> bool:
+    """log_run, tried again after a pause while the database is busy, as a
+    row's score is. True when the row was written."""
+    for attempt in range(max(1, BUSY_TRIES)):
+        try:
+            radar_common.log_run(conn, "rescore", **kwargs)
+            return True
+        except sqlite3.OperationalError as err:
+            if not _is_busy(err):
+                raise
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                pass
+            if attempt + 1 < BUSY_TRIES:
+                time.sleep(BUSY_PAUSE)
+    print("rescore: the run's row in runs could not be written, the database "
+          "stayed busy. Its tokens are not in the week's cost.", file=sys.stderr)
+    return False
+
+
 def rescore_affected(conn, config, usage_total, scope: str, expect: int,
-                     progress=None) -> dict:
+                     progress=None, confirmed_hash: str | None = None,
+                     tally: dict | None = None) -> dict:
     """One confirmed run over every row affected() names for the scope.
 
-    expect is the count the owner was shown and confirmed. If more rows are
-    affected now than that, nothing is scored and the new count comes back,
-    so a confirm never pays for more than it said. Fewer is fine: a role
-    acknowledged, applied for or closed since is simply not reached. Each row
-    is scored and stored as --stale-cv stores one, history and all, and the
-    run is one row in runs with its tokens.
+    expect is the count the owner was shown and confirmed, and confirmed_hash
+    the ids_hash of the roles that count was of. If more rows are affected now
+    than that, or (with a hash) any other set of rows, nothing is scored and
+    the new count comes back, so a confirm never pays for more than it said or
+    for roles it did not name. Each row is scored and stored as --stale-cv
+    stores one, history and all. A paid reply the database is too busy to take
+    is held and tried again, then counted as not stored (_rescore_rows). The
+    run is one row in runs with its tokens, written however the run ends, so
+    what was paid for is always in the week's cost.
     """
     found = affected(conn, config, scope)
     ids = found["ids"]
@@ -294,28 +380,58 @@ def rescore_affected(conn, config, usage_total, scope: str, expect: int,
         return {"ok": False, "outcome": "count_changed", "count": len(ids),
                 "note": f"{len(ids)} roles are affected now, more than the "
                         f"{expect} you confirmed, so nothing was rescored."}
+    if confirmed_hash is not None and confirmed_hash != found["ids_hash"]:
+        return {"ok": False, "outcome": "set_changed", "count": len(ids),
+                "note": f"The roles affected have changed since you confirmed: "
+                        f"{len(ids)} now, not the same {expect} you were shown, "
+                        "so nothing was rescored."}
     rows = [conn.execute("SELECT * FROM opportunities WHERE id = ?", (oid,)).fetchone()
             for oid in ids]
     rows = [r for r in rows if r is not None]
     tiers = {r["id"]: r["tier"] for r in rows}
-    fixed, failed = _rescore_rows(conn, config, usage_total, rows, progress)
+    tally = {} if tally is None else tally
+    fixed = failed = 0
+    done = {"fixed": 0, "failed": 0}
+
+    def counted(f, fl, lft, oid, what):
+        done.update(fixed=f, failed=fl)
+        if progress is not None:
+            progress(f, fl, lft, oid, what)
+    mode = "mock" if radar_common.mock_mode_active() else "live"
+    stopped = None
+    try:
+        fixed, failed = _rescore_rows(conn, config, usage_total, rows, counted, tally)
+    except BaseException as err:
+        stopped = err
+        fixed, failed = done["fixed"], done["failed"]
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+        raise
+    finally:
+        unstored = tally.get("unstored", 0)
+        # Whatever happened, the tokens spent so far are recorded.
+        _log_run_held(conn, mode=mode, items_in=len(rows), items_new=fixed,
+                      model=config.get("claude_model_score"), usage=usage_total,
+                      note=(f"CV page, rescore {scope}, {fixed} of {len(rows)}"
+                            + (f", {unstored} scored but not stored, the database busy"
+                               if unstored else "")
+                            + (f", stopped: {type(stopped).__name__}" if stopped else "")),
+                      outcome=("failed" if stopped else "partial" if unstored else None))
     after = {oid: tier for oid, tier in conn.execute(
         "SELECT id, tier FROM opportunities WHERE id IN (%s)"
         % ",".join("?" * len(ids)), ids)} if ids else {}
-    mode = "mock" if radar_common.mock_mode_active() else "live"
-    radar_common.log_run(conn, "rescore", mode=mode, items_in=len(rows),
-                         items_new=fixed, model=config.get("claude_model_score"),
-                         usage=usage_total,
-                         note=f"CV page, rescore {scope}, {fixed} of {len(rows)}")
     rank = {"filtered": 0, "reading": 1, "question": 2, "top": 3}
     rose = sum(1 for oid, was in tiers.items()
                if rank.get(after.get(oid), -1) > rank.get(was, -1))
     fell = sum(1 for oid, was in tiers.items()
                if rank.get(after.get(oid), -1) < rank.get(was, -1))
+    unstored = tally.get("unstored", 0)
     return {"ok": True, "outcome": "done", "scope": scope, "count": len(rows),
-            "rescored": fixed, "failed": failed,
-            "left": len(rows) - fixed - failed, "rose": rose, "fell": fell, "mode": mode,
-            "cv_version": found["cv_version"]}
+            "rescored": fixed, "failed": failed, "unstored": unstored,
+            "left": len(rows) - fixed - failed - unstored, "rose": rose, "fell": fell,
+            "mode": mode, "cv_version": found["cv_version"]}
 
 
 def rescore_signals(conn, config, usage_total) -> tuple[int, int]:

@@ -522,8 +522,10 @@ def inbox_checks() -> None:
             res = run_process_email(db, email_b64(mail["subject"], mail["body_text"]))
         check(res["code"] == 0 and res["json"]["new"] == 3,
               "the multi role alert stores three roles")
-        check(len(reads) == 1,
-              "the inbox run reads the thresholds once for the whole run, "
+        check(len(reads) == 2,
+              "the inbox run reads the thresholds twice for the whole run, at the start "
+              "and again once it holds its write lock (a save landing mid-run is read, "
+              "see run_cv_final_test's inbox_lag_checks), never once a role, "
               f"however many roles it scores (read {len(reads)} times for 3 roles)")
         conn = radar_common.get_db(db)
         rows = [dict(r) for r in conn.execute("SELECT * FROM opportunities ORDER BY id")]

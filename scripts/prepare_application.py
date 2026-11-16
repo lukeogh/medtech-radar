@@ -502,13 +502,13 @@ def _log_run(conn, usage: dict, config: dict, stored: bool, note: str,
     try:
         conn.execute(
             "INSERT INTO runs (ts, workflow, mode, items_in, items_new, model,"
-            " input_tokens, output_tokens, cache_read_tokens, note)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, note)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (rc.now_iso(), "prepare",
              "mock" if rc.mock_mode_active() else "live", 1, 1 if stored else 0,
              usage.get("model") or config.get("claude_model_score"),
              usage.get("input_tokens", 0), usage.get("output_tokens", 0),
-             usage.get("cache_read_tokens", 0), note))
+             usage.get("cache_read_tokens", 0), usage.get("cache_write_tokens", 0), note))
         if commit:
             conn.commit()
     except Exception as err:  # noqa: BLE001  a log line never costs the result
