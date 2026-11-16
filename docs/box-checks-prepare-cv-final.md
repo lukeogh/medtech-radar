@@ -19,14 +19,16 @@ one restart.
   its button. Fetching and scoring the full description sit behind one button
   that states its cost first: "About 3 cents, 1 call: Fetch and score the full
   description".
-- The full description prompt asks for the advert sentence of each ask, so
-  the prompt version moves from `22353628` to `422cdad4`. A sentence is kept
+- The full description prompt asks for the advert sentence of each ask, and
+  a short reason (`why`, 20 words or fewer) for each partly or missing one, so
+  the prompt version moves from `22353628` to `1b1ffb78`. A sentence is kept
   only where the stored description has it word for word (the reasons' own
-  quote rule). Cards are scored as before, but every score from the next
-  inbox run on is stamped `422cdad4`, because the version is the hash of the
+  quote rule); a reason is kept only where it is not a quote of the
+  description. Cards are scored as before, but every score from the next
+  inbox run on is stamped `1b1ffb78`, because the version is the hash of the
   whole file.
 - The reply ceiling for a full description, `SPEC_MAX_TOKENS`, rises from
-  6,144 to 8,192. A press costs about 3 cents, at most about 12.
+  6,144 to 10,240. A press costs about 3 cents, at most about 15.
 - Mark applied (key M) and Undo (key Z) are on the page, through the routes
   the Jobs page already uses (`/apply`, `/unapply`), so Save CV puts the role
   in Preparing and Mark applied moves it to Applied on the board, as before.
@@ -179,7 +181,7 @@ PY=/opt/biz-admin/radar-venv/bin/python
 Q() { sudo -u radar env PYTHONDONTWRITEBYTECODE=1 "$PY" -c 'import sqlite3, sys; c = sqlite3.connect("file:db/radar.sqlite?mode=ro", uri=True); cur = c.execute(sys.argv[1]); print(" | ".join(d[0] for d in cur.description)); [print(" | ".join("" if v is None else str(v) for v in r)) for r in cur]' "$1"; }
 B=http://192.168.1.100:8787
 echo '--- the code'; sudo -u radar git status --short; sudo -u radar git log --oneline -1; docker inspect -f '{{.State.StartedAt}}' medtech-radar
-echo '--- the prompt and the ceiling now (expect 422cdad4 8192)'; sudo -u radar env PYTHONDONTWRITEBYTECODE=1 "$PY" -c "import sys; sys.path.insert(0, 'scripts'); import radar_common, score_item; print(radar_common.prompt_version(), score_item.SPEC_MAX_TOKENS)"
+echo '--- the prompt and the ceiling now (expect 1b1ffb78 10240)'; sudo -u radar env PYTHONDONTWRITEBYTECODE=1 "$PY" -c "import sys; sys.path.insert(0, 'scripts'); import radar_common, score_item; print(radar_common.prompt_version(), score_item.SPEC_MAX_TOKENS)"
 ID=$(sudo -u radar env PYTHONDONTWRITEBYTECODE=1 "$PY" -c "import sqlite3; c = sqlite3.connect('file:db/radar.sqlite?mode=ro', uri=True); r = c.execute(\"SELECT id FROM opportunities WHERE applied_at IS NULL AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL AND acknowledged_at IS NULL AND tier IN ('top', 'question', 'reading') ORDER BY id DESC LIMIT 1\").fetchone(); print(r[0] if r else 0)")
 echo "--- role $ID, opened three times as the Jobs link opens it (expect 200 200 200)"; for n in 1 2 3; do curl -s -m 20 -o /dev/null -w '%{http_code} ' -H 'Sec-Fetch-Site: same-origin' "$B/prepare/$ID?go=1"; done; echo
 echo '--- the page states the cost, or says it has scored, and never starts on its own (expect 1 then 0)'; curl -s -m 20 -H 'Sec-Fetch-Site: same-origin' "$B/prepare/$ID?go=1" | grep -c -E 'About 3 cents, 1 call|Scored once for this description'; curl -s -m 20 -H 'Sec-Fetch-Site: same-origin' "$B/prepare/$ID?go=1" | grep -c 'data-run='
@@ -194,7 +196,7 @@ echo '--- the counts, the same as BEFORE (opening the pages writes nothing)'; Q 
 echo '--- the preferences file, the same four lines as BEFORE'; grep -nE '^(day_rate_floor_gbp|salary_floor_gbp|cv_pass_score|cv_floor_score):' config/profile/preferences.md
 ```
 
-Expect `422cdad4 8192`; `200 200 200`; `1` then `0`; the same Prepare calls
+Expect `1b1ffb78 10240`; `200 200 200`; `1` then `0`; the same Prepare calls
 and board as BEFORE; `0`; `200`, `1`, `1`; the notice's button text if BEFORE
 counted roles; `"state": "idle"`; `403` (enforce) or `422` (warn); and the same
 counts and lines as BEFORE, unless the inbox or the watcher ran in between and
@@ -203,14 +205,15 @@ the dashboard loaded the new `cv_screen.py`: it imports it when it starts.
 
 Then, your call: open a role's Prepare application page and press its button
 once. It costs about 3 cents. Afterwards, this shows its asks and how many
-kept their advert sentence; an ask whose sentence was not found word for word
-shows on the page without one.
+kept their advert sentence and how many partly or missing ones kept a short
+reason; an ask whose sentence was not found word for word shows on the page
+without one, and says so.
 
 ```bash
 cd /opt/biz-admin/medtech-radar
 PY=/opt/biz-admin/radar-venv/bin/python
 Q() { sudo -u radar env PYTHONDONTWRITEBYTECODE=1 "$PY" -c 'import sqlite3, sys; c = sqlite3.connect("file:db/radar.sqlite?mode=ro", uri=True); cur = c.execute(sys.argv[1]); print(" | ".join(d[0] for d in cur.description)); [print(" | ".join("" if v is None else str(v) for v in r)) for r in cur]' "$1"; }
-echo '--- full description scores on the new prompt, and their sentences'; Q "SELECT o.id, o.scored_at, SUM(t.key = 'sentence' AND t.atom IS NOT NULL) AS sentences_kept, SUM(t.key = 'sentence_dropped' AND t.atom IS NOT NULL) AS sentences_dropped FROM opportunities o, json_tree(o.score_working) t WHERE o.score_basis = 'spec' AND o.prompt_version = '422cdad4' GROUP BY o.id ORDER BY o.scored_at DESC LIMIT 5;"
+echo '--- full description scores on the new prompt, their sentences and reasons'; Q "SELECT o.id, o.scored_at, SUM(t.key = 'sentence' AND t.atom IS NOT NULL) AS sentences_kept, SUM(t.key = 'sentence_dropped' AND t.atom IS NOT NULL) AS sentences_dropped, SUM(t.key = 'why' AND t.atom IS NOT NULL) AS reasons_kept FROM opportunities o, json_tree(o.score_working) t WHERE o.score_basis = 'spec' AND o.prompt_version = '1b1ffb78' GROUP BY o.id ORDER BY o.scored_at DESC LIMIT 5;"
 echo '--- that press, in runs (expect one more call than BEFORE)'; Q "SELECT COUNT(*) AS calls, COALESCE(SUM(output_tokens), 0) AS output_tokens, MAX(ts) AS last_call FROM runs WHERE workflow = 'prepare';"
 echo '--- no role was scored twice for one stored description (expect 0)'; Q "SELECT COUNT(*) AS scored_twice FROM (SELECT opportunity_id, description_hash FROM score_history WHERE writer = 'prepare' AND event = 'scored' AND description_hash IS NOT NULL GROUP BY opportunity_id, description_hash HAVING COUNT(*) > 1);"
 ```
@@ -241,7 +244,8 @@ What a rollback leaves:
 
 - Prepare application is the old page again, which starts the fetch on
   opening from the Jobs link. Scores made since the deploy keep their stamp
-  `422cdad4` and their asks keep their `sentence` and `sentence_dropped`,
+  `1b1ffb78` and their asks keep their `sentence`, `sentence_dropped`, `why`
+  and `why_dropped`,
   which the old code does not read; nothing breaks.
 - What the new CV page wrote stays, and the old code reads all of it as it
   always did: the preferences file is plain text the scorer reads whole;

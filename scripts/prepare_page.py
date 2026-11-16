@@ -69,13 +69,17 @@ esc = bd.esc
 # What one press costs, said before it is pressed. One read of the advert's
 # page and one scoring call: about 0.9 cent for the score, about 2 cents with
 # the per-ask working and the quoted reasons (docs/cost-note.md), and about
-# 0.6 cent more for the advert sentence of each ask, so about 2.6 cents. The
-# reply is capped at score_item.SPEC_MAX_TOKENS, 8,192, about 12 cents.
+# 0.6 cent more for the advert sentence of each ask, so about 2.6 cents, and
+# about 0.25 cent more for the short reason of each partly or missing ask
+# (about 150 output tokens for the five or so of a typical advert, and about
+# 90 tokens more of prompt), so about 2.9 cents, still about 3. The reply is
+# capped at score_item.SPEC_MAX_TOKENS, 10,240, about 15 cents.
 COST = "About 3 cents, 1 call"
 COST_DETAIL = ("One read of the advert page and one scoring call, made once for "
                "this description: about 0.9 cent for the score, about 2 cents with "
                "the per-ask working and the quotes, about 3 cents with the advert "
-               "sentence of each ask, and never more than about 12 cents. A fetch "
+               "sentence and the short reason of each ask, and never more than about "
+               "15 cents. A fetch "
                "that fails costs nothing. Opening this page again, reloading it or "
                "pressing again once it has scored costs nothing.")
 BOARD_URL = "/jobs?show=applied"
@@ -198,7 +202,11 @@ def model(conn, item_id: int, config: dict, notices=None) -> dict | None:
         master_version = score_item.get_cv_version(config)
     except Exception:  # noqa: BLE001  a missing file is not a failed page
         master_version = None
+    design = cv_store.read_design()
+    pages = (cv_doc.estimate_pages(cv_store.cv_lines(shown_text), design)
+             if shown_text else [])
     return {"row": row, "id": int(item_id), "applied": applied, "is_open": is_open,
+            "design": design, "pages": pages,
             "can_edit": can_edit, "description": description, "working": working,
             "on_description": on_description, "stale_description": stale_description,
             "copy": copy, "standing": standing, "record": record,
@@ -211,6 +219,38 @@ def model(conn, item_id: int, config: dict, notices=None) -> dict | None:
             "moved_on": _moved_on(row, on_description, config),
             "linkedin": linkedin_url(conn, row), "config": config,
             "thresholds": _thresholds(config), "floors": _floors(config)}
+
+
+# The CV page's Design, as its sheet sets it (cv_screen applyDesign): the
+# spacing as a gap scale, the margins in millimetres as pixels at 96 dpi.
+_SPACE = {"compact": 0.5, "standard": 1, "relaxed": 1.5}
+
+
+def design_style(design: dict) -> str:
+    """The sheet's custom properties for a design, the CV page's own."""
+    d = cv_doc.clean_design(design)
+    return (f"--cv-font:{d['font']};--cv-scale:{d['size'] / 10.5:g};"
+            f"--cv-gap:{_SPACE.get(d['spacing'], 1):g};"
+            f"--sheet-pad-side:{round(d['margins'] * 3.78)}px;"
+            f"--sheet-pad-top:{round((d['margins'] - 2) * 3.78)}px")
+
+
+def design_words(design: dict) -> str:
+    d = cv_doc.clean_design(design)
+    return f"{d['font']} {d['size']:g} pt, {d['spacing']} spacing, {d['margins']} mm margins"
+
+
+def pages_words(pages: list, design: dict) -> str:
+    """How many A4 pages the Word file would be, as the CV page estimates it."""
+    n = len(pages)
+    if not n:
+        return ""
+    words = (f"About {_plural(n, 'page')} of A4 in the Word file, at the CV page's Design "
+             f"({design_words(design)}). An estimate.")
+    if n > 2:
+        words += (f" Over the two-page limit from line {pages[2]['first']}; "
+                  "those lines are marked in the margin.")
+    return words
 
 
 def linkedin_url(conn, row: dict) -> str | None:
@@ -423,7 +463,7 @@ def score_html(m: dict) -> str:
     row = m["row"]
     record = m["record"]
     kind = m["standing"]["kind"]
-    out = ['<h2 id="score-h">Score</h2>']
+    out = ['<h2 id="score-h" tabindex="-1">Score</h2>']
     card = m["card"]
     spec = m["on_description"]
     if spec:
@@ -552,7 +592,9 @@ def score_html(m: dict) -> str:
         out.append('<p class="small">This score is shown as it was made: '
                    + esc(" and ".join(m["moved_on"])) + '. A description that has been '
                    'scored is not scored again from this page.</p>')
-    out.append('<p class="notice work" data-pa-working hidden role="status"></p>')
+    # What a press is doing, seen. It is said by #pa-live, the status region
+    # that is on the page from the start, outside the parts a press redraws.
+    out.append('<p class="notice work" data-pa-working hidden></p>')
     master_reasons = bd.reasons_html(row.get("score_reasons"), row.get("scored_at"),
                                      bd.quotes_hold(row), row=row)
     tailored_reasons = (bd.reasons_html(record.get("reasons"), record.get("scored_at"))
@@ -708,24 +750,86 @@ def gates_html(m: dict) -> str:
     head.append('<th scope="col" class="gwhy-col">Why</th>')
     rows = []
     passmark = m["thresholds"].get("pass", 70)
+    notes = gate_whys(m)
     for g, letter, name in GATE_ROWS:
         label = f"CV match, {passmark} or more" if g == "cv" else name
-        note = ((record or {}).get("notes") or {}).get(g) or row.get(f"gate_{g}_note") or ""
-        if g == "cv":
-            note = (f"{row.get('cv_match')} "
-                    + ("master CV" if m["on_description"] else "on the card")
-                    + (f", {record.get('cv_match')} this copy" if record else ""))
         cells = [f'<th scope="row"><span class="letter" aria-hidden="true">{letter}</span>'
                  f'{esc(label)}</th>', f'<td>{_gate_mark(row.get(f"gate_{g}"))}</td>']
         if record:
             cells.append(f'<td>{_gate_mark((record.get("gates") or {}).get(g))}</td>')
-        cells.append(f'<td class="gwhy gwhy-col" title="{esc(note)}">{esc(note)}</td>')
+        role_note, copy_note = notes[g]
+        if record:
+            # Each column's Why is its own score's, said apart, so a mark is
+            # never read beside the other column's reason for it.
+            whole = f"{first}: {role_note or 'no note kept'}. This copy: {copy_note or 'no note kept'}."
+            why = (f'<span class="gwhy-l" data-gwhy="role"><b>{esc(first)}</b> '
+                   f'{esc(role_note or "No note kept.")}</span>'
+                   f'<span class="gwhy-l" data-gwhy="copy"><b>This copy</b> '
+                   f'{esc(copy_note or "No note kept with this score.")}</span>')
+        else:
+            whole = role_note or ""
+            why = f'<span class="gwhy-l" data-gwhy="role">{esc(role_note or "")}</span>'
+        cells.append(f'<td class="gwhy gwhy-col" title="{esc(whole)}">{why}</td>')
         rows.append("<tr>" + "".join(cells) + "</tr>")
     out.append('<table class="gates"><colgroup>' + "".join(cols) + '</colgroup><thead><tr>'
                + "".join(head) + '</tr></thead><tbody>' + "".join(rows) + '</tbody></table>')
-    out.append('<p class="sub gates-foot">S C L R are the marks on the Jobs row. A range is '
-               'judged on its top figure.</p>')
+    bottom = range_bottom_words(m)
+    foot = ('S C L R are the marks on the Jobs row. A range is judged on its top figure'
+            + (f'; {bottom}.' if bottom else '.'))
+    out.append(f'<p class="sub gates-foot">{esc(foot)}</p>')
+    if record:
+        out.append(f'<p class="sub gates-foot" data-pa-gates-when>{esc(gates_when_words(m))}</p>')
     return "".join(out)
+
+
+_FLOOR = re.compile(r"£\s?([0-9][0-9,]*(?:\.[0-9]+)?k?)\s+floor", re.I)
+
+
+def judged_floor(note) -> str | None:
+    """The floor a rate note says it was judged against, "£700", where the
+    note names one (the code's note always does, the scorer's mostly does),
+    else None."""
+    found = _FLOOR.search(str(note or ""))
+    return f"£{found.group(1)}" if found else None
+
+
+def gate_whys(m: dict) -> dict:
+    """For each gate, (the role's Why, this copy's Why): each from its own
+    score, never one standing in for the other."""
+    row = m["row"]
+    record = m["record"] if m["standing"]["kind"] in ("current", "earlier") else None
+    copy_notes = ((record or {}).get("notes") or {})
+    out = {}
+    for g, _l, _n in GATE_ROWS:
+        if g == "cv":
+            role = (f"{row.get('cv_match')} on the master CV" if m["on_description"]
+                    else f"{row.get('cv_match')} on the card")
+            copy = f"{record.get('cv_match')} on this copy" if record else None
+        else:
+            role = (row.get(f"gate_{g}_note") or "").strip() or None
+            copy = (copy_notes.get(g) or "").strip() or None if record else None
+        out[g] = (role, copy)
+    return out
+
+
+def gates_when_words(m: dict) -> str:
+    """When and against what each column was judged: this copy's gates when
+    the copy was scored, the role's as Radar holds them now, judged again in
+    code when a floor changes, with the floor each rate note names."""
+    record = m["record"]
+    first = "full spec" if m["on_description"] else "card"
+    whys = gate_whys(m)
+    role_floor, copy_floor = judged_floor(whys["rate"][0]), judged_floor(whys["rate"][1])
+    floor_now = (m["floors"] or {}).get("day")
+    words = (f"This copy's gates were judged when it was scored, "
+             f"{day_time(record.get('scored_at'))}"
+             + (f", its rate against the {copy_floor} floor" if copy_floor else "")
+             + ", and are not judged again. The " + first + " column is the role's "
+             "gates as Radar holds them now, judged again in code when a floor changes"
+             + (f", its rate against the {role_floor} floor" if role_floor else "") + ".")
+    if floor_now:
+        words += f" Your day-rate floor is now £{int(floor_now):,}."
+    return words
 
 
 # ------------------------------------------------------------- the rate
@@ -773,9 +877,39 @@ def rate_html(m: dict) -> str:
         out.append('<p class="small">Not read yet. The rate line is quoted from the full '
                    'description, word for word, once the role is scored against it.</p>')
     floor = (m["floors"] or {}).get("day")
-    out.append(f'<p class="sub">On the card: {esc(bd.rate_detail(row))}'
+    out.append(f'<p class="sub">On the card: {esc(_sentence_end(bd.rate_detail(row)))}'
                + (f' Your floor: &pound;{int(floor):,} a day.' if floor else '') + '</p>')
     return "".join(out)
+
+
+def _sentence_end(text: str) -> str:
+    """Words that end as a sentence does, so the next one can follow."""
+    text = (text or "").strip()
+    return text if not text or text[-1] in ".!?" else text + "."
+
+
+def range_bottom_words(m: dict) -> str:
+    """Where the stored pay is a range whose bottom is under the floor it is
+    judged against, the clause that says so: "its bottom, £650, is under your
+    floor". Judged as the gate judges the top (radar_common.gate_pay), the
+    same period, currency and floor, so an hourly bottom is times eight. Empty
+    for a single figure, no figure, or a bottom that clears the floor."""
+    row = m["row"]
+    try:
+        low, high = float(row.get("pay_min") or 0), float(row.get("pay_max") or 0)
+    except (TypeError, ValueError):
+        return ""
+    if not (low > 0 and high > low) or not m["floors"]:
+        return ""
+    try:
+        bottom = rc.gate_pay(row.get("pay_currency"), row.get("pay_period"), low, None,
+                             m["floors"], m["config"])
+    except Exception:  # noqa: BLE001  a floor line missing is no clause, not a failed page
+        return ""
+    if bottom.get("gate") is not False:
+        return ""
+    return f"its bottom, £{bottom['figure']:,.0f}, is under your floor"
+
 
 
 # -------------------------------------------------------- the application
@@ -921,18 +1055,6 @@ def advert_html(m: dict) -> str:
         return "".join(out)
     fetched = row.get("description_fetched_at")
     asks = m["asks"]
-    import check_jobs
-    cap = check_jobs.DESCRIPTION_CAP
-    line = (("Read from the advert " + day_time(fetched) if fetched
-             else "Stored by the page checker, date not recorded")
-            + f", {len(desc):,} characters"
-            + (f", cut at the stored limit of {cap:,}" if len(desc) >= cap else "")
-            + (", scored once for this version." if m["on_description"] else ", not scored yet.")
-            + (" Asks underlined: solid met, dashed partly, dotted gap, each with its mark "
-               "and number." if asks else ""))
-    out.append(f'<p class="sub">{esc(line)}</p>'
-               '<button type="button" class="btn advert-toggle" aria-expanded="false" '
-               'aria-controls="adv-body" data-pa-advert>Show the job description</button></div>')
     blocks = m.setdefault("_blocks", advert_blocks(desc))
     marks: dict = {}
     for a in asks:
@@ -942,6 +1064,24 @@ def advert_html(m: dict) -> str:
             marks.setdefault(where[1], []).append(a)
     rate = (_rate_working(m) or {}).get("rate_quote")
     rate_at = where_in_advert(m, rate, whole=False) if rate else None
+    import check_jobs
+    cap = check_jobs.DESCRIPTION_CAP
+    # The legend says what is underlined only where something is: an ask
+    # whose sentence was not found, or one stored before the sentences, is
+    # underlined nowhere.
+    line = (("Read from the advert " + day_time(fetched) if fetched
+             else "Stored by the page checker, date not recorded")
+            + f", {len(desc):,} characters"
+            + (f", cut at the stored limit of {cap:,}" if len(desc) >= cap else "")
+            + (", scored once for this version." if m["on_description"] else ", not scored yet.")
+            + (" Asks underlined: solid met, dashed partly, dotted gap, each with its mark "
+               "and number." if marks else
+               " No ask is underlined, because no ask carries a sentence found in it word "
+               "for word."
+               if asks else ""))
+    out.append(f'<p class="sub" data-pa-adv-legend>{esc(line)}</p>'
+               '<button type="button" class="btn advert-toggle" aria-expanded="false" '
+               'aria-controls="adv-body" data-pa-advert>Show the job description</button></div>')
     body = []
     in_list = False
     for i, b in enumerate(blocks):
@@ -1062,9 +1202,9 @@ def workhead_html(m: dict) -> str:
                    'this role is made from it as the page opens, with no call, and nothing '
                    'done to the copy changes the master.</p>')
     elif copy is not None:
-        made = (f'Made from the master CV {esc(copy.get("master_version") or "")} when this '
-                f'page first opened, {esc(day_time(copy.get("created_at")))}. Nothing done '
-                'here changes the master.')
+        made = (f'Made from the master CV, {esc(version_words(copy.get("master_version")))}, '
+                f'when this page first opened, {esc(day_time(copy.get("created_at")))}. '
+                'Nothing done here changes the master.')
         changed = bool(m["master_version"] and copy.get("master_version")
                        and m["master_version"] != copy.get("master_version"))
         if master and master.get("canonical") and m["can_edit"]:
@@ -1078,16 +1218,22 @@ def workhead_html(m: dict) -> str:
         out.append(f'<p class="sub" id="cv-status">{made}</p>')
         if changed and m["can_edit"]:
             saved = copy.get("saved_name")
+            was = copy.get("master_version")
+            compare = compare_url(was)
+            link = (f'<a class="link" href="{esc(compare)}">Compare {esc(version_words(was, short=True))} '
+                    'with the active version on the CV page</a>' if compare else
+                    '<a class="link" href="/cv#history">Open the CV page&rsquo;s History</a>'
+                    '<span class="sub"> The CV page keeps no comparison for that version, so '
+                    'this opens its list of versions.</span>')
             out.append('<div class="notice warn" data-pa-master-moved><p><b>The master CV has '
                        'changed since this copy was made.</b> This copy was made from '
-                       f'{esc(copy.get("master_version"))}; the master is now '
-                       f'{esc(m["master_version"])}. The copy keeps its own text and its own '
-                       'score. Start again from master takes the master as it is now'
+                       f'{esc(version_words(was))}; the master is now '
+                       f'{esc(version_words(m["master_version"]))}. The copy keeps its own text '
+                       'and its own score. Start again from master takes the master as it is now'
                        + (f'; the saved copy, {esc(saved)}, stays as it was saved.' if saved
                           else '.') + '</p><p class="row-btns"><button type="button" '
                        'class="btn" data-cv-act="reset" disabled>Start again from master'
-                       '</button><a class="link" href="/cv">See what changed on the CV '
-                       'page</a></p></div>')
+                       f'</button>{link}</p></div>')
     asks = m["asks"]
     if asks:
         n = {"met": 0, "partly": 0, "missing": 0}
@@ -1129,6 +1275,50 @@ def workhead_html(m: dict) -> str:
                    'full description when it is scored, and set beside the CV line that '
                    'evidences it.</p>')
     return "".join(out)
+
+
+def _version_time(name):
+    found = re.match(r"^cv-(\d{8})-(\d{6})(?:-\d+)?\.md$", name or "")
+    if not found:
+        return None
+    try:
+        return datetime.strptime(found.group(1) + found.group(2),
+                                 "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def version_words(name, short: bool = False) -> str:
+    """A master CV version as the CV page names it, by its number in the
+    History and the date it was saved: "version 3 (13 Nov 09:00 UTC)". A name
+    the History does not list keeps its date, or its name when it has none."""
+    if not name:
+        return "a version not recorded"
+    try:
+        names = cv_store.history()
+    except OSError:
+        names = []
+    when = _version_time(name)
+    stamp = f"{when.day} {when:%b} {when:%H:%M} UTC" if when else None
+    if name in names:
+        number = len(names) - names.index(name)
+        return f"version {number}" if short else (
+            f"version {number} ({stamp})" if stamp else f"version {number}")
+    return f"the version of {stamp}" if stamp else name
+
+
+def compare_url(name) -> str | None:
+    """The CV page's comparison of a version with the active one
+    (/cv?compare=, cv_screen.render_page), for a version its History lists."""
+    try:
+        names = cv_store.history()
+        active = cv_store.active_cv_name()
+    except OSError:
+        return None
+    if not name or name not in names or name == active:
+        return None
+    from urllib.parse import quote
+    return f"/cv?compare={quote(name)}#history"
 
 
 # ------------------------------------------------------------- the bar
@@ -1219,6 +1409,30 @@ def _cite_line(m: dict, a: dict) -> str:
     return f'<span class="cite">{" &middot; ".join(bits)}</span>' if bits else ""
 
 
+# Why an ask shows no advert sentence, by score_item's sentence_dropped. An
+# ask stored before the sentences were asked for (prompt 422cdad4) has no
+# sentence key at all, and says nothing about one.
+SENTENCE_DROPPED = {
+    "not_found": "The advert sentence was not found word for word, so none is quoted.",
+    "empty": "The scorer gave no advert sentence for this ask.",
+    "too_long": "The advert sentence the scorer gave was longer than 25 words, so none "
+                "is quoted.",
+    "not_text": "The advert sentence the scorer gave could not be read, so none is quoted.",
+}
+
+
+def _sentence_html(a: dict) -> str:
+    """The ask's advert sentence, quoted; or the ask's own words, with the
+    reason no sentence is quoted, only where one was asked for and dropped."""
+    if a.get("sentence"):
+        return f'<q>{esc(a["sentence"])}</q>'
+    out = f'<span class="ask-words">{esc(a.get("ask"))}</span>'
+    if "sentence" not in a and "sentence_dropped" not in a:
+        return out
+    words = SENTENCE_DROPPED.get(a.get("sentence_dropped"))
+    return out + (f'<span class="sub" data-pa-nosentence>{esc(words)}</span>' if words else "")
+
+
 def note_html(m: dict, a: dict, changes: dict, fold: bool = True) -> str:
     status = a.get("status") if a.get("status") in MARKS else "missing"
     word, st = MARKS[status]
@@ -1236,13 +1450,9 @@ def note_html(m: dict, a: dict, changes: dict, fold: bool = True) -> str:
     lines_words = esc(_lines_words(found_now or [c["n"] for c in cites]))
     data = (f'data-note="{num}" data-status="{status}" data-line="{esc(line or "")}" '
             f'data-cites="{esc(json.dumps(cites, ensure_ascii=False))}"')
-    body = []
-    if a.get("sentence"):
-        body.append(f'<q>{esc(a["sentence"])}</q>')
-    else:
-        body.append(f'<span class="ask-words">{esc(a.get("ask"))}</span>'
-                    '<span class="sub">The advert sentence was not found word for word, so '
-                    'none is quoted.</span>')
+    body = [_sentence_html(a)]
+    if status == "partly" and a.get("why"):
+        body.append(f'<span class="gapwhy" data-pa-why>{esc(a["why"])}</span>')
     if stale:
         gone = ", ".join(str(c["n"]) for c in cites if not c.get("now"))
         body.append(f'<span class="gapwhy" data-pa-stale-words>CV line {esc(gone)} when '
@@ -1310,10 +1520,9 @@ def gaps_html(m: dict) -> str:
                    'line only if it is true, then Rescore role.</p><ol>')
         for a in gaps:
             sentence = a.get("sentence")
-            quote = (f'<q>{esc(sentence)}</q>' if sentence else
-                     f'<span class="ask-words">{esc(a.get("ask"))}</span>'
-                     '<span class="sub">The advert sentence was not found word for word, so '
-                     'none is quoted.</span>')
+            quote = _sentence_html(a)
+            why = (f'<span class="gapwhy" data-pa-why>{esc(a["why"])}</span>' if a.get("why")
+                   else '<span class="gapwhy">No line on the CV evidences this ask.</span>')
             show = (f'<a class="btn-sm" href="#adv-a{a["num"]}" data-pa-show="adv-a{a["num"]}">'
                     f'Show it in the advert<span class="visually-hidden">, A{a["num"]}</span></a>'
                     if sentence and where_in_advert(m, sentence) else "")
@@ -1321,8 +1530,7 @@ def gaps_html(m: dict) -> str:
                        f'data-note="{a["num"]}" data-status="missing" data-cites="[]" '
                        'tabindex="-1"><div class="head"><span class="mark gap">&#10007; Gap, '
                        f'not on the CV</span> <span class="id">A{a["num"]}</span></div>'
-                       f'<div class="note-body">{quote}<span class="gapwhy">No line on the CV '
-                       f'evidences this ask.</span>{_cite_line(m, a)}{show}</div></li>')
+                       f'<div class="note-body">{quote}{why}{_cite_line(m, a)}{show}</div></li>')
         out.append('</ol>')
     if loose:
         out.append(f'<h3>{_plural(len(loose), "ask")} marked met or partly with no CV line '
@@ -1434,13 +1642,15 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str = "",
 <div class="work">
 {slot("workhead", "div", "work-head")}
 {slot("bar", "div", "pa-bar" + ("" if p["bar"] else " is-empty"), 'role="group" aria-label="Tailored CV"')}
-<p class="cv-note notice-line" id="cv-say" aria-live="polite"></p>
+<p class="cv-note notice-line" id="cv-say"></p>
+<p class="visually-hidden" id="pa-live" role="status" aria-live="polite" aria-atomic="true"></p>
 {slot("gaps", "section", "gaps" + ("" if p["gaps"] else " is-empty"), 'aria-label="Gaps"')}
 <div class="sheet-wrap">
-<div class="sheet-paper pa-sheet" id="cv-pane">{editor_pane(m)}</div>
-<div class="gut" aria-hidden="true"></div>
 {slot("notes", "div", "pa-notes", 'aria-label="Margin notes"')}
+<div class="gut" aria-hidden="true"></div>
+<div class="sheet-paper pa-sheet" id="cv-pane" style="{design_style(m['design'])}" data-design="{esc(json.dumps(m['design']))}">{editor_pane(m)}</div>
 </div>
+<p class="pa-pages{' is-over' if len(m['pages']) > 2 else ''}" id="pa-pages">{esc(pages_words(m['pages'], m['design']))}</p>
 </div>
 </div>
 <div id="prepare-body" hidden></div>
@@ -1564,6 +1774,8 @@ details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bott
 .pass{color:var(--positive);white-space:nowrap}.fail{color:var(--negative);white-space:nowrap}.gates .none{color:var(--text-3)}
 .gates td.gwhy{color:var(--text-3);font-size:12px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gates-foot{margin-top:8px}
+.gates .gwhy-l{display:block;overflow:hidden;text-overflow:ellipsis}
+.gates .gwhy-l b{font-weight:600;color:var(--text-2)}
 .quote{margin:8px 0 4px;padding-left:12px;border-left:3px solid var(--accent);font:500 16px/24px var(--font-sans);color:var(--text-1)}
 .app-state{margin:8px 0 12px;font-size:14px;line-height:20px;color:var(--text-2)}
 .app-state b{color:var(--text-1)}
@@ -1595,11 +1807,13 @@ details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bott
 .gaps ol + h3{margin-top:16px}
 @media (min-width:1280px){.gaps ol{grid-template-columns:1fr 1fr}}
 
-.sheet-wrap{position:relative;display:grid;grid-template-columns:minmax(0,1fr) var(--gut) var(--note-w);align-items:start}
-.pa-sheet{grid-column:1;padding:40px 24px 40px 8px;border-radius:var(--radius-2);min-width:0}
+.sheet-wrap{position:relative;display:grid;grid-template-columns:minmax(0,1fr) var(--gut) var(--note-w);align-items:start;--page-canvas:var(--canvas);--page-text-3:var(--text-3);--page-caution:var(--caution)}
+/* The notes come before the sheet in the source, so Tab reaches them before
+   the editor's many fields, and sit beside it on screen. */
+.pa-sheet{grid-column:1;grid-row:1;border-radius:var(--radius-2);min-width:0}
 .pa-sheet .cv-lines{margin:0}
-.gut{grid-column:2}
-.pa-notes{grid-column:3;position:relative;display:grid;gap:6px;align-content:start;min-width:0}
+.gut{grid-column:2;grid-row:1}
+.pa-notes{grid-column:3;grid-row:1;position:relative;display:grid;gap:6px;align-content:start;min-width:0}
 .pa-js .pa-notes{display:block;align-self:stretch}
 .pa-js .pa-notes > .notes{position:absolute;left:0;right:0}
 .notes{position:relative;display:grid;gap:6px;align-content:start;padding:0 0 4px}
@@ -1682,10 +1896,9 @@ details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bott
   .stages{flex-wrap:wrap}
   .stages li{flex:1 1 30%}
   .sheet-wrap{display:block}
-  .pa-sheet{padding:16px 8px 16px 0}
   .gut{display:none}
   .pa-notes{display:grid;gap:8px;margin-top:12px}
-  .pa-js .pa-notes{position:absolute;inset:0;margin:0;pointer-events:none}
+  .pa-js .pa-notes{position:absolute;inset:0;z-index:2;margin:0;pointer-events:none}
   .pa-js .pa-notes > *{pointer-events:auto}
   .pa-js .pa-notes > .notes{right:8px}
   .notes::before{display:none}
@@ -1703,7 +1916,9 @@ details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bott
   .note.is-closed{background:var(--canvas);box-shadow:var(--shadow-overlay)}
   .note{box-shadow:var(--shadow-overlay)}
 }
-@media (pointer:coarse){.btn-sm{min-height:32px}.note-toggle{min-height:44px}}
+/* Touch, at every width: the buttons, the shortcut switch and every summary
+   are 44px, as on the CV page (cv_screen, pointer:coarse). */
+@media (pointer:coarse){.pa .btn,.pa .btn-sm,.pa .switch,.pa summary,.note-toggle{min-height:44px}.pa .btn-sm,.pa .switch{height:auto}.pa-why summary{padding:12px 0}}
 @media (forced-colors:active){.note,.fig,.tag,.kbd{border:1px solid CanvasText}.cvl.pa-lit{outline:2px solid Highlight}}
 """
 
@@ -1711,6 +1926,59 @@ details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bott
 # lines; it gives a selected note's cited lines their tint.
 SHEET_CSS = r"""
 .pa-sheet .cvl.pa-lit{background:var(--sheet-accent-wash);box-shadow:inset 3px 0 0 var(--sheet-accent)}
+/* The sheet as the CV page draws it (cv_screen .sheet): the CV page's Design,
+   font, size, spacing and margins, set on #cv-pane as --cv-font, --cv-scale,
+   --cv-gap and --sheet-pad-*, the numbers in the margin, the headings in the
+   Word file's sizes. */
+.pa-sheet{padding:var(--sheet-pad-top,68px) var(--sheet-pad-side,76px) 48px;font:400 calc(14px * var(--cv-scale,1))/1.43 var(--cv-font,Arial),"Helvetica Neue",Helvetica,sans-serif}
+.pa-sheet .cvl{display:grid;grid-template-columns:1em minmax(0,1fr) auto;gap:0 4px;position:relative;padding:0;border-radius:0}
+.pa-sheet .cvl-n{position:absolute;left:-56px;width:44px;text-align:right;font:400 11px/20px var(--font-mono);color:var(--sheet-ink-3)}
+.pa-sheet .cvl-mark{grid-column:1;font:inherit;color:var(--sheet-ink-2)}
+.pa-sheet .cvl-t{grid-column:2;font:inherit;line-height:inherit;color:var(--sheet-ink-1)}
+.pa-sheet .cvl-ops{grid-column:3}
+.pa-sheet .cvl-plain .cvl-mark,.pa-sheet .cvl-h1 .cvl-mark,.pa-sheet .cvl-h2 .cvl-mark,.pa-sheet .cvl-h3 .cvl-mark{display:none}
+.pa-sheet .cvl-plain .cvl-t,.pa-sheet .cvl-h1 .cvl-t,.pa-sheet .cvl-h2 .cvl-t,.pa-sheet .cvl-h3 .cvl-t{grid-column:1 / 3}
+.pa-sheet .cvl-h1 .cvl-t{font:700 calc(24px * var(--cv-scale,1))/1.33 var(--cv-font,Arial),sans-serif;letter-spacing:0;text-transform:none}
+.pa-sheet .cvl-h1 .cvl-n{line-height:32px}
+.pa-sheet .cvl-h2{margin-top:calc(10px * var(--cv-gap,1))}
+.pa-sheet .cvl-h2 .cvl-t{font:700 calc(17px * var(--cv-scale,1))/1.4 var(--cv-font,Arial),sans-serif;letter-spacing:0;text-transform:none;color:var(--sheet-ink-1)}
+.pa-sheet .cvl-h3{margin-top:calc(6px * var(--cv-gap,1))}
+.pa-sheet .cvl-h3 .cvl-t{font-weight:700}
+.pa-sheet .cvl-blank{min-height:0;height:calc(4px * var(--cv-gap,1))}
+.pa-sheet .cvl-blank .cvl-n{display:none}
+.pa-sheet .cv-head .cvl-plain .cvl-t{color:var(--sheet-ink-2)}
+.pa-sheet textarea.cvl-t{padding:0 5px;margin:0 -6px;min-height:0;line-height:inherit}
+/* A focused field on the paper shows the CV page's ring, which the editor's
+   own textarea.cvl-t:focus{outline:none} would otherwise take away. */
+.pa-sheet textarea.cvl-t:focus{outline:2px solid var(--sheet-focus);outline-offset:1px;border-color:var(--sheet-rule-strong);background:var(--sheet-surface)}
+.pa-sheet .cvl-ops button:focus-visible,.pa-sheet .cv-add button:focus-visible{outline:2px solid var(--sheet-focus);outline-offset:1px}
+.pa-sheet .cvl-ops button,.pa-sheet .cv-add button{min-height:24px;color:var(--sheet-ink-2);background:var(--sheet-surface);border-color:var(--sheet-rule-strong)}
+/* The add chips show only beside the line being edited, as the frames draw:
+   the page script marks the chips that belong to the focused line's run. */
+.pa-sheet .cv-add{display:none;margin:2px 0 6px 1em}
+.pa-sheet .cv-add.pa-add-on{display:flex}
+/* The estimated A4 pages of the Word file (cv_doc.estimate_pages and the
+   editor's RadarCv.pages), drawn as on the CV page. */
+.pa-break{display:flex;align-items:center;gap:12px;margin:20px calc(-1 * var(--sheet-pad-side,76px)) 16px;padding:6px var(--sheet-pad-side,76px);background:var(--page-canvas);color:var(--page-text-3);font:400 12px/16px var(--font-sans)}
+.pa-break.is-limit{color:var(--page-caution);font-weight:600}
+.pa-break.is-limit::before,.pa-break.is-limit::after{content:"";flex:1;border-top:2px dashed currentColor}
+.pa-sheet .cvl.pa-over::before{content:"";position:absolute;left:-62px;top:0;bottom:0;width:3px;background:var(--sheet-caution)}
+.pa-pages{margin:8px 0 0;font-size:12px;line-height:16px;color:var(--text-3)}
+.pa-pages.is-over{color:var(--caution);font-weight:600}
+@media (pointer:coarse){
+  /* Touch: a line's buttons are 44px and show only on the line being
+     edited, as the frame draws, never on every line at once. */
+  .pa-sheet .cvl-ops{display:none;opacity:1}
+  .pa-sheet .cvl:focus-within .cvl-ops,.pa-sheet .cvl.pa-on .cvl-ops{display:flex}
+  .pa-sheet .cvl-ops button,.pa-sheet .cv-add button{min-height:44px;min-width:44px}
+}
+@media (max-width:767.98px){
+  .pa-sheet{padding:20px 14px 20px 40px;--sheet-pad-side:14px}
+  .pa-sheet .cvl{grid-template-columns:1em minmax(0,1fr)}
+  .pa-sheet .cvl-n{left:-36px;width:28px;font-size:10px}
+  .pa-sheet .cvl-ops{grid-column:1 / 3;justify-content:flex-end}
+  .pa-sheet .cvl.pa-over::before{left:-38px}
+}
 """
 
 
@@ -1961,11 +2229,104 @@ PREPARE_SCRIPT = r"""
   function soon() {
     if (queued) return;
     queued = true;
-    later(function () { queued = false; refind(); layout(); });
+    later(function () { queued = false; refind(); paginate(); layout(); });
   }
   // An edit is followed at once: the marks and the counts change as it is
   // typed, and the notes are laid out again on the next frame.
   function now() { refind(); soon(); }
+
+  // ------------------------------------------- the A4 pages of the sheet
+  // Where the Word file's pages would break, estimated from the CV page's
+  // Design as the CV page estimates it (RadarCv.pages, the twin of
+  // cv_doc.estimate_pages), drawn again as the copy is edited.
+  function sheetDesign() {
+    var pane = document.getElementById('cv-pane');
+    try { return JSON.parse((pane && pane.getAttribute('data-design')) || 'null'); } catch (e) { return null; }
+  }
+  function pagesWords(pages, d) {
+    var n = pages.length;
+    if (!n) return '';
+    if (window.RadarCv && window.RadarCv.cleanDesign) d = window.RadarCv.cleanDesign(d);
+    var words = 'About ' + n + (n === 1 ? ' page' : ' pages') + " of A4 in the Word file, at the CV page's Design ("
+      + d.font + ' ' + d.size + ' pt, ' + d.spacing + ' spacing, ' + d.margins + ' mm margins). An estimate.';
+    if (n > 2) words += ' Over the two-page limit from line ' + pages[2].first + '; those lines are marked in the margin.';
+    return words;
+  }
+  function paginate() {
+    all('#cv-editor .pa-break').forEach(detach);
+    all('#cv-editor .cvl.pa-over').forEach(function (el) { el.classList.remove('pa-over'); });
+    var api = window.RadarCvEditor;
+    var C = window.RadarCv;
+    if (!api || !api.lines || !C || !C.pages) return null;
+    var pages = C.pages(api.lines(), sheetDesign());
+    var total = pages.length;
+    pages.forEach(function (pg) {
+      if (pg.page === 1) return;
+      var first = lineEl(pg.first);
+      if (!first || !first.parentNode) return;
+      var brk = document.createElement('div');
+      brk.className = 'pa-break' + (pg.page === 3 ? ' is-limit' : '');
+      brk.setAttribute('role', 'separator');
+      var words = 'Page ' + (pg.page - 1) + ' of ' + total + ' ends. Page ' + pg.page + ' from line ' + pg.first;
+      if (pg.page === 3) words = 'Over the two-page limit. ' + words;
+      brk.setAttribute('aria-label', words);
+      brk.textContent = (pg.page === 3 ? '⚠ ' : '') + words;
+      first.parentNode.insertBefore(brk, first);
+    });
+    if (total > 2) {
+      lineEls().forEach(function (r) {
+        if (Number(r.getAttribute('data-n')) >= pages[2].first) r.classList.add('pa-over');
+      });
+    }
+    var foot = document.getElementById('pa-pages');
+    if (foot) {
+      foot.textContent = pagesWords(pages, sheetDesign());
+      foot.classList.toggle('is-over', total > 2);
+    }
+    return pages;
+  }
+
+  // ---------------------------------- the add chips beside the edited line
+  // As the frames draw: a line's add chips (+ Line, + Bullet, + Entry) show
+  // only while a line of their run is being edited, and on touch its own
+  // buttons show only on that line (pa-on), never on every line at once.
+  function siblingsAfter(el) {
+    var parent = el && el.parentNode;
+    if (!parent) return [];
+    var kids = Array.prototype.slice.call(parent.children || []);
+    return kids.slice(kids.indexOf(el) + 1);
+  }
+  function chipsOf(line) {
+    var out = [];
+    var rest = siblingsAfter(line);
+    for (var i = 0; i < rest.length; i++) {
+      var el = rest[i];
+      var cls = el.classList;
+      if (!cls) break;
+      if (cls.contains('cv-add')) { out.push(el); continue; }
+      if (out.length) break;
+      if (cls.contains('pa-break')) continue;
+      if (cls.contains('cvl') && (cls.contains('cvl-plain') || cls.contains('cvl-bullet'))) continue;
+      break;
+    }
+    return out;
+  }
+  function editHere(line) {
+    all('#cv-editor .cv-add.pa-add-on').forEach(function (c) { c.classList.remove('pa-add-on'); });
+    all('#cv-editor .cvl.pa-on').forEach(function (c) { if (c !== line) c.classList.remove('pa-on'); });
+    if (!line) return [];
+    line.classList.add('pa-on');
+    var chips = chipsOf(line);
+    chips.forEach(function (c) { c.classList.add('pa-add-on'); });
+    return chips;
+  }
+  document.addEventListener('focusin', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    if (t.closest('#cv-editor .cv-add')) return;
+    var line = t.closest('#cv-editor .cvl');
+    editHere(line && !line.classList.contains('cvl-blank') ? line : null);
+  });
 
   // -------------------------------------------------- selecting a note
   function light(nums) {
@@ -2043,7 +2404,7 @@ PREPARE_SCRIPT = r"""
     var dlg = t.closest('[data-pa-dlg]');
     if (dlg) { dialogChoice(dlg.getAttribute('data-pa-dlg')); return; }
     var rescore = t.closest('[data-cv-act="rescore"]');
-    if (rescore && !rescore.disabled) working('copy');
+    if (rescore && !rescore.disabled) { working('copy'); pressed = 'copy'; }
     var note3 = t.closest('[data-note]');
     if (note3) select(note3);
   });
@@ -2138,6 +2499,15 @@ PREPARE_SCRIPT = r"""
       if (said && said.getAttribute('data-saved-same') === '1') apply(document.querySelector('[data-pa-apply]'));
     }
     now();
+    if (pressed === 'copy') {
+      // Rescore role's answer, put in by the editor, which says the outcome
+      // in #cv-say: focus goes to the Score heading and the same words are
+      // said, with the copy's figure.
+      pressed = null;
+      var copyFig = figure('copy');
+      landed(((cvSay && cvSay.textContent) || 'Rescored.')
+        + (copyFig ? ' This copy now scores ' + copyFig + '.' : ''));
+    }
     return true;
   }
   function take(html) {
@@ -2168,7 +2538,39 @@ PREPARE_SCRIPT = r"""
       say.innerHTML = which === 'spec'
         ? '<b>Working.</b> The advert is read from LinkedIn once, then scored once against your master CV. This takes a few seconds. The page fills in when it is done.'
         : '<b>Rescoring.</b> This copy, as it is on screen, is scored against the stored description once. This takes a few seconds.';
+      announce(say.textContent);
     }
+  }
+  // The one status region, on the page from the start and outside every part
+  // a press redraws, so what is written into it is read out.
+  function announce(words) {
+    var live = document.getElementById('pa-live');
+    if (live && live.textContent !== words) live.textContent = words || '';
+  }
+  // After a paid press: focus goes to the Score heading and the outcome is
+  // said, once the parts are in.
+  var pressed = null;
+  function figure(which) {
+    var num = document.querySelector('[data-fig="' + which + '"] .num');
+    var n = num ? String(num.textContent || '').trim() : '';
+    return /^\d+$/.test(n) ? n : null;
+  }
+  function outcomeWords(j) {
+    var told = (j.notices || []).map(function (n) { return n.text; }).filter(Boolean).join(' ');
+    var spec = figure('spec');
+    if (j.outcome === 'scored') {
+      return 'Scored once. The full spec CV match is ' + (spec || 'not known') + '.' + (told ? ' ' + told : '');
+    }
+    if (j.outcome === 'reused') {
+      return 'This description was already scored, so nothing was spent.'
+        + (spec ? ' The full spec CV match is ' + spec + '.' : '') + (told ? ' ' + told : '');
+    }
+    return told || j.note || 'Done.';
+  }
+  function landed(words) {
+    var h = document.getElementById('score-h');
+    if (h && h.focus) h.focus();
+    announce(words);
   }
   function unwork() {
     all('[data-fig][data-was]').forEach(function (f) {
@@ -2201,7 +2603,7 @@ PREPARE_SCRIPT = r"""
     }).then(function (r) { return r.json(); })
       .then(function (j) {
         busy = false;
-        if (j && typeof j.html === 'string') { take(j.html); return; }
+        if (j && typeof j.html === 'string') { take(j.html); landed(outcomeWords(j)); return; }
         back(btn, label, (j && j.note) || 'That did not run.');
       })
       .catch(function () {
@@ -2218,14 +2620,19 @@ PREPARE_SCRIPT = r"""
     }
     var say = document.querySelector('[data-pa-working]');
     if (say) { say.hidden = false; say.className = 'notice bad'; say.textContent = words; }
+    announce(words);
   }
+  // The editor's own words (#cv-say, seen) are said through #pa-live, the one
+  // status region, so nothing is read out twice.
   var cvSay = document.getElementById('cv-say');
   if (cvSay && window.MutationObserver) {
     new window.MutationObserver(function () {
       if (String(cvSay.className || '').indexOf('bad') >= 0) {
         unwork();
         pendingApply = false;
+        pressed = null;
       }
+      if (!pressed && cvSay.textContent) announce(cvSay.textContent);
     }).observe(cvSay, { childList: true, characterData: true, subtree: true, attributes: true });
   }
 
@@ -2405,6 +2812,6 @@ PREPARE_SCRIPT = r"""
   // After the editor's own script, which runs after this one, has drawn.
   Promise.resolve().then(function () { if (loaded === null) loaded = snapshot(); now(); });
   window.RadarPrepare = { take: take, refind: refind, layout: layout, snapshot: snapshot,
-                          edited: edited, keysOn: keysOn };
+                          edited: edited, keysOn: keysOn, paginate: paginate };
 })();
 """

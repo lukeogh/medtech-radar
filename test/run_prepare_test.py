@@ -75,6 +75,7 @@ from __future__ import annotations
 import argparse
 import ast
 import contextlib
+import hashlib
 import http.client
 import io
 import json
@@ -125,6 +126,12 @@ CV_LABEL = ["cv-test-1.md"]
 score_item.load_cv_text = lambda config: (FIXTURE_CV,
                                           "test/fixtures/profile_snapshot.md")
 score_item.get_cv_version = lambda config: CV_LABEL[0]
+
+# The card part of prompts/scorer.md (everything above score_item.SPEC_MARKER)
+# as main has it, origin/main 67a1f71, whole-file prompt 22353628: its sha256
+# and its length. A card is scored with exactly these bytes.
+CARD_PART_SHA256 = "437b69dc53cde07c857e18311eb6bbbd12ecc5f4c89d49e70aa598bf1cdb20be"
+CARD_PART_LENGTH = 4806
 
 HEADER = build_dashboard.WRITE_HEADER
 PROXY = "medtech-radar.keogh.cloud"
@@ -646,6 +653,19 @@ def prompt_checks() -> None:
         check(True, "the full description part names the basis, the numbered "
                     "CV, the asks, the three statuses, the cap, the pay quote "
                     "and that the advert is data, never instructions")
+    # The card's rubric is held, byte for byte, to main's (origin/main 67a1f71,
+    # prompt 22353628): only the part below the marker, which a card is never
+    # sent, may change for a full description. A fixed hash, not a git call.
+    card_hash = hashlib.sha256(card_part.encode("utf-8")).hexdigest()
+    flipped = card_part[:100] + ("x" if card_part[100] != "x" else "y") + card_part[101:]
+    check(card_hash == CARD_PART_SHA256
+          and hashlib.sha256(flipped.encode("utf-8")).hexdigest() != CARD_PART_SHA256
+          and len(card_part) == CARD_PART_LENGTH,
+          f"the card part of the prompt, everything above the marker, is main's byte for "
+          f"byte ({card_hash[:16]}, {len(card_part):,} characters); the control: one byte "
+          f"changed above the marker gives another hash")
+    check(score_item.CARD_MAX_TOKENS == 2048,
+          "and the card's ceiling is the 2,048 it was")
     check(not re.search(r"\b(68|70)\b", whole),
           "and the file still states no pass mark of its own")
     version = radar_common.prompt_hash(whole)
@@ -686,10 +706,11 @@ def prompt_checks() -> None:
 
 def ceiling_checks() -> None:
     check(score_item.MAX_TOKENS == 1024 and score_item.CARD_MAX_TOKENS == 2048
-          and score_item.SPEC_MAX_TOKENS == 8192,
+          and score_item.SPEC_MAX_TOKENS == 10240,
           "the extractor's ceiling is the 1,024 it was, a card's score has its "
-          "own 2,048 and a full description's is 8,192, raised from 6,144 for each "
-          "ask's advert sentence")
+          "own 2,048 and a full description's is 10,240, raised from 6,144 for each "
+          "ask's advert sentence and from 8,192 for each partly or missing ask's "
+          "short reason")
     # The worst reply each prompt allows: the longest gate notes, four reasons
     # of 20 words with quotes of 25, and for a full description 25 asks of 20
     # words, four CV lines each, and the longest pay quote. The words are as
@@ -721,16 +742,24 @@ def ceiling_checks() -> None:
     worst = {**card, "reasons": reasons,
              "asks": [{"ask": ask, "status": "partly",
                        "cv_lines": [101, 102, 103, 104],
-                       "sentence": " ".join(["standard"] * score_item.QUOTE_WORDS_MAX)}
+                       "sentence": " ".join(["standard"] * score_item.QUOTE_WORDS_MAX),
+                       "why": " ".join(["standard"] * score_item.ASK_WHY_WORDS)}
                       for _ in range(25)],
              "rate_quote": "q" * prep.RATE_QUOTE_MAX}
     size = len(json.dumps(worst))
     tokens = size / 3.0
-    check(tokens <= score_item.SPEC_MAX_TOKENS * 0.75 and tokens > 6144 * 0.75,
-          f"the worst reply the prompt allows, each ask with a sentence of 25 words, is "
-          f"{size:,} characters, about {tokens:,.0f} tokens even at three characters a "
-          f"token, which is harder than a tokenizer is: over three quarters of the 6,144 "
-          f"it was, and under three quarters of the {score_item.SPEC_MAX_TOKENS:,} ceiling")
+    check(tokens <= score_item.SPEC_MAX_TOKENS * 0.75 and tokens > 8192 * 0.75,
+          f"the worst reply the prompt allows, every ask partly, with a sentence of 25 "
+          f"words and a reason of {score_item.ASK_WHY_WORDS}, is {size:,} characters, about "
+          f"{tokens:,.0f} tokens even at three characters a token, which is harder than a "
+          f"tokenizer is: over three quarters of the 8,192 it was, and under three "
+          f"quarters of the {score_item.SPEC_MAX_TOKENS:,} ceiling")
+    flat_prompt = " ".join((REPO_ROOT / "prompts" / "scorer.md").read_text(
+        encoding="utf-8").split())
+    check(score_item.ASK_WHY_WORDS == 20
+          and "For partly and missing, give why, a short reason in your own words, 20 "
+              "words or fewer" in flat_prompt,
+          "and the reason's cap the code keeps, 20 words, is the one the prompt gives")
     prompt = (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8")
     check(score_item.MAX_ASKS == 25 and "List at most 25" in prompt,
           "and the cap the code keeps is the cap the prompt gives")
@@ -2231,7 +2260,7 @@ def page_checks() -> None:
               f"({words.strip()!r})")
         check(prepare_page.COST_DETAIL in page_text(plain)
               and "A fetch that fails costs nothing." in page_text(plain)
-              and "never more than about 12 cents" in page_text(plain),
+              and "never more than about 15 cents" in page_text(plain),
               "beside it the page says what the press costs, at most, and that a failed "
               "fetch and a page opened again cost nothing")
         for _ in range(5):
@@ -2663,10 +2692,12 @@ def notes_checks() -> None:
         prep.open_copy(oid, env.db, CFG)
         page = render_page(env, oid)
         gaps_at = page.index('data-slot="gaps"')
-        check(gaps_at < page.index('id="cv-pane"') < page.index('data-slot="notes"')
+        check(gaps_at < page.index('data-slot="notes"') < page.index('id="cv-pane"')
               and page.index('data-slot="bar"') < gaps_at,
-              "the gaps come first, above the sheet, under the bar, and the notes beside it")
-        notes = page[page.index('data-slot="notes"'):page.index('id="prepare-body"')]
+              "the gaps come first, above the sheet, under the bar, and the notes come "
+              "before the sheet in the source, so Tab reaches them before the editor's "
+              "fields")
+        notes = page[page.index('data-slot="notes"'):page.index('id="cv-pane"')]
         groups = [int(n) for n in re.findall(r'data-pa-group="(\d+)"', notes)]
         check(groups and groups == sorted(groups),
               "the notes sit in groups by the line they stand beside, in the order of the sheet")
@@ -2859,6 +2890,308 @@ def server_checks() -> None:
 
 
 # ------------------------------------------------------------- page script
+
+
+# ------------------------------------------ the review's fixes, 16 Nov
+
+WHY_ADVERT = (
+    "<p>About the role</p>"
+    "<p>We are hiring a Head of Software Quality for a medical device business.</p>"
+    "<p>What you will bring</p>"
+    "<p>- IEC 62304 and ISO 13485 in a Class C IVD</p>"
+    "<p>- Kubernetes certification for the platform team</p>"
+    "<p>- Icelandic sagas recital</p>"
+    "<p>- RADAR-NOWHY Mandarin for the Shanghai office</p>"
+    "<p>- RADAR-QUOTEWHY Fluent Portuguese for the Lisbon office</p>"
+    "<p>- RADAR-LONGWHY Ballet for the summer party</p>"
+    "<p>Pay</p><p>£700 to £800 per day, outside IR35.</p>")
+
+
+def _specificity(selector: str) -> tuple:
+    """(ids, classes and pseudo-classes and attributes, elements) of one
+    simple selector chain, enough for the rules these checks compare."""
+    sel = re.sub(r"::[\w-]+", " x", selector)
+    ids = len(re.findall(r"#[\w-]+", sel))
+    classes = len(re.findall(r"\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+(?:\([^)]*\))?", sel))
+    elements = len(re.findall(r"(?:^|[\s>+~])([a-z][\w-]*)", sel))
+    return ids, classes, elements
+
+
+def _rules(css: str) -> list[tuple[str, str]]:
+    """(selector, body) of every rule, media blocks opened up."""
+    flat = re.sub(r"@media[^{]*\{((?:[^{}]*\{[^{}]*\})*)\s*\}", r"\1", css)
+    flat = re.sub(r"/\*.*?\*/", "", flat, flags=re.S)
+    return [(sel.strip(), body) for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", flat)]
+
+
+def _winner(rules, wanted: str, prop: str):
+    """The body of the rule that sets prop for a selector the page writes,
+    by specificity and then by order, as a browser picks it."""
+    best = None
+    for i, (sel, body) in enumerate(rules):
+        for one in sel.split(","):
+            if one.strip() == wanted or one.strip() in WANTED_ALIASES.get(wanted, ()):
+                if re.search(r"(?:^|;)\s*" + prop + r"\s*:", body):
+                    key = (_specificity(one.strip()), i)
+                    if best is None or key > best[0]:
+                        best = (key, body)
+    return best[1] if best else None
+
+
+# The selectors that reach a focused field on the Prepare sheet.
+WANTED_ALIASES = {".pa-sheet textarea.cvl-t:focus": ("textarea.cvl-t:focus",),
+                  ".pa-sheet .cv-add": (".cv-add", ".sheet .cv-add")}
+
+
+def review_fix_checks() -> None:
+    """The review of 16 Nov: each finding for Prepare application and the
+    check that holds its fix, with a control where a check could pass
+    without it."""
+    import cv_doc
+    import cv_page
+    page_css = (prepare_page.PREPARE_CSS + cv_page.CV_CSS + prepare_page.SHEET_CSS)
+    rules = _rules(page_css)
+    # 1. A focused field on the paper shows the CV page's ring.
+    won = _winner(rules, ".pa-sheet textarea.cvl-t:focus", "outline")
+    alone = _winner(_rules(prepare_page.PREPARE_CSS + cv_page.CV_CSS),
+                    ".pa-sheet textarea.cvl-t:focus", "outline")
+    check(won is not None and "outline:2px solid var(--sheet-focus)" in won.replace(" ", "")
+          .replace("solidvar", "solid var").replace("2pxsolid", "2px solid")
+          and alone is not None and "outline:none" in alone,
+          "a focused field on the paper has the CV page's 2px --sheet-focus ring; the "
+          "control: without the sheet's rule the editor's outline:none would win")
+    # 2. On touch a line's buttons and the add chips are 44px and show only on
+    # the line being edited; the add chips are hidden until then everywhere.
+    coarse = re.search(r"@media \(pointer:coarse\)\{(.*?)\n\}", prepare_page.SHEET_CSS, re.S)
+    block = coarse.group(1) if coarse else ""
+    check(".pa-sheet .cvl-ops{display:none" in block
+          and ".pa-sheet .cvl:focus-within .cvl-ops" in block
+          and re.search(r"\.pa-sheet \.cvl-ops button,\.pa-sheet \.cv-add button\{min-height:44px;"
+                        r"min-width:44px\}", block),
+          "on a touch screen each line's buttons are 44px and show only on the line "
+          "being edited, never on every line at once")
+    check(".pa-sheet .cv-add{display:none" in prepare_page.SHEET_CSS
+          and ".pa-sheet .cv-add.pa-add-on{display:flex}" in prepare_page.SHEET_CSS
+          and "display:none" in (_winner(rules, ".pa-sheet .cv-add", "display") or ""),
+          "the add chips are hidden until a line of their run is edited, at every width")
+    # 3. Prepare's own buttons, the switch and every summary at 44px on touch.
+    touch = re.search(r"@media \(pointer:coarse\)\{(\.pa \.btn,[^\n]*)\}", prepare_page.PREPARE_CSS)
+    check(bool(touch) and ".pa .btn,.pa .btn-sm,.pa .switch,.pa summary" in touch.group(1)
+          and "min-height:44px" in touch.group(1)
+          and "@media (max-width:767.98px)" not in (touch.group(0) if touch else ""),
+          "on a touch screen, at every width, the buttons, the shortcut switch and every "
+          "summary are 44px: the bar, Mark applied, the cost-first button, Why these scores")
+    # 4. The notes before the sheet in the source, beside it on screen.
+    check(".pa-sheet{grid-column:1;grid-row:1" in prepare_page.PREPARE_CSS
+          and ".pa-notes{grid-column:3;grid-row:1" in prepare_page.PREPARE_CSS,
+          "and on screen the notes keep their column beside the sheet, in the same row")
+
+    with canonical_master() as master, fresh() as env:
+        oid = env.role(description=WHY_ADVERT)
+        env.prepare(oid)
+        prep.open_copy(oid, env.db, CFG)
+        page = render_page(env, oid)
+        # 5 and 6. One status region, there from the start, outside the parts.
+        live = re.search(r'<p class="visually-hidden" id="pa-live" role="status" '
+                         r'aria-live="polite" aria-atomic="true"></p>', page)
+        slots_html = "".join(re.findall(r'data-slot="[^"]+"[^>]*>(.*?)</(?:section|div|details|header)>',
+                                        page, re.S))
+        check(bool(live) and 'id="pa-live"' not in slots_html
+              and '<h2 id="score-h" tabindex="-1">Score</h2>' in page
+              and 'data-pa-working hidden role="status"' not in page
+              and 'id="cv-say" aria-live' not in page,
+              "the page has one empty status region from the start, outside every part a "
+              "press redraws, the Score heading takes focus, and the seen working message "
+              "and the editor's words are said through that region, not read twice")
+
+        # 7. "Not found word for word" only for not_found.
+        asks = prep.load_working(env.row(oid))["asks"]
+        base = {"ask": "Lead the team", "status": "partly", "num": 1, "placed": []}
+        old = prepare_page._sentence_html({k: v for k, v in base.items()})
+        empty = prepare_page._sentence_html({**base, "sentence": None, "sentence_dropped": "empty"})
+        long_ = prepare_page._sentence_html({**base, "sentence": None, "sentence_dropped": "too_long"})
+        gone = prepare_page._sentence_html({**base, "sentence": None, "sentence_dropped": "not_found"})
+        check("word for word" not in page_text(old) and "sentence" not in page_text(old)
+              and "The scorer gave no advert sentence for this ask." in page_text(empty)
+              and "longer than 25 words" in page_text(long_)
+              and "not found word for word" in page_text(gone)
+              and "not found word for word" not in page_text(empty + long_),
+              "an ask stored before the sentences says nothing about one, one dropped for "
+              "another reason says that reason, and only a sentence not found says it was "
+              "not found word for word")
+        working = json.loads(env.row(oid)["score_working"])
+        legend = page_text(part(render_inner(env, oid), "advert"))
+        for a in working["asks"]:
+            a.pop("sentence", None)
+            a.pop("sentence_dropped", None)
+        env.sql("UPDATE opportunities SET score_working = ? WHERE id = ?",
+                (json.dumps(working), oid))
+        bare = part(render_inner(env, oid), "advert")
+        check("Asks underlined: solid met" in legend
+              and "Asks underlined" not in page_text(bare)
+              and "No ask is underlined" in page_text(bare)
+              and 'class="ask ' not in bare,
+              "the description's legend says what is underlined only when something is; "
+              "with no sentence held it says no ask is underlined (the control: with "
+              "sentences it gives the key)")
+        gaps_old = page_text(part(render_inner(env, oid), "gaps"))
+        check("not found word for word" not in gaps_old,
+              "and the gaps of asks stored before the sentences say nothing about one")
+
+        # 10. A short reason for each partly or missing ask.
+        by = {a["ask"].split(" ")[0]: a for a in asks}
+        check(by["Icelandic"]["status"] == "missing"
+              and by["Icelandic"]["why"] == "Nothing on the CV names this."
+              and by["Icelandic"]["why_dropped"] is None
+              and by["Kubernetes"]["status"] == "partly"
+              and by["Kubernetes"]["why"] == "Part of this is on the CV. The rest is not named."
+              and by["IEC"]["why"] is None
+              and by["RADAR-NOWHY"]["why"] is None and by["RADAR-NOWHY"]["why_dropped"] == "empty"
+              and by["RADAR-QUOTEWHY"]["why"] is None
+              and by["RADAR-QUOTEWHY"]["why_dropped"] == "quoted"
+              and by["RADAR-LONGWHY"]["why"] is None
+              and by["RADAR-LONGWHY"]["why_dropped"] == "too_long",
+              "a partly or missing ask keeps its short reason; a met ask keeps none; one "
+              "that is empty, a quote of the advert, or over 20 words is not kept, and "
+              "the reason is recorded")
+    with canonical_master() as master, fresh() as env:
+        oid = env.role(description=WHY_ADVERT)
+        env.prepare(oid)
+        prep.open_copy(oid, env.db, CFG)
+        gaps = part(render_inner(env, oid), "gaps")
+        items = re.findall(r'<li class="note st-gap[^>]*>(.*?)</li>', gaps, re.S)
+        kub = next((page_text(i) for i in items if "Icelandic" in i), "")
+        nowhy = next((page_text(i) for i in items if "RADAR-NOWHY" in i), "")
+        check("Nothing on the CV names this." in kub
+              and "No line on the CV evidences this ask." not in kub
+              and "No line on the CV evidences this ask." in nowhy,
+              "a gap shows its short reason, and says no line evidences it only when it "
+              "has no reason")
+        notes = part(render_inner(env, oid), "notes") + gaps
+        partly = re.findall(r'<li class="note st-partly[^>]*>(.*?)</li>', notes, re.S)
+        check(partly and all("data-pa-why" in n and "The rest is not named." in page_text(n)
+                             for n in partly),
+              "and a partly note shows its reason under its sentence")
+    reply = [{"ask": "Fluent Portuguese", "status": "missing", "cv_lines": [],
+              "sentence": "", "why": "Fluent Portuguese for the Lisbon office"}]
+    src = ["We need Fluent Portuguese for the Lisbon office and more."]
+    kept, _d = score_item.normalise_asks(reply, FIXTURE_LINES, src)
+    real = score_item._hold_quote
+    score_item._hold_quote = lambda quote, sources: (None, "not_found")
+    try:
+        loose, _d = score_item.normalise_asks(reply, FIXTURE_LINES, src)
+    finally:
+        score_item._hold_quote = real
+    check(kept[0]["why"] is None and loose[0]["why"] is not None,
+          "the control: with the quote rule taken out a reason that is the advert's own "
+          "words would be kept, so _hold_quote is what drops it")
+
+    # 8. The gates' Why: each column its own.
+    with canonical_master() as master, fresh() as env:
+        oid = env.role(description=SENTENCE_ADVERT, pay_currency="GBP", pay_period="day",
+                       pay_min=700, pay_max=800, salary_rate="£700 to £800 per day")
+        env.prepare(oid)
+        prep.open_copy(oid, env.db, CFG)
+        first = next(l for l in cv_store.cv_lines(master) if l and not l.startswith("#"))
+        prep.rescore_copy(oid, master.replace(first, first + " and its software file", 1),
+                          env.db, CFG)
+        env.sql("UPDATE opportunities SET gate_rate = 0, gate_rate_note = ? WHERE id = ?",
+                ("Stated day rate £800 against the £900 floor, below, judged in code.", oid))
+        gates = part(render_inner(env, oid), "gates")
+        rate_row = next(r for r in re.findall(r"<tr>(.*?)</tr>", gates, re.S) if "Rate" in r)
+        role_why = re.search(r'data-gwhy="role">(.*?)</span>', rate_row, re.S)
+        copy_why = re.search(r'data-gwhy="copy">(.*?)</span>', rate_row, re.S)
+        when = page_text(gates[gates.index("data-pa-gates-when"):]) if "data-pa-gates-when" in gates else ""
+        check(role_why and copy_why and "£900 floor" in role_why.group(1)
+              and "£900" not in copy_why.group(1)
+              and "Fails" in page_text(rate_row) and "Passes" in page_text(rate_row),
+              "each column of the gates has its own Why from its own score: the full spec's "
+              "fail beside its £900 floor, the copy's pass beside its own note")
+        check("This copy's gates were judged when it was scored" in when
+              and "against the £900 floor" in when and "not judged again" in when,
+              "and the table says the copy's gates were judged when it was scored, and the "
+              "floor each column was judged against where its note names one")
+        foot = page_text(gates)
+        floor = int(FLOORS["day"])
+        check(("its bottom, £700, is under your floor" in foot) == (700 < floor),
+              "the gates' foot adds the range's bottom being under the floor, where the "
+              "stored pay is a range whose bottom is under it")
+        rate = page_text(part(render_inner(env, oid), "rate"))
+        check("per day. Your floor" in rate,
+              "the rate line's card words end with a full stop before Your floor")
+    probe = {"row": {"pay_min": 650, "pay_max": 750, "pay_period": "day",
+                     "pay_currency": "GBP"}, "floors": {"day": 700, "salary": 90000},
+             "config": CFG}
+    single = {**probe, "row": {**probe["row"], "pay_min": 750}}
+    check(prepare_page.range_bottom_words(probe) == "its bottom, £650, is under your floor"
+          and prepare_page.range_bottom_words(single) == ""
+          and prepare_page.range_bottom_words({**probe, "floors": {"day": 600, "salary": 1}}) == "",
+          "the range clause is said for a range whose bottom is under the floor, and not "
+          "for a single figure or a bottom that clears it")
+
+    # 9. The sheet in the CV page's Design, with its page estimate.
+    tmp = Path(tempfile.mkdtemp(prefix="radar-design-"))
+    real_dir = cv_store.PROFILE_DIR
+    try:
+        cv_store.PROFILE_DIR = tmp
+        cv_store.save_design({"font": "Georgia", "size": 11, "spacing": "relaxed",
+                              "margins": 25})
+        with canonical_master() as master, fresh() as env:
+            oid = env.role()
+            prep.open_copy(oid, env.db, CFG)
+            page = render_page(env, oid)
+            pane = re.search(r'id="cv-pane" style="([^"]*)" data-design="([^"]*)"', page)
+            design = json.loads(__import__("html").unescape(pane.group(2))) if pane else {}
+            pages = cv_doc.estimate_pages(cv_store.cv_lines(master), design)
+            check(pane and "--cv-font:Georgia;" in pane.group(1)
+                  and f"--cv-scale:{11 / 10.5:g};" in pane.group(1)
+                  and "--cv-gap:1.5;" in pane.group(1)
+                  and f"--sheet-pad-side:{round(25 * 3.78)}px" in pane.group(1)
+                  and design == cv_store.read_design(),
+                  "the Prepare sheet is drawn in the CV page's Design, its font, size, "
+                  "spacing and margins, as the CV page sets them")
+            check(prepare_page.pages_words(pages, design) in page_text(page)
+                  and "Georgia 11 pt, relaxed spacing, 25 mm margins" in page_text(page),
+                  f"and says the CV page's page estimate under it ({len(pages)} pages)")
+        cv_store.PROFILE_DIR = Path(tempfile.mkdtemp(prefix="radar-design-none-"))
+        with canonical_master(), fresh() as env:
+            oid = env.role()
+            prep.open_copy(oid, env.db, CFG)
+            plain = render_page(env, oid)
+            check("--cv-font:Arial;" in plain and "Arial 10.5 pt, standard spacing, 20 mm "
+                  "margins" in page_text(plain),
+                  "the control: with no Design saved it is the template's, as on the CV page")
+
+        # 11. The master-change notice names versions by number and date.
+        prof = Path(tempfile.mkdtemp(prefix="radar-versions-"))
+        cv_store.PROFILE_DIR = prof
+        for name in ("cv-20261113-090000.md", "cv-20261113-092600.md"):
+            (prof / name).write_text(CANON[0] if CANON else FIXTURE_CV, encoding="utf-8")
+        with canonical_master(), fresh() as env:
+            CV_LABEL[0] = "cv-20261113-090000.md"
+            oid = env.role()
+            prep.open_copy(oid, env.db, CFG)
+            CV_LABEL[0] = "cv-20261113-092600.md"
+            head = part(render_inner(env, oid), "workhead")
+            moved = head[head.index("data-pa-master-moved"):] if "data-pa-master-moved" in head else ""
+            check("version 1 (13 Nov 09:00 UTC)" in page_text(moved)
+                  and "version 2 (13 Nov 09:26 UTC)" in page_text(moved)
+                  and "cv-20261113" not in page_text(moved)
+                  and 'href="/cv?compare=cv-20261113-090000.md#history"' in moved,
+                  "the master-change notice names both versions by number and date, as the "
+                  "CV page does, and links to the CV page's comparison of the copy's master "
+                  "with the active one")
+            (prof / "cv-20261113-090000.md").unlink()
+            head = part(render_inner(env, oid), "workhead")
+            moved = head[head.index("data-pa-master-moved"):] if "data-pa-master-moved" in head else ""
+            check('href="/cv#history"' in moved and "keeps no comparison" in page_text(moved),
+                  "and where the CV page has no comparison for it, it links to History and "
+                  "says so")
+    finally:
+        cv_store.PROFILE_DIR = real_dir
+        CV_LABEL[0] = "cv-test-1.md"
+        shutil.rmtree(tmp, ignore_errors=True)
+
 
 def page_script_checks() -> None:
     script = prepare_page.PREPARE_SCRIPT
@@ -3263,8 +3596,9 @@ def final_box_checks() -> None:
         env.sql("UPDATE opportunities SET cv_version = 'tailored-x' WHERE id = ?", (oid,))
         check(run_sql(env.db, tailored) == [(1,)],
               "and the tailored-score proof catches a Jobs row that holds one")
-    check("422cdad4" in part_text and "22353628" in part_text
-          and radar_common.prompt_version() == "422cdad4",
+    check("1b1ffb78" in part_text and "22353628" in part_text
+          and "422cdad4" not in part_text
+          and radar_common.prompt_version() == "1b1ffb78",
           "the box page names both prompt versions, and the new one is the file's")
 
 
@@ -3287,7 +3621,7 @@ def docs_checks() -> None:
                    "once per version", "no retry", "applied", "Rescore", "second first-open",
                    "WRITE_WAIT_SECONDS", "PARK_SECONDS", "disagreement",
                    "never spends on opening", "prepare_page.py", "sentence_dropped",
-                   "8,192", ".sheet-paper"):
+                   "10,240", ".sheet-paper", "why_dropped", "1b1ffb78"):
         if needle not in section:
             check(False, f"the notes say {needle!r}")
             break
@@ -3312,7 +3646,7 @@ def main() -> int:
                     fetch_lock_checks, fetch_spacing_checks,
                     fetch_reuse_checks, page_checks, jobs_page_checks, server_checks,
                     sentence_checks, tailored_never_on_jobs_checks, board_store_checks,
-                    notes_checks, page_script_checks, static_checks, box_query_checks,
+                    notes_checks, review_fix_checks, page_script_checks, static_checks, box_query_checks,
                     final_box_checks, docs_checks):
         # One section that raises is one FAIL that names it. The sections
         # after it still run, so a mistake in the first does not hide the rest.

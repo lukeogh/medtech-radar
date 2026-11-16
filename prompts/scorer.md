@@ -155,6 +155,11 @@ correct it or join two sentences. Where the ask is read from more than one
 sentence, copy the one that states it most plainly. A sentence that is not found
 in the description word for word is not shown.
 
+For partly and missing, give why, a short reason in your own words, 20 words or
+fewer, saying what the CV shows of the ask and what it does not, such as
+Traceability is in Jama. Polarion is not named. It is not a quote of the advert
+or the CV. For met, why is an empty string.
+
 cv_match comes from this same evidence. A CV number that the asks do not
 support is a wrong number.
 
@@ -176,5 +181,5 @@ from the card fields beside it.
 
 Return the same JSON as above, with asks and rate_quote added at the end of it.
 
- "asks": [{"ask": "", "status": "met", "cv_lines": [12, 13], "sentence": ""}],
+ "asks": [{"ask": "", "status": "met", "cv_lines": [12, 13], "sentence": "", "why": ""}],
  "rate_quote": ""

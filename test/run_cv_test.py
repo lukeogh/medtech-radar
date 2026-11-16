@@ -3922,9 +3922,9 @@ def static_checks() -> None:
     flows = [p.name for p in sorted((REPO_ROOT / "workflows").glob("*.json"))
              if re.search(r"/prepare/cv|/cv/master|tailored|cv_doc|cv_word", p.read_text(encoding="utf-8"))]
     check(not flows, f"no n8n workflow runs any of it or posts to it ({flows})")
-    check(radar_common.prompt_version() == "422cdad4",
-          "the scorer prompt is the one Prepare application final left, 422cdad4 (the "
-          "quoted reasons' 22353628 with each ask's advert sentence): the CV page "
+    check(radar_common.prompt_version() == "1b1ffb78",
+          "the scorer prompt is the one Prepare application final left, 1b1ffb78 (the "
+          "quoted reasons' 22353628 with each ask's advert sentence and short reason): the CV page "
           "changed nothing in it")
     serve = (REPO_ROOT / "scripts" / "serve_dashboard.py").read_text(encoding="utf-8")
     stree = ast.parse(serve)
