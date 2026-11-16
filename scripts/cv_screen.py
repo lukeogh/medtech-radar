@@ -1138,7 +1138,8 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .cv-break:focus{outline:2px solid var(--focus);outline-offset:-2px}
 .cv-break.is-limit{color:var(--caution);font-weight:600}
 .cv-break.is-limit::before,.cv-break.is-limit::after{content:"";flex:1;border-top:2px dashed var(--caution)}
-.sheet .cvl.cv-over{box-shadow:-10px 0 0 -6px var(--sheet-caution)}
+.sheet .cvl.cv-over::before{content:"";position:absolute;left:-62px;top:0;bottom:0;width:3px;background:var(--sheet-caution)}
+@media (max-width:767.98px){.sheet .cvl.cv-over::before{left:-38px}}
 .sheet-foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;width:794px;max-width:100%;margin:8px 0 24px;color:var(--text-3);font-size:12px;line-height:16px}
 .over-label{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px;color:var(--caution);font:600 14px/20px var(--font-sans)}
 @media (min-width:768px) and (max-width:841.98px){.sheet{zoom:.9}}
@@ -1257,6 +1258,7 @@ dialog.dialog::backdrop{background:rgba(0,0,0,.6)}
 .seg button[aria-checked="true"]::before{content:"\2713\00a0"}
 @media (pointer:coarse){.btn,.seg button,.switch,.tab{min-height:44px}}
 @media (prefers-reduced-motion:reduce){:root{--dur:0ms}}
+@media (max-width:767.98px){.cvp .reads{display:none}.sheet .cv-part[tabindex]{padding-right:60px}.sheet .cv-part.is-editing{padding-right:0}}
 """
 
 # The page's script: the toolbar, the dialogs, the tabs, the keys, the

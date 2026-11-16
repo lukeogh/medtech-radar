@@ -21,6 +21,13 @@ an ask that was met or partly loses that mark the moment a line it cited is
 edited away. All of it is drawn from the cited lines the working stores. No
 model is asked anything for it.
 
+On the CV page (data.sheet) the editor draws the master as a sheet of parts, the
+head and each section in a .cv-part wrapper, read until Enter or a click opens
+one; it keeps Undo and Redo of unsaved edits, breaks the sheet into estimated A4
+pages (pages, the twin of cv_doc.estimate_pages), and gives the page's own
+script window.RadarCvEditor. The wrappers are drawn on the Prepare page too, and
+every line is still one .cvl[data-n] element inside them.
+
 The script posts only from a button a person presses, through the fetch
 wrapper that adds the guard header, one request at a time. The one post it
 makes on its own is the one that makes the role's copy the first time its page
