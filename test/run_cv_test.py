@@ -103,7 +103,7 @@ radar_common.load_config = lambda: {**_real_load_config(),
 CFG = radar_common.load_config()
 SPEC = radar_common.SCORE_BASIS_SPEC
 HEADER = build_dashboard.WRITE_HEADER
-PROXY = "medtech-radar.keogh.cloud"
+PROXY = "radar.example.test"
 
 failures: list[str] = []
 skipped: list[str] = []
@@ -148,7 +148,7 @@ MASTER_DOC = {
                 {"b": True, "t": "Oversaw FDA clearance for a Class B IVD."}]}]},
         {"title": "Skills", "entries": [], "lines": [
             {"b": True, "t": "IEC 62304, ISO 13485, ISO 14971"},
-            {"b": True, "t": "SpiraPlan and regulated ALM configuration"}]},
+            {"b": True, "t": "Jama Connect and regulated ALM configuration"}]},
         {"title": "Education and certifications", "entries": [], "lines": [
             {"b": True, "t": "BEng Electronic Engineering"}]},
     ],
@@ -1278,8 +1278,8 @@ def rescore_checks() -> None:
               "pressed again on the same copy, nothing is spent and nothing is written")
 
         # An edit, then scored: before is the copy's own last score.
-        text = cv_doc.accept(edited(COPY_TEXT, "- SpiraPlan and regulated ALM configuration",
-                                    "- SpiraPlan and regulated ALM configuration\n"
+        text = cv_doc.accept(edited(COPY_TEXT, "- Jama Connect and regulated ALM configuration",
+                                    "- Jama Connect and regulated ALM configuration\n"
                                     "- Kubernetes and cloud deployment of clinical systems"))[1]
         out = env.rescore(oid, text)
         record = tailored_cv.read_score(env.copy(oid))
@@ -2019,8 +2019,8 @@ def history_checks() -> None:
             jobs_oid = env2.role()
             env2.open(jobs_oid)
             env2.rescore(jobs_oid, cv_doc.accept(edited(
-                MASTER_TEXT, "- SpiraPlan and regulated ALM configuration",
-                "- SpiraPlan and regulated ALM configuration\n- Kubernetes and cloud "
+                MASTER_TEXT, "- Jama Connect and regulated ALM configuration",
+                "- Jama Connect and regulated ALM configuration\n- Kubernetes and cloud "
                 "deployment of clinical systems"))[1])
             saved_args = serve_dashboard.ARGS
             serve_dashboard.ARGS = argparse.Namespace(db=str(env2.db), push=False,
@@ -2688,8 +2688,8 @@ def page_checks() -> None:
         oid2 = env.role(title="Second", company="Beta Diagnostics")
         env.open(oid2)
         env.rescore(oid2, COPY_TEXT)
-        better = cv_doc.accept(edited(COPY_TEXT, "- SpiraPlan and regulated ALM configuration",
-                                      "- SpiraPlan and regulated ALM configuration\n"
+        better = cv_doc.accept(edited(COPY_TEXT, "- Jama Connect and regulated ALM configuration",
+                                      "- Jama Connect and regulated ALM configuration\n"
                                       "- Kubernetes and cloud deployment of clinical systems"))[1]
         env.rescore(oid2, better)
         inner = render_inner(env, oid2)
@@ -2803,8 +2803,8 @@ def page_checks() -> None:
         env.open(oid)
         env.rescore(oid, COPY_TEXT)
         env.save(oid, COPY_TEXT)
-        later = cv_doc.accept(edited(COPY_TEXT, "- SpiraPlan and regulated ALM configuration",
-                                     "- SpiraPlan and regulated ALM configuration\n"
+        later = cv_doc.accept(edited(COPY_TEXT, "- Jama Connect and regulated ALM configuration",
+                                     "- Jama Connect and regulated ALM configuration\n"
                                      "- Kubernetes and cloud deployment of clinical systems"))[1]
         env.rescore(oid, later)
         env.apply(oid, "CV - Alex Rennie - Veltrix Diagnostics - Head of Software")
@@ -3718,8 +3718,8 @@ def editor_script_checks() -> None:
         opened = env.open(oid)
         open_answer = {"ok": True, "outcome": "made", "copy": opened["copy"], "notices": []}
         env.rescore(oid, COPY_TEXT)
-        better = cv_doc.accept(edited(COPY_TEXT, "- SpiraPlan and regulated ALM configuration",
-                                      "- SpiraPlan and regulated ALM configuration\n"
+        better = cv_doc.accept(edited(COPY_TEXT, "- Jama Connect and regulated ALM configuration",
+                                      "- Jama Connect and regulated ALM configuration\n"
                                       "- Kubernetes and cloud deployment of clinical systems"))[1]
         rescored = env.rescore(oid, better)
         rescored["html"] = render_inner(env, oid)
@@ -3873,7 +3873,7 @@ def editor_script_checks() -> None:
         "answers": {"open": open_answer, "rescore": rescored, "save": saved},
         "texts": {"master": MASTER_TEXT, "masterPage": MASTER_TEXT},
         "lines": {"master": lines, "saved": cv_store.cv_lines(saved_text), "riskN": risk_n,
-                  "newSkillN": lines.index("- SpiraPlan and regulated ALM configuration") + 2},
+                  "newSkillN": lines.index("- Jama Connect and regulated ALM configuration") + 2},
         "places": {"risk": "s1.e0.l2", "above": "s1.e0.l0", "splitNext": "s1.e0.l1",
                    "skills": "s2", "newSkill": "s2.l2", "newSkillNext": "s2.l3",
                    "summaryLine": "s0.l1"},

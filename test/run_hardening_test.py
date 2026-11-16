@@ -55,6 +55,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 import threading
 import time
 from pathlib import Path
@@ -81,7 +82,12 @@ skipped: list[str] = []
 HEADER = serve_dashboard.WRITE_HEADER
 PROXY_NAME = "radar.example.test"
 # The name build_digest.py links the Monday digest to, which radar.yaml lists.
-SHIPPED_PROXY = "medtech-radar.keogh.cloud"
+# It is read from build_digest.py, so the test names no real host of its own.
+_DIGEST_SRC = (os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir,
+                            "scripts", "build_digest.py"))
+with open(_DIGEST_SRC, encoding="utf-8") as _fh:
+    SHIPPED_PROXY = urllib.parse.urlsplit(
+        re.search(r'or "(https://[^"]+)"', _fh.read()).group(1)).hostname
 EVIL = "evil.example"
 LOOKALIKES = ("localhost.evil.example", "evil-localhost", "xlocalhost",
               "evilradar.example.test", "radar.example.test.evil.example",
