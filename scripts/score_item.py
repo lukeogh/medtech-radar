@@ -76,12 +76,16 @@ CARD_MAX_TOKENS = 2048
 # JSON and on wording as long as an advert's. Before the reasons it was 8,220
 # characters and 2,740 tokens at three, which 4,096 held under three quarters of
 # itself; with them the pessimistic count is 81 per cent of 4,096, so the
-# ceiling is 6,144, where it is 54 per cent. There is no tokenizer here to count
-# it exactly, so the ceiling is set well over the pessimistic count. A typical
-# advert has about twelve asks, which is about 540 tokens beyond a card's
-# reply. test/run_prepare_test.py builds the worst reply and holds the ceiling
-# to it, so raising the caps without raising this fails a check.
-SPEC_MAX_TOKENS = 6144
+# ceiling was 6,144, where it was 54 per cent. Each ask now also carries the
+# advert sentence it came from (decisions of 15 Nov), up to 25 words, which
+# makes the worst reply 15,961 characters, 5,320 tokens at three, 87 per cent
+# of 6,144, so the ceiling is 8,192, where it is 65 per cent. There is no
+# tokenizer here to count it exactly, so the ceiling is set well over the
+# pessimistic count. A typical advert has about twelve asks, which is about
+# 540 tokens beyond a card's reply, and about 400 more with their sentences.
+# test/run_prepare_test.py builds the worst reply and holds the ceiling to it,
+# so raising the caps without raising this fails a check.
+SPEC_MAX_TOKENS = 8192
 SPEC_ATTEMPTS = 1       # one model call per click, no retry on a bad reply
 MAX_ASKS = 25           # the most asks kept from one advert
 ASK_TEXT_MAX = 240      # characters kept of one ask
@@ -510,7 +514,8 @@ def _line_numbers(value) -> list[int]:
     return out
 
 
-def normalise_asks(raw, cv_lines: list[str]) -> tuple[list[dict], int]:
+def normalise_asks(raw, cv_lines: list[str],
+                   sources: list[str] | None = None) -> tuple[list[dict], int]:
     """The asks of a full description as they are kept, and how many were not.
 
     Each entry the model gave is checked, in code. The ask is its words, run
@@ -524,6 +529,15 @@ def normalise_asks(raw, cv_lines: list[str]) -> tuple[list[dict], int]:
     working exists to give: the model said the CV evidences it and the CV
     cannot be pointed at. A missing ask cites nothing, whatever the reply
     said, and has no anchor to lack (anchored None). At most MAX_ASKS are kept.
+
+    Each ask also carries the advert sentence it came from (sentence), held
+    to sources, the text that was scored (quote_sources), by the very rule a
+    reason's quote is held to (_hold_quote, radar_common.find_verbatim with
+    whole words): kept only where it is found there word for word, as that
+    text's own characters, and otherwise None with sentence_dropped saying
+    why (QUOTE_DROPS). The ask is kept either way, and a page shows it
+    without a quoted sentence. With no sources nothing is kept, so a caller
+    that cannot say what was scored keeps no sentence at all.
     Returns (asks, dropped).
     """
     if not isinstance(raw, list):
@@ -553,9 +567,12 @@ def normalise_asks(raw, cv_lines: list[str]) -> tuple[list[dict], int]:
                 lines.append({"n": n, "text": line[:CV_LINE_TEXT_MAX]})
                 if len(lines) >= CV_LINES_PER_ASK:
                     break
+        kept, why = (_hold_quote(item.get("sentence"), sources)
+                     if sources is not None else (None, "empty"))
         asks.append({"ask": text[:ASK_TEXT_MAX], "status": status,
                      "lines": lines,
-                     "anchored": None if status == "missing" else bool(lines)})
+                     "anchored": None if status == "missing" else bool(lines),
+                     "sentence": kept, "sentence_dropped": why})
     return asks, dropped
 
 
@@ -877,7 +894,8 @@ def _finish_score(parsed: dict, usage: dict, opp: dict, system_blocks,
         # Whatever in the asks cannot be read is caught by score_opportunity,
         # which guards all of this as one, so it is not caught again here.
         cv_lines = list(getattr(system_blocks, "cv_lines", None) or [])
-        asks, dropped = normalise_asks(parsed.get("asks"), cv_lines)
+        asks, dropped = normalise_asks(parsed.get("asks"), cv_lines,
+                                       quote_sources(opp, basis))
         counts = {status: sum(1 for a in asks if a["status"] == status)
                   for status in ASK_STATUSES}
         counts["unanchored"] = sum(1 for a in asks if a["anchored"] is False)
