@@ -1370,7 +1370,11 @@ def inbox_lag_checks() -> None:
 
 
 def main() -> int:
-    argparse.ArgumentParser().parse_args()
+    # run_all.sh hands every runner --db; this one builds its own throwaway
+    # profiles and databases, so it takes the flag and leaves it unused.
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--db", help="accepted from run_all.sh, not used")
+    parser.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     for fn in (write_checks, resort_checks, offer_checks, stale_checks, cost_checks,
