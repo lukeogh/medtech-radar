@@ -1470,7 +1470,7 @@ a{color:var(--accent)}
 a:hover{color:var(--accent-hover)}
 .pa h1,.pa h2,.pa h3,.pa p,.pa ol,.pa ul,.pa dl,.pa dd{margin:0}
 .pa ol,.pa ul{padding:0;list-style:none}
-.pa button,.pa input,.pa textarea{font:inherit}
+.pa input,.pa textarea{font:inherit}
 :root{--note-w:440px;--gut:28px}
 .pa{padding:24px 24px 48px;max-width:2560px}
 .pa h2{font:600 16px/24px var(--font-sans);color:var(--text-1)}
@@ -1509,9 +1509,9 @@ a:hover{color:var(--accent-hover)}
 .notice.warn{border-left-color:var(--caution);background:var(--caution-tint)}
 .notice .btn{margin-top:8px}
 .notice p + p{margin-top:4px}
-.cv-note.notice-line{margin:0;padding:8px 12px;border-left:3px solid var(--accent);background:var(--accent-tint);font-size:14px;line-height:20px;color:var(--text-1);min-height:0}
-.cv-note.notice-line:empty{display:none}
-.cv-note.notice-line.bad{border-left-color:var(--negative);background:var(--negative-tint);color:var(--text-1)}
+#cv-say{margin:0;padding:8px 12px;border-left:3px solid var(--positive);background:var(--positive-tint);font-size:14px;line-height:20px;color:var(--text-1);min-height:0}
+#cv-say:empty{display:none}
+#cv-say.bad{border-left-color:var(--negative);background:var(--negative-tint);color:var(--text-1)}
 .switch{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 6px 0 2px;border:1px solid var(--border-strong);border-radius:12px;background:transparent;color:var(--text-2);font:500 12px/16px var(--font-sans);cursor:pointer}
 .switch .knob{width:18px;height:18px;border-radius:50%;background:var(--accent)}
 .switch[aria-pressed="false"] .knob{background:transparent;border:2px solid var(--text-3)}
