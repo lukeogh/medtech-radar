@@ -163,6 +163,34 @@ Expect `1` and as many rows as you pressed Done on; the same row counts as
 BEFORE; your `first_name` line; `200 1`, `200`, `200`; `1`; `200 1`,
 `200 1`; and `403` (enforce) or `400` (warn).
 
+## The empty-Home note, 16 Nov
+
+A small change after the deploy: an address for an item that has gone, such
+as `/?item=radar-signals`, now says "That item is no longer on Home" on an
+empty Home too, where before the empty state showed without it. Only
+`scripts/home_page.py` changes; no table, route or setting. Home on the box
+is already at 87573ec, which is the rollback point for this change alone.
+
+Pull and restart, only when nothing is running:
+
+```bash
+cd /opt/biz-admin/medtech-radar && { pgrep -a python | grep -E 'process_email|check_jobs|check_signals|build_digest|rescore|regate|backfill' && echo 'wait, something is running, nothing was pulled' || { sudo -u radar git fetch origin && sudo -u radar git log --oneline HEAD..origin/main && sudo -u radar git pull --ff-only && sudo -u radar git log --oneline -1 && docker restart medtech-radar; }; }
+```
+
+Expect one incoming commit, then `medtech-radar`. Then check, after a few
+seconds for the dashboard to start:
+
+```bash
+B=http://192.168.1.100:8787; curl -s -m 15 -o /dev/null -w '%{http_code}
+' $B/; curl -s -m 15 "$B/?item=radar-signals" | grep -c -E 'id="row-radar-signals"[^>]*aria-current="true"|That item is no longer on Home'
+```
+
+Expect `200` and `1`. To go back to 87573ec, code only:
+
+```bash
+cd /opt/biz-admin/medtech-radar && sudo -u radar git reset --hard 87573ec && sudo -u radar git log --oneline -1 && docker restart medtech-radar
+```
+
 ## Rollback
 
 Code only. The backup from step 2 is not restored: the `home_done` table is

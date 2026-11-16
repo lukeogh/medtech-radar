@@ -483,8 +483,11 @@ def model_checks(tmp: Path) -> None:
     total_top = sum(x["top"] for x in w["weeks"])
     # Hartwell, three new, the Wrenfield/Calder/Severn and closed ones are Top
     # but outside or inside the window by their dates; the applied ones are out.
-    check(all(x["top"] >= 0 for x in w["weeks"]) and this["top"] >= 3,
-          f"this week's new Top prospects include the three new ones ({this['top']})")
+    # The new ones are seeded up to two days ago, so early in the week (a
+    # Monday morning) they fall in last week: count this week and the one before.
+    recent = w["this"]["top"] + w["last"]["top"]
+    check(all(x["top"] >= 0 for x in w["weeks"]) and recent >= 3,
+          f"the last two weeks' new Top prospects include the three new ones ({recent})")
     hist_week = hp._monday(hp.uk(NOW - timedelta(days=15)).date())
     check(any(x["week"] == hist_week and x["top"] >= 1 for x in w["weeks"]),
           "a role scored Top two weeks ago and Reading now is counted then, from score history")
@@ -502,8 +505,8 @@ def model_checks(tmp: Path) -> None:
     conn.execute("UPDATE opportunities SET applied_at = ? WHERE id = ?", (ago(2), ids["applied_top"]))
     conn.commit()
     conn.close()
-    sig = this["signals"]
-    check(sig >= 3, f"signals at 40 or more this week counted once a story ({sig})")
+    sig = this["signals"] + w["last"]["signals"]
+    check(sig >= 3, f"signals at 40 or more in the last two weeks counted once a story ({sig})")
     # ---- where things open
     urgent = groups["urgent"][0]
     check(urgent["open"][0] == f"/jobs/{ids['hartwell_role']}" and urgent["open"][1] == "Open the role on Jobs",
@@ -868,6 +871,11 @@ def state_checks(tmp: Path) -> None:
     check(html.count('class="ht-figlink is-zero"') == 4, "the four figures stay, each at 0, dimmed")
     check("ny-is-empty" in html and "Look through the 1 One question away role on Jobs" in html,
           "the list block gives one fact and one next step")
+    gone = page_of(db, item="radar-signals")
+    check("ny-is-empty" in gone and "That item is no longer on Home" in gone
+          and gone.index("That item is no longer on Home") < gone.index("Nothing needs you today. An item"),
+          "an address for an item that has gone says so on an empty Home too, above the empty state")
+    check("That item is no longer on Home" not in html, "and an empty Home without an address does not")
     db = tmp / "first.sqlite"
     seed_home(db, "first")
     m = model_of(db)

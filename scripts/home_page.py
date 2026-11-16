@@ -1355,9 +1355,12 @@ def needs_html(model: dict) -> str:
     head = (f'<header class="ny-head"><h2 class="ny-title" id="ny-title">{title}{count}</h2>'
             f'<div class="ny-tools">{seg}<button type="button" class="btn btn-ghost undo-last" '
             'id="undo-last" disabled>Undo last</button></div></header>')
+    # An address for an item that has gone says so, on an empty Home as well.
+    notice = ('<p class="pane-note ny-gone" role="status">That item is no longer on Home: it was '
+              'done, or it no longer needs you.</p>' if model["missing"] else "")
     if not items:
         return (f'<section class="ny ny-is-empty" id="ny" aria-labelledby="ny-title">{head}'
-                f'<div class="ny-body">{empty_html(model)}</div></section>')
+                f'<div class="ny-body">{notice}{empty_html(model)}</div></section>')
     ids = [i["id"] for i in items]
     details = []
     for n, i in enumerate(items):
@@ -1366,8 +1369,6 @@ def needs_html(model: dict) -> str:
     sel = model["selected"]["id"]
     pane = next(d for k, d in details if k == sel)
     store = "".join(d for k, d in details if k != sel)
-    notice = ('<p class="pane-note ny-gone" role="status">That item is no longer on Home: it was '
-              'done, or it no longer needs you.</p>' if model["missing"] else "")
     return (f'<section class="ny" id="ny" aria-labelledby="ny-title">{head}<div class="ny-body">'
             f'<section class="pane ny-list" id="ny-list" aria-label="Items">{notice}{list_html(model)}</section>'
             f'<section class="ny-detail" id="ny-pane" aria-label="Selected item">{pane}</section>'
