@@ -91,8 +91,8 @@ import tailored_cv  # noqa: E402
 
 # The tests name saved copies after an invented owner, so no real name sits in
 # a test. cv_doc and cv_word read OWNER when they are called, so this holds.
-# The part limits are sized to the shipped name's length, kept here as a number.
-SHIPPED_OWNER_LEN = len(cv_doc.OWNER)
+# The part limits were sized to an owner's name of ten characters.
+SIZED_OWNER_LEN = 10
 cv_doc.OWNER = "Alex Rennie"
 
 # Hermetic. The live preferences file holds the owner's own floors.
@@ -1909,17 +1909,26 @@ def edge_checks() -> None:
           "keep less than half of it")
     company = "C" * cv_doc.COMPANY_PART_MAX
     title = "T" * cv_doc.TITLE_PART_MAX
-    stand_in, cv_doc.OWNER = cv_doc.OWNER, "O" * SHIPPED_OWNER_LEN
+    stand_in, cv_doc.OWNER = cv_doc.OWNER, "O" * SIZED_OWNER_LEN
     try:
         full = cv_doc.saved_name(company, title)
         longer = cv_doc.saved_name(company + "C", title + "T")
+        cv_doc.OWNER = "O" * 15
+        long_owner = cv_doc.saved_name(company, "T" * 70 + " " + "U" * 8)
+        cv_doc.OWNER = ""
+        no_owner = cv_doc.saved_name(company, title + "T")
     finally:
         cv_doc.OWNER = stand_in
-    check(full == f"CV - {'O' * SHIPPED_OWNER_LEN} - {company} - {title}"
+    check(full == f"CV - {'O' * SIZED_OWNER_LEN} - {company} - {title}"
           and len(full) == cv_doc.NAME_MAX and longer == full,
-          f"a company of {cv_doc.COMPANY_PART_MAX} and a title of "
-          f"{cv_doc.TITLE_PART_MAX} characters fit whole, {cv_doc.NAME_MAX} in all, "
-          "and longer ones are cut to them")
+          f"with a name of {SIZED_OWNER_LEN}, a company of {cv_doc.COMPANY_PART_MAX} and a "
+          f"title of {cv_doc.TITLE_PART_MAX} characters fit whole, {cv_doc.NAME_MAX} in "
+          "all, and longer ones are cut to them")
+    check(long_owner == f"CV - {'O' * 15} - {company} - {'T' * 70}"
+          and len(long_owner) <= cv_doc.NAME_MAX
+          and no_owner == f"CV - {company} - {title}",
+          "a longer name leaves the title less room, cut on a word, and with no "
+          "name the title keeps its own limit")
     word = cv_doc.change_word
     check([word({"from": a, "to": b}) for a, b in (
         ("missing", "partly"), ("partly", "met"), ("missing", "met"),
@@ -3935,10 +3944,10 @@ def static_checks() -> None:
     flows = [p.name for p in sorted((REPO_ROOT / "workflows").glob("*.json"))
              if re.search(r"/prepare/cv|/cv/master|tailored|cv_doc|cv_word", p.read_text(encoding="utf-8"))]
     check(not flows, f"no n8n workflow runs any of it or posts to it ({flows})")
-    check(radar_common.prompt_version() == "1b1ffb78",
-          "the scorer prompt is the one Prepare application final left, 1b1ffb78 (the "
-          "quoted reasons' 22353628 with each ask's advert sentence and short reason): the CV page "
-          "changed nothing in it")
+    check(radar_common.prompt_version() == "93b203d2",
+          "the scorer prompt is 93b203d2, the one Prepare application final left, 1b1ffb78 "
+          "(the quoted reasons' 22353628 with each ask's advert sentence and short reason), "
+          "with the owner named by first name only: the CV page changed nothing in it")
     serve = (REPO_ROOT / "scripts" / "serve_dashboard.py").read_text(encoding="utf-8")
     stree = ast.parse(serve)
     do_get = next(n for n in ast.walk(stree) if isinstance(n, ast.FunctionDef) and n.name == "do_GET")

@@ -64,7 +64,11 @@ medtech-radar/
 4. Copy `config/preferences.template.md` to `config/profile/preferences.md`
    and edit it. It ships with working defaults.
 5. Check `config/radar.yaml`. Lines marked TODO were inferred during the
-   build and need confirming.
+   build and need confirming. Your own addresses (n8n, ntfy, the two
+   mailboxes, the proxy's name) ship empty: copy
+   `config/radar.local.example.yaml` to `config/profile/radar.local.yaml`
+   and fill them in there, out of the public repo. Put your full name on the
+   `owner_name:` line of the preferences file for saved CV copies.
 6. To view the dashboard in a browser, run
    `python scripts/serve_dashboard.py` and open http://127.0.0.1:8787. The
    page re-renders from the database on every load, the Refresh button
@@ -263,7 +267,8 @@ ANTHROPIC_API_KEY. That live rerun is the first morning step.
    scores are heuristic, so sanity-check the live numbers against your own
    judgement before trusting the threshold of 70.
 2. config/radar.yaml carries TODOs. The aggregator address, the digest
-   address, and the ntfy URL, which is a guess at ntfy.keogh.cloud.
+   address and the ntfy URL ship empty and go in
+   config/profile/radar.local.yaml.
 3. Drop the CV into config/profile/ as cv.txt, or cv.pdf after
    pip install pypdf. Until then scoring uses a fixture profile built from
    the knowledge pack and warns on every run.

@@ -77,6 +77,11 @@ import radar_common as rc  # noqa: E402
 import serve_dashboard  # noqa: E402
 
 failures: list[str] = []
+# radar.yaml ships the owner's ntfy address empty, which is the push Off;
+# these checks play a box that has one, from its private file, so every
+# reader of the config here, the server's too, sees one.
+_shipped_config = rc.load_config
+rc.load_config = lambda: {**_shipped_config(), "ntfy_url": "https://ntfy.example.test"}
 CFG = rc.load_config()
 T0 = datetime(2026, 10, 1, 9, 0, 0, tzinfo=timezone.utc)
 

@@ -11,7 +11,7 @@ config/profile/preferences.md start identical. Edit the live copy.
 1. Fractional or interim software director for medtech and IVD companies.
 2. IEC 62304 and ISO 13485 consulting and audit preparation.
 3. The fixed scope IEC 62304 gap assessment.
-4. Specialist medtech test consulting through LKeoghQA.
+4. Specialist medtech test consulting through my own consultancy.
 
 Generic testing roles and generic software roles score low regardless of pay.
 
@@ -32,7 +32,7 @@ rate. An unstated rate passes and is the first question to ask.
 
 ## Location and travel.
 
-Home base West Sussex. Comfortable with Belgium and wider European travel in a
+Home base Surrey. Comfortable with Belgium and wider European travel in a
 hybrid pattern, with an established rhythm around Ghent and Leuven. Fully
 remote works well. Full time relocation is a deal breaker.
 
@@ -65,3 +65,9 @@ Optional. Home's welcome greets you by the first name on this line, and says
 the scorer reads this whole file, this line included.
 
 first_name:
+
+Optional too. A saved CV copy is named after the full name on this line,
+"CV - <name> - <Company> - <Job title>", and the Word file gives it as its
+author. Without it a copy is named without a name.
+
+owner_name:

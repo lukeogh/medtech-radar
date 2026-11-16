@@ -200,7 +200,7 @@ def job_light(name: str, verdict: dict | None) -> dict:
 
 def push_light(jobs: dict, config: dict, last_push) -> dict:
     """The phone push has no run of its own, so its light is worked out from
-    what is stored: Off when radar.yaml names no ntfy address or the watcher
+    what is stored: Off when the config names no ntfy address or the watcher
     has never run, then the watcher's own Stale or Late, since a push goes
     only when the watcher runs, then Dry run while the watcher runs in dry run
     (it writes its pushes to a file), and otherwise On time."""
@@ -212,7 +212,8 @@ def push_light(jobs: dict, config: dict, last_push) -> dict:
     if not (str(config.get("ntfy_url") or "").strip()
             and str(config.get("ntfy_topic_radar") or "").strip()):
         return {"name": "push", "word": "Off", "verdict": v, "state": "never",
-                "why": "radar.yaml names no ntfy address, so nothing can be pushed."}
+                "why": "The config names no ntfy address, so nothing can be pushed. "
+                       "It is ntfy_url in config/profile/radar.local.yaml."}
     if (watcher.get("state") or "never") == "never":
         return {"name": "push", "word": "Off", "verdict": v, "state": "never",
                 "why": "The signal watcher has never run, so nothing has been pushed."}

@@ -9,7 +9,7 @@ and a CV brought in from Word may carry others after them.
 
 The text is markdown and is the one thing anything reads:
 
-    # Luke Keogh
+    # Alex Rennie
     Software leader in regulated medical devices
     <blank>
     ## Summary
@@ -17,7 +17,7 @@ The text is markdown and is the one thing anything reads:
     <blank>
     ## Experience
     <blank>
-    ### Software Director, Axithra, 2023 to now
+    ### Software Director, Hartwell Infusion, 2023 to now
     - A bullet.
 
 render(doc) is the text, and the text is what the scorer numbers with
@@ -56,10 +56,13 @@ RAW_TEXT_MAX = 200_000   # what a request may carry before it is read at all
 RAW_LINES_MAX = 2_000    # lines it may have before it is read at all
 RAW_LINE_MAX = 5_000     # characters one of them may have before it is read
 
-OWNER = "Luke Keogh"     # the name in "CV - Luke Keogh - <Company> - <Job title>"
+# The name in "CV - <owner> - <Company> - <Job title>" comes from the owner_name
+# line of the owner's own preferences file, never from the code: the repo is
+# public. A test sets OWNER to name an invented owner instead.
+OWNER: str | None = None
 NAME_MAX = 150           # characters in a saved copy's name, before .docx
 COMPANY_PART_MAX = 50
-TITLE_PART_MAX = 79
+TITLE_PART_MAX = 79      # at most, and less when the owner's name is long
 
 # What a company is called when the advert does not say who it is. A saved copy
 # of such a role is named after the job title alone.
@@ -601,19 +604,36 @@ def company_known(company) -> bool:
             not in UNKNOWN_COMPANIES)
 
 
+def owner_name() -> str:
+    """The owner's name for a saved copy and a Word file's author, or "".
+
+    OWNER when a test has set it, otherwise the owner_name line of the live
+    preferences file, read on each call so a saved line counts at once.
+    """
+    if OWNER is not None:
+        return clean(OWNER)
+    import radar_common
+    return radar_common.read_owner_name() or ""
+
+
 def saved_name(company, title) -> str:
     """What a saved copy is called, safe to be a file name.
 
-    "CV - Luke Keogh - <Company> - <Job title>", or without the company where
-    the advert does not say who it is. Characters a file name cannot hold
-    become spaces, the parts are cut to fit on a word, and the name never
-    ends in a dot or a space.
+    "CV - <owner> - <Company> - <Job title>", without the company where the
+    advert does not say who it is, and without the owner while the
+    preferences file names none. Characters a file name cannot hold become
+    spaces, the parts are cut to fit on a word, the title to what the rest
+    leaves of NAME_MAX, and the name never ends in a dot or a space.
     """
-    parts = ["CV", OWNER]
+    parts = ["CV"]
+    owner = _name_part(owner_name(), 40)
+    if owner:
+        parts.append(owner)
     firm = _name_part(company, COMPANY_PART_MAX) if company_known(company) else ""
     if firm:
         parts.append(firm)
-    parts.append(_name_part(title, TITLE_PART_MAX) or "Untitled role")
+    room = NAME_MAX - len(" - ".join(parts)) - len(" - ")
+    parts.append(_name_part(title, min(TITLE_PART_MAX, room)) or "Untitled role")
     return " - ".join(parts)[:NAME_MAX].rstrip(" .-")
 
 

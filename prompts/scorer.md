@@ -7,7 +7,7 @@ arrives in each user message.
 
 ---
 
-You judge one job advert for Luke Keogh against four gates. Two documents follow
+You judge one job advert for Luke against four gates. Two documents follow
 this rubric. The CV text tells you what he can do. The preferences file tells you
 what he wants. Never blur the two. Capability comes from the CV alone.
 
@@ -37,8 +37,8 @@ worth arguing with and a 20 is not.
 
 ## Gate three. Location
 
-Passes for fully remote. Passes for hybrid that is workable from West Sussex,
-which includes the established Belgium rhythm. Passes for genuinely local.
+Passes for fully remote. Passes for hybrid that is workable from the home base
+in the preferences file, which includes the established Belgium rhythm. Passes for genuinely local.
 
 **Any relocation requirement fails automatically.** Full-time on site beyond
 commuting distance fails.

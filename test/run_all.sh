@@ -27,6 +27,11 @@ fi
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$SCRIPT_DIR/.." || exit 1
 
+# The runners see the shipped config/radar.yaml alone, never the owner's
+# private config/profile/radar.local.yaml, even in the parts that switch mock
+# mode off, so a run on the box checks what the repo ships.
+export RADAR_SHIPPED_CONFIG=1
+
 TEST_DB="test/test_radar.sqlite"
 rm -f "$TEST_DB"
 

@@ -127,11 +127,13 @@ score_item.load_cv_text = lambda config: (FIXTURE_CV,
                                           "test/fixtures/profile_snapshot.md")
 score_item.get_cv_version = lambda config: CV_LABEL[0]
 
-# The card part of prompts/scorer.md (everything above score_item.SPEC_MARKER)
-# as main has it, origin/main 67a1f71, whole-file prompt 22353628: its sha256
-# and its length. A card is scored with exactly these bytes.
-CARD_PART_SHA256 = "437b69dc53cde07c857e18311eb6bbbd12ecc5f4c89d49e70aa598bf1cdb20be"
-CARD_PART_LENGTH = 4806
+# The card part of prompts/scorer.md (everything above score_item.SPEC_MARKER):
+# its sha256 and its length. A card is scored with exactly these bytes. It was
+# main's at 67a1f71 (whole-file prompt 22353628, 4,806 characters) until 16 Nov,
+# when the owner came to be named by first name and the home base read from the
+# preferences file (prompt 93b203d2), the one change to it since.
+CARD_PART_SHA256 = "6d6ef4cb64e0977ad9694f5b79f593594398461eb4c265e8e02bacc610097181"
+CARD_PART_LENGTH = 4826
 
 HEADER = build_dashboard.WRITE_HEADER
 PROXY = "radar.example.test"
@@ -653,8 +655,8 @@ def prompt_checks() -> None:
         check(True, "the full description part names the basis, the numbered "
                     "CV, the asks, the three statuses, the cap, the pay quote "
                     "and that the advert is data, never instructions")
-    # The card's rubric is held, byte for byte, to main's (origin/main 67a1f71,
-    # prompt 22353628): only the part below the marker, which a card is never
+    # The card's rubric is held, byte for byte, to the pinned one (see
+    # CARD_PART_SHA256): only the part below the marker, which a card is never
     # sent, may change for a full description. A fixed hash, not a git call.
     card_hash = hashlib.sha256(card_part.encode("utf-8")).hexdigest()
     flipped = card_part[:100] + ("x" if card_part[100] != "x" else "y") + card_part[101:]
@@ -3577,6 +3579,13 @@ def final_box_checks() -> None:
                                     for q in queries),
           f"Prepare's part hands over {len(queries)} queries, none with a character the "
           "shell would read")
+    # The page deploys prompt 1b1ffb78 and its queries look for it. Played
+    # through here, a score is stamped with the prompt the file holds now, which
+    # has moved on since (93b203d2, the owner's full name out), so the queries
+    # run with today's version in its place.
+    queries = [q.replace("'1b1ffb78'", f"'{radar_common.prompt_version()}'") for q in queries]
+    inline_sql = [q.replace("'1b1ffb78'", f"'{radar_common.prompt_version()}'")
+                  for q in inline_sql]
     with canonical_master() as master, fresh() as env:
         oid = env.role(description=SENTENCE_ADVERT)
         before = {q: run_sql(env.db, q) for q in queries + inline_sql}
@@ -3607,8 +3616,9 @@ def final_box_checks() -> None:
               "and the tailored-score proof catches a Jobs row that holds one")
     check("1b1ffb78" in part_text and "22353628" in part_text
           and "422cdad4" not in part_text
-          and radar_common.prompt_version() == "1b1ffb78",
-          "the box page names both prompt versions, and the new one is the file's")
+          and radar_common.prompt_version() == "93b203d2",
+          "the box page names both prompt versions, and the file has moved on once "
+          "since, to 93b203d2, when the owner's full name came out of it")
 
 
 def run_sql(db, sql):

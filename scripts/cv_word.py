@@ -162,8 +162,9 @@ def build(text: str, title: str = "", design: dict | None = None) -> bytes:
 
     props = document.core_properties
     props.title = cv_doc.clean(title)
-    props.author = cv_doc.OWNER
-    props.last_modified_by = cv_doc.OWNER
+    owner = cv_doc.owner_name()
+    props.author = owner
+    props.last_modified_by = owner
     props.comments = ""
     props.subject = ""
     props.keywords = ""
