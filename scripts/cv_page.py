@@ -228,9 +228,81 @@ var RadarCv = (function () {
     });
     return best;
   }
+  // cv_doc.estimate_pages and cv_doc.clean_design: where the A4 pages of the
+  // Word file would break, estimated from the template's sizes.
+  var DESIGN_CHOICES = { font: ['Arial', 'Calibri', 'Georgia'], size: [10, 10.5, 11],
+                         spacing: ['compact', 'standard', 'relaxed'], margins: [15, 20, 25] };
+  var DESIGN_DEFAULT = { font: 'Arial', size: 10.5, spacing: 'standard', margins: 20 };
+  var CHAR_EM = { Arial: 0.5, Calibri: 0.46, Georgia: 0.54 };
+  var SPACING = { compact: 0.5, standard: 1.0, relaxed: 1.5 };
+  var PT_PER_MM = 72 / 25.4;
+  function cleanDesign(value) {
+    var out = { font: DESIGN_DEFAULT.font, size: DESIGN_DEFAULT.size,
+                spacing: DESIGN_DEFAULT.spacing, margins: DESIGN_DEFAULT.margins };
+    if (value && typeof value === 'object') {
+      Object.keys(DESIGN_CHOICES).forEach(function (k) {
+        var got = value[k];
+        if (typeof got === 'boolean') return;
+        if (DESIGN_CHOICES[k].indexOf(got) >= 0) out[k] = got;
+      });
+    }
+    return out;
+  }
+  function round1(x) { return Math.round(x * 10) / 10; }
+  function pages(lines, design) {
+    design = cleanDesign(design);
+    var body = design.size;
+    var sizes = { 'Normal': body, 'Heading 1': round1(body * 18 / 10.5),
+                  'Heading 2': round1(body * 13 / 10.5), 'Heading 3': round1(body * 11 / 10.5) };
+    var spacing = SPACING[design.spacing];
+    var em = CHAR_EM[design.font];
+    var side = design.margins * PT_PER_MM;
+    var usable = (297 - 2 * (design.margins - 2)) * PT_PER_MM;
+    var width = 210 * PT_PER_MM - 2 * side;
+    function height(l) {
+      if (!l) return 0;
+      var style = 'Normal', words = l, indent = 0, before = 0;
+      var marks = [['### ', 'Heading 3'], ['## ', 'Heading 2'], ['# ', 'Heading 1']];
+      var found = false;
+      for (var i = 0; i < marks.length; i += 1) {
+        if (l.indexOf(marks[i][0]) === 0) {
+          style = marks[i][1]; words = l.slice(marks[i][0].length);
+          before = style === 'Heading 1' ? 0 : 12 * spacing;
+          found = true;
+          break;
+        }
+      }
+      if (!found && l.indexOf('- ') === 0) { words = l.slice(2); indent = 18; }
+      var size = sizes[style];
+      var perLine = Math.max(1, Math.floor((width - indent)
+        / (size * em * (style !== 'Normal' ? 1.05 : 1.0))));
+      var rows = Math.max(1, Math.ceil(Array.from(words).length / perLine));
+      return before + rows * size * 1.15 + 4 * spacing;
+    }
+    var heights = lines.map(height);
+    var out = [];
+    var used = 0;
+    lines.forEach(function (l, i) {
+      var n = i + 1, h = heights[i];
+      if (!l) { if (out.length) out[out.length - 1].last = n; return; }
+      var need = h;
+      if (l.charAt(0) === '#') {
+        var nxt = 0;
+        for (var j = i + 1; j < lines.length; j += 1) { if (lines[j]) { nxt = heights[j]; break; } }
+        need = h + nxt;
+      }
+      if (!out.length || (used > 0 && used + need > usable)) {
+        out.push({ page: out.length + 1, first: n, last: n });
+        used = 0;
+      }
+      used += h;
+      out[out.length - 1].last = n;
+    });
+    return out.length ? out : [{ page: 1, first: 1, last: lines.length }];
+  }
   return { STANDARD: STANDARD, clean: clean, stripMarks: stripMarks,
            cleanPlain: cleanPlain, line: line, layout: layout, text: text,
-           key: key, findLine: findLine };
+           key: key, findLine: findLine, pages: pages, cleanDesign: cleanDesign };
 })();
 """
 
@@ -244,6 +316,18 @@ CV_EDITOR_JS = r"""
   var doc = data.doc;
   var editable = !!data.editable;
   var busy = false;
+  // The CV page draws the master as a sheet, edited in place one part at a
+  // time: the head (name and headline) or a section. A part is read until it
+  // is opened, by Enter or a click, and only the open part has fields. The
+  // Prepare page has no sheet and every line is a field, as before.
+  var sheet = !!data.sheet;
+  var openPart = null;
+  var original = JSON.stringify(doc);
+  var undoStack = [];
+  var redoStack = [];
+  var lastSnap = { place: null, at: 0 };
+  var design = C.cleanDesign ? C.cleanDesign(data.design) : null;
+  var target = host;
   // Set as the page reloads itself, after Applied or a master save, so
   // leaving does not ask about a text that has just been stored.
   var leaving = false;
@@ -346,7 +430,7 @@ CV_EDITOR_JS = r"""
     mark.textContent = kind === 'bullet' ? '•' : '';
     div.appendChild(mark);
     var t;
-    if (editable && opts.edit) {
+    if (editable && opts.edit && editing(partOf(place))) {
       t = document.createElement('textarea');
       t.rows = 1;
       t.value = words;
@@ -358,7 +442,7 @@ CV_EDITOR_JS = r"""
     }
     t.className = 'cvl-t';
     div.appendChild(t);
-    if (editable && opts.ops) {
+    if (editable && opts.ops && editing(partOf(place))) {
       var ops = document.createElement('span');
       ops.className = 'cvl-ops';
       opts.ops.forEach(function (op) {
@@ -373,10 +457,14 @@ CV_EDITOR_JS = r"""
       });
       div.appendChild(ops);
     }
-    host.appendChild(div);
+    if (sheet && !editing(partOf(place))) {
+      var level = { h2: 3, h3: 4 }[kind];
+      if (level) { div.setAttribute('role', 'heading'); div.setAttribute('aria-level', String(level)); }
+    }
+    target.appendChild(div);
   }
   function adders(list) {
-    if (!editable) return;
+    if (!editable || !list.length || !editing(partOf(list[0][1]))) return;
     var div = document.createElement('div');
     div.className = 'cv-add';
     list.forEach(function (a) {
@@ -387,7 +475,35 @@ CV_EDITOR_JS = r"""
       b.textContent = a[2];
       div.appendChild(b);
     });
+    target.appendChild(div);
+  }
+  // Which part a place belongs to, and whether its lines are fields now:
+  // always off the sheet, and on the sheet only in the open part.
+  function partOf(place) {
+    var m = /^s(\d+)/.exec(place || '');
+    return m ? 's' + m[1] : 'head';
+  }
+  function editing(key) { return !sheet || (openPart !== null && openPart === key); }
+  function part(key, label) {
+    var div = document.createElement('div');
+    div.className = 'cv-part ' + (key === 'head' ? 'cv-head' : 'cv-sec');
+    div.setAttribute('data-part', key);
+    div.setAttribute('data-title', label);
+    if (sheet && editable) {
+      div.setAttribute('tabindex', '0');
+      div.setAttribute('role', 'group');
+      if (openPart === key) div.classList.add('is-editing');
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn btn-secondary cv-part-edit';
+      b.setAttribute('data-part-toggle', key);
+      b.textContent = openPart === key ? 'Done' : 'Edit';
+      b.setAttribute('aria-label', (openPart === key ? 'Done editing ' : 'Edit ') + label);
+      div.appendChild(b);
+    }
     host.appendChild(div);
+    target = div;
+    return div;
   }
   var LINE_OPS = [['up', '↑', 'Move up'], ['down', '↓', 'Move down'],
                   ['kind', '•', 'Bullet or paragraph'], ['del', '×', 'Delete this line']];
@@ -401,6 +517,7 @@ CV_EDITOR_JS = r"""
   }
   function drawRows() {
     host.textContent = '';
+    part('head', 'Name and headline');
     row('name', 'h1', doc.name, { edit: true, label: 'Name' });
     doc.headline.forEach(function (h, i) {
       row('h.' + i, 'plain', h, { edit: true, label: 'Headline line',
@@ -409,6 +526,7 @@ CV_EDITOR_JS = r"""
     adders([['line', 'h', '+ Headline line']]);
     doc.sections.forEach(function (sec, s) {
       var standard = C.STANDARD.indexOf(sec.title) >= 0;
+      part('s' + s, sec.title || 'Untitled section');
       row('s' + s + '.g', 'blank', '', {});
       row('s' + s + '.t', 'h2', sec.title, { edit: !standard, label: 'Section title',
           ops: standard ? null : [['delsec', '×', 'Delete this section']] });
@@ -431,6 +549,7 @@ CV_EDITOR_JS = r"""
       });
       adders([['entry', 's' + s, '+ Entry']]);
     });
+    target = host;
     all('textarea.cvl-t', host).forEach(grow);
     renumber();
   }
@@ -460,8 +579,68 @@ CV_EDITOR_JS = r"""
       if (n) div.setAttribute('data-n', String(n));
       else div.removeAttribute('data-n');
     });
+    if (sheet) { labelParts(); paginate(); }
     mark();
     shown(false);
+    if (sheet) changed();
+  }
+  // The numbers of a part's lines with words, the blank lines between left out.
+  function lineNumbers(p) {
+    return all('.cvl[data-n]', p).filter(function (r) { return !r.classList.contains('cvl-blank'); })
+      .map(function (r) { return Number(r.getAttribute('data-n')); });
+  }
+  // Each part's name for a screen reader: what it is, its lines, and what
+  // Enter or Escape does to it now.
+  function labelParts() {
+    all('.cv-part', host).forEach(function (p) {
+      var nums = lineNumbers(p);
+      var title = p.getAttribute('data-title');
+      var key = p.getAttribute('data-part');
+      var where = nums.length ? (nums.length === 1 ? 'line ' + nums[0]
+        : 'lines ' + Math.min.apply(null, nums) + ' to ' + Math.max.apply(null, nums)) : 'empty';
+      var kind = key === 'head' ? '' : ', section';
+      p.setAttribute('aria-label', title + kind + ', ' + where + (openPart === key
+        ? '. Open for editing, Escape to close' : editable ? '. Enter to edit' : ''));
+    });
+  }
+  // The A4 pages, as the Word file would break them: a break drawn before the
+  // first line of each page after the first, the two-page limit marked, and
+  // every line past it marked. An estimate from the template's sizes.
+  var pageList = [];
+  function paginate() {
+    all('.cv-break', host).forEach(function (b) {
+      if (b.parentNode && b.parentNode.children) {
+        var i = b.parentNode.children.indexOf ? b.parentNode.children.indexOf(b) : -1;
+        if (b.parentNode.removeChild) b.parentNode.removeChild(b);
+        else if (i >= 0) b.parentNode.children.splice(i, 1);
+      }
+    });
+    all('.cv-over', host).forEach(function (r) { r.classList.remove('cv-over'); });
+    pageList = C.pages(current.lines, design);
+    var total = pageList.length;
+    pageList.forEach(function (pg) {
+      if (pg.page === 1) return;
+      var first = host.querySelector('.cvl[data-n="' + pg.first + '"]');
+      if (!first || !first.parentNode) return;
+      var brk = document.createElement('div');
+      brk.className = 'cv-break' + (pg.page === 3 ? ' is-limit' : '');
+      brk.setAttribute('role', 'separator');
+      brk.setAttribute('id', 'page-' + pg.page);
+      brk.setAttribute('tabindex', '-1');
+      var words = 'Page ' + pg.page + ' of ' + total + ', from line ' + pg.first;
+      if (pg.page === 3) words = 'Over the two-page limit. ' + words;
+      brk.setAttribute('aria-label', words);
+      var label = document.createElement('span');
+      label.className = 'cv-break-label';
+      label.textContent = (pg.page === 3 ? '\u26a0 ' : '') + words;
+      brk.appendChild(label);
+      first.parentNode.insertBefore(brk, first);
+    });
+    if (total > 2) {
+      all('.cvl[data-n]', host).forEach(function (r) {
+        if (Number(r.getAttribute('data-n')) >= pageList[2].first) r.classList.add('cv-over');
+      });
+    }
   }
   // Is the copy on screen another text than the one the page took. What
   // the Download hint, the edited-since note, Applied and leaving the page
@@ -572,6 +751,7 @@ CV_EDITOR_JS = r"""
     var t = e.target;
     var place = t.getAttribute ? t.getAttribute('data-edit') : null;
     if (!place) return;
+    snap(place);
     var parts = String(t.value).split(/\r\n|\r|\n/);
     if (parts.length > 1 && owner(place)) {
       var o = owner(place);
@@ -593,9 +773,17 @@ CV_EDITOR_JS = r"""
     var place = t.getAttribute ? t.getAttribute('data-edit') : null;
     if (!place) return;
     var o = owner(place);
+    if (e.key === 'Escape' && sheet) {
+      // Escape leaves the line for its part; Escape on the part closes it.
+      e.preventDefault();
+      var wrap = t.closest ? t.closest('.cv-part') : null;
+      if (wrap) wrap.focus();
+      return;
+    }
     if (e.key === 'Enter') {
       e.preventDefault();
       if (!o) return;
+      snap(null);
       var v = String(t.value);
       var cut = typeof t.selectionStart === 'number' ? t.selectionStart : v.length;
       var end = typeof t.selectionEnd === 'number' ? t.selectionEnd : cut;
@@ -605,6 +793,7 @@ CV_EDITOR_JS = r"""
       focus(placeOf(o.base, o.i + 1), 0);
     } else if (e.key === 'Backspace' && t.value === '' && o) {
       e.preventDefault();
+      snap(null);
       o.list.splice(o.i, 1);
       draw();
       if (o.i > 0) focus(placeOf(o.base, o.i - 1), read(placeOf(o.base, o.i - 1)).length);
@@ -639,6 +828,7 @@ CV_EDITOR_JS = r"""
   function op(kind, place) {
     var m;
     var o = owner(place);
+    snap(null);
     if (o && (kind === 'up' || kind === 'down')) {
       var j = kind === 'up' ? o.i - 1 : o.i + 1;
       if (j < 0 || j >= o.list.length) return;
@@ -677,6 +867,7 @@ CV_EDITOR_JS = r"""
   }
   function add(kind, at) {
     var m;
+    snap(null);
     if (at === 'h') {
       doc.headline.push('');
       draw(); focus('h.' + (doc.headline.length - 1));
@@ -705,6 +896,134 @@ CV_EDITOR_JS = r"""
     if (b.hasAttribute('data-op')) op(b.getAttribute('data-op'), b.getAttribute('data-at'));
     else add(b.getAttribute('data-add'), b.getAttribute('data-at'));
   });
+
+  // ------------------------------------------------- the sheet's parts
+  // Undo and Redo cover what has not been saved: each change keeps the CV as
+  // it was before it, and typing in one line is one change until another line
+  // is touched or a second and a half goes by.
+  function snap(place) {
+    if (!sheet) return;
+    var now = Date.now();
+    if (place && place === lastSnap.place && now - lastSnap.at < 1500) {
+      lastSnap.at = now;
+      return;
+    }
+    undoStack.push(JSON.stringify(doc));
+    if (undoStack.length > 200) undoStack.shift();
+    redoStack = [];
+    lastSnap = { place: place, at: now };
+  }
+  function restore(from, to) {
+    if (!from.length || busy) return false;
+    to.push(JSON.stringify(doc));
+    doc = JSON.parse(from.pop());
+    lastSnap = { place: null, at: 0 };
+    var m = /^s(\d+)$/.exec(openPart || '');
+    if (m && +m[1] >= doc.sections.length) openPart = null;
+    draw();
+    return true;
+  }
+  function partEl(key) { return host.querySelector('.cv-part[data-part="' + key + '"]'); }
+  function openAt(key, place) {
+    if (!sheet || !editable || busy) return;
+    openPart = key;
+    draw();
+    var t = place ? host.querySelector('textarea[data-edit="' + place + '"]') : null;
+    if (!t) {
+      var wrap = partEl(key);
+      t = wrap ? wrap.querySelector('textarea') : null;
+    }
+    if (t) t.focus();
+  }
+  function closePart() {
+    var key = openPart;
+    openPart = null;
+    draw();
+    var wrap = key ? partEl(key) : null;
+    if (wrap) wrap.focus();
+  }
+  function moveSection(from, to) {
+    if (from < 0 || to < 0 || from >= doc.sections.length || to >= doc.sections.length
+        || from === to || busy) return false;
+    snap(null);
+    var keyOpen = openPart;
+    var sec = doc.sections.splice(from, 1)[0];
+    doc.sections.splice(to, 0, sec);
+    if (keyOpen === 's' + from) openPart = 's' + to;
+    else if (keyOpen && /^s\d+$/.test(keyOpen)) {
+      var k = +keyOpen.slice(1);
+      if (from < k && to >= k) openPart = 's' + (k - 1);
+      else if (from > k && to <= k) openPart = 's' + (k + 1);
+    }
+    draw();
+    return true;
+  }
+  function addSection(title, after) {
+    if (!editable || busy) return null;
+    snap(null);
+    var at = Math.max(-1, Math.min(after, doc.sections.length - 1)) + 1;
+    doc.sections.splice(at, 0, { title: title || '', lines: [{ b: false, t: '' }], entries: [] });
+    openAt('s' + at, title ? 's' + at + '.l0' : 's' + at + '.t');
+    return at;
+  }
+  function counted() {
+    // Lines that differ from the text the page took: a changed line once.
+    var was = {};
+    (data.lines || []).forEach(function (l) { if (l) was[l] = (was[l] || 0) + 1; });
+    var added = 0;
+    current.lines.forEach(function (l) {
+      if (!l) return;
+      if (was[l]) was[l] -= 1; else added += 1;
+    });
+    var removed = 0;
+    Object.keys(was).forEach(function (k) { removed += was[k]; });
+    return Math.max(added, removed);
+  }
+  function changed() {
+    var api = window.RadarCvEditor;
+    if (api && typeof api.onchange === 'function') api.onchange(api.state());
+  }
+  if (sheet) {
+    host.addEventListener('keydown', function (e) {
+      var t = e.target;
+      if (!t || !t.classList || !t.classList.contains('cv-part')) return;
+      var key = t.getAttribute('data-part');
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        openAt(key, null);
+      } else if (e.key === 'Escape' && openPart === key) {
+        e.preventDefault();
+        closePart();
+      } else if (e.altKey && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')
+                 && /^s\d+$/.test(key)) {
+        e.preventDefault();
+        var i = +key.slice(1);
+        var j = e.key === 'ArrowUp' ? i - 1 : i + 1;
+        if (moveSection(i, j)) {
+          var moved = partEl('s' + j);
+          if (moved) moved.focus();
+          var live = document.getElementById('cv-live');
+          if (live) live.textContent = doc.sections[j].title + ' moved to position ' + (j + 1)
+            + ' of ' + doc.sections.length + '.';
+        }
+      }
+    });
+    host.addEventListener('click', function (e) {
+      if (!editable || busy) return;
+      var toggle = e.target.closest ? e.target.closest('[data-part-toggle]') : null;
+      if (toggle) {
+        var key = toggle.getAttribute('data-part-toggle');
+        if (openPart === key) closePart(); else openAt(key, null);
+        return;
+      }
+      var wrap = e.target.closest ? e.target.closest('.cv-part') : null;
+      if (!wrap) return;
+      var key2 = wrap.getAttribute('data-part');
+      if (openPart === key2) return;
+      var line = e.target.closest('.cvl[data-place]');
+      openAt(key2, line ? line.getAttribute('data-place') : null);
+    });
+  }
 
   // -------------------------------------------------------- the buttons
   function lock(on) {
@@ -781,6 +1100,10 @@ CV_EDITOR_JS = r"""
         if (btn) btn.textContent = was;
         if (!j || j.ok === false) {
           say((j && j.note) || 'That did not run.', true);
+          if (sheet) {
+            var api = window.RadarCvEditor;
+            if (api && typeof api.onfail === 'function') api.onfail(j || {});
+          }
           return;
         }
         if (act === 'apply' || act === 'master') {
@@ -829,6 +1152,61 @@ CV_EDITOR_JS = r"""
     e.returnValue = '';
   });
 
+  if (sheet) {
+    // What the CV page's toolbar, dialogs and keys work through.
+    window.RadarCvEditor = {
+      onchange: null,
+      state: function () {
+        return { edited: edited(), unsaved: edited() ? counted() : 0,
+                 canUndo: undoStack.length > 0, canRedo: redoStack.length > 0,
+                 pages: pageList.slice(), lines: current.lines.slice(),
+                 open: openPart, busy: busy, editable: editable };
+      },
+      sections: function () {
+        return doc.sections.map(function (sec, i) {
+          var wrap = partEl('s' + i);
+          var nums = wrap ? lineNumbers(wrap) : [];
+          return { title: sec.title, standard: C.STANDARD.indexOf(sec.title) >= 0,
+                   first: nums.length ? Math.min.apply(null, nums) : null,
+                   last: nums.length ? Math.max.apply(null, nums) : null };
+        });
+      },
+      order: function (titles) {
+        // Put the sections in a new order, given as their old positions.
+        if (!Array.isArray(titles) || titles.length !== doc.sections.length) return false;
+        var seen = {};
+        if (!titles.every(function (i) { var ok = typeof i === 'number' && !seen[i]
+          && i >= 0 && i < doc.sections.length; seen[i] = true; return ok; })) return false;
+        if (titles.every(function (i, k) { return i === k; })) return true;
+        snap(null);
+        var old = doc.sections.slice();
+        doc.sections = titles.map(function (i) { return old[i]; });
+        openPart = null;
+        draw();
+        return true;
+      },
+      move: moveSection,
+      addSection: addSection,
+      focused: function () {
+        var a = document.activeElement;
+        var wrap = a && a.closest ? a.closest('#cv-editor .cv-part') : null;
+        var m = wrap ? /^s(\d+)$/.exec(wrap.getAttribute('data-part')) : null;
+        return m ? +m[1] : (wrap ? -1 : null);
+      },
+      undo: function () { return restore(undoStack, redoStack); },
+      redo: function () { return restore(redoStack, undoStack); },
+      discard: function () {
+        if (busy) return false;
+        doc = JSON.parse(original);
+        undoStack = []; redoStack = []; openPart = null;
+        draw();
+        return true;
+      },
+      setDesign: function (d) { design = C.cleanDesign(d); renumber(); },
+      pagesFor: function (d) { return C.pages(current.lines, d); },
+      focusPart: function (i) { var w = partEl(i < 0 ? 'head' : 's' + i); if (w) w.focus(); }
+    };
+  }
   if (frozen) mark();
   else draw();
   shown(false);

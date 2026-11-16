@@ -214,20 +214,35 @@ def _write_version(text: str, base: Path) -> Path:
     return dest
 
 
-def confirm(token: str, base: Path | None = None) -> dict:
+def confirm(token: str, base: Path | None = None, laid_out: bool = False) -> dict:
     """Promote a pending upload to the active CV. History stays whole.
 
     This is the one-off import of the master from a Word file. The master is
     edited on the CV page from then on, and saving it there goes through
     save_master below, which writes a version the same way.
+
+    laid_out, which the CV page's Word import asks for, saves the text as the
+    editor lays it out (cv_doc.accept), which is what the page showed with
+    its differences before the confirm, so the new version is in the editor's
+    layout at once. A text the layout cannot take, one with no name say, is
+    saved as it was read, as before, and the page then says it is not laid
+    out yet. "laid_out" in the answer says which happened.
     """
     base = base or PROFILE_DIR
     with _CONFIRM_LOCK:
         pending = _pending_path(token, base)
         text = pending.read_text(encoding="utf-8")
+        done = False
+        if laid_out:
+            import cv_doc
+            try:
+                _doc, text = cv_doc.accept(text)
+                done = True
+            except cv_doc.CvError:
+                pass
         dest = _write_version(text, base)
         pending.unlink()
-        return {"file": dest.name, "version": dest.name}
+        return {"file": dest.name, "version": dest.name, "laid_out": done}
 
 
 class StaleMaster(UploadError):
@@ -321,3 +336,47 @@ def active_cv_name(base: Path | None = None) -> str | None:
 def history(base: Path | None = None) -> list[str]:
     base = base or PROFILE_DIR
     return sorted((p.name for p in base.glob("cv-*.md")), reverse=True)
+
+
+# ----------------------------------------------------------- the Design
+#
+# How the sheet and the Word file look, from the CV page's Design dialog: one
+# small JSON file beside the versions, cv.design.json, gitignored with them.
+# A design is not a version of the CV: the text and its line numbers do not
+# change, so the scorer reads exactly what it read before.
+
+DESIGN_NAME = "cv.design.json"
+
+
+def read_design(base: Path | None = None) -> dict:
+    """The saved design, cleaned, or the template's default when none is
+    saved or the file cannot be read."""
+    import json
+    import cv_doc
+    path = (base or PROFILE_DIR) / DESIGN_NAME
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raw = None
+    return cv_doc.clean_design(raw)
+
+
+def save_design(value, base: Path | None = None) -> dict:
+    """Save a design in one step and return it as stored. Every choice must
+    be one the dialog offers; UploadError names the first that is not."""
+    import json
+    import cv_doc
+    if not isinstance(value, dict):
+        raise UploadError("The design must be sent as an object.")
+    for key, allowed in cv_doc.DESIGN_CHOICES.items():
+        got = value.get(key, cv_doc.DESIGN_DEFAULT[key])
+        if cv_doc.clean_design({key: got})[key] != got and got != cv_doc.DESIGN_DEFAULT[key]:
+            raise UploadError(f"{key} must be one of "
+                              + ", ".join(str(a) for a in allowed) + ".")
+    design = cv_doc.clean_design(value)
+    base = base or PROFILE_DIR
+    base.mkdir(parents=True, exist_ok=True)
+    staged = base / f".{DESIGN_NAME}.{secrets.token_hex(4)}"
+    staged.write_text(json.dumps(design, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(staged, base / DESIGN_NAME)
+    return design

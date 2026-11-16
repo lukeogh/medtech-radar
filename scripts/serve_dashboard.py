@@ -86,6 +86,7 @@ import insights_page
 import page_frame
 import cv_doc
 import cv_page
+import cv_screen
 import cv_store
 import home_page
 import prepare_application
@@ -1040,226 +1041,31 @@ def set_applied(item_id: int, on: bool, cv: str | None = None) -> dict:
         conn.close()
 
 
-CV_SCRIPT = """
-(function () {
-  var input = document.getElementById('cv-file');
-  var preview = document.getElementById('cv-preview');
-  var stagePane = document.getElementById('cv-stage');
-  var note = document.getElementById('cv-note');
-  var token = null;
-  function say (text, bad) {
-    note.textContent = text;
-    note.className = 'cv-note' + (bad ? ' bad' : '');
-  }
-  function post (url, body, headers) {
-    return fetch(url, { method: 'POST', body: body, headers: headers || {} })
-      .then(function (r) { return r.json().then(function (j) {
-        if (!r.ok) throw new Error(j.note || ('HTTP ' + r.status));
-        return j;
-      }); });
-  }
-  if (input) input.addEventListener('change', function () {
-    var file = input.files && input.files[0];
-    if (!file) return;
-    say('Extracting ' + file.name + '\\u2026');
-    post('/cv/preview', file, { 'X-Filename': file.name })
-      .then(function (j) {
-        token = j.token;
-        preview.textContent = j.markdown;
-        stagePane.hidden = false;
-        say('Read it. Confirm makes this the active CV, Discard forgets it.');
-      })
-      .catch(function (err) { say(err.message, true); });
-  });
-  var confirmBtn = document.getElementById('cv-confirm');
-  if (confirmBtn) confirmBtn.addEventListener('click', function () {
-    if (!token) return;
-    confirmBtn.disabled = true;
-    post('/cv/confirm', JSON.stringify({ token: token }),
-         { 'Content-Type': 'application/json' })
-      .then(function () { location.reload(); })
-      .catch(function (err) { confirmBtn.disabled = false; say(err.message, true); });
-  });
-  var discardBtn = document.getElementById('cv-discard');
-  if (discardBtn) discardBtn.addEventListener('click', function () {
-    if (!token) return;
-    post('/cv/discard', JSON.stringify({ token: token }),
-         { 'Content-Type': 'application/json' })
-      .then(function () { location.reload(); })
-      .catch(function (err) { say(err.message, true); });
-  });
-  var rescoreBtn = document.getElementById('cv-rescore');
-  var rescoreNote = document.getElementById('cv-rescore-note');
-  if (rescoreBtn) rescoreBtn.addEventListener('click', function () {
-    if (!window.confirm('Re-score up to 25 unacknowledged items against '
-        + 'the active CV? This spends real tokens.')) return;
-    rescoreBtn.disabled = true;
-    rescoreBtn.textContent = 'Re-scoring';
-    post('/cv/rescore', JSON.stringify({ confirm: true }),
-         { 'Content-Type': 'application/json' })
-      .then(function (j) {
-        rescoreBtn.disabled = false;
-        rescoreBtn.textContent = 'Re-score stale items';
-        rescoreNote.textContent = 'Re-scored ' + (j.stale_rescored || 0)
-          + ', still stale ' + (j.remaining_stale || 0) + '.';
-      })
-      .catch(function (err) {
-        rescoreBtn.disabled = false;
-        rescoreBtn.textContent = 'Re-score stale items';
-        rescoreNote.textContent = err.message;
-      });
-  });
-})();
-"""
-
-CV_CSS = """
-.cv-wrap{max-width:96ch}
-.cv-note{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2);margin:var(--space-12) 0}
-.cv-note.bad{color:var(--fail)}
-.cv-preview{font:400 var(--text-xs)/1.6 var(--font-mono);background:var(--surface);border:1px solid var(--panel-rule);border-radius:var(--radius);padding:var(--space-16);white-space:pre-wrap;max-height:420px;overflow:auto}
-.cv-history{font:400 var(--text-sm)/1.9 var(--font-sans);color:var(--ink-2);margin:0;padding-left:1.2em}
-input[type=file]{font:400 var(--text-sm)/1.55 var(--font-sans);color:var(--ink-2)}
-"""
+def render_cv_page(query: dict | None = None) -> bytes:
+    """The CV page, which lives in cv_screen.py: the master CV on its sheet,
+    its versions, the Preferences tab, the Word import and Rescore affected.
+    query is the address's parsed query (view, compare)."""
+    return cv_screen.render_page(radar_common.load_config(), db_path(),
+                                 job_verdicts_now(), query or {})
 
 
 def version_when(name: str | None) -> str:
-    """When a master CV version was saved, from its dated name, or from the
-    file's own date for a cv.txt or cv.pdf. Empty when there is no telling."""
-    import re
-    found = re.match(r"^cv-(\d{8})-(\d{6})(?:-\d+)?\.md$", name or "")
-    if found:
-        try:
-            when = datetime.strptime(found.group(1) + found.group(2),
-                                     "%Y%m%d%H%M%S")
-        except ValueError:
-            return ""
-        return f"{when.day} {when:%b %Y} at {when:%H:%M} UTC"
-    path = cv_store.PROFILE_DIR / (name or "")
-    if name and path.is_file():
-        when = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
-        return f"{when.day} {when:%b %Y} at {when:%H:%M} UTC"
-    return ""
+    return cv_screen.version_when(name)
 
 
-def render_cv_page() -> bytes:
-    """The CV page. The master CV as structured text, edited here and saved
-    as a new version every time; its history; the one-off import of the
-    master from a Word file; and the re-score after a change."""
-    config = radar_common.load_config()
-    active = cv_store.active_cv_name() or score_item.get_cv_version(config)
-    marker = cv_store.active_cv_name()
-    versions = cv_store.history()
-    history_html = ("".join(
-        f"<li>{build_dashboard.esc(v)}"
-        + (" &mdash; active" if v == active else "") + "</li>"
-        for v in versions) or "<li>No saved versions yet. The scorer is "
-        f"reading {build_dashboard.esc(active)}.</li>")
-    try:
-        master_text, _source = score_item.load_cv_text(config)
-        problem = None
-        # Read once, and refused before it is read when no CV could be that
-        # size (cv_doc.check_raw), as an import of up to 5 MB could be.
-        doc = cv_doc.load_doc(master_text)
-        # The editor reads the master again in its layout, which puts a blank
-        # line and a mark before every heading, so a file under the caps can
-        # be over them laid out. That is refused here too, so the page says
-        # why and keeps the import that would replace it, and is not a 500.
-        laid_text = cv_doc.render(doc)
-        editor = cv_page.editor_html(laid_text, {
-            "mode": "master", "editable": True, "version": marker})
-    except (SystemExit, OSError, cv_doc.CvError) as err:
-        master_text, problem = None, str(err)
-    if master_text is not None:
-        laid_out = laid_text == "\n".join(cv_store.cv_lines(master_text)) + "\n"
-        when = version_when(active)
-        banner = ("" if laid_out else
-                  '<p class="cv-banner">This version was not written by this '
-                  "editor, so it is shown in the editor's layout: a name, a "
-                  "headline, then the sections. Check it, then save it to make "
-                  "a version in this layout. Until then the scorer reads the "
-                  "version as it is, and no role's Prepare application page "
-                  "makes a tailored copy from it, because the copy's line "
-                  "numbers would not be the scorer's.</p>")
-        master_html = f"""<p class="section-note">The scorer reads
-<strong>{build_dashboard.esc(active)}</strong>{', saved ' + build_dashboard.esc(when) if when else ''}.
-Edit the master here and save it as a new version. The versions before stay,
-and tailoring a CV on a role's Prepare application page never changes this
-one.</p>
-{banner}
-<div class="cv-actions"><button type="button" class="act-btn" data-cv-act="master" disabled>Save as a new version</button></div>
-<p class="cv-note" id="cv-say" aria-live="polite"></p>
-{editor}"""
-    else:
-        master_html = (f'<p class="cv-banner">The master CV could not be read. '
-                       f'{build_dashboard.esc(problem)}</p>')
-    page = f"""<!doctype html>
-<html lang="en-GB">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MedTech Radar. CV.</title>
-<link rel="icon" href="{build_dashboard.FAVICON}">
-<style>{build_dashboard.CSS}{page_frame.FRAME_CSS}{CV_CSS}{cv_page.CV_CSS}</style>
-</head>
-<body>
-{page_frame.appbar_html("cv", job_verdicts_now())}
-<main class="page cv-wrap" id="main">
-<header class="masthead"><div>
-<div class="brand">{build_dashboard.MARK_SVG}<h1>CV</h1></div>
-<p class="masthead-sub">The master CV, as structured text: a name, a
-headline, a summary, experience with bullets, skills, and education and
-certifications. Every save is a new version, and nothing is ever
-overwritten.</p>
-</div>
+def save_cv_preferences(body) -> dict:
+    """The Preferences tab's scoring lines, and the re-sort in code after."""
+    return cv_screen.save_preferences(body, radar_common.load_config(), db_path())
 
-</header>
-<section class="section">
-<div class="section-head"><h2>Master CV</h2></div>
-{master_html}
-</section>
-<section class="section">
-<div class="section-head"><h2>History</h2></div>
-<p class="section-note">Append only. Old versions stay for the day a
-score needs explaining.</p>
-<div class="panel" style="padding:12px 16px">
-<ul class="cv-history">{history_html}</ul>
-</div>
-</section>
-<section class="section">
-<div class="section-head"><h2>One-off import from a Word file</h2></div>
-<p class="section-note">For bringing the master in from a Word file once.
-After that, edit it above. The file is extracted to text and nothing becomes
-the master until you confirm it below. It still takes md, txt and pdf.</p>
-<div class="panel panel-sand" style="padding:16px">
-<input type="file" id="cv-file" accept=".md,.markdown,.txt,.docx,.pdf">
-<p class="cv-note" id="cv-note">Pick a file to see its extracted text.</p>
-<div id="cv-stage" hidden>
-<pre class="cv-preview" id="cv-preview"></pre>
-<p style="display:flex;gap:12px;margin:16px 0 4px">
-<button type="button" class="act-btn" id="cv-confirm">Confirm, make it active</button>
-<button type="button" class="act-btn" id="cv-discard">Discard</button>
-</p>
-</div>
-</div>
-</section>
-<section class="section">
-<div class="section-head"><h2>After a change</h2></div>
-<p class="section-note">Scores made against an older CV stay stamped with
-it. This re-scores up to 25 unacknowledged items against the active
-version, with a confirm step, and can be run again for the rest. A role
-scored against its full description is left alone, so a change here never
-swaps that score for one made on the advert card.</p>
-<div class="panel panel-clay" style="padding:16px">
-<button type="button" class="act-btn" id="cv-rescore">Re-score stale items</button>
-<p class="cv-note" id="cv-rescore-note"></p>
-</div>
-</section>
-{build_dashboard.settings_html(config)}
-</main>
-<script>{build_dashboard.SCRIPT}{page_frame.FRAME_SCRIPT}{CV_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}{build_dashboard.PREFS_SCRIPT}</script>
-</body>
-</html>"""
-    return page.encode("utf-8")
+
+def save_cv_section(body) -> dict:
+    """The Preferences tab's location or sector words, and the offer after."""
+    return cv_screen.save_section(body, radar_common.load_config(), db_path())
+
+
+def save_cv_design(body) -> dict:
+    """The Design dialog's choices, for the sheet and the Word file."""
+    return cv_screen.save_design(body)
 
 
 def _infer_channel(step: str) -> str:
@@ -1357,31 +1163,12 @@ def set_signal_state(item_id: int, action: str) -> dict:
         conn.close()
 
 
-def run_stale_rescore() -> dict:
-    """One capped stale-CV re-score pass. Serialised like the watcher."""
-    if not WATCH_LOCK.acquire(blocking=False):
-        return {"ok": False, "note": "another background run is in progress"}
-    try:
-        cmd = [sys.executable, str(SCRIPT_DIR / "rescore.py"),
-               "--stale-cv", "--cap", "25"]
-        if ARGS.db:
-            cmd += ["--db", ARGS.db]
-        proc = subprocess.run(cmd, capture_output=True, text=True,
-                              encoding="utf-8", timeout=600,
-                              cwd=str(REPO_ROOT))
-        if proc.returncode != 0:
-            return {"ok": False,
-                    "note": (proc.stderr or "").strip()[-400:]}
-        raw = (proc.stdout or "").strip()
-        start = raw.find("{")
-        summary = json.loads(raw[start:]) if start >= 0 else {}
-        return {"ok": True, **summary}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "note": "the re-score run timed out"}
-    except json.JSONDecodeError:
-        return {"ok": False, "note": "the re-score run printed no JSON"}
-    finally:
-        WATCH_LOCK.release()
+def run_cv_rescore(body) -> dict:
+    """Rescore affected from the CV page: one confirmed run over every role
+    a CV or preference change reaches, started in the background and shared
+    with Check now's lock (cv_screen.start_rescore)."""
+    return cv_screen.start_rescore(body, radar_common.load_config(), db_path(),
+                                   WATCH_LOCK)
 
 
 def run_watcher() -> dict:
@@ -1813,9 +1600,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")
             return
+        if path == "/cv/rescore/status":
+            self._send(200, json.dumps(cv_screen.rescore_status()).encode(),
+                       "application/json")
+            return
         if path == "/cv":
             try:
-                self._send(200, render_cv_page(), "text/html; charset=utf-8")
+                self._send(200, render_cv_page(parse_qs(urlsplit(self.path).query)),
+                           "text/html; charset=utf-8")
             except Exception as err:  # noqa: BLE001
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")
@@ -2070,6 +1862,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200 if result.get("ok") else 409,
                        json.dumps(result).encode(), "application/json")
             return
+        if path in ("/cv/preferences", "/cv/preferences/section", "/cv/design"):
+            body = self._read_json_body()
+            result = {"/cv/design": save_cv_design,
+                      "/cv/preferences": save_cv_preferences,
+                      "/cv/preferences/section": save_cv_section}[path](body)
+            status = 200 if result.get("ok") else 422 if result.get("invalid") else 409
+            self._send(status, json.dumps(result).encode(), "application/json")
+            return
         if path == "/profile/setting":
             body = self._read_json_body()
             key = body.get("key") if isinstance(body, dict) else None
@@ -2177,9 +1977,15 @@ class Handler(BaseHTTPRequestHandler):
                 filename = self.headers.get("X-Filename") or ""
                 markdown = cv_store.extract_markdown(filename, data)
                 token = cv_store.stage(markdown)
+                try:
+                    active_text = score_item.load_cv_text(radar_common.load_config())[0]
+                except (SystemExit, OSError):
+                    active_text = None
+                report = cv_screen.import_report(markdown, active_text)
                 self._send(200, json.dumps(
                     {"ok": True, "token": token, "markdown": markdown,
-                     "filename": filename}).encode(), "application/json")
+                     "filename": filename, "report": report}).encode(),
+                    "application/json")
             except cv_store.UploadError as err:
                 self._send(422, json.dumps(
                     {"ok": False, "note": str(err)}).encode(),
@@ -2193,8 +1999,8 @@ class Handler(BaseHTTPRequestHandler):
                      "send {\"confirm\": true} to mean it"}).encode(),
                     "application/json")
                 return
-            result = run_stale_rescore()
-            self._send(200 if result.get("ok") else 502,
+            result = run_cv_rescore(body)
+            self._send(200 if result.get("ok") else 400 if result.get("invalid") else 409,
                        json.dumps(result).encode(), "application/json")
             return
         if path in ("/cv/confirm", "/cv/discard"):
@@ -2202,7 +2008,9 @@ class Handler(BaseHTTPRequestHandler):
             token = body.get("token") if isinstance(body, dict) else None
             try:
                 if path == "/cv/confirm":
-                    result = cv_store.confirm(str(token or ""))
+                    result = cv_store.confirm(str(token or ""),
+                                              laid_out=isinstance(body, dict)
+                                              and body.get("laid_out") is True)
                     self._send(200, json.dumps(
                         {"ok": True, **result}).encode(), "application/json")
                 else:

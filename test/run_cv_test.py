@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import ast
 import contextlib
+import inspect
 import http.client
 import io
 import json
@@ -78,6 +79,7 @@ import build_dashboard  # noqa: E402
 import check_jobs  # noqa: E402
 import cv_doc  # noqa: E402
 import cv_page  # noqa: E402
+import cv_screen  # noqa: E402
 import cv_store  # noqa: E402
 import mocks  # noqa: E402
 import prepare_application as prep  # noqa: E402
@@ -2843,10 +2845,11 @@ def master_page_checks() -> None:
             data = pane_data(page)
             check("<h1>CV</h1>" in page and data.get("mode") == "master"
                   and data["version"] == "cv-20261101-080000.md" and data["editable"]
-                  and 'data-cv-act="master" disabled' in page
-                  and "saved 1 Nov 2026 at 08:00 UTC" in text,
-                  "the CV page holds the master in the editor, with its version and the "
-                  "date it was saved (C1, C2)")
+                  and data.get("sheet") is True
+                  and re.search(r'id="tb-save" data-cv-act="master"[^>]*hidden>', page)
+                  and "saved 1 Nov 08:00 UTC" in text,
+                  "the CV page holds the master in the editor, on its sheet, with its version "
+                  "and the date it was saved, and Save version waits for an edit (C1, C2)")
             check([s["title"] for s in data["doc"]["sections"]] == list(cv_doc.STANDARD_SECTIONS)
                   and data["doc"]["sections"][0]["lines"] == [{"b": False, "t": "Software leader."}]
                   and data["doc"]["sections"][2]["lines"] == [{"b": True, "t": "IEC 62304"}],
@@ -2855,16 +2858,18 @@ def master_page_checks() -> None:
             check("This version was not written by this editor" in text,
                   "a version imported from Word says it is shown in the editor's layout "
                   "and is read as it is until it is saved")
-            heads = re.findall(r"<h2>([^<]+)</h2>", page)
-            check(heads == ["Master CV", "History", "One-off import from a Word file",
-                            "After a change", "Settings"]
-                  and 'id="cv-file" accept=".md,.markdown,.txt,.docx,.pdf"' in page
-                  and "For bringing the master in from a Word file once." in text
-                  and "cv-20261101-080000.md — active" in text,
-                  "the upload is relabelled as the one-off import from a Word file and still "
-                  "works as it did, beside the history")
-            check("A role scored against its full description is left alone" in text,
-                  "and the re-score after a change says it leaves full description scores alone")
+            tabs = re.findall(r'role="tab" id="tab-(\w+)"', page)
+            check(tabs == ["history", "settings", "import"]
+                  and re.search(r'id="cv-file"[^>]*accept=".md,.markdown,.txt,.docx,.pdf"', page)
+                  and "Import from Word" in text
+                  and re.search(r"Version 1 · cv-20261101-080000\.md", text)
+                  and "Active" in text,
+                  "the upload is the Word import tab and still takes the same files, beside "
+                  "the History tab, where the active version is marked")
+            check("full job description" in cv_screen.CV_SCREEN_JS
+                  and "NOT_SPEC_SQL" in inspect.getsource(rescore.affected),
+                  "and the rescore after a change leaves full description scores alone, "
+                  "and its confirm says so")
 
             with serving(env.db) as port, captured_stderr():
                 doc = data["doc"]
@@ -2933,7 +2938,7 @@ def master_page_checks() -> None:
             check("The master CV could not be read." in page_text(page)
                   and f"no CV needs more than {cv_doc.RAW_LINES_MAX:,}" in page_text(page)
                   and 'id="cv-editor"' not in page
-                  and "One-off import from a Word file" in page_text(page),
+                  and "Import from Word" in page_text(page),
                   "and such a master is refused the same way: the page says why, and still "
                   "offers the import that would replace it, where it was a 500")
     finally:
@@ -3435,6 +3440,9 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   await settle();
   say(w.calls.length === 0, 'the CV page sends nothing when it opens');
   const masterSave = w.q('[data-cv-act="master"]');
+  say(!w.q('textarea[data-edit="s0.l0"]') && w.q('.cv-part[data-part="s0"]'),
+      'the CV page draws the master as a sheet of parts, each read until it is opened');
+  w.click(w.q('.cv-part[data-part="s0"]'));
   const masterLine = w.q('textarea[data-edit="s0.l0"]');
   const masterWas = masterLine.value;
   masterLine.value = 'Edited on the CV page.';

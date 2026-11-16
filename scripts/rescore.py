@@ -44,9 +44,18 @@ def _now_spec(conn, opportunity_id) -> bool:
                         + NOT_SPEC_SQL, (opportunity_id,)).fetchone() is not None
 
 
-def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
+def _rescore_rows(conn, config, usage_total, rows,
+                  progress=None) -> tuple[int, int]:
+    """Score each row's advert card again, one commit a row. progress, when
+    given, is called after each row with (done, failed, left alone, row id,
+    what happened): rescored, failed or left. Returns (rescored, failed)."""
     if not rows:
         return 0, 0
+    left = 0
+
+    def told(what, oid):
+        if progress is not None:
+            progress(fixed, failed, left, oid, what)
     _, score_fn = scoring.get_mock_fns()
     system_blocks = scoring.build_scorer_system(config)
     cv_version = scoring.get_cv_version(config)
@@ -56,6 +65,8 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
         # A role applied for while this pass was running keeps the score it
         # was applied with, and no tokens are spent on it.
         if radar_common.role_is_applied(conn, row["id"]):
+            left += 1
+            told("left", row["id"])
             continue
         opp = {
             "company": row["company"] or "",
@@ -89,6 +100,7 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
                   f"{note or 'no tier came back'}. "
                   + ("Its previous score is kept." if held
                      else "It still has no score."), file=sys.stderr)
+            told("failed", row["id"])
             continue
         # Applied for while the model was answering. The write lock first,
         # then look again, so that nothing can be applied for between this
@@ -100,6 +112,8 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
         if (radar_common.role_is_applied(conn, row["id"])
                 or _now_spec(conn, row["id"])):
             conn.rollback()
+            left += 1
+            told("left", row["id"])
             continue
         gate_cols = ("gate_sector", "gate_sector_note", "gate_cv", "gate_cv_note",
                      "gate_location", "gate_location_note", "gate_rate",
@@ -132,6 +146,7 @@ def _rescore_rows(conn, config, usage_total, rows) -> tuple[int, int]:
         # timeout. One row, one commit, the lock is held for microseconds.
         conn.commit()
         fixed += 1
+        told("rescored", row["id"])
     return fixed, failed
 
 
@@ -211,6 +226,96 @@ def rescore_stale_cv(conn, config, usage_total, cap: int) -> tuple[int, int, int
         (current,)).fetchone()[0] - len(rows)
     fixed, failed = _rescore_rows(conn, config, usage_total, rows)
     return fixed, failed, max(0, remaining)
+
+
+# The CV page's Rescore affected. Which open roles a change on that page
+# reaches, and the ones it leaves out and why. Unlike --stale-cv there is no
+# cap of 25 a press: the page states the count and the cost first and the
+# owner confirms that count, and the run reaches every one of them.
+AFFECTED_SCOPES = ("stale", "open")
+
+_OPEN_SCORED = ("tier IS NOT NULL"
+                " AND closed_at IS NULL AND dismissed_at IS NULL"
+                " AND expired_at IS NULL")
+
+
+def affected(conn, config, scope: str) -> dict:
+    """The rows one Rescore affected run would score, and the rows left out.
+
+    scope stale: open roles scored on another CV than the active one, which is
+    what a master change leaves behind. scope open: every open role, which is
+    what a location or sector change asks about, since the scorer judged those
+    gates and nothing stored says how it would judge them now. Either way an
+    acknowledged role, a role applied for (any advert on its chain) and a role
+    scored on its full description are left out: the first was waved past,
+    the second keeps the score it was applied with, and the third would have
+    its full description's score swapped for a card's. Returns {"ids",
+    "spec", "applied", "acknowledged", "cv_version"}, the three counts being
+    roles that the scope would otherwise reach.
+    """
+    if scope not in AFFECTED_SCOPES:
+        raise ValueError(f"scope must be one of {', '.join(AFFECTED_SCOPES)}")
+    current = scoring.get_cv_version(config)
+    reach = _OPEN_SCORED
+    args: tuple = ()
+    if scope == "stale":
+        reach += " AND COALESCE(cv_version, '') <> ?"
+        args = (current,)
+
+    def count(extra):
+        return conn.execute("SELECT COUNT(*) FROM opportunities WHERE "
+                            + reach + " AND " + extra, args).fetchone()[0]
+
+    ids = [r[0] for r in conn.execute(
+        "SELECT id FROM opportunities WHERE " + reach
+        + " AND acknowledged_at IS NULL AND " + radar_common.NOT_APPLIED_SQL
+        + " AND " + NOT_SPEC_SQL + " ORDER BY id", args)]
+    return {"ids": ids, "cv_version": current,
+            "applied": count(radar_common.APPLIED_SQL),
+            "spec": count("NOT " + NOT_SPEC_SQL + " AND " + radar_common.NOT_APPLIED_SQL),
+            "acknowledged": count("acknowledged_at IS NOT NULL AND " + NOT_SPEC_SQL
+                                  + " AND " + radar_common.NOT_APPLIED_SQL)}
+
+
+def rescore_affected(conn, config, usage_total, scope: str, expect: int,
+                     progress=None) -> dict:
+    """One confirmed run over every row affected() names for the scope.
+
+    expect is the count the owner was shown and confirmed. If more rows are
+    affected now than that, nothing is scored and the new count comes back,
+    so a confirm never pays for more than it said. Fewer is fine: a role
+    acknowledged, applied for or closed since is simply not reached. Each row
+    is scored and stored as --stale-cv stores one, history and all, and the
+    run is one row in runs with its tokens.
+    """
+    found = affected(conn, config, scope)
+    ids = found["ids"]
+    if len(ids) > expect:
+        return {"ok": False, "outcome": "count_changed", "count": len(ids),
+                "note": f"{len(ids)} roles are affected now, more than the "
+                        f"{expect} you confirmed, so nothing was rescored."}
+    rows = [conn.execute("SELECT * FROM opportunities WHERE id = ?", (oid,)).fetchone()
+            for oid in ids]
+    rows = [r for r in rows if r is not None]
+    tiers = {r["id"]: r["tier"] for r in rows}
+    fixed, failed = _rescore_rows(conn, config, usage_total, rows, progress)
+    after = {oid: tier for oid, tier in conn.execute(
+        "SELECT id, tier FROM opportunities WHERE id IN (%s)"
+        % ",".join("?" * len(ids)), ids)} if ids else {}
+    mode = "mock" if radar_common.mock_mode_active() else "live"
+    radar_common.log_run(conn, "rescore", mode=mode, items_in=len(rows),
+                         items_new=fixed, model=config.get("claude_model_score"),
+                         usage=usage_total,
+                         note=f"CV page, rescore {scope}, {fixed} of {len(rows)}")
+    rank = {"filtered": 0, "reading": 1, "question": 2, "top": 3}
+    rose = sum(1 for oid, was in tiers.items()
+               if rank.get(after.get(oid), -1) > rank.get(was, -1))
+    fell = sum(1 for oid, was in tiers.items()
+               if rank.get(after.get(oid), -1) < rank.get(was, -1))
+    return {"ok": True, "outcome": "done", "scope": scope, "count": len(rows),
+            "rescored": fixed, "failed": failed,
+            "left": len(rows) - fixed - failed, "rose": rose, "fell": fell, "mode": mode,
+            "cv_version": found["cv_version"]}
 
 
 def rescore_signals(conn, config, usage_total) -> tuple[int, int]:

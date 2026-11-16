@@ -1872,6 +1872,234 @@ def read_score_thresholds(config: dict | None = None) -> dict:
     return out
 
 
+# ------------------------------------------- the CV page's Preferences tab
+#
+# The tab writes the owner's live preferences file (prefs_file in radar.yaml,
+# gitignored) and nothing else: never the tracked template, which is only ever
+# read when there is no live file. Every write changes only the lines it names
+# and leaves every other byte of the file as it was, line endings and all, and
+# lands in one step (a file beside it, renamed over it), so the scorer, which
+# reads the file in another process, sees the old file or the new one.
+
+# The four scoring lines, each with what it is called on the page and the
+# range a value must sit in. The floors are pounds, the two scores 0 to 100.
+SCORING_PREFS = {
+    "day_rate_floor_gbp": ("The day-rate floor", 1, 10_000),
+    "salary_floor_gbp": ("The salary floor", 1_000, 1_000_000),
+    "cv_pass_score": ("The CV pass mark", 0, 100),
+    "cv_floor_score": ("The Filtered floor", 0, 100),
+}
+
+# The two prose sections the tab edits: the words a heading must start with
+# (after "## "), and the heading a file without one gets at its end.
+PREF_SECTIONS = {
+    "location": (r"location", "## Location and travel."),
+    "sector": (r"sectors?", "## Sectors."),
+}
+PREF_SECTION_MAX = 2_000     # characters of prose in one section
+
+
+def live_prefs_path(config: dict | None = None) -> Path:
+    """The live preferences file the page writes, whether or not it exists."""
+    config = config or load_config()
+    return REPO_ROOT / config.get("prefs_file", "config/profile/preferences.md")
+
+
+def _prefs_text(config: dict | None = None, live_only: bool = False):
+    """(path, text) of the preferences file as it is on disk, line endings
+    kept: the live file, else the tracked template unless live_only. (None,
+    None) when there is none."""
+    live = live_prefs_path(config)
+    paths = [live] if live_only else [live, REPO_ROOT / "config" / "preferences.template.md"]
+    for path in paths:
+        if path.exists():
+            with open(path, encoding="utf-8", newline="") as fh:
+                return path, fh.read()
+    return None, None
+
+
+def _write_prefs(path: Path, text: str) -> None:
+    """The whole file in one step, exactly these characters."""
+    staged = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}")
+    with open(staged, "w", encoding="utf-8", newline="") as fh:
+        fh.write(text)
+    os.replace(staged, path)
+
+
+def _plain_number(value) -> str:
+    return str(int(value)) if float(value) == int(value) else f"{float(value):g}"
+
+
+def read_scoring_prefs(config: dict | None = None) -> dict:
+    """The four scoring lines as numbers, None for a line that is missing or
+    not a plain number, from the file the scorer reads, and where that is."""
+    path, text = _prefs_text(config)
+    out = {"where": None if path is None else str(path),
+           "live": path is not None and path == live_prefs_path(config)}
+    for key in SCORING_PREFS:
+        found = (re.search(rf"^{key}:[ \t]*([0-9]+(?:\.[0-9]+)?)[ \t]*\r?$",
+                           text, re.IGNORECASE | re.MULTILINE) if text else None)
+        out[key] = float(found.group(1)) if found else None
+    return out
+
+
+def clean_scoring_prefs(values: dict, config: dict | None = None) -> dict:
+    """The scoring lines a request sends, checked, as the text each line will
+    hold. ValueError says what is wrong in the page's words. Lines the request
+    leaves out keep what the file says, and the pass mark and the floor are
+    checked together, with the floor at or under the pass mark."""
+    if not isinstance(values, dict) or not values:
+        raise ValueError("Nothing to save.")
+    out = {}
+    for key, raw in values.items():
+        if key not in SCORING_PREFS:
+            raise ValueError(f"{key} is not a line this page edits.")
+        label, low, high = SCORING_PREFS[key]
+        if isinstance(raw, bool) or raw is None:
+            raise ValueError(f"{label} needs a plain number.")
+        try:
+            number = float(str(raw).replace("£", "").replace(",", "").strip())
+        except ValueError as err:
+            raise ValueError(f"{label} needs a plain number.") from err
+        if number != number or not low <= number <= high:
+            raise ValueError(f"{label} must be from {low:,} to {high:,}.")
+        out[key] = number
+    now = read_scoring_prefs(config)
+    passing = out.get("cv_pass_score", now.get("cv_pass_score"))
+    floor = out.get("cv_floor_score", now.get("cv_floor_score"))
+    if passing is not None and floor is not None and floor > passing:
+        raise ValueError(f"The Filtered floor ({_plain_number(floor)}) must be at or "
+                         f"under the CV pass mark ({_plain_number(passing)}).")
+    return {key: _plain_number(number) for key, number in out.items()}
+
+
+def write_scoring_prefs(values: dict, config: dict | None = None) -> dict:
+    """Set the scoring lines in the live preferences file, in one write.
+
+    values is what clean_scoring_prefs returned. A line is replaced where it
+    is, its key's first line, and only up to its own end; a line the file
+    does not have is added at the end. Returns {key: stored text}.
+    """
+    path, text = _prefs_text(config, live_only=True)
+    if path is None:
+        raise ValueError(f"There is no preferences file at "
+                         f"{live_prefs_path(config)} to change. Copy "
+                         "config/preferences.template.md there first.")
+    newline = "\r\n" if "\r\n" in text else "\n"
+    for key, value in values.items():
+        line = f"{key}: {value}"
+        found = re.search(rf"^{re.escape(key)}:[^\r\n]*", text,
+                          re.IGNORECASE | re.MULTILINE)
+        if found:
+            text = text[:found.start()] + line + text[found.end():]
+        else:
+            if text and not text.endswith(("\n", "\r")):
+                text += newline
+            text += line + newline
+    _write_prefs(path, text)
+    return dict(values)
+
+
+def _labelled_keys() -> tuple:
+    return tuple(PREF_EDITABLE) + tuple(SCORING_PREFS)
+
+
+def _section_span(text: str, key: str):
+    """(start of the body, end of the body) of a prose section, or None."""
+    words, _heading = PREF_SECTIONS[key]
+    head = re.search(rf"^##[ \t]+{words}\b[^\r\n]*(?:\r\n|\n|\r|\Z)", text,
+                     re.IGNORECASE | re.MULTILINE)
+    if head is None:
+        return None
+    nxt = re.compile(r"^#{1,6}[ \t]", re.MULTILINE).search(text, head.end())
+    return head.end(), (nxt.start() if nxt else len(text))
+
+
+def read_pref_section(key: str, config: dict | None = None) -> str | None:
+    """A prose section's words, without the blank lines around them, with
+    line feeds, from the file the scorer reads. None when it has none."""
+    if key not in PREF_SECTIONS:
+        raise ValueError(f"{key} is not a section this page edits.")
+    _path, text = _prefs_text(config)
+    if text is None:
+        return None
+    span = _section_span(text, key)
+    if span is None:
+        return None
+    body = text[span[0]:span[1]].replace("\r\n", "\n").replace("\r", "\n")
+    return body.strip("\n").rstrip() or ""
+
+
+def clean_pref_section(key: str, body) -> str:
+    """A prose section as a request sends it, checked: its lines with line
+    feeds, no blank lines at either end. ValueError says why it cannot be
+    taken: a heading would start another section, and a labelled line would
+    change a number the gates read."""
+    if key not in PREF_SECTIONS:
+        raise ValueError(f"{key} is not a section this page edits.")
+    if not isinstance(body, str):
+        raise ValueError("The section must be sent as text.")
+    lines = [line.rstrip() for line in
+             body.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    text = "\n".join(lines)
+    if not text:
+        raise ValueError("An empty section would leave the scorer nothing to "
+                         "read. Write what you want, or edit the file by hand.")
+    if len(text) > PREF_SECTION_MAX:
+        raise ValueError(f"The section is {len(text):,} characters, and the most "
+                         f"it may be is {PREF_SECTION_MAX:,}.")
+    for line in lines:
+        if line.lstrip().startswith("#"):
+            raise ValueError("A line may not start with #, which would start "
+                             "another section of the file.")
+        if re.match(rf"^({'|'.join(_labelled_keys())})\s*:", line.strip(), re.IGNORECASE):
+            raise ValueError("A line may not start with one of the file's "
+                             "labelled names, such as day_rate_floor_gbp:, which "
+                             "the gates read as a number.")
+    return text
+
+
+def write_pref_section(key: str, body: str, config: dict | None = None) -> str:
+    """Replace one prose section's words in the live preferences file.
+
+    body is what clean_pref_section returned. The heading line and everything
+    outside the section are left as they are; the section keeps one blank
+    line after its heading and one before the next heading. A section that
+    holds a labelled line is refused, because replacing its words would take
+    that line with them. A file without the section gets it at its end.
+    Returns the words stored.
+    """
+    path, text = _prefs_text(config, live_only=True)
+    if path is None:
+        raise ValueError(f"There is no preferences file at "
+                         f"{live_prefs_path(config)} to change. Copy "
+                         "config/preferences.template.md there first.")
+    newline = "\r\n" if "\r\n" in text else "\n"
+    words = body.replace("\n", newline)
+    span = _section_span(text, key)
+    if span is None:
+        if text and not text.endswith(("\n", "\r")):
+            text += newline
+        text += (newline if text else "") + PREF_SECTIONS[key][1] + newline + newline
+        text += words + newline
+    else:
+        start, end = span
+        held = text[start:end]
+        if re.search(rf"^({'|'.join(_labelled_keys())})\s*:", held,
+                     re.IGNORECASE | re.MULTILINE):
+            raise ValueError("This section of the preferences file holds a "
+                             "labelled line the scorer or the gates read, so "
+                             "the page will not replace it. Edit the file by hand.")
+        tail = newline + newline if end < len(text) else newline
+        text = text[:start] + newline + words + tail + text[end:]
+    _write_prefs(path, text)
+    return body
+
+
 def convert_to_day_rate(currency, period, pay_min, pay_max,
                         config: dict | None = None) -> float | None:
     """Deterministic conversion to a GBP day rate, or None when unusable.
