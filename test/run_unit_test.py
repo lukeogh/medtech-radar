@@ -1053,6 +1053,10 @@ def main() -> int:
         put5("c3", days5(40), days5(40), title="Head of QA",
              company="Solo Dx", tier="question",
              role_key=radar_common.role_key("Head of QA", "Solo Dx"),
+             # Its rate is stated and under the floor, so the question
+             # asks about the rate, the gate that fails.
+             gate_sector=1, gate_cv=1, gate_location=1, gate_rate=0,
+             pay_currency="GBP", pay_period="day", pay_min=600, pay_max=600,
              question_text="Would they move on the rate")
         conn.commit()
         config5 = radar_common.load_config()
@@ -1184,9 +1188,11 @@ def main() -> int:
               and 'data-region="europe" data-remote="1"' in jobs6,
               "the location filter is out of this pass (the brief), and the"
               " rows keep the region and remote data for the design's chips")
-        check("Rate not stated. Ask before anything else." in jobs6
-              and "had its own line" not in jobs6,
-              "a Top row with an unstated rate leads with the rate line")
+        check("Rate not stated. Ask before anything else." not in jobs6
+              and "Rate not stated, that's your first question" in jobs6.replace("&#x27;", "'")
+              and "The scorer had its own line." in jobs6,
+              "a Top row with a rate not stated carries no question but the scorer's "
+              "line, and its Rate mark says the rate is the first question")
         check('<span class="r-rate">Rate not stated</span>' in jobs6,
               "rate not stated stands in the pay's own place on the row")
         # Top prospects and One question away are open groups, Reading folds,
@@ -2527,7 +2533,8 @@ def main() -> int:
     G = lambda **k: {"sector": True, "cv": True, "location": True, "rate": True, **k}
     for label, gates, cv, real, want in (
             ("all four gates pass", G(), 84, True, "top"),
-            ("all pass, rate unstated", G(rate=None), 84, True, "top"),
+            ("all pass, rate not stated", G(rate=radar_common.NOT_STATED), 84, True, "top"),
+            ("all pass, rate never judged", G(rate=None), 84, True, "reading"),
             ("location alone fails", G(location=False), 84, True, "question"),
             ("rate alone fails, whatever its basis", G(rate=False), 84, True, "question"),
             ("sector alone fails", G(sector=False), 84, True, "reading"),
@@ -2561,7 +2568,7 @@ def main() -> int:
 
     def land(currency, period, lo, hi):
         pay = radar_common.gate_pay(currency, period, lo, hi, floors, CFG)
-        gates = G(rate=pay["gate"])
+        gates = G(rate=_si.rate_gate(pay))
         return pay, _si.derive_tier(gates, 84, True)["tier"]
 
     for label, args, want_gate, want_basis, want_tier in (
@@ -2578,10 +2585,10 @@ def main() -> int:
               f"{label}, lands in {want_tier} (got gate {pay['gate']}, {pay['basis']}, {tier})")
     pay, tier = land("", "", None, None)
     check(pay["gate"] is None and pay["basis"] == "unstated" and tier == "top",
-          f"unstated passes as unknown and lands in top (got {pay}, {tier})")
+          f"no figure is not stated, neither pass nor fail, and lands in top (got {pay}, {tier})")
     pay, tier = land("USD", "year", 350000, 350000)
     check(pay["gate"] is None and tier == "top",
-          "a currency with no conversion is unstated, never guessed")
+          "a currency with no conversion is not stated, never guessed")
     pay, _ = land("GBP", "year", 96000, 96000)
     check(pay["band"] == "close" and pay["floor"] == 100000.0,
           "a salary within five thousand of its floor bands close")
@@ -2615,9 +2622,9 @@ def main() -> int:
                       pay_min=None, pay_max=None)
         scored, _, _ = _si.score_opportunity(silent, sys_blocks, cfg_score,
                                              mock_fn=_mocks.mock_scorer, floors=floors)
-        check(scored["tier"] == "top" and scored["gate_rate"] == 1
-              and scored["rate_basis"] == "unstated",
-              f"a silent advert keeps the model's pass and lands in top (got {scored['tier']})")
+        check(scored["tier"] == "top" and scored["gate_rate"] is None
+              and scored["rate_stated"] == 0 and scored["rate_basis"] == "unstated",
+              f"a silent advert is not stated, in code, and lands in top (got {scored['tier']})")
     finally:
         _os.environ.pop("RADAR_MOCK", None)
 

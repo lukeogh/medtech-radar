@@ -2253,6 +2253,121 @@ def gate_pay(currency, period, pay_min, pay_max, floors: dict,
     return out
 
 
+def pay_on_file(currency, period, pay_min, pay_max) -> bool:
+    """Whether the stored pay holds a figure the rate gate can judge, by the
+    floor rules gate_pay applies: a positive amount, a year, day or hour
+    period, in pounds or euros. Anything else is a rate not stated, words like
+    competitive included, because no floor can be met by it."""
+    def num(value):
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+    return (any(a is not None and a > 0 for a in (num(pay_min), num(pay_max)))
+            and (period or "").strip().lower() in ("year", "day", "hour")
+            and (currency or "").strip().upper() in ("GBP", "EUR"))
+
+
+# ------------------------------------------------------------- gate states
+#
+# A gate has one of four states. Passes and fails are the two verdicts. Not
+# stated means the advert gives nothing for the gate to judge, which is
+# neither a pass nor a fail and is the first question to ask. Not judged
+# means no verdict is on file at all.
+#
+# Only Rate can be not stated today, and code decides it, never the scorer:
+# a rate with no figure on file (pay_on_file) is not stated, and the gate
+# column holds NULL with rate_stated 0. Sector or Location could carry not
+# stated later by adding a check of their own to STATABLE_GATES; every reader
+# below, the tier included, follows from that one table.
+
+PASSES, FAILS, NOT_STATED, NOT_JUDGED = "passes", "fails", "not stated", "not judged"
+
+# What code writes beside a rate the advert does not state. The mark says the
+# rest, "Rate not stated, that's your first question".
+RATE_NOT_STATED_NOTE = "No figure in the advert. That's your first question."
+
+
+def _rate_silent(row: dict) -> bool:
+    return not pay_on_file(row.get("pay_currency"), row.get("pay_period"),
+                           row.get("pay_min"), row.get("pay_max"))
+
+
+STATABLE_GATES = {"rate": _rate_silent}
+
+
+def gate_state(row: dict, gate: str) -> str:
+    """One gate's state for a stored row: passes, fails, not stated or not
+    judged. A gate that can be not stated reads so once the row has been
+    scored and the advert gives nothing for it, whatever verdict an older
+    score stored, so a rate with no figure never shows a pass or a fail."""
+    value = row.get(f"gate_{gate}")
+    silent = STATABLE_GATES.get(gate)
+    scored = (value is not None or row.get("tier") is not None
+              or row.get(f"{gate}_stated") is not None)
+    if silent is not None and scored and silent(row):
+        return NOT_STATED
+    if value is None:
+        return NOT_JUDGED
+    return PASSES if int(value) else FAILS
+
+
+def gate_flag(state: str):
+    """A state as derive_tier reads it: True, False, NOT_STATED or None."""
+    return {PASSES: True, FAILS: False, NOT_STATED: NOT_STATED}.get(state)
+
+
+def gate_column(value):
+    """What a gate column stores for a derive_tier value: 1, 0, or NULL for
+    not stated and not judged alike (rate_stated tells those apart)."""
+    return int(value) if isinstance(value, bool) else None
+
+
+def gates_of(row: dict) -> dict:
+    """The four gates of a stored row as derive_tier reads them."""
+    return {g: gate_flag(gate_state(row, g)) for g in GATE_NAMES}
+
+
+# The one question a One question away role carries, by the movable gate that
+# fails. Written in code, never by the scorer.
+QUESTIONS = {"location": "Would they go remote",
+             "rate": "Would they move on the rate"}
+MOVABLE_GATES = ("location", "rate")
+
+# Words that make a stored question ask about pay. A question the scorer wrote
+# before code took the Rate gate over could ask about a rate the advert does
+# not state, or ask about pay beside the gate that fails.
+_RATE_WORDS = re.compile(
+    r"£|\b(rates?|pay|paid|salary|salaries|package|compensation|"
+    r"remuneration|money|budget|fees?)\b", re.IGNORECASE)
+
+
+def asks_about_rate(text) -> bool:
+    return bool(_RATE_WORDS.search(str(text or "")))
+
+
+def question_for(gates: dict) -> str:
+    """The question for the one movable gate that fails, else nothing. It
+    never asks about a gate that passes or is not stated."""
+    for name in MOVABLE_GATES:
+        if gates.get(name) is False:
+            return QUESTIONS[name]
+    return ""
+
+
+def question_kept(stored, gates: dict) -> str:
+    """The question a One question away row shows: the stored one where it
+    asks about the gate that fails and not about pay otherwise, else code's
+    own. A stored question that asks about pay is kept only on a role whose
+    Rate fails, and one on such a role that does not ask about pay is
+    replaced, because it was written for another gate. Free, no model call."""
+    own = question_for(gates)
+    stored = str(stored or "").strip()
+    if not stored or not own:
+        return own
+    return stored if asks_about_rate(stored) == (gates.get("rate") is False) else own
+
+
 def extract_json(text: str) -> dict:
     """Pull the first balanced JSON object out of a model response."""
     start = text.find("{")

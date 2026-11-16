@@ -360,9 +360,11 @@ def save_preferences(body, config: dict, db_path: Path) -> dict:
     each move kept in score_history first, writer cv_preferences, and the run
     logged as a regate. No model is asked anything.
 
-    Gates that cannot be worked out again in code are left as the scorer
-    judged them and counted: a rate the advert states that Radar holds no
-    figure for (kept_as_scored), and roles never gated at all (ungated). No
+    The Rate gate is code's on every role re-sorted: a figure on file passes
+    or fails, no figure is not stated. Roles with no figure where the stored
+    pay text holds a number are counted (rate_unclear), because they read not
+    stated only for want of a figure Radar can judge. Roles never gated at all
+    are counted too (ungated). No
     run on this page reaches the second: rescore.py --regate scores them, by
     hand on the box, and the note says so, with their cost.
 
@@ -427,11 +429,10 @@ def save_preferences(body, config: dict, db_path: Path) -> dict:
         words.append("Saved. " + (f"{plural(moved, 'role')} moved: "
                                   f"{_moves_words(res['tier_moves'])}." if moved
                                   else "No role moved."))
-    if res["kept_as_scored"]:
-        words.append(f"{plural(res['kept_as_scored'], 'role')} "
-                     f"{'states' if res['kept_as_scored'] == 1 else 'state'} a rate "
-                     "Radar holds no figure for, so the Rate gate stays as the "
-                     "scorer judged it.")
+    if res["rate_unclear"]:
+        one = res["rate_unclear"] == 1
+        words.append(f"{plural(res['rate_unclear'], 'role')} may state a rate Radar "
+                     f"holds no figure for, so Rate reads not stated on {'it' if one else 'them'}.")
     if ungated:
         them = "it" if ungated == 1 else "them"
         words.append(f"{plural(ungated, 'role')} scored before the gates "
@@ -444,7 +445,7 @@ def save_preferences(body, config: dict, db_path: Path) -> dict:
                      f"{'keeps its' if applied == 1 else 'keep their'} tier.")
     return {"ok": True, "dry_run": dry, "saved": not dry, "resorted": not dry,
             "values": values, "moved": moved, "moves": res["tier_moves"],
-            "judged": res["open_rows"], "kept_as_scored": res["kept_as_scored"],
+            "judged": res["open_rows"], "rate_unclear": res["rate_unclear"],
             "ungated": ungated, "applied_left": applied,
             "history_rows_written": res["history_rows_written"],
             "note": " ".join(words)}

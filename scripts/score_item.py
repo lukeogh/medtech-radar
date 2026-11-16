@@ -141,7 +141,7 @@ def _fixture_allowed(config: dict) -> bool:
 
 # ---------------------------------------------------------------- gates
 
-MOVABLE_GATES = ("location", "rate")   # one conversation can shift these
+MOVABLE_GATES = radar_common.MOVABLE_GATES   # one conversation can shift these
 FIXED_GATES = ("sector", "cv")         # no question turns a software house into an IVD firm
 
 # The CV pass mark and the Filtered floor are not constants here. They are
@@ -172,19 +172,28 @@ def is_real(sector_gate, cv_match,
 
 def derive_tier(gates: dict, cv_match=None, is_real_role: bool = True,
                 cv_floor=radar_common.DEFAULT_CV_FLOOR_SCORE) -> dict:
-    """Turn four gate results into a tier. Code decides this, never the model.
+    """Turn the four gate states into a tier. Code decides this, never the model,
+    so the same four states always give the same tier.
 
-    The gates are not equal. Location and rate are movable, one conversation
-    can shift a hybrid pattern or restate a recruiter's number. Sector and CV
-    are fixed, no question turns a generic software house into an IVD company
-    and the CV number is about Luke rather than them. One question away leans
-    entirely on that split. A rate fail is a rate fail whatever its basis:
-    a salary under the salary floor is as movable as a day rate under the
-    day floor, so both land one question away. A CV match under cv_floor,
-    the Filtered floor from the preferences file, is filtered before any gate
-    is weighed, and the stored reason names the floor it was judged against.
+    Each gate is True (passes), False (fails), radar_common.NOT_STATED (the
+    advert gives nothing to judge, neither a pass nor a fail) or None (not
+    judged). Only Rate can be not stated today.
+
+    - Top prospects: Sector, CV and Location pass, and Rate passes or is not
+      stated.
+    - One question away: Sector and CV pass, and exactly one of Location and
+      Rate fails. Location and Rate are movable, one conversation can shift
+      them. Sector and CV are fixed, no question turns a software house into
+      an IVD firm. A rate under its floor is one question away whatever its
+      basis.
+    - Reading: everything else, Sector or CV failing, Location and Rate both
+      failing, or a gate the tier needs that was never judged.
+
+    A CV match under cv_floor, the Filtered floor from the preferences file,
+    is filtered before any gate is weighed, and the stored reason names the
+    floor it was judged against.
     """
-    failed = [name for name in ("sector", "cv", "location", "rate")
+    failed = [name for name in radar_common.GATE_NAMES
               if gates.get(name) is False]
     out = {"tier": "reading", "failed_gates": failed, "filter_reason": None}
 
@@ -195,22 +204,27 @@ def derive_tier(gates: dict, cv_match=None, is_real_role: bool = True,
         out.update(tier="filtered", filter_reason="not a real leadership role")
         return out
 
-    if not failed:
-        # Nothing published blocks it. An unstated rate sits here carrying its
-        # flag, because that is missing information rather than a blocker.
-        out["tier"] = "top"
-        return out
+    def passes(name):
+        return gates.get(name) is True
 
-    if len(failed) == 1:
-        only = failed[0]
-        if only in MOVABLE_GATES:
-            out["tier"] = "question"
-            return out
+    if not (passes("sector") and passes("cv")):
+        return out
+    movable_failed = [name for name in MOVABLE_GATES if gates.get(name) is False]
+    if (not movable_failed and passes("location")
+            and (passes("rate") or gates.get("rate") == radar_common.NOT_STATED)):
+        out["tier"] = "top"
+    elif len(movable_failed) == 1:
+        out["tier"] = "question"
     return out
+
+
+RATE_NOT_STATED_NOTE = radar_common.RATE_NOT_STATED_NOTE
 
 
 def rate_gate_note(pay: dict) -> str:
     """One plain line saying what the code judged and against which floor."""
+    if pay.get("gate") is None:
+        return RATE_NOT_STATED_NOTE
     words = {"day-rate": "day rate", "salary": "salary",
              "hourly": "hourly rate, times eight"}
     verdict = "at or above" if pay["gate"] else "below"
@@ -218,13 +232,16 @@ def rate_gate_note(pay: dict) -> str:
             f" against the £{pay['floor']:,.0f} floor, {verdict}, judged in code.")
 
 
-def question_for(gates: dict, notes: dict) -> str:
-    """The one question a conversation could settle, for the question tier."""
-    if gates.get("location") is False:
-        return "Would they go remote"
-    if gates.get("rate") is False:
-        return "Would they move on the rate"
-    return ""
+def rate_gate(pay: dict):
+    """The Rate gate for derive_tier from gate_pay's verdict: True or False
+    for a stated figure, NOT_STATED for none."""
+    return radar_common.NOT_STATED if pay.get("gate") is None else bool(pay["gate"])
+
+
+def question_for(gates: dict, notes: dict | None = None) -> str:
+    """The one question a conversation could settle, for the question tier.
+    It asks only about the movable gate that fails (radar_common.question_for)."""
+    return radar_common.question_for(gates)
 
 
 def assert_profile_ready(config: dict) -> None:
@@ -765,9 +782,10 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
 
     The normalised dict uses the database column names. combined is
     round((cv_match + want_match) / 2), computed here, never by the model.
-    The rate gate is judged in code from the extractor's pay columns
-    wherever a figure was stored, against the floor of its own basis; the
-    model's gate_rate stands only when nothing usable was stated. The CV
+    The rate gate is judged in code from the extractor's pay columns, a
+    stated figure against the floor of its own basis, and no figure on file
+    is not stated (gate_rate NULL, rate_stated 0). The model gives no rate
+    verdict and no question; the question is code's. The CV
     gate and the Filtered floor are judged in code against thresholds, the
     pass mark and the floor from the preferences file, read here when the
     caller has not passed them.
@@ -873,26 +891,22 @@ def _finish_score(parsed: dict, usage: dict, opp: dict, system_blocks,
         return None
 
     thresholds = thresholds or radar_common.read_score_thresholds(config)
-    gates = {"sector": gate("gate_sector"),
-             "cv": cv_gate(cv, thresholds["pass"]),
-             "location": gate("gate_location"),
-             "rate": gate("gate_rate")}
-    rate_basis = str(parsed.get("rate_basis") or "").strip()
-    rate_value = _num(parsed.get("rate_value"))
-    rate_stated = (None if parsed.get("rate_stated") is None
-                   else int(bool(parsed.get("rate_stated"))))
-    gate_rate_note = sanitise(str(parsed.get("gate_rate_note", "")).strip())
-    # The rate gate is code's call wherever the extractor stored a figure.
-    # Two floors, no conversion between them. The model's verdict stands
-    # only for an advert that stated nothing usable, where it reads pass.
+    # The rate gate is code's alone, from the extractor's pay columns. Two
+    # floors, no conversion between them. An advert with no figure on file is
+    # not stated, neither a pass nor a fail, whatever the reply says about
+    # pay: the scorer is not asked for a rate verdict and one it gives anyway
+    # is not read.
     floors = floors or radar_common.read_rate_floors(config)
     pay = radar_common.gate_pay(opp.get("pay_currency"), opp.get("pay_period"),
                                 opp.get("pay_min"), opp.get("pay_max"),
                                 floors, config)
-    if pay["gate"] is not None:
-        gates["rate"] = pay["gate"]
-        rate_basis, rate_value, rate_stated = pay["basis"], pay["figure"], 1
-        gate_rate_note = rate_gate_note(pay)
+    gates = {"sector": gate("gate_sector"),
+             "cv": cv_gate(cv, thresholds["pass"]),
+             "location": gate("gate_location"),
+             "rate": rate_gate(pay)}
+    rate_basis, rate_value = pay["basis"], pay["figure"]
+    rate_stated = 0 if pay["gate"] is None else 1
+    gate_rate_note = rate_gate_note(pay)
     real = is_real(gates["sector"], cv, thresholds["floor"])
     tier_info = derive_tier(gates, cv, real, thresholds["floor"])
 
@@ -909,13 +923,15 @@ def _finish_score(parsed: dict, usage: dict, opp: dict, system_blocks,
         "gate_cv_note": sanitise(str(parsed.get("gate_cv_note", "")).strip()),
         "gate_location": None if gates["location"] is None else int(gates["location"]),
         "gate_location_note": sanitise(str(parsed.get("gate_location_note", "")).strip()),
-        "gate_rate": None if gates["rate"] is None else int(gates["rate"]),
+        "gate_rate": radar_common.gate_column(gates["rate"]),
         "gate_rate_note": gate_rate_note,
         "tier": tier_info["tier"],
         "failed_gates": json.dumps(tier_info["failed_gates"]),
         "filter_reason": tier_info["filter_reason"],
-        "question_text": (sanitise(str(parsed.get("question_text") or "").strip())
-                          or question_for(gates, {})) if tier_info["tier"] == "question" else None,
+        # Code's question, about the one gate that fails. The scorer is not
+        # asked for one, because it cannot know whether the rate is stated.
+        "question_text": (question_for(gates)
+                          if tier_info["tier"] == "question" else None),
         "rate_stated": rate_stated,
         "rate_value": rate_value,
         "rate_basis": rate_basis or None,

@@ -94,6 +94,7 @@ run_one "insights page    (test/run_insights_test.py)" "test/run_insights_test.p
 run_one "applications board (test/run_board_test.py)" "test/run_board_test.py"
 run_one "home page        (test/run_home_test.py)" "test/run_home_test.py"
 run_one "watchlist        (test/run_watchlist_test.py)" "test/run_watchlist_test.py"
+run_one "rate not stated  (test/run_rate_test.py)" "test/run_rate_test.py"
 
 echo
 echo "=========================================================================="

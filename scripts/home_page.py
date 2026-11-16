@@ -1197,7 +1197,7 @@ def _body_role(i: dict, uid: str) -> str:
     gates = []
     for gate, name, _l in jp.GATES:
         cls, symbol, said = jp.gate_words(o, gate, name)
-        gates.append((name, f'<span class="status {"is-neg" if cls == "mk-fail" else "is-neu" if cls == "mk-nj" else "is-pos"}">'
+        gates.append((name, f'<span class="status {"is-neg" if cls == "mk-fail" else "is-pos" if cls == "mk-pass" else "is-neu"}">'
                             f'{_use(symbol)}{esc(said[len(name) + 1:])}</span>'))
     cv = o.get("cv_match")
     score = (f'<p class="ny-para">{esc(i["lead"])}</p>' if i.get("lead") else "")
@@ -1661,7 +1661,7 @@ a{color:inherit}
 .r3{align-items:center;gap:12px}
 .r-lead{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text-2)}
 .r-marks{display:inline-flex;align-items:center;gap:4px;flex:none}
-.mk-pass{color:var(--text-3)}.mk-fail{color:var(--negative)}.mk-nj{color:var(--neutral)}
+.mk-pass{color:var(--text-3)}.mk-fail{color:var(--negative)}.mk-nj{color:var(--neutral)}.mk-ns{color:var(--neutral)}
 .sec-h{margin-bottom:8px;font-size:16px;line-height:24px;font-weight:600}
 .sec-h .group-count{margin-left:4px}
 .facts{display:grid;grid-template-columns:160px minmax(0,1fr);gap:8px 16px;align-items:baseline}

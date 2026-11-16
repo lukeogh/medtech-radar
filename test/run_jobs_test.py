@@ -90,6 +90,10 @@ def put(conn, title="Head of Software", company="Alpha Medical", **cols) -> int:
            "gate_location": 1, "gate_location_note": "Guildford",
            "gate_rate": 1, "gate_rate_note": "£720/day clears the £700 floor",
            "rate_band": "above", "engagement_type": "contract",
+           # The figure on file, as the extractor stores it. A row with none
+           # would read Rate not stated, whatever gate_rate says.
+           "pay_currency": "GBP", "pay_period": "day", "pay_min": 720.0,
+           "pay_max": 720.0, "rate_stated": 1,
            "source_url": f"https://www.linkedin.com/jobs/view/{9000000 + _n}/",
            "role_key": rc.role_key(title, company), "red_flags": "[]"}
     row.update(cols)
@@ -262,7 +266,7 @@ def queue_checks(tmp: Path) -> None:
     q = put(conn, "Question Role", "D Co", tier="question", cv_match=78, gate_rate=0,
             gate_rate_note="£650/day is under the £700 floor", failed_gates='["rate"]',
             question_text="Would they move on the rate? £650/day is £50 under the floor",
-            salary_rate="£650/day")
+            salary_rate="£650/day", pay_min=650.0, pay_max=650.0)
     r = put(conn, "Reading Role", "E Co", tier="reading", cv_match=50, gate_cv=0,
             gate_location=None, gate_location_note="Bristol, no pattern given")
     f = put(conn, "Filtered Role", "F Co", tier="filtered", cv_match=20,

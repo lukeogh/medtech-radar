@@ -818,12 +818,10 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False,
                              o.get("salary_rate")) if b]
     meta = ". ".join(str(b) for b in meta_bits)
     unstated = (o.get("rate_band") or "unstated") == "unstated"
-    if o.get("tier") == "question" and o.get("question_text"):
-        why = o["question_text"]
-    elif o.get("tier") == "top" and unstated:
-        why = "Rate not stated, ask before anything else"
-    else:
-        why = o.get("one_line_why") or ""
+    # The question on a One question away row asks about the gate that fails
+    # and nothing else. A Top prospect carries no question.
+    why = (radar_common.question_kept(o.get("question_text"), radar_common.gates_of(o))
+           if o.get("tier") == "question" else "") or o.get("one_line_why") or ""
     region = str(o.get("region") or "").strip().lower()
     remote = "1" if str(o.get("location_class") or "").strip().lower() == "remote" else "0"
     attrs = f'data-region="{esc(region)}" data-remote="{remote}"'
@@ -855,9 +853,14 @@ def render_opportunity(o: dict, data: dict, i: int, acked: bool = False,
             failed = [str(g) for g in json.loads(o.get("failed_gates") or "[]")]
         except (ValueError, TypeError):
             pass
-        gates = ("All four gates passed." if o["tier"] == "top" and not failed
-                 else "Failed " + ", ".join(failed) + "." if failed
+        silent = radar_common.gate_state(o, "rate") == radar_common.NOT_STATED
+        gates = ("Failed " + ", ".join(failed) + "." if failed
+                 else "Sector, CV and location passed. Rate not stated."
+                 if o["tier"] == "top" and silent
+                 else "All four gates passed." if o["tier"] == "top"
                  else "No gate failed.")
+        if failed and silent:
+            gates += " Rate not stated."
         parts.append(labelled("Gates", gates))
     if show_basis:
         # The reasons the score gave and the words of the card or the

@@ -632,7 +632,11 @@ def cv_numbering_checks() -> None:
 # ----------------------------------------------------------- the prompt
 
 def prompt_checks() -> None:
-    whole = (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8")
+    # The prompt as Prepare application final left it. The rate change since
+    # (3c8e6c63) edits the card part on purpose and is taken out first, by
+    # the one list of its edits in mocks.
+    current = (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8")
+    whole = mocks.prompt_before_rate(current)
     card_part, spec_part = score_item.split_rubric(whole)
     check(whole.count(score_item.SPEC_MARKER) == 1 and spec_part
           and card_part + spec_part == whole,
@@ -666,9 +670,12 @@ def prompt_checks() -> None:
           f"changed above the marker gives another hash")
     check(score_item.CARD_MAX_TOKENS == 2048,
           "and the card's ceiling is the 2,048 it was")
+    # From here on, the file as it is now, the rate change in it.
+    whole = current
+    card_part, spec_part = score_item.split_rubric(current)
     check(not re.search(r"\b(68|70)\b", whole),
           "and the file still states no pass mark of its own")
-    version = radar_common.prompt_hash(whole)
+    version = radar_common.prompt_hash(current)
     check(re.fullmatch(r"[0-9a-f]{8}", version) is not None
           and radar_common.prompt_version() == version,
           f"the version is eight hex characters, the hash of the whole file ({version})")
@@ -2296,7 +2303,9 @@ def page_checks() -> None:
                         "ask with its mark as a word as well as a glyph, the counts, the "
                         "card's pay and the description")
         gates = part(inner, "gates")
-        check('<th scope="col">Full spec</th>' in gates and page_text(gates).count("✓ Passes") == 4
+        # The advert states no pay, so Rate is not stated, never a pass.
+        check('<th scope="col">Full spec</th>' in gates and page_text(gates).count("✓ Passes") == 3
+              and page_text(gates).count("? Not stated") == 1
               and all(f'aria-hidden="true">{k}</span>' in gates for k in "SCLR"),
               "the gates are a table, each with the letter the Jobs row marks it by and "
               "its result in words")
@@ -3584,8 +3593,10 @@ def final_box_checks() -> None:
         prep.open_copy(oid, env.db, CFG)
         first = next(l for l in cv_store.cv_lines(master) if l and not l.startswith("#"))
         prep.rescore_copy(oid, master.replace(first, first + " and more", 1), env.db, CFG)
+        # The version the box page deploys and its queries name. The rate
+        # change since has a version and a box page of its own.
         env.sql("UPDATE opportunities SET prompt_version = ? WHERE id = ?",
-                (radar_common.prompt_version(), oid))
+                ("1b1ffb78", oid))
         after = {q: run_sql(env.db, q) for q in queries + inline_sql}
         failed = [q[:60] for q, r in list(before.items()) + list(after.items())
                   if isinstance(r, str)]
@@ -3607,8 +3618,10 @@ def final_box_checks() -> None:
               "and the tailored-score proof catches a Jobs row that holds one")
     check("1b1ffb78" in part_text and "22353628" in part_text
           and "422cdad4" not in part_text
-          and radar_common.prompt_version() == "1b1ffb78",
-          "the box page names both prompt versions, and the new one is the file's")
+          and radar_common.prompt_hash(mocks.prompt_before_rate(
+              (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8"))) == "1b1ffb78",
+          "the box page names both prompt versions, and the new one is the file's "
+          "before the rate change")
 
 
 def run_sql(db, sql):
