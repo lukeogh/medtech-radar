@@ -96,7 +96,8 @@ CFG = radar_common.load_config()
 FLOORS = radar_common.read_rate_floors(CFG)
 SPEC = radar_common.SCORE_BASIS_SPEC
 CARD = radar_common.SCORE_BASIS_CARD
-NEW_VERSION = "22353628"     # the prompt this change leaves
+NEW_VERSION = "422cdad4"     # the prompt now: this change's, with each ask's sentence
+PART_B_VERSION = "22353628"  # the prompt this change left, before the advert sentences
 OLD_VERSION = "97f11cce"     # the prompt Brief 3 left
 
 # The master CV, in the editor's layout, so that a tailored copy can be made.
@@ -426,8 +427,16 @@ def prompt_checks() -> None:
               "the end of it." in " ".join(spec.split()),
           "a full description gives the same reasons, its quotes from the "
           "description and never from the card, in the same reply as before")
-    # Everything else is the prompt Brief 3 left, byte for byte.
-    old = (whole.replace(block, "").replace(spec_block, "")
+    # Everything else is the prompt Brief 3 left, byte for byte, once the
+    # advert sentence of each ask (Prepare application final, 15 Nov) is
+    # taken out as well.
+    sentence_para = whole[whole.index("\nFor every ask, met, partly or missing, give sentence"):
+                          whole.index("\ncv_match comes from this same evidence.")]
+    part_b = whole.replace(sentence_para, "").replace(', "sentence": ""}],', '}],')
+    check(radar_common.prompt_hash(part_b) == PART_B_VERSION,
+          f"take the advert sentences out and the file is the one this change "
+          f"left, {PART_B_VERSION}")
+    old = (part_b.replace(block, "").replace(spec_block, "")
            .replace('"act_by": "",\n "reasons": [{"reason": "", "quote": ""}]}',
                     '"act_by": ""}'))
     check(radar_common.prompt_hash(old) == OLD_VERSION,
@@ -879,8 +888,9 @@ def spec_path_checks() -> None:
               "the card score it replaced goes to the history with no reasons, "
               "because it had none, and the new score with its own")
         spec = scorer_calls()
-        check(len(spec) == 1 and spec[0]["max_tokens"] == score_item.SPEC_MAX_TOKENS == 6144,
-              "one call, at the full description's ceiling of 6,144")
+        check(len(spec) == 1 and spec[0]["max_tokens"] == score_item.SPEC_MAX_TOKENS == 8192,
+              "one call, at the full description's ceiling of 8,192 (6,144 before "
+              "each ask carried its advert sentence)")
 
     # A card score that had reasons keeps them in the history.
     with fresh() as env:
@@ -1499,7 +1509,7 @@ ROW_COUNTS = ("SELECT COUNT(*) AS roles, SUM(expired_at IS NOT NULL) AS expired,
 OLD_SCORES = ("SELECT COUNT(*) AS scored_rows, COUNT(DISTINCT prompt_version) AS"
               " prompt_versions, SUM(cv_match) AS cv_sum, SUM(LENGTH(one_line_why)) AS"
               " why_chars, MAX(scored_at) AS newest_score FROM opportunities WHERE tier IS"
-              " NOT NULL AND COALESCE(prompt_version, '') <> '" + NEW_VERSION + "';")
+              " NOT NULL AND COALESCE(prompt_version, '') <> '" + PART_B_VERSION + "';")
 APPLIED_LIST = ("SELECT id, applied_at, score_basis, prompt_version, scored_at, tier,"
                 " cv_match FROM opportunities WHERE applied_at IS NOT NULL ORDER BY id;")
 APPLIED_ROWS = ("SELECT COUNT(*) AS rows_on_applied_roles, SUM(cv_match) AS cv_sum,"
@@ -1568,29 +1578,29 @@ AFTER_QUERIES = {
 NEW_QUERIES = {
     "new scores by basis (expect with_reasons equal to scores on each line)":
         "SELECT score_basis AS basis, COUNT(*) AS scores, SUM(score_reasons IS NOT NULL)"
-        " AS with_reasons FROM opportunities WHERE prompt_version = '" + NEW_VERSION
+        " AS with_reasons FROM opportunities WHERE prompt_version = '" + PART_B_VERSION
         + "' GROUP BY 1 ORDER BY 1;",
     "every new score carries the reasons made with it (expect 0)":
         "SELECT COUNT(*) AS new_scores_without_their_reasons FROM opportunities o WHERE"
-        " o.prompt_version = '" + NEW_VERSION + "' AND NOT EXISTS (SELECT 1 FROM"
+        " o.prompt_version = '" + PART_B_VERSION + "' AND NOT EXISTS (SELECT 1 FROM"
         " json_tree(o.score_reasons) t WHERE t.key = 'scored_at' AND t.atom = o.scored_at);",
     "new scores with no reasons, which only old code with the new prompt makes (expect"
     " the header and no rows)":
         "SELECT id, score_basis, scored_at FROM opportunities WHERE prompt_version = '"
-        + NEW_VERSION + "' AND score_reasons IS NULL ORDER BY scored_at, id;",
+        + PART_B_VERSION + "' AND score_reasons IS NULL ORDER BY scored_at, id;",
     "the reasons the scores on the rows gave, and their quotes kept and dropped, by basis":
         tally("opportunities o", "o.score_reasons", "o.score_basis AS basis"),
     "the history keeps them (expect with_reasons equal to rows)":
         "SELECT event, writer, score_basis AS basis, COUNT(*) AS rows, SUM(reasons IS NOT"
-        " NULL) AS with_reasons FROM score_history WHERE prompt_version = '" + NEW_VERSION
+        " NULL) AS with_reasons FROM score_history WHERE prompt_version = '" + PART_B_VERSION
         + "' GROUP BY 1, 2, 3 ORDER BY 1, 2, 3;",
     "the quotes the history keeps, kept and dropped, by event and basis":
         tally("score_history h", "h.reasons", "h.event, h.score_basis AS basis"),
     "no score made before the deploy carries reasons (expect 0 and 0)":
         "SELECT (SELECT COUNT(*) FROM opportunities WHERE COALESCE(prompt_version, '') <>"
-        " '" + NEW_VERSION + "' AND score_reasons IS NOT NULL) AS old_rows_with_reasons,"
+        " '" + PART_B_VERSION + "' AND score_reasons IS NOT NULL) AS old_rows_with_reasons,"
         " (SELECT COUNT(*) FROM score_history WHERE COALESCE(prompt_version, '') <> '"
-        + NEW_VERSION + "' AND reasons IS NOT NULL) AS old_history_with_reasons;",
+        + PART_B_VERSION + "' AND reasons IS NOT NULL) AS old_history_with_reasons;",
     "the scores made before the deploy, as before less any you re-scored since": OLD_SCORES,
     "applied roles and the score each holds, the same as before": APPLIED_LIST,
     "no row of an applied role was scored after the role was applied, reposts apart"
@@ -1605,7 +1615,7 @@ NEW_QUERIES = {
         "SELECT workflow, COUNT(*) AS runs, SUM(items_new) AS new_items,"
         " SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens FROM runs"
         " WHERE ts >= (SELECT MIN(scored_at) FROM opportunities WHERE prompt_version = '"
-        + NEW_VERSION + "') AND workflow IN ('inbox', 'prepare', 'rescore') GROUP BY 1"
+        + PART_B_VERSION + "') AND workflow IN ('inbox', 'prepare', 'rescore') GROUP BY 1"
         " ORDER BY 1;",
 }
 
@@ -1641,7 +1651,7 @@ print("quotes kept", kept, "not in the stored text", missing,
 # The role the new scores block opens on the Prepare page, by the line that
 # sets ID on the box page.
 ID_QUERY = ("SELECT id FROM opportunities WHERE score_basis = 'spec' AND prompt_version = '"
-            + NEW_VERSION + "' ORDER BY scored_at DESC, id DESC LIMIT 1;")
+            + PART_B_VERSION + "' ORDER BY scored_at DESC, id DESC LIMIT 1;")
 ID_LINE = 'ID=$(Q "' + ID_QUERY + '" | sed -n 2p); echo "role $ID"'
 # The lines that show which code the dashboard serves, before and after.
 CODE_LINE_BEFORE = ("echo '--- the dashboard runs the code from before the deploy (expect 0)'; "
@@ -1679,7 +1689,28 @@ def run_kept_check(db: Path) -> str:
     return (done.stdout + done.stderr).strip()
 
 
+def part_b_prompt() -> str:
+    """scorer.md as this change left it, before each ask carried its advert
+    sentence: the prompt the box page below deploys, stamped PART_B_VERSION."""
+    whole = (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8")
+    para = whole[whole.index("\nFor every ask, met, partly or missing, give sentence"):
+                 whole.index("\ncv_match comes from this same evidence.")]
+    return whole.replace(para, "").replace(', "sentence": ""}],', '}],')
+
+
 def box_query_checks() -> None:
+    """The box page for this change deploys the prompt it left, so the box
+    is played through with that prompt, PART_B_VERSION; Prepare application
+    final has its own page for the prompt after it."""
+    real = score_item.load_prompt
+    score_item.load_prompt = lambda name: part_b_prompt() if name == "scorer.md" else real(name)
+    try:
+        _box_query_checks()
+    finally:
+        score_item.load_prompt = real
+
+
+def _box_query_checks() -> None:
     everything = {**BEFORE_QUERIES, **AFTER_QUERIES, **NEW_QUERIES}
     check(all(not any(ch in q for ch in ('"', "$", "`", "\\", "!"))
               for q in everything.values()),
@@ -1856,7 +1887,7 @@ def box_query_checks() -> None:
         # The proofs catch what they exist for.
         later = "2026-12-01T10:00:00Z"
         bad = sqlite3.connect(old)
-        new_card = [r for r in old_env.rows() if r["prompt_version"] == NEW_VERSION
+        new_card = [r for r in old_env.rows() if r["prompt_version"] == PART_B_VERSION
                     and r["score_basis"] == CARD][0]["id"]
         b_scored_at = old_env.row(b)["scored_at"]
         bad.execute("UPDATE opportunities SET score_reasons = ? WHERE id = ?",
@@ -1931,7 +1962,7 @@ def docs_checks() -> None:
     blocks = re.findall(r"```bash\n(.*?)```", doc, re.S)
     check(len(blocks) >= 8 and all(b.strip() for b in blocks)
           and "## BEFORE" in doc and "## AFTER" in doc and "## Rollback" in doc
-          and NEW_VERSION in doc and OLD_VERSION in doc,
+          and PART_B_VERSION in doc and OLD_VERSION in doc,
           f"the box page has BEFORE, AFTER and rollback, {len(blocks)} command blocks "
           f"and none of them empty, and names both prompt versions")
     check("backup_radar.sh" in doc and "radar_common.get_db().close()" in doc

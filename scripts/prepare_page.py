@@ -420,10 +420,20 @@ def score_html(m: dict) -> str:
                          f"{esc(day_time(row.get('scored_at')))}.", "is-role",
                          attrs='data-fig="spec"'))
     else:
-        figs.append(_fig("Full spec", None, "Made only when you press the button below.",
+        figs.append(_fig("Full spec", None,
+                         "Made only when you press the button below." if m["pending"]
+                         else "Made only when you press, and nothing is fetched or scored "
+                         "for this role now." if not m["can_edit"]
+                         else "Made only when you press, once a fetch can run.",
                          none=("Not scored" if m["description"] else "Not fetched"),
                          attrs='data-fig="spec"'))
-    if kind == "current" and record:
+    which = shown_copy_words(m)
+    if kind == "current" and record and not m["can_edit"]:
+        figs.append(_fig("This copy", record.get("cv_match"),
+                         f"Scored against the full description and {esc(which)}, "
+                         f"{esc(day_time(record.get('scored_at')))}. Never written to Jobs.",
+                         "is-copy", attrs='data-fig="copy"'))
+    elif kind == "current" and record:
         figs.append(_fig("This copy", record.get("cv_match"),
                          "This page only, never written to Jobs. Tailored CV, "
                          f"{esc(day_time(record.get('scored_at')))}.", "is-copy",
@@ -437,6 +447,27 @@ def score_html(m: dict) -> str:
         figs.append(_fig("This copy", row.get("cv_match"),
                          "The master CV unchanged, so the full spec score stands for it. "
                          "Never written to Jobs.", "is-copy", attrs='data-fig="copy"'))
+    elif kind == "elsewhere" and record:
+        figs.append(_fig("This copy", None,
+                         "Last scored against another advert&rsquo;s description, "
+                         f"{esc(day(record.get('scored_at')))}."
+                         + (" Rescore role scores it against this one." if m["can_edit"] else ""),
+                         "is-copy", none="Not on this one", attrs='data-fig="copy"'))
+    elif m["copy"] is not None and not m["can_edit"]:
+        figs.append(_fig("This copy", None,
+                         f"{esc(which[:1].upper() + which[1:])} was not scored on its own "
+                         "against this description.", "is-copy", attrs='data-fig="copy"'))
+    elif m["copy"] is None and not m["can_edit"]:
+        figs.append(_fig("This copy", None, "No tailored copy was made for this role.",
+                         "is-copy", none="No copy", attrs='data-fig="copy"'))
+    elif m["copy"] is None and m["can_edit"] and m["unlaid"]:
+        figs.append(_fig("This copy", None, "No copy yet. One is made from the master CV "
+                         "once the master has been saved on the CV page.", "is-copy",
+                         none="No copy", attrs='data-fig="copy"'))
+    elif m["copy"] is None and m["can_edit"]:
+        figs.append(_fig("This copy", None, "No tailored copy yet. It is made from the master "
+                         "CV when this page opens, and is scored only when Rescore role is "
+                         "pressed.", "is-copy", none="No copy yet", attrs='data-fig="copy"'))
     else:
         words = ("Needs the full spec first." if not spec
                  else "Rescore role scores it once you change it. This page only."
@@ -481,13 +512,62 @@ def score_html(m: dict) -> str:
                                      bd.quotes_hold(row), row=row)
     tailored_reasons = (bd.reasons_html(record.get("reasons"), record.get("scored_at"))
                         if record and kind in ("current", "earlier") else "")
-    if master_reasons or tailored_reasons:
+    moved = _moved_html(m)
+    if master_reasons or tailored_reasons or moved:
         out.append('<details class="pa-why"><summary>Why these scores</summary>'
                    f'<div class="score-master"><h3>{"Full spec" if spec else "Card"}</h3>'
                    f'{master_reasons or "<p class=small>No reasons were kept with it.</p>"}</div>'
-                   '<div id="tailored-score"><h3>This copy</h3>'
-                   f'{tailored_reasons or "<p class=small>No reasons of its own yet.</p>"}</div>'
-                   '</details>')
+                   '<div id="tailored-score"><h3>This copy</h3>' + moved
+                   + (tailored_reasons or "<p class=small>No reasons of its own yet.</p>")
+                   + '</div></details>')
+    return "".join(out)
+
+
+def shown_copy_words(m: dict) -> str:
+    """Which copy the page shows, in the words the score beside it uses: the
+    copy being tailored, or, where nothing can change any more, the copy that
+    was saved and sent, the one saved for a role that closed, or the copy as
+    it was left when nothing was ever saved."""
+    copy = m["copy"]
+    if m["can_edit"] or copy is None:
+        return "this copy"
+    if copy.get("saved_text"):
+        return "the copy saved and sent" if m["applied"] else "the copy saved for this role"
+    return "the copy as it was left, never saved"
+
+
+def _moved_html(m: dict) -> str:
+    """What the copy's score moved, against the score before it."""
+    record = m["record"]
+    if not record or m["standing"]["kind"] not in ("current", "earlier"):
+        return ""
+    out = []
+    before = record.get("before")
+    if before:
+        whose = "the master CV" if before.get("source") == "master" else "the tailored copy"
+        tier = before.get("tier")
+        out.append(f'<p class="small">Before this rescore, on {whose}: CV match '
+                   f'{esc(before.get("cv_match"))}'
+                   + (f', {esc(prep.TIER_WORDS.get(tier, tier))}' if tier else '') + '.</p>')
+    changes = record.get("changes")
+    if changes:
+        items = []
+        for c in changes:
+            word = cv_doc.change_word(c)
+            if word == "new":
+                head = f'New this time, {esc(c.get("to"))}.'
+            elif word == "gone":
+                head = f'Not listed this time, was {esc(c.get("from"))}.'
+            else:
+                head = f'Now {esc(c.get("to"))}, was {esc(c.get("from"))}.'
+            items.append(f'<li><b>{head}</b> {esc(c.get("ask"))}</li>')
+        out.append(f'<p class="small">{_plural(len(changes), "ask")} changed.</p>'
+                   '<ul class="moved">' + "".join(items) + '</ul>')
+    elif changes is not None:
+        out.append('<p class="small">No ask changed.</p>')
+    if record.get("reused"):
+        out.append('<p class="small">Shown again from an earlier score of this same copy. '
+                   'Nothing was spent on it.</p>')
     return "".join(out)
 
 
@@ -898,7 +978,7 @@ def workhead_html(m: dict) -> str:
         name = row.get("applied_cv")
         out.append('<p class="notice">This role is marked applied'
                    + (f' with {esc(name)}' if name else '') + '. '
-                   + ('Its CV is shown as it was stored, and nothing is scored, saved or '
+                   + ('Its CV is shown as it was saved, as it was sent, and nothing is scored, saved or '
                       'changed for it. Rescore role, Save CV and Start again from master are '
                       'gone; Download Word stays.' if copy and copy.get("saved_text")
                       else 'No CV was saved for this role, and nothing is scored, saved or '
@@ -957,18 +1037,23 @@ def workhead_html(m: dict) -> str:
                    f'<span data-pa-count="partly">&#9680; {n["partly"]} partly</span> '
                    f'<span data-pa-count="missing">&#10007; {n["missing"]} '
                    f'{"gap" if n["missing"] == 1 else "gaps"}, not on the CV</span> '
-                   f'<span data-pa-count="stale"{"" if stale else " hidden"}>! {stale} stale'
-                   '</span></p>')
+                   + (f'<span data-pa-count="stale">! {stale} stale</span>' if stale
+                      else '<span data-pa-count="stale" hidden></span>')
+                   + '</p>')
         record = m["record"]
-        by = ("by the " + clock(record.get("scored_at")) + " rescore of this copy"
+        by = ("by the " + clock(record.get("scored_at")) + " rescore of this copy, CV lines "
+              "as numbered in the tailored copy as it was scored"
               if m["asks_from"] == "tailored" and record else
-              "by the full spec score of the master CV")
+              "by the full spec score of the master CV, CV lines as numbered in "
+              + str((m["asks_working"] or {}).get("cv_version") or "the CV"))
         out.append(f'<p class="legend">Judged on the CV text alone, {esc(by)}. Met notes '
                    'fold to one line; open one to read the advert sentence it came from.</p>')
         if m["can_edit"]:
-            out.append('<p class="notice warn" id="copy-edited-note" hidden>The copy has been '
-                       'edited since this score. Rescore role scores it as it is now. '
-                       '<b data-pa-counts></b></p>')
+            earlier = m["standing"]["kind"] == "earlier"
+            out.append('<p class="notice warn" id="copy-edited-note"'
+                       + (' data-pa-earlier="1">' if earlier else ' hidden>')
+                       + 'The copy has been edited since this score. Rescore role scores '
+                       'it as it is now. <b data-pa-counts></b></p>')
     elif m["stale_description"]:
         out.append('<p class="small">No asks are shown: the stored description has changed '
                    'since this role was scored.</p>')
@@ -1055,6 +1140,9 @@ def _cite_line(m: dict, a: dict) -> str:
     if cites:
         links = ", ".join(
             f'<a href="#cv-h" data-pa-goto="{esc(c["now"] or c["n"])}">{esc(c["now"] or c["n"])}</a>'
+            + (f'<span class="when" data-pa-when="{esc(c["n"])}"> ({esc(c["n"])} when scored)</span>'
+               if c["now"] and c["now"] != c["n"] else
+               f'<span class="when" data-pa-when="{esc(c["n"])}" hidden></span>')
             for c in cites)
         bits.append(("CV line " if len(cites) == 1 else "CV lines ") + links)
     where = where_in_advert(m, a.get("sentence")) if a.get("sentence") else None
@@ -1475,6 +1563,8 @@ details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bott
 .note .cite{display:block;font-size:12px;line-height:16px;color:var(--text-3)}
 .note .cite a{color:var(--accent)}
 .note .gapwhy{display:block;color:var(--text-2)}
+.note .when{color:var(--text-3)}
+.pa-why .moved{display:grid;gap:2px;padding-left:18px;list-style:disc}
 .note .was{display:inline-block;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font-size:12px;line-height:16px;color:var(--text-2)}
 .note .btn-sm{justify-self:start;margin-top:4px}
 .gaps .note{background:var(--canvas)}
@@ -1574,6 +1664,18 @@ PREPARE_SCRIPT = r"""
   function all(sel, scope) {
     return Array.prototype.slice.call((scope || document).querySelectorAll(sel));
   }
+  // Out of its parent, in any document: one with remove, one with only
+  // removeChild, and the test runners' small stand-in, which keeps a list.
+  function detach(el) {
+    var parent = el && el.parentNode;
+    if (!parent) return;
+    if (parent.removeChild) { parent.removeChild(el); return; }
+    if (parent.children && parent.children.indexOf) {
+      var i = parent.children.indexOf(el);
+      if (i >= 0) parent.children.splice(i, 1);
+      el.parentNode = null;
+    }
+  }
   function slot(name) { return document.querySelector('[data-slot="' + name + '"]'); }
   function phone() {
     return !!(window.matchMedia && window.matchMedia('(max-width: 767.98px)').matches);
@@ -1642,8 +1744,15 @@ PREPARE_SCRIPT = r"""
         lines.textContent = (shown.length === 1 ? 'line ' : 'lines ') + shown.join(', ');
       }
       all('[data-pa-goto]', note).forEach(function (a, i) {
-        var to = list[i] ? (find(list[i], keys) || list[i].n) : null;
+        var now = list[i] ? find(list[i], keys) : null;
+        var to = now || (list[i] ? list[i].n : null);
         if (to) { a.setAttribute('data-pa-goto', String(to)); a.textContent = String(to); }
+        var sibs = a.parentNode ? Array.prototype.slice.call(a.parentNode.children || []) : [];
+        var when = a.nextElementSibling || sibs[sibs.indexOf(a) + 1];
+        if (when && when.hasAttribute && when.hasAttribute('data-pa-when')) {
+          when.hidden = !now || String(now) === when.getAttribute('data-pa-when');
+          when.textContent = when.hidden ? '' : ' (' + when.getAttribute('data-pa-when') + ' when scored)';
+        }
       });
       var mark = note.querySelector('.mark');
       var was = note.getAttribute('data-stale') === '1' || (mark && mark.classList.contains('stale'));
@@ -1666,7 +1775,7 @@ PREPARE_SCRIPT = r"""
           mark.textContent = status === 'met' ? '✓ Met' : '◐ Partly';
           note.classList.remove('st-stale');
           var w = note.querySelector('[data-pa-stale-words]');
-          if (w && w.parentNode) w.parentNode.removeChild(w);
+          if (w) detach(w);
         }
       }
       note.setAttribute('data-stale', stale ? '1' : '0');
@@ -1688,7 +1797,7 @@ PREPARE_SCRIPT = r"""
     }
     var band = document.getElementById('copy-edited-note');
     if (band) {
-      band.hidden = !edited();
+      band.hidden = !(edited() || band.getAttribute('data-pa-earlier') === '1');
       var c = band.querySelector('[data-pa-counts]');
       if (c) {
         c.textContent = counts.met + ' met, ' + counts.partly + ' partly, ' + counts.missing
@@ -1721,14 +1830,15 @@ PREPARE_SCRIPT = r"""
       var after = all('[data-note]', g).filter(function (o) {
         return Number(o.getAttribute('data-note')) > Number(note.getAttribute('data-note'));
       })[0];
+      detach(note);
       if (after) g.insertBefore(note, after); else g.appendChild(note);
     });
     all('ol.notes[data-pa-group]', layer).forEach(function (g) {
-      if (!g.querySelector('[data-note]') && g.parentNode) g.parentNode.removeChild(g);
+      if (!g.querySelector('[data-note]')) detach(g);
     });
     all('ol.notes[data-pa-group]', layer).sort(function (a, b) {
       return Number(a.getAttribute('data-pa-group')) - Number(b.getAttribute('data-pa-group'));
-    }).forEach(function (g) { layer.appendChild(g); });
+    }).forEach(function (g) { detach(g); layer.appendChild(g); });
   }
 
   // ---------------------------------------------- the notes beside lines
@@ -1777,12 +1887,18 @@ PREPARE_SCRIPT = r"""
     } finally { laying = false; }
   }
   var queued = false;
+  function later(fn) {
+    if (window.requestAnimationFrame) window.requestAnimationFrame(fn);
+    else Promise.resolve().then(fn);
+  }
   function soon() {
     if (queued) return;
     queued = true;
-    var run = function () { queued = false; refind(); layout(); };
-    if (window.requestAnimationFrame) window.requestAnimationFrame(run); else setTimeout(run, 0);
+    later(function () { queued = false; refind(); layout(); });
   }
+  // An edit is followed at once: the marks and the counts change as it is
+  // typed, and the notes are laid out again on the next frame.
+  function now() { refind(); soon(); }
 
   // -------------------------------------------------- selecting a note
   function light(nums) {
@@ -1929,10 +2045,18 @@ PREPARE_SCRIPT = r"""
       var name = tpl.getAttribute('data-part');
       var s = slot(name);
       if (!s) return;
-      s.innerHTML = tpl.innerHTML;
-      if ((name === 'bar' || name === 'gaps') && s.classList) {
-        s.classList.toggle('is-empty', !String(tpl.innerHTML).trim());
+      var empty;
+      if (tpl.content && typeof tpl.innerHTML === 'string') {
+        empty = !tpl.innerHTML.trim();
+        s.innerHTML = tpl.innerHTML;
+      } else {
+        // A document without template elements: the part's nodes move over.
+        var kids = Array.prototype.slice.call(tpl.childNodes || tpl.children || []);
+        empty = kids.length === 0;
+        s.textContent = '';
+        kids.forEach(function (k) { detach(k); s.appendChild(k); });
       }
+      if ((name === 'bar' || name === 'gaps') && s.classList) s.classList.toggle('is-empty', empty);
     });
     carrier.innerHTML = '';
     all('[data-cv-act]').forEach(function (b) { b.disabled = !enabled; });
@@ -1946,7 +2070,7 @@ PREPARE_SCRIPT = r"""
       pendingApply = false;
       if (said && said.getAttribute('data-saved-same') === '1') apply(document.querySelector('[data-pa-apply]'));
     }
-    soon();
+    now();
     return true;
   }
   function take(html) {
@@ -2072,7 +2196,7 @@ PREPARE_SCRIPT = r"""
   }
   if (dialog) {
     dialog.addEventListener('cancel', function () {
-      setTimeout(function () { if (opener && opener.focus) opener.focus(); }, 0);
+      Promise.resolve().then(function () { if (opener && opener.focus) opener.focus(); });
     });
     dialog.addEventListener('keydown', function (e) {
       if (e.key !== 'Tab') return;
@@ -2182,11 +2306,21 @@ PREPARE_SCRIPT = r"""
       .observe(editorHost, { childList: true });
   }
   document.addEventListener('input', function (e) {
-    if (e.target && e.target.closest && e.target.closest('#cv-editor')) soon();
+    if (e.target && e.target.closest && e.target.closest('#cv-editor')) now();
+  });
+  // The editor draws its lines again after Enter, Backspace, a move or a
+  // delete; the observer above sees that in a browser, and these see it too.
+  ['keydown', 'click', 'focusout'].forEach(function (type) {
+    document.addEventListener(type, function (e) {
+      if (e.target && e.target.closest && e.target.closest('#cv-editor')) {
+        Promise.resolve().then(now);
+      }
+    });
   });
   window.addEventListener('resize', soon);
   window.addEventListener('load', function () { if (loaded === null) loaded = snapshot(); soon(); });
-  setTimeout(function () { if (loaded === null) loaded = snapshot(); soon(); }, 0);
+  // After the editor's own script, which runs after this one, has drawn.
+  Promise.resolve().then(function () { if (loaded === null) loaded = snapshot(); now(); });
   window.RadarPrepare = { take: take, refind: refind, layout: layout, snapshot: snapshot,
                           edited: edited, keysOn: keysOn };
 })();
