@@ -620,8 +620,9 @@ reports the asks that are unevidenced.
 The ceiling. `MAX_TOKENS` is still 1,024 for the extractor, and for the pay
 backfill, which passes no ceiling of its own. A card had it too
 until the quoted reasons gave a card's score `CARD_MAX_TOKENS`, 2,048, see
-"Quoted reasons" below. A full description's call uses `SPEC_MAX_TOKENS`, 8,192 since
-each ask carries its advert sentence (6,144 before, see "The final page" below).
+"Quoted reasons" below. A full description's call uses `SPEC_MAX_TOKENS`, 10,240 since
+each partly or missing ask carries a short reason (8,192 with the advert sentences
+alone, 6,144 before them, see "Prepare application" below).
 The largest reply the prompt allows is 9,961 characters, 8,220 of them before
 the reasons, about 2,490 tokens at four characters a token and 3,320 at a
 pessimistic three, so the ceiling is a little under twice the pessimistic count;
@@ -757,8 +758,8 @@ What a press changes comes back as parts: `render_prepare_inner` answers with on
 `<template data-part>` for each slot of the page but the editor, the editor puts
 the answer into `#prepare-body` as it always has, and the page script moves each
 part into its slot. `cv_page.py` gains one additive hook, `window.RadarCvEditor`
-(`edited()` and `leaving()`), so the page can tell an edited copy and reload after
-Mark applied without the leave prompt.
+(`edited()`, `leaving()` and `lines()`), so the page can tell an edited copy, reload
+after Mark applied without the leave prompt, and draw the page estimate.
 
 Each ask now carries the advert sentence it came from. The full description prompt
 asks for it (prompt `422cdad4`, from `22353628`), and `score_item.normalise_asks`
@@ -766,9 +767,34 @@ holds it to the stored description by the reasons' own rule, `_hold_quote`, whic
 `radar_common.find_verbatim` with whole words: kept only where the description has
 it word for word, as the description's characters, and otherwise `None` with
 `sentence_dropped` saying why. An ask whose sentence was not found shows without a
-quoted sentence. A reply can now be 25 asks each with a sentence of 25 words, so
-`SPEC_MAX_TOKENS` is 8,192, where the worst reply is 65 per cent of it (it was
-6,144). What a press costs is about 3 cents; the cost note has the sums.
+quoted sentence, and says why only where one was asked for and dropped
+(`prepare_page.SENTENCE_DROPPED`): an ask stored before the sentences has no
+`sentence` key and says nothing about one.
+
+Since 16 Nov each partly or missing ask also carries a short reason, `why`, at
+most 20 words in the scorer's own words (prompt `1b1ffb78`, from `422cdad4`).
+`score_item._ask_why` runs it through the voice rules and drops one that is too
+long or is a quote of the description (`_hold_quote` again), with `why_dropped`
+saying why. A partly note shows it under its sentence, and a gap shows it in
+place of "No line on the CV evidences this ask.", which stays only where there
+is no reason. A reply can now be 25 partly asks each with a sentence of 25 words
+and a reason of 20, so `SPEC_MAX_TOKENS` is 10,240, where the worst reply is 67
+per cent of it (it was 6,144, then 8,192). What a press costs is about 3 cents,
+at most about 15; the cost note has the sums.
+
+The sheet is drawn as the CV page draws it: the CV page's Design
+(`cv_store.read_design`, font, size, spacing and margins) is set on `#cv-pane`
+as the CV page's own custom properties, and the A4 page estimate
+(`cv_doc.estimate_pages`, and `RadarCv.pages` as the copy is edited) breaks the
+sheet into pages, marks the lines past two and says the count under the sheet.
+A line's buttons and its add chips show only on the line being edited, and on a
+touch screen they are 44px. The notes come before the sheet in the source, so
+Tab reaches them before the editor's fields. After a paid press focus goes to
+the Score heading and the outcome is said in `#pa-live`, the page's one status
+region, there from the start. The gates' Why gives each column its own score's
+reason, and says when the copy's gates were judged and against which floor. The
+master-change notice names versions by number and date and links to the CV
+page's comparison (`/cv?compare=`).
 
 ## The CV page and the tailored CV
 
@@ -1067,7 +1093,8 @@ with quotes of 25 (1,741), about 900 tokens at four characters a token and 1,194
 at three, which is over 1,024. So a card's score has its own `CARD_MAX_TOKENS`,
 2,048, where the pessimistic count is 58 per cent of the ceiling, and the
 extractor and the pay backfill keep 1,024. A full description's ceiling was
-6,144, and is 8,192 since the advert sentences, see Prepare application. `docs/cost-note.md` prices the reasons: about
+6,144, was 8,192 with the advert sentences, and is 10,240 since the asks'
+short reasons, see Prepare application. `docs/cost-note.md` prices the reasons: about
 180 output tokens for four typical reasons and 160 to 190 tokens of prompt,
 about 0.3 cents a score on either path.
 

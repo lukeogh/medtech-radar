@@ -96,7 +96,8 @@ CFG = radar_common.load_config()
 FLOORS = radar_common.read_rate_floors(CFG)
 SPEC = radar_common.SCORE_BASIS_SPEC
 CARD = radar_common.SCORE_BASIS_CARD
-NEW_VERSION = "422cdad4"     # the prompt now: this change's, with each ask's sentence
+NEW_VERSION = "1b1ffb78"     # the prompt now: each partly or missing ask's short reason too
+SENTENCE_VERSION = "422cdad4"  # the prompt before the reasons, with each ask's sentence
 PART_B_VERSION = "22353628"  # the prompt this change left, before the advert sentences
 OLD_VERSION = "97f11cce"     # the prompt Brief 3 left
 
@@ -428,11 +429,20 @@ def prompt_checks() -> None:
           "a full description gives the same reasons, its quotes from the "
           "description and never from the card, in the same reply as before")
     # Everything else is the prompt Brief 3 left, byte for byte, once the
-    # advert sentence of each ask (Prepare application final, 15 Nov) is
-    # taken out as well.
-    sentence_para = whole[whole.index("\nFor every ask, met, partly or missing, give sentence"):
-                          whole.index("\ncv_match comes from this same evidence.")]
-    part_b = whole.replace(sentence_para, "").replace(', "sentence": ""}],', '}],')
+    # short reason of each partly or missing ask (16 Nov) and the advert
+    # sentence of each ask (Prepare application final, 15 Nov) are taken out
+    # as well.
+    why_para = whole[whole.index("\nFor partly and missing, give why"):
+                     whole.index("\ncv_match comes from this same evidence.")]
+    sentences = whole.replace(why_para, "").replace(', "sentence": "", "why": ""}],',
+                                                    ', "sentence": ""}],')
+    check(radar_common.prompt_hash(sentences) == SENTENCE_VERSION
+          and why_para.count("\n\n") == 0,
+          f"take the asks' short reasons out and the file is the one the advert "
+          f"sentences left, {SENTENCE_VERSION}: one paragraph and one key")
+    sentence_para = sentences[sentences.index("\nFor every ask, met, partly or missing, give sentence"):
+                              sentences.index("\ncv_match comes from this same evidence.")]
+    part_b = sentences.replace(sentence_para, "").replace(', "sentence": ""}],', '}],')
     check(radar_common.prompt_hash(part_b) == PART_B_VERSION,
           f"take the advert sentences out and the file is the one this change "
           f"left, {PART_B_VERSION}")
@@ -888,9 +898,10 @@ def spec_path_checks() -> None:
               "the card score it replaced goes to the history with no reasons, "
               "because it had none, and the new score with its own")
         spec = scorer_calls()
-        check(len(spec) == 1 and spec[0]["max_tokens"] == score_item.SPEC_MAX_TOKENS == 8192,
-              "one call, at the full description's ceiling of 8,192 (6,144 before "
-              "each ask carried its advert sentence)")
+        check(len(spec) == 1 and spec[0]["max_tokens"] == score_item.SPEC_MAX_TOKENS == 10240,
+              "one call, at the full description's ceiling of 10,240 (6,144 before "
+              "each ask carried its advert sentence, 8,192 before each partly or "
+              "missing ask carried its short reason)")
 
     # A card score that had reasons keeps them in the history.
     with fresh() as env:
@@ -1691,8 +1702,12 @@ def run_kept_check(db: Path) -> str:
 
 def part_b_prompt() -> str:
     """scorer.md as this change left it, before each ask carried its advert
-    sentence: the prompt the box page below deploys, stamped PART_B_VERSION."""
+    sentence and each partly or missing ask its short reason: the prompt the
+    box page below deploys, stamped PART_B_VERSION."""
     whole = (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8")
+    why = whole[whole.index("\nFor partly and missing, give why"):
+                whole.index("\ncv_match comes from this same evidence.")]
+    whole = whole.replace(why, "").replace(', "why": ""}],', '}],')
     para = whole[whole.index("\nFor every ask, met, partly or missing, give sentence"):
                  whole.index("\ncv_match comes from this same evidence.")]
     return whole.replace(para, "").replace(', "sentence": ""}],', '}],')

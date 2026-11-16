@@ -79,19 +79,26 @@ CARD_MAX_TOKENS = 2048
 # ceiling was 6,144, where it was 54 per cent. Each ask now also carries the
 # advert sentence it came from (decisions of 15 Nov), up to 25 words, which
 # makes the worst reply 15,961 characters, 5,320 tokens at three, 87 per cent
-# of 6,144, so the ceiling is 8,192, where it is 65 per cent. There is no
-# tokenizer here to count it exactly, so the ceiling is set well over the
-# pessimistic count. A typical advert has about twelve asks, which is about
-# 540 tokens beyond a card's reply, and about 400 more with their sentences.
+# of 6,144, so the ceiling was 8,192, where it was 65 per cent. Each partly or
+# missing ask now also carries a short reason of its own (why, up to
+# ASK_WHY_WORDS words, 16 Nov), which makes the worst reply, every ask partly,
+# about 20,700 characters, 6,900 tokens at three, 84 per cent of 8,192, so the
+# ceiling is 10,240, where it is 67 per cent. There is no tokenizer here to
+# count it exactly, so the ceiling is set well over the pessimistic count. A
+# typical advert has about twelve asks, which is about 540 tokens beyond a
+# card's reply, about 400 more with their sentences, and about 150 more with
+# the reasons of the five or so that are partly or missing.
 # test/run_prepare_test.py builds the worst reply and holds the ceiling to it,
 # so raising the caps without raising this fails a check.
-SPEC_MAX_TOKENS = 8192
+SPEC_MAX_TOKENS = 10240
 SPEC_ATTEMPTS = 1       # one model call per click, no retry on a bad reply
 MAX_ASKS = 25           # the most asks kept from one advert
 ASK_TEXT_MAX = 240      # characters kept of one ask
 CV_LINES_PER_ASK = 4    # the most CV lines kept as evidence for one ask
 CV_LINE_TEXT_MAX = 240  # characters kept of a cited CV line
 ASK_STATUSES = ("met", "partly", "missing")
+ASK_WHY_WORDS = 20      # the most words kept of a partly or missing ask's reason
+ASK_WHY_DROPS = ("empty", "not_text", "too_long", "quoted")
 
 # The reasons a score gives, on either path, and the quote each rests on.
 MAX_REASONS = 4         # the most reasons kept from one reply
@@ -538,6 +545,10 @@ def normalise_asks(raw, cv_lines: list[str],
     why (QUOTE_DROPS). The ask is kept either way, and a page shows it
     without a quoted sentence. With no sources nothing is kept, so a caller
     that cannot say what was scored keeps no sentence at all.
+
+    A partly or missing ask also carries the scorer's short reason for it
+    (why, at most ASK_WHY_WORDS words, its own words and not a quote, see
+    _ask_why), or None with why_dropped saying why; a met ask carries none.
     Returns (asks, dropped).
     """
     if not isinstance(raw, list):
@@ -569,11 +580,44 @@ def normalise_asks(raw, cv_lines: list[str],
                     break
         kept, why = (_hold_quote(item.get("sentence"), sources)
                      if sources is not None else (None, "empty"))
+        reason, reason_dropped = ((None, None) if status == "met"
+                                  else _ask_why(item.get("why"), sources))
         asks.append({"ask": text[:ASK_TEXT_MAX], "status": status,
                      "lines": lines,
                      "anchored": None if status == "missing" else bool(lines),
-                     "sentence": kept, "sentence_dropped": why})
+                     "sentence": kept, "sentence_dropped": why,
+                     "why": reason, "why_dropped": reason_dropped})
     return asks, dropped
+
+
+def _ask_why(value, sources: list[str] | None) -> tuple[str | None, str | None]:
+    """(the short reason a partly or missing ask carries, None), or (None,
+    why it was not kept, ASK_WHY_DROPS).
+
+    The reason is the scorer's own words, run through the voice rules like
+    every free-text field, with any quotation marks round it taken off. One
+    of more than ASK_WHY_WORDS words is not kept, and neither is one that is
+    found whole, word for word, in the text that was scored, because that is
+    a quote of the advert and not a reason (_hold_quote, the rule the
+    sentences and the reasons' quotes are held to).
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None, "empty"
+    if not isinstance(value, str):
+        return None, "not_text"
+    text = radar_common.sanitise_free_text(value.strip()).strip()
+    text = text.strip("\"'“”‘’ ").strip()
+    if not re.search(r"\w", text):
+        return None, "empty"
+    if len(text.split()) > ASK_WHY_WORDS:
+        return None, "too_long"
+    # A quote of the description is found by the very rule its sentence and
+    # the reasons' quotes are held to, and is not a reason.
+    if sources and _hold_quote(text, sources)[0] is not None:
+        return None, "quoted"
+    if not re.search(r"[.?]$", text):
+        text += "."
+    return text, None
 
 
 def quote_sources(opp: dict, basis: str = radar_common.SCORE_BASIS_CARD) -> list[str]:

@@ -196,11 +196,28 @@ def _mock_asks(description: str) -> list[dict]:
     one is partly, none is missing. A few marker words make the odd cases a
     test needs: RADAR-UNANCHORED cites a line that does not exist,
     RADAR-BLANKLINE cites a blank one, RADAR-TEXTLINE cites a real one as text.
-    Each ask carries its sentence (_mock_sentence).
+    Each ask carries its sentence (_mock_sentence), and a partly or missing
+    one its short reason (_mock_why); a met one gives an empty reason.
     """
-    asks = [dict(a, sentence=_mock_sentence(a["ask"]))
+    asks = [dict(a, sentence=_mock_sentence(a["ask"]), why=_mock_why(a))
             for a in _mock_asks_judged(description)]
     return asks
+
+
+def _mock_why(ask: dict) -> str:
+    """The short reason the scorer gives a partly or missing ask, in its own
+    words. RADAR-LONGWHY gives one of 30 words, RADAR-QUOTEWHY gives the
+    ask's own bullet, which is a quote of the advert, and RADAR-NOWHY none."""
+    words = ask["ask"]
+    if ask["status"] == "met" or "RADAR-NOWHY" in words:
+        return ""
+    if "RADAR-LONGWHY" in words:
+        return " ".join(["The CV names the standard but not the work"] * 3 + ["at all"] * 3)
+    if "RADAR-QUOTEWHY" in words:
+        return words
+    if ask["status"] == "partly":
+        return "Part of this is on the CV. The rest is not named."
+    return "Nothing on the CV names this."
 
 
 def _mock_asks_judged(description: str) -> list[dict]:

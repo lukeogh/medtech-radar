@@ -1222,10 +1222,13 @@ CV_EDITOR_JS = r"""
   // on screen is another text than the one the page took, and a way to say
   // the page is about to reload itself after a write, so leaving does not ask.
   // One object for both pages: the CV page's toolbar API, when the sheet is
-  // drawn, gains these two rather than being replaced by them.
+  // drawn, gains these rather than being replaced by them.
   var hook = window.RadarCvEditor || {};
   hook.edited = function () { return edited(); };
   hook.leaving = function () { leaving = true; };
+  // The text's lines as the editor lays them out now, for a page that draws
+  // the A4 page estimate beside its own sheet (Prepare application).
+  hook.lines = function () { return current.lines.slice(); };
   window.RadarCvEditor = hook;
   if (data.mode === 'tailored' && editable && data.needsCopy) send('open', null);
 })();
