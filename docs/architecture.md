@@ -991,7 +991,7 @@ cost are said first (`cv_screen.rescore_cost`: the cost note's 1.1 to 1.8 cents 
 card score, widened by what live rescores on file have cost a role, priced as
 Home prices the week), the confirm sends the count it stated, and a run whose
 count has grown since is refused. `test/run_cv_final_test.py` and
-`test/cv_screen_harness.js` check it, and `docs/box-checks-cv-final-part.md` holds
+`test/cv_screen_harness.js` check it, and `docs/box-checks-prepare-cv-final.md` holds
 the deploy.
 
 ## Quoted reasons

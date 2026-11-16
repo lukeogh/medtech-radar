@@ -3175,12 +3175,10 @@ FINAL_DOC = REPO_ROOT / "docs" / "box-checks-prepare-cv-final.md"
 
 
 def final_doc_part() -> str:
-    """Prepare application's part of the shared box page: from its own
-    heading to the CV page's, or to the end while the CV part is not merged."""
+    """The shared box page, one deploy for both pages: from the Prepare
+    application notes on. The CV page's runner checks its own lines in it."""
     text = FINAL_DOC.read_text(encoding="utf-8")
-    start = text.index("## Prepare application")
-    end = text.find("\n## The CV page", start)
-    return text[start:] if end < 0 else text[start:end]
+    return text[text.index("### Prepare application"):]
 
 
 def final_box_checks() -> None:
@@ -3226,7 +3224,10 @@ def final_box_checks() -> None:
             bad.append(f"{src[:50]} ({err.msg})")
     check(len(snippets) >= 4 and not bad,
           f"every python -c in Prepare's part compiles ({len(snippets)} of them, {bad[:2]})")
-    queries = re.findall(r'Q "([^"]+)"', code)
+    # The CV page's earlier-CV query takes the active master from the shell
+    # ($A) on purpose; the CV page's runner runs it. Every other query is held
+    # to having nothing in it the shell would read.
+    queries = [q for q in re.findall(r'Q "([^"]+)"', code) if "'$A'" not in q]
     inline = [s.replace('\\"', '"') for s in snippets if "sqlite3.connect" in s and "SELECT" in s]
     inline_sql = [re.search(r'c\.execute\("([^"]+)"\)', s).group(1) for s in inline
                   if re.search(r'c\.execute\("([^"]+)"\)', s)]
