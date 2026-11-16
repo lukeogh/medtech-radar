@@ -80,8 +80,13 @@ skipped: list[str] = []
 
 HEADER = serve_dashboard.WRITE_HEADER
 PROXY_NAME = "radar.example.test"
-# The name build_digest.py links the Monday digest to, which radar.yaml lists.
-SHIPPED_PROXY = "medtech-radar.keogh.cloud"
+# The one name radar.yaml lists. The proxy's name is the owner's own, so it
+# lives in config/profile/radar.local.yaml and the public repo lists the LAN
+# address alone.
+SHIPPED_HOSTS = ["192.168.1.100"]
+# The owner's addresses, which radar.yaml ships empty.
+OWNER_KEYS = ("n8n_url", "ntfy_url", "aggregator_email", "digest_to",
+              "dashboard_url")
 EVIL = "evil.example"
 LOOKALIKES = ("localhost.evil.example", "evil-localhost", "xlocalhost",
               "evilradar.example.test", "radar.example.test.evil.example",
@@ -666,6 +671,132 @@ class BrokenHeaders:
     get = get_all
 
 
+def private_config_checks() -> None:
+    """The owner's addresses come from config/profile/radar.local.yaml, laid
+    over radar.yaml, and a test run never reads it."""
+    import build_digest
+    import cv_doc
+    shipped = radar_common.load_config()
+    saved_path = radar_common.LOCAL_CONFIG_PATH
+    saved_env = {k: os.environ.pop(k, None)
+                 for k in ("RADAR_MOCK", "RADAR_SHIPPED_CONFIG")}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "radar.local.yaml"
+            radar_common.LOCAL_CONFIG_PATH = local
+            check(radar_common.load_config() == shipped,
+                  "with no private file the config is radar.yaml's")
+            local.write_text('ntfy_url: "https://ntfy.example.org"\n'
+                             'dashboard_allowed_hosts:\n'
+                             '  - "radar.example.org"\n', encoding="utf-8")
+            laid = radar_common.load_config()
+            check(laid["ntfy_url"] == "https://ntfy.example.org"
+                  and laid["dashboard_allowed_hosts"] == ["radar.example.org"]
+                  and laid["digest_to"] == shipped["digest_to"]
+                  and laid["score_threshold"] == shipped["score_threshold"],
+                  "a private file's keys replace radar.yaml's whole values, a "
+                  "list included, and the keys it leaves out are radar.yaml's")
+            os.environ["RADAR_SHIPPED_CONFIG"] = "1"
+            ignored = radar_common.load_config() == shipped
+            del os.environ["RADAR_SHIPPED_CONFIG"]
+            os.environ["RADAR_MOCK"] = "1"
+            ignored = ignored and radar_common.load_config() == shipped
+            del os.environ["RADAR_MOCK"]
+            check(ignored, "a run with RADAR_SHIPPED_CONFIG, as run_all.sh "
+                           "sets, or in mock mode reads radar.yaml alone")
+            local.write_text("", encoding="utf-8")
+            empty_ok = radar_common.load_config() == shipped
+            local.write_text("- just\n- a list\n", encoding="utf-8")
+            try:
+                radar_common.load_config()
+                said = ""
+            except ValueError as err:
+                said = str(err)
+            check(empty_ok and "must hold radar.yaml keys" in said,
+                  "an empty private file changes nothing, and one that is not "
+                  "a mapping of keys stops the caller and says so")
+    finally:
+        radar_common.LOCAL_CONFIG_PATH = saved_path
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    check(radar_common.LOCAL_CONFIG_PATH
+          == REPO_ROOT / "config" / "profile" / "radar.local.yaml"
+          and (REPO_ROOT / "config" / "radar.local.example.yaml").exists()
+          and "config/profile/" in (REPO_ROOT / ".gitignore").read_text(
+              encoding="utf-8").splitlines(),
+          "the private file lives in config/profile/, which git ignores, and "
+          "the tracked example shows its shape")
+    url = build_digest.dashboard_url
+    check(url({"dashboard_url": "https://radar.example.org/"})
+          == "https://radar.example.org"
+          and url({"dashboard_url": "",
+                   "dashboard_allowed_hosts": ["192.168.1.100", "radar.example.org"]})
+          == "https://radar.example.org"
+          and url({"dashboard_allowed_hosts": ["192.168.1.100", "::1"],
+                   "dashboard_host": "127.0.0.1", "dashboard_port": 8787})
+          == "http://127.0.0.1:8787",
+          "the digest links to dashboard_url, else the first allowed name "
+          "that is not an address, else the dashboard on this machine")
+    template = {"prefs_file": "config/preferences.template.md"}
+    saved_reader = radar_common.read_owner_name
+    try:
+        radar_common.read_owner_name = lambda config=None: None
+        nameless = cv_doc.saved_name("Acme", "Head of QA")
+        radar_common.read_owner_name = lambda config=None: "Alex Rennie"
+        named = cv_doc.saved_name("Acme", "Head of QA")
+    finally:
+        radar_common.read_owner_name = saved_reader
+    check(cv_doc.OWNER is None and radar_common.read_owner_name(template) is None
+          and nameless == "CV - Acme - Head of QA"
+          and named == "CV - Alex Rennie - Acme - Head of QA",
+          "the code names no owner: a saved copy carries the preferences "
+          "file's owner_name, which the template leaves empty, and none "
+          "without it")
+
+
+def private_strings_checks() -> None:
+    """No tracked file holds a line of config/profile/private_strings.txt.
+
+    The list is the owner's own and never tracked, so this runs on his
+    machine and the box and is skipped elsewhere. A hit says the file and the
+    count, never the string.
+    """
+    listed = REPO_ROOT / "config" / "profile" / "private_strings.txt"
+    if not listed.exists():
+        note("config/profile/private_strings.txt is not here, so no tracked "
+             "file was checked for the owner's own strings", skip=True)
+        return
+    needles = [line.strip().casefold() for line in
+               listed.read_text(encoding="utf-8").splitlines()
+               if line.strip() and not line.lstrip().startswith("#")]
+    try:
+        names = subprocess.run(["git", "ls-files", "-z"], cwd=REPO_ROOT,
+                               capture_output=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError) as err:
+        note(f"git ls-files failed ({type(err).__name__}), so no tracked file "
+             "was checked for the owner's own strings", skip=True)
+        return
+    hits = {}
+    for name in names.decode("utf-8").split("\0"):
+        path = REPO_ROOT / name
+        if not name or not path.is_file():
+            continue
+        try:
+            text = path.read_bytes().decode("utf-8").casefold()
+        except UnicodeDecodeError:
+            continue
+        count = sum(text.count(n) for n in needles)
+        if count:
+            hits[name] = count
+    check(bool(needles) and not hits,
+          f"no tracked file holds any of the {len(needles)} private strings"
+          + ("" if not hits else " (" + ", ".join(
+              f"{n}: {c}" for n, c in sorted(hits.items())) + ")"))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", help="accepted for suite symmetry, unused")
@@ -766,9 +897,10 @@ def main() -> int:
           and all(hn(h) in from_cfg.names for h in file_hosts or []),
           "the shipped config yields its mode, the loopback names and its "
           "hosts")
-    check(SHIPPED_PROXY in from_cfg.names,
-          "the shipped config allows the proxy name the Monday digest links "
-          "to")
+    check(file_hosts == SHIPPED_HOSTS
+          and all(cfg.get(k) == "" for k in OWNER_KEYS),
+          "the shipped config lists the LAN address alone and ships the "
+          "owner's addresses empty, so the public repo names none of his")
     # The LAN address of LXC 110 is listed, so a monitor on the LAN that
     # reaches the dashboard by IP passes the Host check on a GET and on a
     # POST, while a neighbouring address that is not listed is still refused.
@@ -953,11 +1085,11 @@ def main() -> int:
             said2 = json.loads(data2).get("note", "")
             check("dashboard_allowed_hosts" in said and "restart" in said
                   and "reload the page" not in said,
-                  "a refused name tells Luke to list it and restart, not to "
+                  "a refused name tells the owner to list it and restart, not to "
                   "reload")
             check("reload the page" in said2
                   and "dashboard_allowed_hosts" not in said2,
-                  "a missing header tells Luke to reload, not to edit the "
+                  "a missing header tells the owner to reload, not to edit the "
                   "config")
             with captured_stderr():
                 _s3, _h3, data3 = call(port, "POST", "/ack", b'{"id": 1}',
@@ -1015,7 +1147,7 @@ def main() -> int:
                   and any("sees GET" in ln and f"Host '{own}'" in ln
                           for ln in sights),
                   "in warn mode each distinct way a good request arrives is "
-                  "logged once, which is how Luke reads his own Host and "
+                  "logged once, which is how the owner reads their own Host and "
                   f"Origin (got {len(sights)} lines)")
             with captured_stderr() as buf:
                 call(port, "POST", "/ack", b'{"id": 1}',
@@ -1199,7 +1331,7 @@ def main() -> int:
     os.environ["RADAR_MOCK"] = "1"
     check(code == 0 and made == [(("192.0.2.7", 8799), serve_dashboard.Handler)]
           and installed.mode == file_mode and installed is not DEFAULT_GUARD
-          and {"192.0.2.7", SHIPPED_PROXY, "localhost"} <= installed.names
+          and {"192.0.2.7", *SHIPPED_HOSTS, "localhost"} <= installed.names
           and f"Write guard is on {file_mode}" in out.getvalue(),
           "main() builds the guard from radar.yaml and the bind address, "
           "hands it to the handler and says which mode it is in")
@@ -1259,6 +1391,9 @@ def main() -> int:
             note(f"anthropic {installed_sdk} is installed here, outside the "
                  f"pinned {spec}. It takes the keyword, so this passes, but "
                  "it is not what the box will run")
+
+    private_config_checks()
+    private_strings_checks()
 
     print()
     extra = f" ({len(skipped)} skipped, see the NOTE lines)" if skipped else ""

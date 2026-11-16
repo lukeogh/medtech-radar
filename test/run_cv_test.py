@@ -89,6 +89,12 @@ import score_item  # noqa: E402
 import serve_dashboard  # noqa: E402
 import tailored_cv  # noqa: E402
 
+# The tests name saved copies after an invented owner, so no real name sits in
+# a test. cv_doc and cv_word read OWNER when they are called, so this holds.
+# The part limits were sized to an owner's name of ten characters.
+SIZED_OWNER_LEN = 10
+cv_doc.OWNER = "Alex Rennie"
+
 # Hermetic. The live preferences file holds the owner's own floors.
 TEMPLATE = REPO_ROOT / "config" / "preferences.template.md"
 _real_load_config = radar_common.load_config
@@ -97,7 +103,7 @@ radar_common.load_config = lambda: {**_real_load_config(),
 CFG = radar_common.load_config()
 SPEC = radar_common.SCORE_BASIS_SPEC
 HEADER = build_dashboard.WRITE_HEADER
-PROXY = "medtech-radar.keogh.cloud"
+PROXY = "radar.example.test"
 
 failures: list[str] = []
 skipped: list[str] = []
@@ -125,24 +131,24 @@ def captured_stderr():
 # ------------------------------------------------------------ the master CV
 
 MASTER_DOC = {
-    "name": "Luke Keogh",
+    "name": "Alex Rennie",
     "headline": ["Software Director, regulated medical devices and IVD",
-                 "Chichester, West Sussex"],
+                 "Guildford, Surrey"],
     "sections": [
         {"title": "Summary", "entries": [], "lines": [
             {"b": False, "t": "Software leader in regulated industries since "
                               "2011, IEC 62304 and ISO 13485 throughout."},
             {"b": False, "t": "Took a Class B IVD through FDA clearance."}]},
         {"title": "Experience", "lines": [], "entries": [
-            {"heading": "Software Director, Axithra, 2023 to now", "lines": [
+            {"heading": "Software Director, Hartwell Infusion, 2023 to now", "lines": [
                 {"b": True, "t": "Lead software for a Class C IVD under IEC 62304."},
                 {"b": True, "t": "Built the software team from nothing."},
                 {"b": True, "t": "Own the software risk file under ISO 14971."}]},
-            {"heading": "Software Director, miDiagnostics, 2019 to 2023", "lines": [
+            {"heading": "Software Director, Calderbrook Diagnostics, 2019 to 2023", "lines": [
                 {"b": True, "t": "Oversaw FDA clearance for a Class B IVD."}]}]},
         {"title": "Skills", "entries": [], "lines": [
             {"b": True, "t": "IEC 62304, ISO 13485, ISO 14971"},
-            {"b": True, "t": "SpiraPlan and regulated ALM configuration"}]},
+            {"b": True, "t": "Jama Connect and regulated ALM configuration"}]},
         {"title": "Education and certifications", "entries": [], "lines": [
             {"b": True, "t": "BEng Electronic Engineering"}]},
     ],
@@ -152,7 +158,7 @@ MASTER_TEXT = cv_doc.render(MASTER_DOC)
 # Rescore role does not score the master unchanged for a role whose own score
 # is not on its description (UNCHANGED_COPY), so a run that wants a first call
 # on a copy starts from this.
-COPY_TEXT = MASTER_TEXT.replace("Chichester, West Sussex", "Chichester, West Sussex, UK", 1)
+COPY_TEXT = MASTER_TEXT.replace("Guildford, Surrey", "Guildford, Surrey, UK", 1)
 MASTER = [MASTER_TEXT]
 MASTER_LABEL = ["cv-20261110-090000.md"]
 score_item.load_cv_text = lambda config: (MASTER[0], "config/profile/" + MASTER_LABEL[0])
@@ -490,7 +496,7 @@ def random_doc(rng: random.Random) -> dict:
 
     def lines(n):
         return [{"b": rng.random() < 0.6, "t": phrase()} for _ in range(n)]
-    doc = {"name": rng.choice(["Luke Keogh", "  Luke   Keogh ", "# Odd"]),
+    doc = {"name": rng.choice(["Alex Rennie", "  Alex   Rennie ", "# Odd"]),
            "headline": [phrase() for _ in range(rng.randint(0, 3))],
            "sections": []}
     titles = list(cv_doc.STANDARD_SECTIONS) + ["Publications", "Languages"]
@@ -531,9 +537,9 @@ def layout_checks() -> None:
           and "\n\n\n" not in MASTER_TEXT and not MASTER_TEXT.startswith("\n"),
           "the text ends in one line feed, with single blank lines between blocks")
     lines = cv_store.cv_lines(MASTER_TEXT)
-    check(lines[0] == "# Luke Keogh" and lines[3] == "" and lines[4] == "## Summary"
+    check(lines[0] == "# Alex Rennie" and lines[3] == "" and lines[4] == "## Summary"
           and lines[7] == "" and lines[8] == "## Experience" and lines[9] == ""
-          and lines[10] == "### Software Director, Axithra, 2023 to now"
+          and lines[10] == "### Software Director, Hartwell Infusion, 2023 to now"
           and lines[11] == "- Lead software for a Class C IVD under IEC 62304.",
           "the name is a level one heading, a section a level two, an entry a level "
           "three, a bullet a dash, and a blank line before each heading")
@@ -552,15 +558,15 @@ def layout_checks() -> None:
     check(fixed, "any text is read into the layout, and what that gives is the "
                  "editor's own layout, which then reads back as itself")
     # A CV with no headings of its own: sections from the usual words alone.
-    plain = ("Luke Keogh\nChichester | luke@example.com\n\nPROFILE\nSoftware leader.\n\n"
-             "EXPERIENCE\nDirector, Axithra\nKey achievements:\n* Led the IEC 62304 programme.\n\n"
+    plain = ("Alex Rennie\nGuildford | alex@example.com\n\nPROFILE\nSoftware leader.\n\n"
+             "EXPERIENCE\nDirector, Hartwell Infusion\nKey achievements:\n* Led the IEC 62304 programme.\n\n"
              "Key Skills:\n- IEC 62304\n\nEDUCATION & CERTIFICATIONS\n- BEng\n\nINTERESTS\n- Sailing\n")
     doc = cv_doc.load_doc(plain)
     titles = [s["title"] for s in doc["sections"]]
-    check(doc["name"] == "Luke Keogh" and doc["headline"] == ["Chichester | luke@example.com"]
+    check(doc["name"] == "Alex Rennie" and doc["headline"] == ["Guildford | alex@example.com"]
           and titles == ["Summary", "Experience", "Skills",
                          "Education and certifications", "Interests"]
-          and doc["sections"][1]["lines"] == [{"b": False, "t": "Director, Axithra"},
+          and doc["sections"][1]["lines"] == [{"b": False, "t": "Director, Hartwell Infusion"},
                                               {"b": False, "t": "Key achievements:"},
                                               {"b": True, "t": "Led the IEC 62304 programme."}],
           "a CV with no headings of its own is read the way a person reads it: the first "
@@ -568,9 +574,9 @@ def layout_checks() -> None:
           "Education and Certifications become one, and a label under a job, Key "
           f"achievements:, stays where it is ({titles})")
     # A Word CV, whose Heading styles came through as headings.
-    word = ("Luke Keogh\nChichester\n\n# Profile\nSoftware leader.\n\n# Experience\n"
-            "## Director, Axithra\nOverview:\nLed a team.\nKey skills:\n"
-            "- Led the IEC 62304 programme.\n#### Earlier role, Fujitsu\n• Defence work.\n\n"
+    word = ("Alex Rennie\nGuildford\n\n# Profile\nSoftware leader.\n\n# Experience\n"
+            "## Director, Hartwell Infusion\nOverview:\nLed a team.\nKey skills:\n"
+            "- Led the IEC 62304 programme.\n#### Earlier role, Norbridge\n• Defence work.\n\n"
             "# Education\n## BEng, Limerick, 2006\nFirst class.\n# Certifications\n"
             "* ISO 13485 Lead Auditor\n# Career history\nEarlier roles, in brief:\n"
             "## Engineer, L3\n- ATC.\n# Interests\n- Sailing\n# Board roles\n")
@@ -580,8 +586,8 @@ def layout_checks() -> None:
     check([s["title"] for s in wdoc["sections"]] == [
               "Summary", "Experience", "Skills", "Education and certifications",
               "Career history", "Interests"]
-          and [e["heading"] for e in exp["entries"]] == ["Director, Axithra",
-                                                        "Earlier role, Fujitsu"]
+          and [e["heading"] for e in exp["entries"]] == ["Director, Hartwell Infusion",
+                                                        "Earlier role, Norbridge"]
           and exp["entries"][0]["lines"] == [{"b": False, "t": "Overview:"},
                                              {"b": False, "t": "Led a team."},
                                              {"b": False, "t": "Key skills:"},
@@ -601,7 +607,7 @@ def layout_checks() -> None:
           "after it, a usual section named again further on is a section of its own, and "
           "an empty heading gives its words back as the last line before it")
 
-    folded = cv_doc.load_doc("Luke Keogh\n# Experience\n## Director, Axithra\n- Led.\n"
+    folded = cv_doc.load_doc("Alex Rennie\n# Experience\n## Director, Hartwell Infusion\n- Led.\n"
                              "# Board roles\n# Skills\n- IEC 62304\n")
     fexp = [s for s in folded["sections"] if s["title"] == "Experience"][0]
     check(fexp["entries"][0]["lines"] == [{"b": True, "t": "Led."},
@@ -612,27 +618,27 @@ def layout_checks() -> None:
 
     def sections_of(text):
         return {s["title"]: s for s in cv_doc.load_doc(text)["sections"]}
-    early = cv_doc.load_doc("Luke Keogh\n# Board roles\n# Experience\n## Job\n- x\n")
-    patents = sections_of("Luke Keogh\n# Experience\n## Job\n- x\n# Patents\n## US 123\n- y\n")
+    early = cv_doc.load_doc("Alex Rennie\n# Board roles\n# Experience\n## Job\n- x\n")
+    patents = sections_of("Alex Rennie\n# Experience\n## Job\n- x\n# Patents\n## US 123\n- y\n")
     check(early["headline"] == ["Board roles"]
           and [e["heading"] for e in patents["Patents"]["entries"]] == ["US 123"]
           and patents["Experience"]["entries"][0]["lines"] == [{"b": True, "t": "x"}],
           "an empty heading before any section gives its words to the headline, and a "
           "section with an entry and no lines of its own keeps its heading")
-    edu = sections_of("Luke Keogh\n# Education\n- BEng\n# Certifications\n- ISO 13485\n")
-    skills = sections_of("Luke Keogh\n# Skills\n- a\n# Skills\n- b\n")
+    edu = sections_of("Alex Rennie\n# Education\n- BEng\n# Certifications\n- ISO 13485\n")
+    skills = sections_of("Alex Rennie\n# Skills\n- a\n# Skills\n- b\n")
     check(edu["Education and certifications"]["lines"] == [
               {"b": True, "t": "BEng"}, {"b": False, "t": "Certifications"},
               {"b": True, "t": "ISO 13485"}]
           and skills["Skills"]["lines"] == [{"b": True, "t": "a"}, {"b": True, "t": "b"}],
           "a usual section named again with no entries keeps the words it was named by "
           "as a line, unless they are the section's own name")
-    inner_skills = sections_of("Luke Keogh\n# Experience\n## Director\n- a\n### Skills\n- b\n")
+    inner_skills = sections_of("Alex Rennie\n# Experience\n## Director\n- a\n### Skills\n- b\n")
     check([e["heading"] for e in inner_skills["Experience"]["entries"]] == ["Director", "Skills"]
           and not inner_skills["Skills"]["lines"],
           "a deeper heading that names a usual section, under an open job, is an entry and "
           "does not carry the job's lines off to that section")
-    just_after = sections_of("Luke Keogh\n# Experience\nDirector, Axithra\nKey skills:\n- IEC 62304\n")
+    just_after = sections_of("Alex Rennie\n# Experience\nDirector, Hartwell Infusion\nKey skills:\n- IEC 62304\n")
     check(just_after["Experience"]["lines"][1] == {"b": False, "t": "Key skills:"}
           and not just_after["Skills"]["lines"],
           "a CV whose one heading of its own comes straight after the name is still read "
@@ -646,7 +652,7 @@ def layout_checks() -> None:
     kept_order = True
     for trial in range(400):
         marked = trial % 2 == 0
-        out, content = ["Luke Keogh"], []
+        out, content = ["Alex Rennie"], []
         for i in range(rng.randint(3, 40)):
             pick = rng.random()
             if pick < 0.25:
@@ -668,24 +674,24 @@ def layout_checks() -> None:
                       "words is kept, in the order it came in")
     # Lines a person would never take for a heading stay lines: an acronym, a
     # short line in capitals, a line that only ends in a colon.
-    loud = cv_doc.load_doc("Luke Keogh\nIVD\nSSE.\n## Experience\n### Director\n"
+    loud = cv_doc.load_doc("Alex Rennie\nIVD\nBSI.\n## Experience\n### Director\n"
                            "- NHS\nFDA:\nRESULTS DRIVEN\n")
     exp = [s for s in loud["sections"] if s["title"] == "Experience"][0]
-    check(loud["headline"] == ["IVD", "SSE."]
+    check(loud["headline"] == ["IVD", "BSI."]
           and exp["entries"][0]["lines"] == [{"b": True, "t": "NHS"},
                                              {"b": False, "t": "FDA:"},
                                              {"b": False, "t": "RESULTS DRIVEN"}],
           "an acronym, a line in capitals or a line ending in a colon is content, kept "
           "where it was, and never taken for a heading")
-    word1 = cv_doc.load_doc("Luke Keogh\n# Experience\n## Director, Axithra\n- Led.\n"
+    word1 = cv_doc.load_doc("Alex Rennie\n# Experience\n## Director, Hartwell Infusion\n- Led.\n"
                             "# Skills\n- IEC 62304\n")
-    word2 = cv_doc.load_doc("Luke Keogh\n## Experience\n### Director, Axithra\n- Led.\n"
+    word2 = cv_doc.load_doc("Alex Rennie\n## Experience\n### Director, Hartwell Infusion\n- Led.\n"
                             "## Skills\n- IEC 62304\n")
     check(word1 == word2 and [e["heading"] for e in word1["sections"][1]["entries"]]
-          == ["Director, Axithra"],
+          == ["Director, Hartwell Infusion"],
           "sections in Heading 1 with jobs in Heading 2 read as sections in Heading 2 "
           "with jobs in Heading 3 do")
-    custom = cv_doc.load_doc("Luke Keogh\n## Experience\n### Director\n- Led.\n"
+    custom = cv_doc.load_doc("Alex Rennie\n## Experience\n### Director\n- Led.\n"
                              "## Patents\n- One.\n## Board roles\n## Skills\n- x\n")
     titles = [s["title"] for s in custom["sections"]]
     check("Patents" in titles and "Board roles" not in titles
@@ -740,7 +746,7 @@ def layout_checks() -> None:
           and cv_doc.clean_plain("#hashtag") == "#hashtag",
           "a paragraph line cannot start like a heading, and a headline line cannot "
           "start like a bullet")
-    tidy = cv_doc.normalize({"name": " Luke ", "headline": ["- dash", "", "## h"],
+    tidy = cv_doc.normalize({"name": " Alex ", "headline": ["- dash", "", "## h"],
                              "sections": [
                                  {"title": "Skills", "lines": [
                                      {"b": False, "t": "- now a bullet"},
@@ -749,7 +755,7 @@ def layout_checks() -> None:
                                  {"title": "Experience", "lines": [], "entries": [
                                      {"heading": "", "lines": []},
                                      {"heading": "Role", "lines": []}]}]})
-    check(tidy["name"] == "Luke" and tidy["headline"] == ["dash", "h"]
+    check(tidy["name"] == "Alex" and tidy["headline"] == ["dash", "h"]
           and tidy["sections"][1]["lines"] == [{"b": True, "t": "now a bullet"}]
           and [s["title"] for s in tidy["sections"]] == [
               "Summary", "Skills", "Experience", "Education and certifications"]
@@ -796,26 +802,26 @@ def layout_checks() -> None:
 
     # The saved copy's name.
     check(cv_doc.saved_name("Veltrix Diagnostics", "Director of Software")
-          == "CV - Luke Keogh - Veltrix Diagnostics - Director of Software",
-          "a saved copy is named CV - Luke Keogh - <Company> - <Job title>")
+          == "CV - Alex Rennie - Veltrix Diagnostics - Director of Software",
+          "a saved copy is named CV - Alex Rennie - <Company> - <Job title>")
     for unknown in (None, "", "  ", "Unknown", "unknown company", "Confidential.",
                     "N/A", "Undisclosed"):
-        if cv_doc.saved_name(unknown, "Head of QA") != "CV - Luke Keogh - Head of QA":
+        if cv_doc.saved_name(unknown, "Head of QA") != "CV - Alex Rennie - Head of QA":
             check(False, f"a company of {unknown!r} is not known and is left out")
             break
     else:
-        check(True, "and CV - Luke Keogh - <Job title> where the company is not known")
+        check(True, "and CV - Alex Rennie - <Job title> where the company is not known")
     odd = cv_doc.saved_name('A/B: "Labs" <Ltd>|', 'Head of *QA*? \\ RA\t.\n')
-    check(odd == "CV - Luke Keogh - A B Labs Ltd - Head of QA RA"
+    check(odd == "CV - Alex Rennie - A B Labs Ltd - Head of QA RA"
           and not re.search(r'[<>:"/\\|?*\x00-\x1f]', odd),
           f"characters a file name cannot hold become spaces ({odd!r})")
     long = cv_doc.saved_name("Company " * 30, "Very long title " * 30)
     check(len(long) <= cv_doc.NAME_MAX and not long.endswith((" ", ".", "-"))
-          and long.startswith("CV - Luke Keogh - Company"),
+          and long.startswith("CV - Alex Rennie - Company"),
           f"a long name is cut to {cv_doc.NAME_MAX} characters on a word, and never "
           "ends in a dot or a space")
-    check(cv_doc.saved_name("Café Ølund", "Ingénieur") == "CV - Luke Keogh - Café Ølund - Ingénieur"
-          and cv_doc.saved_name("Acme", "") == "CV - Luke Keogh - Acme - Untitled role",
+    check(cv_doc.saved_name("Café Ølund", "Ingénieur") == "CV - Alex Rennie - Café Ølund - Ingénieur"
+          and cv_doc.saved_name("Acme", "") == "CV - Alex Rennie - Acme - Untitled role",
           "letters outside ASCII are kept, and a role with no title still has a name")
 
 
@@ -942,7 +948,7 @@ def agreement_checks() -> None:
           and not placed[2]["stale"] and not placed[3]["stale"],
           "a cited line still there is found at its number, one that is gone makes a "
           "met or partly ask stale, and a missing or unanchored ask is never stale")
-    moved = ["# Luke Keogh", "A new first line."] + lines[1:]
+    moved = ["# Alex Rennie", "A new first line."] + lines[1:]
     shifted = cv_doc.place_asks(asks[:1], moved)[0]
     check(shifted["placed"][0]["now"] == risk + 1 and not shifted["stale"],
           "a line pushed down by an insertion is found one further on, by its text")
@@ -1036,7 +1042,7 @@ def copy_checks() -> None:
               and cv_doc.render(out["copy"]["doc"]) == MASTER_TEXT
               and out["copy"]["saved"] is None,
               "and hands the page the copy's lines and its doc")
-        MASTER[0] = edited(MASTER_TEXT, "Chichester", "Brighton")
+        MASTER[0] = edited(MASTER_TEXT, "Guildford", "Brighton")
         again = env.open(oid)
         check(again["outcome"] == "found" and env.copy(oid)["cv_text"] == MASTER_TEXT
               and len(env.copies()) == 1,
@@ -1056,7 +1062,7 @@ def copy_checks() -> None:
         saved = env.save(oid, text)
         copy = env.copy(oid)
         check(saved["ok"] and saved["outcome"] == "saved"
-              and saved["saved_name"] == "CV - Luke Keogh - Veltrix Diagnostics - Head of Software"
+              and saved["saved_name"] == "CV - Alex Rennie - Veltrix Diagnostics - Head of Software"
               and copy["saved_text"] == text == copy["cv_text"]
               and copy["saved_hash"] == cv_store.cv_hash(text)
               and copy["saved_name"] == saved["saved_name"] and copy["saved_at"]
@@ -1074,8 +1080,8 @@ def copy_checks() -> None:
               "another role's copy keeps its own state")
         nameless = env.role(title="Quality Lead", company="Confidential")
         env.save(nameless, MASTER_TEXT)
-        check(env.copy(nameless)["saved_name"] == "CV - Luke Keogh - Quality Lead",
-              "a role whose company is not known is saved as CV - Luke Keogh - <Job title>")
+        check(env.copy(nameless)["saved_name"] == "CV - Alex Rennie - Quality Lead",
+              "a role whose company is not known is saved as CV - Alex Rennie - <Job title>")
         check(env.save(oid, "## Skills\n- x\n") == {
             "ok": False, "invalid": True, "note": "The CV has no name on its first line."}
               and env.copy(oid)["saved_text"] == text2,
@@ -1272,8 +1278,8 @@ def rescore_checks() -> None:
               "pressed again on the same copy, nothing is spent and nothing is written")
 
         # An edit, then scored: before is the copy's own last score.
-        text = cv_doc.accept(edited(COPY_TEXT, "- SpiraPlan and regulated ALM configuration",
-                                    "- SpiraPlan and regulated ALM configuration\n"
+        text = cv_doc.accept(edited(COPY_TEXT, "- Jama Connect and regulated ALM configuration",
+                                    "- Jama Connect and regulated ALM configuration\n"
                                     "- Kubernetes and cloud deployment of clinical systems"))[1]
         out = env.rescore(oid, text)
         record = tailored_cv.read_score(env.copy(oid))
@@ -1496,8 +1502,8 @@ def rescore_guard_checks() -> None:
 # ------------------------------------------------------- the review's fixes
 
 # A master as a Word import leaves it, not yet saved on the CV page.
-UNLAID = ("Luke Keogh\nChichester, West Sussex\n\nPROFILE\nSoftware leader in regulated "
-          "industries.\n\nEXPERIENCE\nSoftware Director, Axithra\n* Built the software "
+UNLAID = ("Alex Rennie\nGuildford, Surrey\n\nPROFILE\nSoftware leader in regulated "
+          "industries.\n\nEXPERIENCE\nSoftware Director, Hartwell Infusion\n* Built the software "
           "team from nothing.\n")
 
 
@@ -1641,7 +1647,7 @@ def unchanged_checks() -> None:
         check(len(CALLS) == 2 and out["outcome"] == "reused",
               "once the click has scored the master on the description, the same copy "
               "finds that score and spends nothing")
-        MASTER[0] = edited(MASTER_TEXT, "Chichester", "Brighton")
+        MASTER[0] = edited(MASTER_TEXT, "Guildford", "Brighton")
         out = env.rescore(oid, MASTER[0])
         check(out["outcome"] == "scored" and len(CALLS) == 3,
               "but a master changed since the role's own score is a copy to score, because "
@@ -1903,12 +1909,26 @@ def edge_checks() -> None:
           "keep less than half of it")
     company = "C" * cv_doc.COMPANY_PART_MAX
     title = "T" * cv_doc.TITLE_PART_MAX
-    full = cv_doc.saved_name(company, title)
-    check(full == f"CV - Luke Keogh - {company} - {title}" and len(full) == cv_doc.NAME_MAX
-          and cv_doc.saved_name(company + "C", title + "T") == full,
-          f"a company of {cv_doc.COMPANY_PART_MAX} and a title of "
-          f"{cv_doc.TITLE_PART_MAX} characters fit whole, {cv_doc.NAME_MAX} in all, "
-          "and longer ones are cut to them")
+    stand_in, cv_doc.OWNER = cv_doc.OWNER, "O" * SIZED_OWNER_LEN
+    try:
+        full = cv_doc.saved_name(company, title)
+        longer = cv_doc.saved_name(company + "C", title + "T")
+        cv_doc.OWNER = "O" * 15
+        long_owner = cv_doc.saved_name(company, "T" * 70 + " " + "U" * 8)
+        cv_doc.OWNER = ""
+        no_owner = cv_doc.saved_name(company, title + "T")
+    finally:
+        cv_doc.OWNER = stand_in
+    check(full == f"CV - {'O' * SIZED_OWNER_LEN} - {company} - {title}"
+          and len(full) == cv_doc.NAME_MAX and longer == full,
+          f"with a name of {SIZED_OWNER_LEN}, a company of {cv_doc.COMPANY_PART_MAX} and a "
+          f"title of {cv_doc.TITLE_PART_MAX} characters fit whole, {cv_doc.NAME_MAX} in "
+          "all, and longer ones are cut to them")
+    check(long_owner == f"CV - {'O' * 15} - {company} - {'T' * 70}"
+          and len(long_owner) <= cv_doc.NAME_MAX
+          and no_owner == f"CV - {company} - {title}",
+          "a longer name leaves the title less room, cut on a word, and with no "
+          "name the title keeps its own limit")
     word = cv_doc.change_word
     check([word({"from": a, "to": b}) for a, b in (
         ("missing", "partly"), ("partly", "met"), ("missing", "met"),
@@ -2008,8 +2028,8 @@ def history_checks() -> None:
             jobs_oid = env2.role()
             env2.open(jobs_oid)
             env2.rescore(jobs_oid, cv_doc.accept(edited(
-                MASTER_TEXT, "- SpiraPlan and regulated ALM configuration",
-                "- SpiraPlan and regulated ALM configuration\n- Kubernetes and cloud "
+                MASTER_TEXT, "- Jama Connect and regulated ALM configuration",
+                "- Jama Connect and regulated ALM configuration\n- Kubernetes and cloud "
                 "deployment of clinical systems"))[1])
             saved_args = serve_dashboard.ARGS
             serve_dashboard.ARGS = argparse.Namespace(db=str(env2.db), push=False,
@@ -2104,7 +2124,7 @@ def word_parts(data: bytes) -> dict:
 def word_checks() -> None:
     import cv_word
     tricky = cv_doc.normalize({
-        "name": "Luke Keogh",
+        "name": "Alex Rennie",
         "headline": ["Software leader & <IVD> \"quotes\" 50%", "Café Ølund · Brighton"],
         "sections": [
             {"title": "Summary", "lines": [{"b": False, "t": "Line one."},
@@ -2120,7 +2140,7 @@ def word_checks() -> None:
             {"title": "Publications", "lines": [{"b": True, "t": "A paper."}], "entries": []},
         ]})
     for label, text in (("the master", MASTER_TEXT), ("an awkward copy", cv_doc.render(tricky))):
-        data = cv_word.build(text, "CV - Luke Keogh - Acme - Head")
+        data = cv_word.build(text, "CV - Alex Rennie - Acme - Head")
         parts = word_parts(data)
         read_back = cv_store._docx_to_markdown(data).rstrip("\n").split("\n\n")
         want = [line for line in cv_store.cv_lines(text) if line.strip()]
@@ -2172,8 +2192,8 @@ def word_checks() -> None:
             plain &= colour is not None and colour.group(1) == "000000"
         check(plain, f"{label}: every style it uses is one plain font, {cv_word.FONT}, in black")
         core = parts["docProps/core.xml"].decode("utf-8")
-        check("<dc:creator>Luke Keogh</dc:creator>" in core
-              and "<dc:title>CV - Luke Keogh - Acme - Head</dc:title>" in core
+        check("<dc:creator>Alex Rennie</dc:creator>" in core
+              and "<dc:title>CV - Alex Rennie - Acme - Head</dc:title>" in core
               and "python-docx" not in core,
               f"{label}: the file's properties name the CV and its owner, and nothing of "
               "the machine that made it")
@@ -2315,7 +2335,7 @@ def route_checks() -> None:
                   and 'data-fig="copy"' in got["html"] and got["tailored"]["cv_match"] == 80,
                   "Rescore role over HTTP is one call, and answers with the new right hand side")
             status, got, _h = post(port, "/prepare/cv/save", {"id": oid, "text": MASTER_TEXT})
-            check(status == 200 and got["saved_name"] == "CV - Luke Keogh - Veltrix Diagnostics - Head of Software",
+            check(status == 200 and got["saved_name"] == "CV - Alex Rennie - Veltrix Diagnostics - Head of Software",
                   "Save CV over HTTP saves and names the copy")
             dumped = env.dump()
             for path in ROUTES:
@@ -2381,8 +2401,8 @@ def route_checks() -> None:
                   and data[:2] == b"PK" and env.dump() == dumped,
                   "Download is a Word file and writes nothing")
             disposition = got.get("content-disposition", "")
-            check(disposition == ('attachment; filename="CV - Luke Keogh - Veltrix Diagnostics - '
-                                  'Head of Software.docx"; filename*=UTF-8\'\'CV%20-%20Luke%20Keogh'
+            check(disposition == ('attachment; filename="CV - Alex Rennie - Veltrix Diagnostics - '
+                                  'Head of Software.docx"; filename*=UTF-8\'\'CV%20-%20Alex%20Rennie'
                                   '%20-%20Veltrix%20Diagnostics%20-%20Head%20of%20Software.docx')
                   and got.get("x-frame-options") == "DENY" and got.get("cache-control") == "no-store",
                   "named by the saved copy, not cached, and not to be framed")
@@ -2412,7 +2432,7 @@ def route_checks() -> None:
             disposition = got.get("content-disposition", "")
             plain = re.search(r'filename="([^"]*)"', disposition)
             check(status == 200 and plain and all(32 <= ord(c) < 127 for c in plain.group(1))
-                  and "filename*=UTF-8''CV%20-%20Luke%20Keogh%20-%20%C3%98lund%20M%C3%A9dical"
+                  and "filename*=UTF-8''CV%20-%20Alex%20Rennie%20-%20%C3%98lund%20M%C3%A9dical"
                       "%20-%20Ing%C3%A9nieur%20logiciel%20QA.docx" in disposition,
                   f"a name with letters outside ASCII is sent as itself, with a plain "
                   f"fallback ({disposition})")
@@ -2448,7 +2468,7 @@ def applied_checks() -> None:
         with serving(env.db) as port, captured_stderr():
             status, got, _h = post(port, "/apply", {"id": repost})
             check(status == 200 and got == {"ok": True, "id": repost, "applied": True}
-                  and env.row(repost)["applied_cv"] == "CV - Luke Keogh - Veltrix Diagnostics - Head of Software",
+                  and env.row(repost)["applied_cv"] == "CV - Alex Rennie - Veltrix Diagnostics - Head of Software",
                   "Applied records the role's saved copy by its name, from whichever advert "
                   "of the role it is pressed on, and answers as it always did")
             status, got, _h = post(port, "/apply", {"id": bare})
@@ -2471,7 +2491,7 @@ def applied_checks() -> None:
             post(port, "/unapply", {"id": named})
             env.save(named, MASTER_TEXT)
             status, got, _h = post(port, "/apply", {"id": named, "cv": "something else"})
-            check(env.row(named)["applied_cv"] == "CV - Luke Keogh - Beta - Named",
+            check(env.row(named)["applied_cv"] == "CV - Alex Rennie - Beta - Named",
                   "and where a copy was saved, its name is what is recorded")
             status, got, _h = post(port, "/prepare/cv/save", {"id": named, "text": MASTER_TEXT})
             check(status == 200 and got["outcome"] == "applied",
@@ -2569,7 +2589,7 @@ def page_checks() -> None:
         check(rows == [str(n) for n in range(1, len(cv_store.cv_lines(MASTER_TEXT)) + 1)],
               "every line of the CV is on the page with its number")
         inner = render_inner(env, oid)
-        check("Chichester" not in inner,
+        check("Guildford" not in inner,
               "the parts a press swaps hold no line of the CV, the CV is in the editor")
         check('href="https://www.linkedin.com/jobs/view/' + env.row(oid)["source_url"].rsplit("/", 1)[1] + '/"'
               in inner and "Open the advert on LinkedIn" in inner,
@@ -2624,7 +2644,7 @@ def page_checks() -> None:
             conn.close()
         data = pane_data(render_page(env, oid))
         check(data["lines"] == lines and data["saved"]["same"] is False
-              and data["saved"]["name"] == "CV - Luke Keogh - Veltrix Diagnostics - Head of Software",
+              and data["saved"]["name"] == "CV - Alex Rennie - Veltrix Diagnostics - Head of Software",
               "an open role shows the copy as it is now, not the copy saved before, and "
               "tells its script the two differ")
         env.save(oid, COPY_TEXT)
@@ -2677,8 +2697,8 @@ def page_checks() -> None:
         oid2 = env.role(title="Second", company="Beta Diagnostics")
         env.open(oid2)
         env.rescore(oid2, COPY_TEXT)
-        better = cv_doc.accept(edited(COPY_TEXT, "- SpiraPlan and regulated ALM configuration",
-                                      "- SpiraPlan and regulated ALM configuration\n"
+        better = cv_doc.accept(edited(COPY_TEXT, "- Jama Connect and regulated ALM configuration",
+                                      "- Jama Connect and regulated ALM configuration\n"
                                       "- Kubernetes and cloud deployment of clinical systems"))[1]
         env.rescore(oid2, better)
         inner = render_inner(env, oid2)
@@ -2692,8 +2712,8 @@ def page_checks() -> None:
               and "CV lines as numbered in the tailored copy as it was scored" in page_text(inner),
               "the tailored score shows its own four gates, the pay line read from its "
               "own working, and says its asks are numbered in the copy it scored")
-        same_asks = cv_doc.accept(edited(better, "Chichester, West Sussex, UK",
-                                         "Chichester, West Sussex, United Kingdom"))[1]
+        same_asks = cv_doc.accept(edited(better, "Guildford, Surrey, UK",
+                                         "Guildford, Surrey, United Kingdom"))[1]
         env.rescore(oid2, same_asks)
         check("No ask changed." in page_text(render_inner(env, oid2)),
               "and a rescore that moves no ask says so")
@@ -2735,12 +2755,12 @@ def page_checks() -> None:
         env.save(oid, saved)
         env.open(oid)
         env.rescore(oid, COPY_TEXT)
-        env.apply(oid, "CV - Luke Keogh - Veltrix Diagnostics - Head of Software")
+        env.apply(oid, "CV - Alex Rennie - Veltrix Diagnostics - Head of Software")
         before = env.dump()
         page = render_page(env, oid)
         left = page[page.index('id="cv-pane"'):page.index('id="prepare-body"')]
         data = pane_data(page)
-        check("This role is marked applied with CV - Luke Keogh - Veltrix Diagnostics - Head of Software."
+        check("This role is marked applied with CV - Alex Rennie - Veltrix Diagnostics - Head of Software."
               in page_text(page) and "as it was sent" in page_text(page)
               and data["lines"] == cv_store.cv_lines(saved) and data["editable"] is False
               and not re.search(r"<button[^>]*data-cv-act", page) and "<textarea" not in left
@@ -2792,11 +2812,11 @@ def page_checks() -> None:
         env.open(oid)
         env.rescore(oid, COPY_TEXT)
         env.save(oid, COPY_TEXT)
-        later = cv_doc.accept(edited(COPY_TEXT, "- SpiraPlan and regulated ALM configuration",
-                                     "- SpiraPlan and regulated ALM configuration\n"
+        later = cv_doc.accept(edited(COPY_TEXT, "- Jama Connect and regulated ALM configuration",
+                                     "- Jama Connect and regulated ALM configuration\n"
                                      "- Kubernetes and cloud deployment of clinical systems"))[1]
         env.rescore(oid, later)
-        env.apply(oid, "CV - Luke Keogh - Veltrix Diagnostics - Head of Software")
+        env.apply(oid, "CV - Alex Rennie - Veltrix Diagnostics - Head of Software")
         inner = render_inner(env, oid)
         right = page_text(inner)
         check(len(CALLS) == 2
@@ -2837,7 +2857,7 @@ def master_page_checks() -> None:
     score_item.load_cv_text = from_profile
     score_item.get_cv_version = lambda config: cv_store.active_cv_name(tmp) or "cv.txt"
     try:
-        legacy = "Luke Keogh\nChichester\n\nPROFILE\nSoftware leader.\n\nSKILLS\n* IEC 62304\n"
+        legacy = "Alex Rennie\nGuildford\n\nPROFILE\nSoftware leader.\n\nSKILLS\n* IEC 62304\n"
         (tmp / "cv-20261101-080000.md").write_text(legacy, encoding="utf-8")
         (tmp / "cv.active").write_text("cv-20261101-080000.md\n", encoding="utf-8")
         reset()
@@ -2875,7 +2895,7 @@ def master_page_checks() -> None:
 
             with serving(env.db) as port, captured_stderr():
                 doc = data["doc"]
-                doc["name"] = "Luke Keogh"
+                doc["name"] = "Alex Rennie"
                 text_v2 = cv_doc.render(cv_doc.normalize(doc))
                 status, got, _h = post(port, "/cv/master/save", {"text": text_v2, "base": "cv-old.md"})
                 check(status == 409 and "has changed since this page was opened" in got.get("note", "")
@@ -2914,7 +2934,7 @@ def master_page_checks() -> None:
                   "once saved in the editor's layout the page no longer says it was not")
             # An import as big as the upload allows, which no CV could be.
             (tmp / "cv-20261113-080000.md").write_text(
-                "Luke Keogh\n" + "A line.\n" * (cv_doc.RAW_LINES_MAX + 10), encoding="utf-8")
+                "Alex Rennie\n" + "A line.\n" * (cv_doc.RAW_LINES_MAX + 10), encoding="utf-8")
             (tmp / "cv.active").write_text("cv-20261113-080000.md\n", encoding="utf-8")
             start = time.time()
             page = serve_dashboard_page(env)
@@ -2926,7 +2946,7 @@ def master_page_checks() -> None:
                   f"says why instead of laying it out ({took:.2f} s)")
             # Under the caps as a file, over them in the editor's layout, which
             # adds a blank line and a mark before every heading.
-            under = "Luke Keogh\n" + "".join(f"# Heading {i}\nline {i}\n" for i in range(999))
+            under = "Alex Rennie\n" + "".join(f"# Heading {i}\nline {i}\n" for i in range(999))
             check(len(cv_store.cv_lines(under)) <= cv_doc.RAW_LINES_MAX
                   and len(cv_store.cv_lines(cv_doc.render(cv_doc.load_doc(under))))
                   > cv_doc.RAW_LINES_MAX,
@@ -3363,12 +3383,12 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   // ------------------------------------------ edits after the save
   const headline = w.q('textarea[data-edit="h.1"]');
   say(w.q('#cv-download-hint').textContent === '', 'with nothing edited since the save, Download needs no word');
-  headline.value = '• West Sussex';
+  headline.value = '• Surrey';
   w.fire(headline, 'input');
   say(/Save CV again/.test(w.q('#cv-download-hint').textContent),
       'the moment the copy is edited after a save, the page says Download gives the copy as it was saved');
   w.fire(headline, 'focusout');
-  say(w.q('textarea[data-edit="h.1"]').value === 'West Sussex' && w.q('[data-place="h.1"]').classList.contains('cvl-plain'),
+  say(w.q('textarea[data-edit="h.1"]').value === 'Surrey' && w.q('[data-place="h.1"]').classList.contains('cvl-plain'),
       'a headline line pasted with a bullet mark loses the mark and stays a line');
   const first = w.q('textarea[data-edit="s0.l0"]');
   first.value = '▪ Pasted from Word';
@@ -3490,7 +3510,7 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
       && w.q('textarea[data-edit="s4.t"]').getAttribute('aria-label') === 'Section title',
       'a bullet shows a dot and a line none, the numbers are hidden from screen readers, and every field is labelled');
   const nameField = w.q('textarea[data-edit="name"]');
-  nameField.value = 'Luke Keogh';
+  nameField.value = 'Alex Rennie';
   w.fire(nameField, 'input');
   say(nameField.style.height === '22px', 'a field grows to fit what is in it');
   opAt('s1.e0.l1', 'up');
@@ -3512,15 +3532,15 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   say(val('s1.e0.l2') === null && numbered(w).length === data.opsLines - 1, 'Delete removes the line, and the lines are numbered again');
   say(!w.q('[data-op="kind"][data-at="h.0"]') && w.q('[data-op="up"][data-at="h.0"]'), 'a headline line can move but has no bullet button');
   opAt('s1.e1.h', 'eup');
-  say(val('s1.e0.h').includes('miDiagnostics') && val('s1.e0.l0') === 'Oversaw FDA clearance for a Class B IVD.'
-      && val('s1.e1.h').includes('Axithra'),
+  say(val('s1.e0.h').includes('Calderbrook Diagnostics') && val('s1.e0.l0') === 'Oversaw FDA clearance for a Class B IVD.'
+      && val('s1.e1.h').includes('Hartwell Infusion'),
       'an entry moves up past the one above, taking its lines with it');
   opAt('s1.e0.h', 'eup');
   opAt('s1.e1.h', 'edown');
-  say(val('s1.e0.h').includes('miDiagnostics') && val('s1.e1.h').includes('Axithra'),
+  say(val('s1.e0.h').includes('Calderbrook Diagnostics') && val('s1.e1.h').includes('Hartwell Infusion'),
       'and the first entry does not move up, nor the last down');
   opAt('s1.e0.h', 'edown');
-  say(val('s1.e0.h').includes('Axithra') && val('s1.e1.h').includes('miDiagnostics'), 'an entry moves down');
+  say(val('s1.e0.h').includes('Hartwell Infusion') && val('s1.e1.h').includes('Calderbrook Diagnostics'), 'an entry moves down');
   w.setConfirm(false);
   opAt('s1.e1.h', 'edel');
   say(val('s1.e1.h') !== null && w.confirms.length === 1 && /Delete this entry and its 1 line\?/.test(w.confirms[0]),
@@ -3570,7 +3590,7 @@ const numbered = (w) => w.qa('#cv-editor .cvl[data-n]').map((r) => [Number(r.get
   const opsSent = body(w, w.calls.length - 1).text;
   say(w.calls[w.calls.length - 1].url === '/prepare/cv/rescore' && opsSent.includes('\nOne\nTwo\n')
       && !opsSent.includes('## Patents') && !opsSent.includes('Software leader in regulated')
-      && !opsSent.includes('miDiagnostics') && !opsSent.includes('Own the software risk file')
+      && !opsSent.includes('Calderbrook Diagnostics') && !opsSent.includes('Own the software risk file')
       && opsSent.includes('- Lead software for a Class C IVD under IEC 62304.\n- Built the software team from nothing.\n'),
       'Rescore role sends the copy as it is on screen after the editing buttons, every edit in it');
   w.answer({ ok: true, outcome: 'reused', notices: [{ kind: 'info', text: 'Scored before, nothing was spent.' }] });
@@ -3699,7 +3719,7 @@ def editor_script_checks() -> None:
         applied = env.role(title="Applied", company="Gamma")
         saved_text = edited(MASTER_TEXT, "Built the software team", "Built and led the team")
         env.save(applied, saved_text)
-        env.apply(applied, "CV - Luke Keogh - Gamma - Applied")
+        env.apply(applied, "CV - Alex Rennie - Gamma - Applied")
         open_page = render_page(env, oid)
         env.open(unsaved)
         unsaved_page = render_page(env, unsaved)
@@ -3707,8 +3727,8 @@ def editor_script_checks() -> None:
         opened = env.open(oid)
         open_answer = {"ok": True, "outcome": "made", "copy": opened["copy"], "notices": []}
         env.rescore(oid, COPY_TEXT)
-        better = cv_doc.accept(edited(COPY_TEXT, "- SpiraPlan and regulated ALM configuration",
-                                      "- SpiraPlan and regulated ALM configuration\n"
+        better = cv_doc.accept(edited(COPY_TEXT, "- Jama Connect and regulated ALM configuration",
+                                      "- Jama Connect and regulated ALM configuration\n"
                                       "- Kubernetes and cloud deployment of clinical systems"))[1]
         rescored = env.rescore(oid, better)
         rescored["html"] = render_inner(env, oid)
@@ -3791,7 +3811,7 @@ def editor_script_checks() -> None:
         env.open(legacy_role)
         legacy_page = render_page(env, legacy_role)
         MASTER[0] = MASTER_TEXT
-        mismatch = open_page.replace("Chichester, West Sussex", "Chichester, West Sussex!", 1)
+        mismatch = open_page.replace("Guildford, Surrey", "Guildford, Surrey!", 1)
         import html as htmllib
         attr = re.search(r'data-cv="([^"]*)"', mismatch)
         mdata = json.loads(htmllib.unescape(attr.group(1)))
@@ -3846,7 +3866,7 @@ def editor_script_checks() -> None:
     strings += ["a" + ch + "b" for ch in edges] + [ch + "- x" for ch in edges]
     payload = {
         "scripts": scripts, "header": HEADER, "version": MASTER_LABEL[0],
-        "ids": {"open": oid}, "savedName": "CV - Luke Keogh - Veltrix Diagnostics - Head of Software",
+        "ids": {"open": oid}, "savedName": "CV - Alex Rennie - Veltrix Diagnostics - Head of Software",
         "hashes": {"open": opened["copy"]["hash"], "rescored": cv_store.cv_hash(better)},
         "copyMoved": prep.COPY_MOVED,
         "summaries": {"master": summary_master, "risk": summary_risk},
@@ -3862,7 +3882,7 @@ def editor_script_checks() -> None:
         "answers": {"open": open_answer, "rescore": rescored, "save": saved},
         "texts": {"master": MASTER_TEXT, "masterPage": MASTER_TEXT},
         "lines": {"master": lines, "saved": cv_store.cv_lines(saved_text), "riskN": risk_n,
-                  "newSkillN": lines.index("- SpiraPlan and regulated ALM configuration") + 2},
+                  "newSkillN": lines.index("- Jama Connect and regulated ALM configuration") + 2},
         "places": {"risk": "s1.e0.l2", "above": "s1.e0.l0", "splitNext": "s1.e0.l1",
                    "skills": "s2", "newSkill": "s2.l2", "newSkillNext": "s2.l3",
                    "summaryLine": "s0.l1"},
@@ -3924,10 +3944,10 @@ def static_checks() -> None:
     flows = [p.name for p in sorted((REPO_ROOT / "workflows").glob("*.json"))
              if re.search(r"/prepare/cv|/cv/master|tailored|cv_doc|cv_word", p.read_text(encoding="utf-8"))]
     check(not flows, f"no n8n workflow runs any of it or posts to it ({flows})")
-    check(radar_common.prompt_version() == "1b1ffb78",
-          "the scorer prompt is the one Prepare application final left, 1b1ffb78 (the "
-          "quoted reasons' 22353628 with each ask's advert sentence and short reason): the CV page "
-          "changed nothing in it")
+    check(radar_common.prompt_version() == "93b203d2",
+          "the scorer prompt is 93b203d2, the one Prepare application final left, 1b1ffb78 "
+          "(the quoted reasons' 22353628 with each ask's advert sentence and short reason), "
+          "with the owner named by first name only: the CV page changed nothing in it")
     serve = (REPO_ROOT / "scripts" / "serve_dashboard.py").read_text(encoding="utf-8")
     stree = ast.parse(serve)
     do_get = next(n for n in ast.walk(stree) if isinstance(n, ast.FunctionDef) and n.name == "do_GET")
@@ -4004,7 +4024,7 @@ def box_query_checks() -> None:
         # Saved, then applied an hour later, as a person would.
         env.sql("UPDATE tailored_cvs SET saved_at = '2026-11-12T09:00:00Z',"
                 " updated_at = '2026-11-12T09:00:00Z' WHERE opportunity_id = ?", (b,))
-        env.apply(b, "CV - Luke Keogh - Beta - Second")
+        env.apply(b, "CV - Alex Rennie - Beta - Second")
         repost_b = env.role(title="Second", company="Beta")
         broken = []
         for sql in statements:
@@ -4053,7 +4073,7 @@ def docs_checks() -> None:
                    "GET /prepare/<id>/cv.docx", "tailored_cvs", "cv_hash", "event `tailored`",
                    "cv_store.cv_lines", "CV_MODEL_JS", "_score", "SPEC_MAX_TOKENS",
                    "applied", "python-docx", "first-open", "Re-score stale items",
-                   "CV - Luke Keogh - <Company> - <Job", "is_canonical", "long_lines",
+                   " - <Company> - <Job", "is_canonical", "long_lines",
                    "COPY_MOVED", "UNCHANGED_COPY", "Prepare application click's lock"):
         if needle not in section:
             check(False, f"the notes say {needle!r}")

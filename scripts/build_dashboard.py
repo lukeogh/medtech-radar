@@ -2864,7 +2864,7 @@ def add_source_strip_html(config: dict) -> str:
 <span class="board-note" id="src-note"></span>
 </div>
 <p class="legend">A new board files its emails under its own name here.
-Subscribing {esc(config.get('aggregator_email', 'the aggregator inbox'))}
+Subscribing {esc(config.get('aggregator_email') or 'the aggregator inbox')}
 to its alerts on the board itself is still yours to do, and unrecognised
 senders are scored anyway under Other email alerts.</p>
 {customs_line}

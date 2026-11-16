@@ -1,4 +1,4 @@
-Title: Quellin Diagnostics raises €8.5 million seed round to industrialise its Raman-on-chip test platform
+Title: Quellin Diagnostics raises €8.5 million seed round to industrialise its photonic chip test platform
 URL: https://www.quellindx.example/news/seed-round-2026
 Date: 2026-07-16
 

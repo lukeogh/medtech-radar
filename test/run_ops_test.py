@@ -720,7 +720,9 @@ def home_checks(tmp: Path) -> None:
     # final's five lights read the same verdicts; both are checked here.
     print("\nRadar's health and Home. The lights are /health's verdicts.")
     real_now = datetime.now(timezone.utc)
-    config = rc.load_config()
+    # radar.yaml ships the owner's ntfy address empty, which is the push Off;
+    # these checks play a box that has one, from its private file.
+    config = {**rc.load_config(), "ntfy_url": "https://ntfy.example.test"}
 
     last_lights: dict = {}
 

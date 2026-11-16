@@ -227,7 +227,7 @@ CREATE TABLE IF NOT EXISTS tailored_cvs (
   updated_at      TEXT,
   saved_text      TEXT,
   saved_hash      TEXT,
-  saved_name      TEXT,               -- "CV - Luke Keogh - <Company> - <Job title>"
+  saved_name      TEXT,               -- "CV - <owner_name> - <Company> - <Job title>"
   saved_at        TEXT,
   score           TEXT
 );

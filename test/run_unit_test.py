@@ -1978,7 +1978,7 @@ def main() -> int:
         '<w:document xmlns:w="http://schemas.openxmlformats.org/'
         'wordprocessingml/2006/main"><w:body>'
         '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>'
-        '<w:r><w:t>Luke Keogh</w:t></w:r></w:p>'
+        '<w:r><w:t>Alex Rennie</w:t></w:r></w:p>'
         '<w:p><w:r><w:t>Software director, medical devices and IVD.</w:t>'
         '</w:r></w:p>'
         '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/></w:numPr></w:pPr>'
@@ -1993,7 +1993,7 @@ def main() -> int:
     docx_bytes = buf.getvalue()
 
     md = cv_store.extract_markdown("cv_sample.docx", docx_bytes)
-    check("# Luke Keogh" in md, "docx heading extracts as a markdown heading")
+    check("# Alex Rennie" in md, "docx heading extracts as a markdown heading")
     check("Software director, medical devices and IVD." in md,
           "docx body text extracts intact")
     check("- IEC 62304 audits end to end." in md,
@@ -2834,7 +2834,7 @@ def main() -> int:
         conn.close()
 
     # Tripwires. A first quality or regulatory hire at an untouched medtech
-    # company is news about them, not a job for Luke.
+    # company is news about them, not a job for the owner.
     import tripwire as _tw
 
     for title, want in (("Quality Assurance Manager, ISO 13485", True),

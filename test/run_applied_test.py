@@ -116,7 +116,7 @@ CFG = radar_common.load_config()
 FLOORS = radar_common.read_rate_floors(CFG)
 
 HEADER = build_dashboard.WRITE_HEADER
-PROXY = "medtech-radar.keogh.cloud"
+PROXY = "radar.example.test"
 EVIL = "evil.example"
 ISO = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 

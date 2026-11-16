@@ -96,22 +96,30 @@ CFG = radar_common.load_config()
 FLOORS = radar_common.read_rate_floors(CFG)
 SPEC = radar_common.SCORE_BASIS_SPEC
 CARD = radar_common.SCORE_BASIS_CARD
-NEW_VERSION = "1b1ffb78"     # the prompt now: each partly or missing ask's short reason too
+NEW_VERSION = "93b203d2"     # the prompt now: the owner by first name, no home county
+PRIOR_VERSION = "1b1ffb78"   # the prompt before: each partly or missing ask's short reason too
 SENTENCE_VERSION = "422cdad4"  # the prompt before the reasons, with each ask's sentence
 PART_B_VERSION = "22353628"  # the prompt this change left, before the advert sentences
 OLD_VERSION = "97f11cce"     # the prompt Brief 3 left
+# The same steps back on today's wording. The versions above were files that
+# named the owner in full and his home county, which the public repo no longer
+# holds, so the steps cannot reach their hashes now. They still show that each
+# change touched only its own paragraph.
+CHAIN_SENTENCE = "e212eb8f"  # SENTENCE_VERSION's step
+CHAIN_PART_B = "c053bdb2"    # PART_B_VERSION's step
+CHAIN_OLD = "e1923256"       # OLD_VERSION's step
 
 # The master CV, in the editor's layout, so that a tailored copy can be made.
 MASTER_DOC = {
-    "name": "Luke Keogh",
+    "name": "Alex Rennie",
     "headline": ["Software Director, regulated medical devices and IVD",
-                 "Chichester, West Sussex"],
+                 "Guildford, Surrey"],
     "sections": [
         {"title": "Summary", "entries": [], "lines": [
             {"b": False, "t": "Software leader in regulated industries since "
                               "2011, IEC 62304 and ISO 13485 throughout."}]},
         {"title": "Experience", "lines": [], "entries": [
-            {"heading": "Software Director, Axithra, 2023 to now", "lines": [
+            {"heading": "Software Director, Hartwell Infusion, 2023 to now", "lines": [
                 {"b": True, "t": "Lead software for a Class C IVD under IEC 62304."},
                 {"b": True, "t": "Oversaw FDA clearance for a Class B IVD."}]}]},
         {"title": "Skills", "entries": [], "lines": [
@@ -119,8 +127,8 @@ MASTER_DOC = {
     ],
 }
 MASTER_TEXT = cv_doc.render(MASTER_DOC)
-COPY_TEXT = MASTER_TEXT.replace("Chichester, West Sussex",
-                                "Chichester, West Sussex, UK", 1)
+COPY_TEXT = MASTER_TEXT.replace("Guildford, Surrey",
+                                "Guildford, Surrey, UK", 1)
 OTHER_TEXT = COPY_TEXT.replace("Lead software for", "Led software for", 1)
 score_item.load_cv_text = lambda config: (MASTER_TEXT,
                                           "config/profile/cv-20261110-090000.md")
@@ -436,22 +444,28 @@ def prompt_checks() -> None:
                      whole.index("\ncv_match comes from this same evidence.")]
     sentences = whole.replace(why_para, "").replace(', "sentence": "", "why": ""}],',
                                                     ', "sentence": ""}],')
-    check(radar_common.prompt_hash(sentences) == SENTENCE_VERSION
+    check(radar_common.prompt_hash(sentences) == CHAIN_SENTENCE
           and why_para.count("\n\n") == 0,
           f"take the asks' short reasons out and the file is the one the advert "
-          f"sentences left, {SENTENCE_VERSION}: one paragraph and one key")
+          f"sentences left ({SENTENCE_VERSION} before the owner's name came out): "
+          f"one paragraph and one key")
     sentence_para = sentences[sentences.index("\nFor every ask, met, partly or missing, give sentence"):
                               sentences.index("\ncv_match comes from this same evidence.")]
     part_b = sentences.replace(sentence_para, "").replace(', "sentence": ""}],', '}],')
-    check(radar_common.prompt_hash(part_b) == PART_B_VERSION,
+    check(radar_common.prompt_hash(part_b) == CHAIN_PART_B,
           f"take the advert sentences out and the file is the one this change "
-          f"left, {PART_B_VERSION}")
+          f"left ({PART_B_VERSION} before the owner's name came out)")
     old = (part_b.replace(block, "").replace(spec_block, "")
            .replace('"act_by": "",\n "reasons": [{"reason": "", "quote": ""}]}',
                     '"act_by": ""}'))
-    check(radar_common.prompt_hash(old) == OLD_VERSION,
-          f"take the reasons out and the file is the one Brief 3 left, "
-          f"{OLD_VERSION}: nothing else the prompt asks for changed")
+    check(radar_common.prompt_hash(old) == CHAIN_OLD,
+          f"take the reasons out and the file is the one Brief 3 left "
+          f"({OLD_VERSION} before the owner's name came out): nothing else the "
+          f"prompt asks for changed")
+    check("for Luke against four gates" in whole
+          and "workable from the home base\nin the preferences file" in whole,
+          "the rubric names the owner by first name only and reads the home "
+          "base from the preferences file, never a county of its own")
     version = radar_common.prompt_version()
     check(version == NEW_VERSION and version != OLD_VERSION
           and radar_common.prompt_hash(whole) == version,
@@ -1718,11 +1732,19 @@ def box_query_checks() -> None:
     is played through with that prompt, PART_B_VERSION; Prepare application
     final has its own page for the prompt after it."""
     real = score_item.load_prompt
-    score_item.load_prompt = lambda name: part_b_prompt() if name == "scorer.md" else real(name)
+    real_hash = radar_common.prompt_hash
+    part_b = part_b_prompt()
+    score_item.load_prompt = lambda name: part_b if name == "scorer.md" else real(name)
+    # Today's wording of that prompt hashes to CHAIN_PART_B, since the owner's
+    # full name came out of the file; the page's queries look for the version
+    # the box was stamped with then, so a score made with it carries that one.
+    radar_common.prompt_hash = (lambda text: PART_B_VERSION if text == part_b
+                                else real_hash(text))
     try:
         _box_query_checks()
     finally:
         score_item.load_prompt = real
+        radar_common.prompt_hash = real_hash
 
 
 def _box_query_checks() -> None:

@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import html as html_mod
 import json
+import re
 import secrets
 import sys
 from datetime import datetime, timedelta, timezone
@@ -290,6 +291,24 @@ def collect(conn, config: dict) -> dict:
                                   if x.get("tier") == "question")}
 
 
+def dashboard_url(config: dict) -> str:
+    """Where the digest links to: dashboard_url, else https:// and the first
+    name in dashboard_allowed_hosts that is not an address, else the dashboard
+    on this machine. The proxy's name lives in the owner's private config."""
+    url = str(config.get("dashboard_url") or "").strip().rstrip("/")
+    if url.lower().startswith(("http://", "https://")):
+        return url
+    hosts = config.get("dashboard_allowed_hosts") or []
+    if isinstance(hosts, str):
+        hosts = hosts.replace(",", " ").split()
+    for host in hosts:
+        name = str(host).strip()
+        if name and not re.fullmatch(r"[0-9.]+|[0-9a-fA-F:]+", name):
+            return f"https://{name}"
+    return (f"http://{config.get('dashboard_host') or '127.0.0.1'}:"
+            f"{config.get('dashboard_port') or 8787}")
+
+
 def main(argv=None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -334,8 +353,7 @@ def main(argv=None) -> int:
     top_n = data.get("top_count", 0)
     q_n = data.get("question_count", 0)
     read_n = data.get("reading_count", 0)
-    page_url = str(config.get("dashboard_url")
-                   or "https://medtech-radar.keogh.cloud") + "/jobs"
+    page_url = dashboard_url(config) + "/jobs"
     counts = [f"{top_n} top prospect" + ("" if top_n == 1 else "s"),
               f"{q_n} one question away",
               f"{read_n} for reading"]

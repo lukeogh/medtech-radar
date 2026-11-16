@@ -1,0 +1,17 @@
+# The owner's own values for config/radar.yaml, kept out of the public repo.
+#
+# Copy this file to config/profile/radar.local.yaml, which is gitignored, and
+# fill in the real values. Each key here replaces radar.yaml's whole value for
+# that key, a list included, so dashboard_allowed_hosts lists every name the
+# dashboard may be reached by besides the loopback ones, the LAN address too.
+# Keys left out keep radar.yaml's values. Mock mode and the test suite
+# (RADAR_SHIPPED_CONFIG) never read the private file.
+
+n8n_url: "https://n8n.example.org"
+ntfy_url: "https://ntfy.example.org"
+aggregator_email: "radar-inbox@example.org"
+digest_to: "digest@example.org"
+dashboard_url: "https://radar.example.org"
+dashboard_allowed_hosts:
+  - "radar.example.org"
+  - "192.168.1.100"

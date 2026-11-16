@@ -35,6 +35,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = REPO_ROOT / "db" / "radar.sqlite"
 SCHEMA_PATH = REPO_ROOT / "db" / "schema.sql"
 CONFIG_PATH = REPO_ROOT / "config" / "radar.yaml"
+# The owner's own addresses: the ntfy and n8n servers, the two mailboxes, the
+# proxy name. The repo is public, so radar.yaml ships placeholders and the real
+# values live in this gitignored file. config/radar.local.example.yaml shows it.
+LOCAL_CONFIG_PATH = REPO_ROOT / "config" / "profile" / "radar.local.yaml"
 ENV_PATH = REPO_ROOT / ".env"
 
 # Query parameters that carry tracking noise, stripped before hashing a URL.
@@ -63,9 +67,29 @@ def load_env(path: Path | None = None) -> dict:
 
 
 def load_config() -> dict:
+    """radar.yaml, with the owner's private file laid over it.
+
+    Each top-level key in config/profile/radar.local.yaml replaces radar.yaml's
+    whole value for that key, a list included, and the other keys are
+    radar.yaml's. Mock mode reads radar.yaml alone, and so does any run with
+    RADAR_SHIPPED_CONFIG set, which test/run_all.sh sets, so a runner sees the
+    shipped values on any machine, the box too, in its live parts as well.
+    A private file that is not a mapping of keys stops the caller and says so.
+    """
     import yaml
     with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+        config = yaml.safe_load(fh)
+    if (mock_mode_active() or os.environ.get("RADAR_SHIPPED_CONFIG")
+            or not LOCAL_CONFIG_PATH.exists()):
+        return config
+    with open(LOCAL_CONFIG_PATH, "r", encoding="utf-8") as fh:
+        local = yaml.safe_load(fh)
+    if local is None:
+        return config
+    if not isinstance(local, dict):
+        raise ValueError(f"{LOCAL_CONFIG_PATH} must hold radar.yaml keys and "
+                         "their values, one per line, and holds something else.")
+    return {**config, **local}
 
 
 def now_iso() -> str:
@@ -1665,7 +1689,15 @@ PREF_EDITABLE = {
     # owner's own gitignored file and never in the code. Home greets without
     # a name when the line is missing or empty.
     "first_name": "text",
+    # Optional. The owner's full name, which a saved CV copy is named after
+    # ("CV - <owner_name> - <Company> - <Job title>") and which the Word file
+    # gives as its author. A copy is named without it while the line is
+    # missing or empty.
+    "owner_name": "text",
 }
+
+# The lines that may be saved empty: each is optional and means "none" empty.
+PREF_MAY_BE_EMPTY = ("first_name", "owner_name")
 
 
 def _prefs_path(config: dict | None = None) -> Path:
@@ -1711,9 +1743,9 @@ def update_pref_line(key: str, value: str,
     if key not in PREF_EDITABLE:
         raise ValueError(f"{key} is not a dashboard-editable line.")
     value = " ".join(str(value or "").split())[:200]
-    # The first name may be cleared: the line stays, empty, and Home greets
-    # without a name. Every other line is a setting the scorer needs.
-    if not value and key != "first_name":
+    # The first name and the owner's name may be cleared: the line stays,
+    # empty, and means none. Every other line is a setting the scorer needs.
+    if not value and key not in PREF_MAY_BE_EMPTY:
         raise ValueError("An empty value would delete the line. Type "
                          "something, or edit the file by hand to remove it.")
     path, text = _prefs_text(config, live_only=True)
@@ -1746,6 +1778,21 @@ def read_first_name(config: dict | None = None) -> str | None:
     """
     try:
         value = read_pref_line("first_name", config)
+    except (OSError, UnicodeDecodeError):
+        return None
+    value = " ".join(str(value or "").split())[:40].strip()
+    return value or None
+
+
+def read_owner_name(config: dict | None = None) -> str | None:
+    """The owner's full name, from the optional owner_name line, or None.
+
+    Read like read_first_name: one line of plain text, cut to 40 characters,
+    and None for nothing. The tracked template's line is empty, so a checkout
+    with no live preferences file names nobody.
+    """
+    try:
+        value = read_pref_line("owner_name", config)
     except (OSError, UnicodeDecodeError):
         return None
     value = " ".join(str(value or "").split())[:40].strip()

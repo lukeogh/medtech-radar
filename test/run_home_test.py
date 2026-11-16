@@ -68,6 +68,11 @@ import radar_common as rc  # noqa: E402
 import serve_dashboard  # noqa: E402
 
 failures: list[str] = []
+# radar.yaml ships the owner's ntfy address empty, which is the push Off;
+# these checks play a box that has one, from its private file, so every
+# reader of the config here, the server's too, sees one.
+_shipped_config = rc.load_config
+rc.load_config = lambda: {**_shipped_config(), "ntfy_url": "https://ntfy.example.test"}
 CFG = rc.load_config()
 NOW = datetime.now(timezone.utc)
 
@@ -416,7 +421,7 @@ def light_checks(tmp: Path) -> None:
     check(marks["Late"] != marks["Dry run"], "Late and Dry run differ in shape, not only in words")
     jobs = {"signals": v("ok", "live")}
     check(hp.push_light(jobs, {"ntfy_url": "", "ntfy_topic_radar": "x"}, None)["word"] == "Off",
-          "the push is Off when radar.yaml names no ntfy address")
+          "the push is Off when the config names no ntfy address")
     check(hp.push_light({"signals": {"state": "never"}}, CFG, None)["word"] == "Off",
           "and Off when the watcher has never run")
     check(hp.push_light({"signals": v("stale", "dry-run")}, CFG, None)["word"] == "Stale"

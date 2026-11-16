@@ -93,6 +93,31 @@ single-user homelab that is the bargain the thin-shell architecture is
 built on, and excluding only `localFileTrigger` is the smallest version of
 that bargain.
 
+## The owner's own details, kept out of the repo
+
+The repo is public. Since 16 Nov the tracked files name the owner by first
+name at most, and everything else of his lives in gitignored files under
+`config/profile/`:
+
+- `preferences.md` holds `owner_name:`, the full name a saved CV copy and its
+  Word file carry (`radar_common.read_owner_name`), beside `first_name:`. The
+  scorer's rubric reads the home base from this file too, where it once named
+  a county (prompt `93b203d2`, from `1b1ffb78`).
+- `radar.local.yaml` holds the addresses: `n8n_url`, `ntfy_url`,
+  `aggregator_email`, `digest_to`, `dashboard_url` and
+  `dashboard_allowed_hosts`. `radar_common.load_config` lays it over
+  `radar.yaml`, each key replacing that key's whole value, a list included.
+  `radar.yaml` ships them empty, so without the file the push is Off, the
+  digest has no recipient and the guard knows only the loopback names and the
+  LAN address. Mock mode never reads it, nor does a run with
+  `RADAR_SHIPPED_CONFIG` set, which `test/run_all.sh` sets, so the runners see
+  the shipped values on any machine. `config/radar.local.example.yaml` shows its shape.
+- `private_strings.txt`, optional, one string a line: the hardening runner
+  fails if any tracked file holds one of them, case ignored, and says only the
+  file and the count. Without the file the check is skipped with a note.
+
+The details are still in the git history before this change.
+
 ## Viewing the dashboard, and writing back through it
 
 `scripts/serve_dashboard.py` serves the dashboard over HTTP, re-rendering
@@ -185,7 +210,7 @@ before reporting success, and rotates its own local copies.
 
 Getting the copies off the host is deliberately a separate job, because a backup
 that lives beside the thing it protects is not a backup. On this homelab that is
-`/home/keoghpi/medtech-radar-offsite.sh` on the Pi, run by the
+`medtech-radar-offsite.sh` in the Pi user's home, run by the
 `medtech-radar-backup.timer` systemd timer at 02:37 nightly with `Persistent=true`
 so a machine that was off overnight still takes its backup on the next boot. It
 runs the repo script inside the container, copies the artefacts out through the
@@ -923,8 +948,12 @@ role's last history row that is not tailored, so a tailored row never makes it
 keep a score twice. Its cost is a `runs` row under `prepare`, naming the copy.
 
 Save CV (POST /prepare/cv/save) stores the copy on screen as the saved copy,
-named `CV - Luke Keogh - <Company> - <Job title>`, or `CV - Luke Keogh - <Job
-title>` where the company is not known, made safe for a file name. A save
+named `CV - <owner_name> - <Company> - <Job title>`, or `CV - <owner_name> - <Job
+title>` where the company is not known, made safe for a file name. The name
+is the `owner_name:` line of the live preferences file, read on each save, and
+a copy is named without it while the line is missing or empty; the Word file
+gives the same name as its author. The title is cut to what the rest leaves of
+150 characters, at most 79. A save
 replaces the save before for that role, and only a save does. Download (GET
 /prepare/<id>/cv.docx) builds a Word file from the saved copy with python-docx
 (`scripts/cv_word.py`) from one fixed template: one column, no tables, text

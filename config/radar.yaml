@@ -6,17 +6,24 @@
 
 project_dir: "."                        # repo root, scripts resolve relative to this file
 
+# The owner's own addresses below ship empty, because the repo is public. The
+# real ones live in config/profile/radar.local.yaml, which is gitignored and
+# whose keys replace these. config/radar.local.example.yaml shows its shape.
+
 # Self-hosted n8n. Confirmed responding on the morning of 21 July 2026.
-n8n_url: "https://n8n.keogh.cloud"
+n8n_url: ""
 
 # Self-hosted ntfy, confirmed live on 29 July 2026. Proxied by NPM to the
 # finance ntfy server, the one that reaches the iPhone. The server is
 # deny-all, so publishing needs NTFY_TOKEN in .env with rw on this topic.
-ntfy_url: "https://ntfy.keogh.cloud"
+ntfy_url: ""                            # empty means Off: nothing is pushed
 ntfy_topic_radar: "radar-signals"
 
-aggregator_email: "medtechradar@gmail.com"
-digest_to: "digest@lkeoghqa.co.uk"      # emitted by build_digest.py, used by the send node
+aggregator_email: ""
+digest_to: ""                           # emitted by build_digest.py, used by the send node
+# Where the Monday digest links to, the proxy's address. Empty means the first
+# name in dashboard_allowed_hosts that is not an address, over https.
+dashboard_url: ""
 
 digest_day_time: "Monday 07:30 Europe/London"
 
@@ -62,8 +69,10 @@ dashboard_guard: enforce
 # to. In enforce mode every page needs a listed name, so add the LAN address
 # or the tailnet name here before opening the dashboard by it. Read once at
 # start, like the mode.
+#
+# The proxy's name is the owner's own, so it is listed in the private file,
+# whose list replaces this one whole: list the LAN address there too.
 dashboard_allowed_hosts:
-  - "medtech-radar.keogh.cloud"
   # The LAN address of LXC 110. The Pi's daily health report and anything
   # else on the LAN that reaches the dashboard by IP sends this as Host.
   - "192.168.1.100"

@@ -89,7 +89,7 @@ compared with. Note the guard mode line; nothing here changes it.
    for two seconds and its New word, if it had one, goes.
 
    ```bash
-   echo 'https://medtech-radar.keogh.cloud/jobs'; echo 'http://192.168.1.100:8787/jobs'
+   echo "$(python3 -c 'import sys; sys.path.insert(0, "scripts"); import radar_common, build_digest; print(build_digest.dashboard_url(radar_common.load_config()))')/jobs"; echo 'http://192.168.1.100:8787/jobs'
    ```
 
 ## AFTER
