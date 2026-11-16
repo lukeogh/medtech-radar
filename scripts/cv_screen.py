@@ -1230,6 +1230,7 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .keys{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;margin-top:10px;font-size:13px;line-height:20px;align-items:center}
 .keys dt{display:flex;gap:4px;flex-wrap:wrap}
 .keys dd{color:var(--text-2)}
+.a-keys .help{margin-top:12px}
 .a-keys h2:focus{outline:none}
 .a-keys h2:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .field{display:flex;flex-direction:column;gap:4px;padding:12px 0;border:0;border-bottom:1px solid var(--border-subtle);margin:0;min-width:0}
