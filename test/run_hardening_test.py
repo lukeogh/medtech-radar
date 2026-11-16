@@ -953,11 +953,11 @@ def main() -> int:
             said2 = json.loads(data2).get("note", "")
             check("dashboard_allowed_hosts" in said and "restart" in said
                   and "reload the page" not in said,
-                  "a refused name tells Luke to list it and restart, not to "
+                  "a refused name tells the owner to list it and restart, not to "
                   "reload")
             check("reload the page" in said2
                   and "dashboard_allowed_hosts" not in said2,
-                  "a missing header tells Luke to reload, not to edit the "
+                  "a missing header tells the owner to reload, not to edit the "
                   "config")
             with captured_stderr():
                 _s3, _h3, data3 = call(port, "POST", "/ack", b'{"id": 1}',
@@ -1015,7 +1015,7 @@ def main() -> int:
                   and any("sees GET" in ln and f"Host '{own}'" in ln
                           for ln in sights),
                   "in warn mode each distinct way a good request arrives is "
-                  "logged once, which is how Luke reads his own Host and "
+                  "logged once, which is how the owner reads their own Host and "
                   f"Origin (got {len(sights)} lines)")
             with captured_stderr() as buf:
                 call(port, "POST", "/ack", b'{"id": 1}',

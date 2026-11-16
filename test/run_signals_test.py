@@ -176,7 +176,7 @@ def main() -> int:
               f"{label} carries no priced amount")
 
     # Doctrine, extended to the drafts. These are words that will be sent
-    # to a founder under Luke's name, so they are held to the same rules as
+    # to a founder under the owner's name, so they are held to the same rules as
     # the playbook step and then some. Runs in mock and live alike.
     print("\nDraft doctrine checks. Words a human will send, held to the playbook.")
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
