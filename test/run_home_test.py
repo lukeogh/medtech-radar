@@ -868,6 +868,28 @@ def state_checks(tmp: Path) -> None:
           "a quiet day: nothing needs you today")
     check('class="ht-quiet"' in html and "The signal watcher last ran at" in html,
           "and a line of what Radar read and when")
+    # The watcher's sources: only live ones are expected to answer, each by
+    # its own latest check; the ones not switched on are named apart.
+    def src(i, status):
+        return {"id": i, "status": status}
+    watch = ([src(f"l{n}", "live") for n in range(4)] + [src("u1", "unverified"),
+             src("u2", "unverified"), src("p1", "parked")])
+    seen = {"l0": "200", "l1": "304", "l2": "0"}
+    state = {k: {"last_checked": ago(hours=1), "last_status": v} for k, v in seen.items()}
+    said = hp.source_count_line({"watchlist": watch, "sources_state": state})
+    check(said == "2 of 4 live sources answered at their last check, 2 are not "
+                  "switched on yet and 1 is parked.",
+          f"only live sources count, a never-checked live one as not answered (got {said!r})")
+    said = hp.source_count_line({"watchlist": watch[:4], "sources_state": state})
+    check(said == "2 of 4 live sources answered at their last check.",
+          f"with every source live there is no second clause (got {said!r})")
+    check(hp.source_count_line({"watchlist": watch, "sources_state": {}}) == "",
+          "before any live source is checked there is no count")
+    said = hp.source_count_line({"watchlist": [src("l0", "live"), src("u1", "unverified")],
+                                 "sources_state": state})
+    check(said == "1 of 1 live source answered at its last check, and 1 is not switched on yet.",
+          f"one live source and one off read in the singular (got {said!r})")
+    check("sources answering" not in html, "the old count of every source is gone")
     check(html.count('class="ht-figlink is-zero"') == 4, "the four figures stay, each at 0, dimmed")
     check("ny-is-empty" in html and "Look through the 1 One question away role on Jobs" in html,
           "the list block gives one fact and one next step")
@@ -1031,6 +1053,10 @@ def harness_checks(tmp: Path) -> None:
 # ================================================================ 9. the box checks
 
 def box_doc_checks(tmp: Path) -> None:
+    short = (REPO_ROOT / "docs" / "box-checks-source-count.md").read_text(encoding="utf-8")
+    blocks = re.findall(r"```bash\n(.*?)```", short, re.S)
+    check(len(blocks) == 3 and all(b.strip() for b in blocks),
+          f"the source count's box checks have their three blocks ({len(blocks)}) and none is empty")
     doc = (REPO_ROOT / "docs" / "box-checks-home-final.md").read_text(encoding="utf-8")
     blocks = re.findall(r"```bash\n(.*?)```", doc, re.S)
     check(len(blocks) >= 6 and all(b.strip() for b in blocks),

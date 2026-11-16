@@ -701,19 +701,50 @@ def quiet_line(model: dict) -> str:
     bits = []
     sig = jobs.get("signals") or {}
     if sig.get("last_run"):
-        answering = data.get("answering") or 0
-        watched = len(data.get("watchlist") or [])
-        # Only once the sources have been checked is there a count to give.
-        reading = (f", with {answering} of {watched} sources answering"
-                   if watched and data.get("checked") else "")
-        bits.append(f"The signal watcher last ran at {hm(sig['last_run'])}{reading}")
+        bits.append(f"The signal watcher last ran at {hm(sig['last_run'])}")
     inbox = jobs.get("inbox") or {}
     if inbox.get("last_run"):
         bits.append(f"the inbox at {hm(inbox['last_run'])}")
     if not bits:
         return "Radar has not run yet."
     said = bits[0] + (" and " + bits[1] if len(bits) > 1 else "")
-    return said[:1].upper() + said[1:] + "."
+    line = said[:1].upper() + said[1:] + "."
+    count = source_count_line(data) if sig.get("last_run") else ""
+    return line + (" " + count if count else "")
+
+
+def source_count_line(data: dict) -> str:
+    """How the watched sources stand, each by its own latest result.
+
+    Only live sources are expected to answer. The watcher skips the others,
+    so they are named apart and never count as not answering. The count is
+    each source's last stored check, not one run's, since a run checks only
+    the sources that are due."""
+    watchlist = data.get("watchlist") or []
+    state = data.get("sources_state") or {}
+    live = [s for s in watchlist if s.get("status") == "live"]
+    checked = [s for s in live if (state.get(s.get("id")) or {}).get("last_checked")]
+    # Only once a live source has been checked is there a count to give.
+    if not checked:
+        return ""
+    answered = sum(1 for s in checked
+                   if ((state.get(s.get("id")) or {}).get("last_status") or "")
+                   in ("200", "304"))
+    n = len(live)
+    out = (f"{answered} of {n} live {'source' if n == 1 else 'sources'} answered "
+           f"at {'its' if n == 1 else 'their'} last check")
+    off = sum(1 for s in watchlist if s.get("status") == "unverified")
+    parked = sum(1 for s in watchlist if s.get("status") == "parked")
+    extra = []
+    if off:
+        extra.append(f"{off} {'is' if off == 1 else 'are'} not switched on yet")
+    if parked:
+        extra.append(f"{parked} {'is' if parked == 1 else 'are'} parked")
+    if len(extra) == 1:
+        out += ", and " + extra[0]
+    elif extra:
+        out += ", " + extra[0] + " and " + extra[1]
+    return out + "."
 
 
 def figures_html(model: dict) -> str:

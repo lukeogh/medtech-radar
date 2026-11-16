@@ -3153,6 +3153,18 @@ def main() -> int:
         check(action is None and when is None,
               f"{channel} books nothing, the next event is not ours")
 
+    # The watchlist names each source once. A repeated block once made Home
+    # count five sources twice, 20 of 29 where there were 24.
+    import yaml
+    with open(REPO_ROOT / "config" / "watchlist.yaml", encoding="utf-8") as fh:
+        watch = yaml.safe_load(fh) or {}
+    ids = [s.get("id") for key in ("sources", "email_sources")
+           for s in (watch.get(key) or []) if isinstance(s, dict)]
+    repeated = sorted({i for i in ids if ids.count(i) > 1})
+    check(ids and not repeated,
+          f"config/watchlist.yaml names each of its {len(ids)} sources once"
+          + (f" (repeated: {', '.join(map(str, repeated))})" if repeated else ""))
+
     print()
     if failures:
         print(f"{len(failures)} UNIT CHECK(S) FAILED")
