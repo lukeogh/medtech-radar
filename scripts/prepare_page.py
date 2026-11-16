@@ -207,6 +207,8 @@ def model(conn, item_id: int, config: dict, notices=None) -> dict | None:
             "asks_from": asks_from, "asks_working": asks_working, "asks": asks,
             "app": app, "card": card, "notices": list(notices or []),
             "pending": prep.pending(row, applied, config),
+            "tier_move": _tier_move(conn, row, on_description),
+            "moved_on": _moved_on(row, on_description, config),
             "linkedin": linkedin_url(conn, row), "config": config,
             "thresholds": _thresholds(config), "floors": _floors(config)}
 
@@ -227,6 +229,43 @@ def linkedin_url(conn, row: dict) -> str | None:
             " ORDER BY id DESC LIMIT 1", (row["role_key"], row["id"])).fetchone()
         jid = check_jobs.job_view_id(mate["source_url"] or "") if mate else None
     return f"https://www.linkedin.com/jobs/view/{jid}/" if jid else None
+
+
+def _tier_move(conn, row: dict, on_description: bool) -> str | None:
+    """The tier move the full description made, from the history, for as
+    long as the score it came from is the score the row holds."""
+    last = conn.execute(
+        "SELECT tier, tier_from, scored_at FROM score_history"
+        " WHERE opportunity_id = ? AND event = 'scored' AND writer = 'prepare'"
+        " ORDER BY id DESC LIMIT 1", (row["id"],)).fetchone()
+    if (last is None or not last["tier_from"] or not on_description
+            or last["scored_at"] != row.get("scored_at")):
+        return None
+    words = prep.TIER_WORDS
+    text = (f"The full description moved this role from "
+            f"{words.get(last['tier_from'], last['tier_from'])} to "
+            f"{words.get(last['tier'], last['tier'])}. Nothing was dismissed.")
+    if last["tier"] == "filtered":
+        text += (" The Jobs page counts a Filtered role instead of listing it, so it "
+                 "will not appear there as a row. This page still opens.")
+    return text
+
+
+def _moved_on(row: dict, on_description: bool, config) -> list[str]:
+    """What has moved on since a full description score, apart from the
+    description, which is the same one."""
+    if not on_description:
+        return []
+    out = []
+    try:
+        if row.get("prompt_version") != rc.prompt_version():
+            out.append("the prompt has changed since")
+        import score_item
+        if row.get("cv_version") != score_item.get_cv_version(config):
+            out.append("the CV has changed since")
+    except Exception:  # noqa: BLE001  a missing file is not a failed page
+        return []
+    return out
 
 
 def _thresholds(config) -> dict:
@@ -507,20 +546,41 @@ def score_html(m: dict) -> str:
                    f', {esc(day_time(row.get("scored_at")))}. Opening this page again, '
                    'reloading it or a second tab costs nothing, so there is no fetch '
                    'button.</p>')
+    if m["tier_move"]:
+        out.append(_notice("", esc(m["tier_move"])))
+    if m["moved_on"]:
+        out.append('<p class="small">This score is shown as it was made: '
+                   + esc(" and ".join(m["moved_on"])) + '. A description that has been '
+                   'scored is not scored again from this page.</p>')
     out.append('<p class="notice work" data-pa-working hidden role="status"></p>')
     master_reasons = bd.reasons_html(row.get("score_reasons"), row.get("scored_at"),
                                      bd.quotes_hold(row), row=row)
     tailored_reasons = (bd.reasons_html(record.get("reasons"), record.get("scored_at"))
                         if record and kind in ("current", "earlier") else "")
     moved = _moved_html(m)
-    if master_reasons or tailored_reasons or moved:
+    made = _made_html(row, spec)
+    copy_made = (_made_html(record, True, tailored=True)
+                 if record and kind in ("current", "earlier") else "")
+    if master_reasons or tailored_reasons or moved or made:
         out.append('<details class="pa-why"><summary>Why these scores</summary>'
                    f'<div class="score-master"><h3>{"Full spec" if spec else "Card"}</h3>'
-                   f'{master_reasons or "<p class=small>No reasons were kept with it.</p>"}</div>'
-                   '<div id="tailored-score"><h3>This copy</h3>' + moved
+                   + made
+                   + (master_reasons or "<p class=small>No reasons were kept with it.</p>")
+                   + '</div><div id="tailored-score"><h3>This copy</h3>' + copy_made + moved
                    + (tailored_reasons or "<p class=small>No reasons of its own yet.</p>")
                    + '</div></details>')
     return "".join(out)
+
+
+def _made_html(rec: dict, spec: bool, tailored: bool = False) -> str:
+    """How a score was made: on what, when, by which model and prompt."""
+    if not rec or rec.get("cv_match") is None:
+        return ""
+    what = "the full description" if spec else "the advert card"
+    cv = "" if tailored else f', CV {esc(rec.get("cv_version") or "unknown")}'
+    return (f'<p class="small">Scored against {what}, {esc(day_time(rec.get("scored_at")))}, '
+            f'by {esc(rec.get("score_model") or "an unknown model")}, prompt '
+            f'{esc(rec.get("prompt_version") or "unknown")}{cv}.</p>')
 
 
 def shown_copy_words(m: dict) -> str:
@@ -861,8 +921,12 @@ def advert_html(m: dict) -> str:
         return "".join(out)
     fetched = row.get("description_fetched_at")
     asks = m["asks"]
-    line = ("Read from the advert " + (day_time(fetched) if fetched else "by the page checker")
+    import check_jobs
+    cap = check_jobs.DESCRIPTION_CAP
+    line = (("Read from the advert " + day_time(fetched) if fetched
+             else "Stored by the page checker, date not recorded")
             + f", {len(desc):,} characters"
+            + (f", cut at the stored limit of {cap:,}" if len(desc) >= cap else "")
             + (", scored once for this version." if m["on_description"] else ", not scored yet.")
             + (" Asks underlined: solid met, dashed partly, dotted gap, each with its mark "
                "and number." if asks else ""))
@@ -1031,12 +1095,15 @@ def workhead_html(m: dict) -> str:
             if not a.get("stale"):
                 n[a.get("status") if a.get("status") in n else "missing"] += 1
         stale = sum(1 for a in asks if a.get("stale"))
+        loose = sum(1 for a in asks if a.get("status") in ("met", "partly")
+                    and not note_cites(a))
         out.append('<p class="tally" data-pa-tally>'
                    f'<b>{_plural(len(asks), "ask")}</b> from the advert: '
                    f'<span data-pa-count="met">&#10003; {n["met"]} met</span> '
                    f'<span data-pa-count="partly">&#9680; {n["partly"]} partly</span> '
                    f'<span data-pa-count="missing">&#10007; {n["missing"]} '
                    f'{"gap" if n["missing"] == 1 else "gaps"}, not on the CV</span> '
+                   + (f'<span>{loose} without a CV line</span> ' if loose else '')
                    + (f'<span data-pa-count="stale">! {stale} stale</span>' if stale
                       else '<span data-pa-count="stale" hidden></span>')
                    + '</p>')
@@ -2086,9 +2153,11 @@ PREPARE_SCRIPT = r"""
   function working(which) {
     var fig = document.querySelector('[data-fig="' + which + '"]');
     if (fig && !fig.hasAttribute('data-was')) {
-      fig.setAttribute('data-was', fig.innerHTML);
       var num = fig.querySelector('.num');
       var sub = fig.querySelector('.fig-sub');
+      fig.setAttribute('data-was', JSON.stringify({
+        cls: num ? num.className : '', num: num ? num.textContent : '',
+        sub: sub ? sub.textContent : '' }));
       if (num) { num.className = 'num none'; num.textContent = 'Working'; }
       if (sub) sub.textContent = which === 'spec' ? 'Fetching, then scoring once.' : 'Scoring this copy once.';
     }
@@ -2102,16 +2171,26 @@ PREPARE_SCRIPT = r"""
     }
   }
   function unwork() {
-    all('[data-fig][data-was]').forEach(function (f) { f.innerHTML = f.getAttribute('data-was'); f.removeAttribute('data-was'); });
+    all('[data-fig][data-was]').forEach(function (f) {
+      var was = {};
+      try { was = JSON.parse(f.getAttribute('data-was')); } catch (e) {}
+      var num = f.querySelector('.num');
+      var sub = f.querySelector('.fig-sub');
+      if (num) { num.className = was.cls || num.className; num.textContent = was.num || ''; }
+      if (sub) sub.textContent = was.sub || '';
+      f.removeAttribute('data-was');
+    });
     var say = document.querySelector('[data-pa-working]');
     if (say) say.hidden = true;
   }
   function start(btn) {
     if (busy) return;
     busy = true;
+    var label = null;
     if (btn) {
       btn.disabled = true;
-      btn.setAttribute('data-label', btn.innerHTML);
+      label = { html: typeof btn.innerHTML === 'string' ? btn.innerHTML : null,
+                text: btn.textContent };
       btn.textContent = 'Fetching and scoring…';
     }
     working('spec');
@@ -2123,16 +2202,20 @@ PREPARE_SCRIPT = r"""
       .then(function (j) {
         busy = false;
         if (j && typeof j.html === 'string') { take(j.html); return; }
-        back(btn, (j && j.note) || 'That did not run.');
+        back(btn, label, (j && j.note) || 'That did not run.');
       })
       .catch(function () {
         busy = false;
-        back(btn, 'No usable answer came back. The role may still be working. Reload this page in a minute to see what was stored.');
+        back(btn, label, 'No usable answer came back. The role may still be working. Reload this page in a minute to see what was stored.');
       });
   }
-  function back(btn, words) {
+  function back(btn, label, words) {
     unwork();
-    if (btn) { btn.disabled = false; btn.innerHTML = btn.getAttribute('data-label') || btn.innerHTML; }
+    if (btn) {
+      btn.disabled = false;
+      if (label && label.html !== null) btn.innerHTML = label.html;
+      else if (label) btn.textContent = label.text;
+    }
     var say = document.querySelector('[data-pa-working]');
     if (say) { say.hidden = false; say.className = 'notice bad'; say.textContent = words; }
   }
@@ -2282,7 +2365,7 @@ PREPARE_SCRIPT = r"""
   }
   document.addEventListener('keydown', function (e) {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing) return;
-    if (typing(e.target) || (dialog && dialog.open) || !keysOn()) return;
+    if (typing(e.target) || (dialog && (dialog.open || dialog.hasAttribute('open'))) || !keysOn()) return;
     var k = String(e.key || '').toLowerCase();
     var target = null;
     if (k === 'm') target = document.querySelector('[data-pa-apply]');

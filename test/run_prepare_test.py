@@ -102,6 +102,7 @@ import build_dashboard  # noqa: E402
 import check_jobs  # noqa: E402
 import cv_store  # noqa: E402
 import mocks  # noqa: E402
+import prepare_page  # noqa: E402
 import prepare_application as prep  # noqa: E402
 import radar_common  # noqa: E402
 import score_item  # noqa: E402
@@ -130,7 +131,7 @@ PROXY = "medtech-radar.keogh.cloud"
 ISO = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 # The button a page offers, as an element. The page's script names the same
 # attribute in a selector, so the bare word proves nothing about the page.
-BUTTON = re.compile(r"<button[^>]*" + "data-prepare-go" + r"\b")
+BUTTON = re.compile(r"<button[^>]*" + "data-pa-fetch" + r"\b")
 
 failures: list[str] = []
 skipped: list[str] = []
@@ -589,7 +590,7 @@ def migration_checks() -> None:
               "hash and no working, though the row still holds both, and the spec "
               "score's own are kept where they were")
         page = page_text(render_inner(env, oid))
-        check("No per-ask working is stored" in page and "moved this role" not in page,
+        check("No asks yet" in page and "moved this role" not in page,
               "and the page does not show the old working beside the card score")
 
 
@@ -685,9 +686,10 @@ def prompt_checks() -> None:
 
 def ceiling_checks() -> None:
     check(score_item.MAX_TOKENS == 1024 and score_item.CARD_MAX_TOKENS == 2048
-          and score_item.SPEC_MAX_TOKENS == 6144,
+          and score_item.SPEC_MAX_TOKENS == 8192,
           "the extractor's ceiling is the 1,024 it was, a card's score has its "
-          "own 2,048 and a full description's is 6,144")
+          "own 2,048 and a full description's is 8,192, raised from 6,144 for each "
+          "ask's advert sentence")
     # The worst reply each prompt allows: the longest gate notes, four reasons
     # of 20 words with quotes of 25, and for a full description 25 asks of 20
     # words, four CV lines each, and the longest pay quote. The words are as
@@ -718,15 +720,17 @@ def ceiling_checks() -> None:
           f"{score_item.CARD_MAX_TOKENS:,} it has now")
     worst = {**card, "reasons": reasons,
              "asks": [{"ask": ask, "status": "partly",
-                       "cv_lines": [101, 102, 103, 104]} for _ in range(25)],
+                       "cv_lines": [101, 102, 103, 104],
+                       "sentence": " ".join(["standard"] * score_item.QUOTE_WORDS_MAX)}
+                      for _ in range(25)],
              "rate_quote": "q" * prep.RATE_QUOTE_MAX}
     size = len(json.dumps(worst))
     tokens = size / 3.0
-    check(tokens <= score_item.SPEC_MAX_TOKENS * 0.75 and tokens > 4096 * 0.75,
-          f"the worst reply the prompt allows is {size:,} characters, about "
-          f"{tokens:,.0f} tokens even at three characters a token, which is "
-          f"harder than a tokenizer is: over three quarters of the 4,096 it was, "
-          f"and under three quarters of the {score_item.SPEC_MAX_TOKENS:,} ceiling")
+    check(tokens <= score_item.SPEC_MAX_TOKENS * 0.75 and tokens > 6144 * 0.75,
+          f"the worst reply the prompt allows, each ask with a sentence of 25 words, is "
+          f"{size:,} characters, about {tokens:,.0f} tokens even at three characters a "
+          f"token, which is harder than a tokenizer is: over three quarters of the 6,144 "
+          f"it was, and under three quarters of the {score_item.SPEC_MAX_TOKENS:,} ceiling")
     prompt = (REPO_ROOT / "prompts" / "scorer.md").read_text(encoding="utf-8")
     check(score_item.MAX_ASKS == 25 and "List at most 25" in prompt,
           "and the cap the code keeps is the cap the prompt gives")
@@ -1145,7 +1149,7 @@ def tier_move_checks() -> None:
         env.sql("UPDATE opportunities SET score_basis = 'card', scored_at = ? WHERE id = ?",
                 ("2026-11-12T12:00:00Z", oid))
         text = page_text(render_inner(env, oid))
-        check("moved this role" not in text and "No per-ask working is stored" in text,
+        check("moved this role" not in text and "No asks yet" in text,
               "once another writer has replaced the score, the page no longer "
               "claims the move or shows a working that belongs to the old score")
     with fresh() as env:
@@ -1429,7 +1433,7 @@ def applied_checks() -> None:
               "an applied role's stored result is shown, with the note, and no "
               "button to fetch or score")
         page = render_page(env, oid, go=True)
-        check('data-run="0"' in page,
+        check('data-run="1"' not in page,
               "and a page opened by the click for it is told to do nothing")
 
     # Applied for while the page is being fetched.
@@ -1800,9 +1804,10 @@ def stale_description_checks() -> None:
                 ("A new advert. Rate: £500 per day.\n- Kubernetes certification", oid))
         inner = render_inner(env, oid)
         text = page_text(inner)
-        check("Scored against an earlier description" in text
+        check("The stored description has changed since this role was scored" in text
               and "pay quoted from the earlier one is not shown" in text
-              and "asks listed from the earlier one are not shown" in text
+              and "the asks and the rate line from the earlier one are not shown" in text
+              and "Score the new description" in text
               and "“£700 to £800 per day”" not in text
               and "IEC 62304 and ISO 13485" not in text
               and "✓ Met" not in text and BUTTON.search(inner),
@@ -1811,7 +1816,7 @@ def stale_description_checks() -> None:
         out = env.prepare(oid)
         text = page_text(render_inner(env, oid))
         check(out["outcome"] == "scored" and len(CALLS) == 2
-              and "Kubernetes certification" in text and "✗ Missing" in text
+              and "Kubernetes certification" in text and "✗ Gap" in text
               and "has changed since" not in text,
               "and scoring it once more shows the asks and the pay of the new one")
     # A prompt that has moved on is not a description that has.
@@ -1823,7 +1828,7 @@ def stale_description_checks() -> None:
         text = page_text(render_inner(env, oid))
         check("the prompt has changed since" in text
               and "has changed since this role was scored" not in text
-              and "No per-ask working is stored" in text
+              and "No asks yet" in text
               and "Not read yet" in text,
               "a score made on this very description, whose working has been lost, "
               "under a prompt that has moved on, says the prompt has changed and "
@@ -1864,7 +1869,7 @@ def odd_replies_checks() -> None:
     reset()
     real = score_item.normalise_asks
 
-    def broken(raw, cv_lines):
+    def broken(raw, cv_lines, sources=None):
         raise ValueError("unreadable")
     score_item.normalise_asks = broken
     try:
@@ -2000,7 +2005,7 @@ def page_failure_checks() -> None:
         check("The full description could not be fetched" in text
               and "could not match" in text and "5 minutes" in text
               and not BUTTON.search(inner)
-              and 'data-run="0"' in render_page(env, oid, go=True),
+              and 'data-run="1"' not in render_page(env, oid, go=True),
               "a page opened again inside the five minutes says why nothing can be "
               "fetched, offers no button, and does not start even from the click's "
               "own address")
@@ -2215,12 +2220,20 @@ def page_checks() -> None:
         before = env.dump()
         go = render_page(env, oid, go=True)
         plain = render_page(env, oid, go=False)
-        check('data-run="1"' in go and "Working." in page_text(go)
-              and 'data-run="0"' in plain
-              and "Fetch the description and score it" in page_text(plain)
-              and BUTTON.search(plain) and not BUTTON.search(go),
-              "opened by the click, the page says it is working and its script has "
-              "one POST to make, opened any other way it offers a button instead")
+        button = BUTTON.search(plain)
+        words = page_text(plain[button.start():plain.index("</button>", button.start())])
+        check(go == plain and 'data-run' not in plain
+              and '<p class="notice work" data-pa-working hidden' in plain
+              and len(BUTTON.findall(plain)) == 1
+              and words.strip() == "About 3 cents, 1 call: Fetch and score the full description",
+              "opened from the Jobs link or any other way, the page is the same: it starts "
+              "nothing, and offers one button that states its cost before what it does "
+              f"({words.strip()!r})")
+        check(prepare_page.COST_DETAIL in page_text(plain)
+              and "A fetch that fails costs nothing." in page_text(plain)
+              and "never more than about 12 cents" in page_text(plain),
+              "beside it the page says what the press costs, at most, and that a failed "
+              "fetch and a page opened again cost nothing")
         for _ in range(5):
             render_page(env, oid, go=True)
         check(env.dump() == before and not FETCHES and not CALLS,
@@ -2229,45 +2242,52 @@ def page_checks() -> None:
 
         env.prepare(oid)
         done = render_page(env, oid, go=True)
-        check('data-run="0"' in done and not BUTTON.search(done),
-              "once the role is scored the click has nothing left to do, and the "
-              "page shows what is stored")
-        text = page_text(render_inner(env, oid))
+        check(not BUTTON.search(done)
+              and "Scored once for this description" in page_text(done)
+              and "so there is no fetch button" in page_text(done),
+              "once the role is scored there is no button, and the page says a second "
+              "open costs nothing")
+        inner = render_inner(env, oid)
+        text = page_text(inner)
         for needle in ("Scored against the full description", "by mock",
                        f"prompt {radar_common.prompt_version()}", "CV cv-test-1.md",
-                       "CV match 93", "Sector Passes.", "CV match Passes.",
-                       "Location Passes.", "Rate Passes.",
-                       "✓ Met", "◐ Partly", "✗ Missing",
+                       "Basis: full spec", "The role’s score, shown on Jobs",
+                       "✓ Met", "◐ Partly", "✗ Gap, not on the CV",
                        "IEC 62304 and ISO 13485 in a Class C IVD",
                        "Leadership of an FDA submission", "Kubernetes certification",
                        "RADAR-UNANCHORED claim of ten years of Rust",
-                       "2 met, 1 partly, 1 missing, 1 without a CV line",
-                       "On the card: No usable figure stated.",
-                       "Stored ", "About the role"):
+                       "4 asks from the advert: ✓ 2 met ◐ 1 partly ✗ 1 gap, not on the CV "
+                       "1 without a CV line",
+                       "On the card: No usable figure stated.", "About the role"):
             if needle not in text:
                 check(False, f"the page shows {needle!r}")
                 break
         else:
-            check(True, "the page shows the score and how it was made, the four "
-                        "gates, each ask with its status as a word as well as a "
-                        "glyph, the counts, the card's pay and the description")
-        check(f"CV line 13 {FIXTURE_LINES[12]}" in text
-              and f"CV line 16 {FIXTURE_LINES[15]}" in text
-              and text.count("Unanchored.") == 1,
-              "each met or partly ask shows the CV lines that evidence it, by number "
-              "and with their text, and the one with none is warned about")
+            check(True, "the page shows the score and how it was made, the gates, each "
+                        "ask with its mark as a word as well as a glyph, the counts, the "
+                        "card's pay and the description")
+        gates = part(inner, "gates")
+        check('<th scope="col">Full spec</th>' in gates and page_text(gates).count("✓ Passes") == 4
+              and all(f'aria-hidden="true">{k}</span>' in gates for k in "SCLR"),
+              "the gates are a table, each with the letter the Jobs row marks it by and "
+              "its result in words")
+        figs = part(inner, "score")
+        check('data-fig="spec"><dt>Full spec</dt><dd class="num">93</dd>' in figs
+              and '<dt>Card</dt><dd class="num">80</dd>' in figs
+              and '<dt>This copy</dt>' in figs,
+              "three scores sit side by side: the card's, the full spec's and this copy's")
+        cited = cited_lines(inner)
+        check(set(cited) == {(13, FIXTURE_LINES[12]), (16, FIXTURE_LINES[15])}
+              and "marked met or partly with no CV line that exists" in text,
+              "each met or partly note carries the CV lines that evidence it, by number and "
+              "with their text, and the one with none is listed apart")
         check("“£700 to £800 per day”" in text,
               "the rate line quotes the advert's own words")
-        check(f"</b> {FIXTURE_LINES[12]}</li>" in render_inner(env, oid),
-              "a cited line's number and its text are separate words in the markup, "
-              "not only apart by the style")
         check(FIXTURE_LINES[32] not in text and "Luke Keogh" not in text
               and FIXTURE_LINES[6] not in text,
-              "and no CV line that was not cited is on the page")
-        check(not BUTTON.search(render_inner(env, oid)),
-              "with nothing pending there is no button")
+              "and no CV line that was not cited is in the parts beside the sheet")
+        check(not BUTTON.search(inner), "with nothing pending there is no button")
 
-        # Versions that have moved on since the score was made.
         CV_LABEL[0] = "cv-test-2.md"
         text = page_text(render_inner(env, oid))
         check("the CV has changed since" in text and "the prompt has changed" not in text
@@ -2283,23 +2303,16 @@ def page_checks() -> None:
         check("the prompt has changed since" in text and "the CV has changed since" in text,
               "and so is a prompt that has")
 
-        # The working belongs to the score it was made with. A later score of
-        # the same kind, by a writer that knows nothing of the working, hides it.
         CV_LABEL[0] = "cv-test-1.md"
         before = prep.load_working(env.row(oid))
         env.sql("UPDATE opportunities SET scored_at = ? WHERE id = ?",
                 ("2026-11-12T12:34:56Z", oid))
         text = page_text(render_inner(env, oid))
         check(before is not None and prep.load_working(env.row(oid)) is None
-              and "2 met, 1 partly, 1 missing" not in text
-              and "✓ Met" not in text
-              and "No per-ask working is stored" in text,
+              and "✓ Met" not in text and "No asks yet" in text,
               "a working whose date is not the date of the score the row holds is "
               "not shown, even beside another score made on a description")
 
-    # A role with nothing to fetch says why on a plain open, where no click
-    # will ever carry the reason. A role that could be fetched says nothing
-    # until a click has tried.
     with fresh() as env:
         reed = env.role(page=False, source="reed-alert",
                         source_url="https://www.reed.co.uk/jobs/director/55555")
@@ -2308,46 +2321,42 @@ def page_checks() -> None:
         text = page_text(inner)
         check("The full description could not be fetched. This advert's link is not "
               "a LinkedIn job page" in text and "made from the advert card" in text
-              and "Not read. There is no full description stored" in text
-              and "No per-ask working. It is read from the full description, and "
-                  "none is stored" in text and not BUTTON.search(inner),
+              and "Nothing was charged." in text
+              and "Not stored yet." in text and "No asks yet" in text
+              and not BUTTON.search(inner),
               "an advert that is not a LinkedIn page says on a plain open that its "
-              "full description could not be fetched and why, with no button to try")
+              "full description could not be fetched and why, that nothing was "
+              "charged, with no button to try")
         twice = page_text(render_inner(env, reed, notices=[
             {"kind": "fetch", "text": prep.fetch_failed_text(prep.NOT_LINKEDIN_WHY),
              "retry": False}]))
         check(twice.count("could not be fetched") == 1,
               "and says it once when a click has said it already")
         text = page_text(render_inner(env, linked))
-        check("could not be fetched" not in text
-              and "Not read. There is no full description stored" in text,
+        check("could not be fetched" not in text and "Not stored yet." in text
+              and "Not fetched" in text,
               "while an advert that can be fetched claims no failure before one is tried")
         stored = env.role(page=False, description_text="- IEC 62304 experience")
-        text = page_text(render_inner(env, stored))
-        check("Not read yet. The pay is quoted from the full description once the "
-              "role is scored against it" in text
-              and "No per-ask working is stored. It is made when the role is scored"
-              in text,
+        inner = render_inner(env, stored)
+        text = page_text(inner)
+        check("Not read yet. The rate line is quoted from the full description" in text
+              and "No asks yet." in text and "Score the full description" in text
+              and "Not scored" in text,
               "and one with a description stored that has not been scored says the "
-              "pay and the asks come once it is")
+              "pay and the asks come once it is, and offers to score it")
 
-    # No pay named.
     with fresh() as env:
         oid = env.role(description="<p>Join us. We build medical device software.</p>"
                                    "<p>- IEC 62304 experience</p>")
         env.prepare(oid)
-        text = page_text(render_inner(env, oid))
-        check("The full description names no pay." in text,
+        check("The full description names no pay." in page_text(render_inner(env, oid)),
               "an advert that names no pay says so")
-    # Competitive, in the advert's words.
     with fresh() as env:
         oid = env.role(description="<p>A medical device team.</p>"
                                    "<p>Salary: Competitive salary and benefits.</p>")
         env.prepare(oid)
-        text = page_text(render_inner(env, oid))
-        check("“Competitive salary”" in text,
+        check("“Competitive salary”" in page_text(render_inner(env, oid)),
               "and one that says competitive is quoted as it says it")
-    # The model quotes pay the advert does not carry.
     with fresh() as env:
         oid = env.role(description="<p>A medical device team.</p><p>RADAR-BADQUOTE</p>")
         env.prepare(oid)
@@ -2356,7 +2365,6 @@ def page_checks() -> None:
               and "names no pay" not in text,
               "a quote the advert does not carry is not shown, and the page does "
               "not claim the advert names none either")
-    # The scorer says there is no pay and the advert has wording that may be.
     with fresh() as env:
         oid = env.role(description="<p>A medical device team. RADAR-NOQUOTE</p>"
                                    "<p>Rate: £650 per day, inside IR35.</p>")
@@ -2372,7 +2380,6 @@ def page_checks() -> None:
               "is shown as a disagreement, with the wording quoted and a warning that "
               "it may not be pay, never as the advert naming none")
 
-    # Everything the advert or the model wrote is escaped.
     with fresh() as env:
         evil = ("- <img src=x onerror=alert(1)>\n<script>alert(2)</script>\n"
                 "£700 per day")
@@ -2388,14 +2395,14 @@ def page_checks() -> None:
             reply = json.loads(text)
             reply["gate_sector_note"] = "<script>alert(3)</script>"
             reply["asks"].append({"ask": "<svg onload=alert(4)>", "status": "met",
-                                  "cv_lines": [1]})
+                                  "cv_lines": [1], "sentence": "<b>not in the advert</b>"})
             return json.dumps(reply), usage
         MODEL["hook"] = hostile
         try:
             out = env.prepare(oid)
+            page = render_page(env, oid)
         finally:
             score_item.load_cv_text = real_cv
-        page = render_page(env, oid)
         check(out["outcome"] == "scored"
               and "<script>alert" not in page and "<img src=x" not in page
               and "<svg onload" not in page and "<i>Led</i>" not in page
@@ -2405,19 +2412,284 @@ def page_checks() -> None:
               and "&lt;svg onload=alert(4)&gt;" in page
               and "&lt;i&gt;Led&lt;/i&gt; everything" in page
               and "&lt;b&gt;Boss&lt;/b&gt;" in page,
-              "the description, an ask, a gate note, a cited CV line, the title and "
-              "the company are escaped, whoever wrote them")
+              "the description, an ask, its sentence, a gate note, a cited CV line, the "
+              "title and the company are escaped, whoever wrote them")
 
-    # The notices are drawn too, and a retry has a button.
     with fresh() as env:
         oid = env.role()
         inner = render_inner(env, oid, notices=[
             {"kind": "fetch", "text": "The full description could not be fetched. <b>x</b>",
              "retry": True}])
         check("&lt;b&gt;x&lt;/b&gt;" in inner and len(BUTTON.findall(inner)) == 1
-              and "Try again" in inner,
+              and "About 3 cents, 1 call: Try again" in page_text(inner),
               "a notice is escaped, and one that can be retried carries its own button, "
-              "so the page does not offer a second")
+              "with its cost, so the page does not offer a second")
+        inner = render_inner(env, oid, notices=[
+            {"kind": "score", "text": "The scorer answered, but the score could not be "
+             "stored yet because the database was busy.", "retry": True, "free": True}])
+        check(len(BUTTON.findall(inner)) == 1 and "Try again (no charge)" in page_text(inner)
+              and "About 3 cents" not in page_text(inner),
+              "while a Try again that stores a reply already paid for says it costs "
+              "nothing, and names no cost")
+
+
+def part(html_text: str, name: str) -> str:
+    """One part of the page, as a press's answer carries it."""
+    start = html_text.index(f'<template data-part="{name}">')
+    return html_text[start:html_text.index("</template>", start)]
+
+
+def cited_lines(html_text: str) -> list:
+    """Every (number, text) the margin notes cite, from their data-cites."""
+    import html as htmllib
+    out = []
+    for raw in re.findall(r'data-cites="([^"]*)"', html_text):
+        out += [(c["n"], c["t"]) for c in json.loads(htmllib.unescape(raw))]
+    return out
+
+
+# ------------------------------------------------- the final page, 15 Nov
+
+CANON = []
+
+
+@contextlib.contextmanager
+def canonical_master():
+    """The fixture CV in the editor's layout, so a copy is made and edited."""
+    import cv_doc
+    real = score_item.load_cv_text
+    text = cv_doc.render(cv_doc.load_doc(FIXTURE_CV))
+    score_item.load_cv_text = lambda config: (text, "test/fixtures/profile_snapshot.md")
+    CANON[:] = [text]
+    try:
+        yield text
+    finally:
+        score_item.load_cv_text = real
+
+
+SENTENCE_ADVERT = (
+    "<p>About the role</p>"
+    "<p>We are hiring a Head of Software Quality for a medical device business.</p>"
+    "<p>What you will bring</p>"
+    "<p>- IEC 62304 and ISO 13485 in a Class C IVD</p>"
+    "<p>- RADAR-BADSENTENCE Leadership of an FDA submission</p>"
+    "<p>- RADAR-NOSENTENCE Kubernetes certification</p>"
+    "<p>- RADAR-CUTSENTENCE Experience of ISO 14971</p>"
+    "<p>Pay</p><p>£700 to £800 per day, outside IR35.</p>")
+
+
+def sentence_checks() -> None:
+    """Each ask's advert sentence, kept only where the stored description has
+    it word for word, by the very rule the reasons' quotes are held to."""
+    with fresh() as env:
+        oid = env.role(description=SENTENCE_ADVERT)
+        env.prepare(oid)
+        asks = prep.load_working(env.row(oid))["asks"]
+        by = {a["ask"].split(" ")[0]: a for a in asks}
+        check(by["IEC"]["sentence"] == "IEC 62304 and ISO 13485 in a Class C IVD"
+              and by["IEC"]["sentence_dropped"] is None,
+              "a sentence the description has word for word is kept, as the description's "
+              "own characters")
+        check(by["RADAR-BADSENTENCE"]["sentence"] is None
+              and by["RADAR-BADSENTENCE"]["sentence_dropped"] == "not_found"
+              and by["RADAR-NOSENTENCE"]["sentence"] is None
+              and by["RADAR-NOSENTENCE"]["sentence_dropped"] == "empty"
+              and by["RADAR-CUTSENTENCE"]["sentence"] is None
+              and by["RADAR-CUTSENTENCE"]["sentence_dropped"] == "not_found",
+              "one the description does not hold, none at all, and one cut part way "
+              "through its last word are not kept, and the reason is recorded")
+        check(len(asks) == 4 and all(a["status"] in ("met", "partly", "missing") for a in asks),
+              "and every ask is kept either way")
+        text = page_text(render_inner(env, oid))
+        check("“IEC 62304 and ISO 13485 in a Class C IVD”" in text
+              and "forty engineers" not in text
+              and "RADAR-BADSENTENCE Leadership of an FDA submission The advert sentence "
+                  "was not found word for word, so none is quoted." in text,
+              "the page quotes the kept sentence, and shows an ask whose sentence was "
+              "not found by its words, with no quoted sentence")
+        adv = part(render_inner(env, oid), "advert")
+        check('class="ask ' in adv and 'id="adv-a1"' in adv
+              and "forty engineers" not in adv and adv.count('class="ask ') == 1,
+              "and underlines in the advert only the sentence it found there")
+    # The control: the same reply through normalise_asks with the check taken
+    # out keeps the sentence that is not in the advert. So the check, and only
+    # the check, is what drops it.
+    cv_lines = FIXTURE_LINES
+    reply = [{"ask": "Lead forty", "status": "missing", "cv_lines": [],
+              "sentence": "You will be expected to lead a team of forty engineers."}]
+    kept, _d = score_item.normalise_asks(reply, cv_lines, ["We want a quality lead."])
+    real = score_item._hold_quote
+    score_item._hold_quote = lambda quote, sources: (quote, None)
+    try:
+        loose, _d = score_item.normalise_asks(reply, cv_lines, ["We want a quality lead."])
+    finally:
+        score_item._hold_quote = real
+    check(kept[0]["sentence"] is None and loose[0]["sentence"] is not None,
+          "the control: with the quote check taken out the sentence the advert does not "
+          "hold would be kept, so the check is what drops it")
+    src = (REPO_ROOT / "scripts" / "score_item.py").read_text(encoding="utf-8")
+    body = src[src.index("def normalise_asks("):src.index("def quote_sources(")]
+    check("_hold_quote(" in body and "find_verbatim(" not in body
+          and src.count("def _hold_quote(") == 1,
+          "normalise_asks holds the sentence with the reasons' own _hold_quote, and keeps "
+          "no second copy of the rule")
+    with fresh() as env:
+        oid = env.role(description=SENTENCE_ADVERT)
+        env.prepare(oid)
+        sent = [c for c in CALLS if "spec" in c["user"] and "description" in c["user"]]
+        system = " ".join(" ".join(str(b.get("text", "")) for b in sent[0]["system"]
+                                   if isinstance(b, dict)).split()) if sent else ""
+        check(bool(sent) and "give sentence, the sentence of the description the ask comes "
+              "from, copied character for character, 25 words or fewer" in system,
+              "the full description call asks for each ask's sentence")
+
+
+def tailored_never_on_jobs_checks() -> None:
+    """The copy's score is the copy's: never written to the Jobs row."""
+    with canonical_master() as master, fresh() as env:
+        oid = env.role()
+        env.prepare(oid)
+        prep.open_copy(oid, env.db, CFG)
+        row_before = env.row(oid)
+        first = next(l for l in cv_store.cv_lines(master) if l and not l.startswith("#"))
+        copy_text = master.replace(first, first + " and its software file", 1)
+        out = prep.rescore_copy(oid, copy_text, env.db, CFG)
+        row_after = env.row(oid)
+        record = __import__("tailored_cv").read_score(__import__("tailored_cv").for_row(
+            env.conn(), env.row(oid)))
+        check(out["outcome"] == "scored" and record is not None
+              and row_after == row_before,
+              "Rescore role stores the copy's score on the copy, and the opportunities row "
+              "is byte for byte as it was: no column of the Jobs row moves")
+        hist = env.history(oid)
+        check(hist[-1]["event"] == "tailored" and hist[-1]["cv_version"].startswith("tailored-"),
+              "the history keeps it marked tailored, apart from the role's own scores")
+        with pointed_at(env.db):
+            jobs = serve_dashboard.render_jobs(oid, {"part": ["role"]})[1].decode("utf-8")
+        figs = part(render_inner(env, oid), "score")
+        check(f'<dd class="num">{record["cv_match"]}</dd>' in figs
+              and "This page only, never written to Jobs" in page_text(figs)
+              and f"{row_before['cv_match']}" in jobs,
+              "the page shows the copy's score as this page's only, and the Jobs row "
+              "still has the role's own")
+    src = (REPO_ROOT / "scripts" / "prepare_application.py").read_text(encoding="utf-8")
+    store = src[src.index("def _store_tailored("):]
+    store = store[:store.index("\ndef ", 10)] if "\ndef " in store[10:] else store
+    check("UPDATE opportunities" not in store and "opportunities SET" not in store,
+          "and the code that stores it has no statement that writes the opportunities table")
+
+
+def board_store_checks() -> None:
+    """Save CV puts the role in Preparing, Mark applied in Applied, through the
+    board's own store (applications.on_saved, stamp_applied, on_applied)."""
+    import applications
+    with canonical_master() as master, fresh() as env:
+        oid = env.role()
+        prep.open_copy(oid, env.db, CFG)
+        c = env.conn()
+        try:
+            check(applications.get(c, applications.role_ref(env.row(oid))) is None,
+                  "a role with a copy and no save is not on the board")
+        finally:
+            c.close()
+        with serving(env.db) as port:
+            status, got, _h = post(port, "/prepare/cv/save", {"id": oid, "text": master})
+            c = env.conn()
+            try:
+                app = applications.get(c, applications.role_ref(env.row(oid)))
+                events = [dict(e) for e in c.execute(
+                    "SELECT * FROM application_events WHERE application_id = ? ORDER BY id",
+                    (app["id"],))] if app else []
+            finally:
+                c.close()
+            check(status == 200 and got.get("outcome") == "saved" and app
+                  and app["stage"] == "preparing" and app["stage_by"] == "radar"
+                  and [(e["kind"], e["to_stage"], e["actor"]) for e in events]
+                  == [("stage", "preparing", "radar")],
+                  "Save CV over HTTP puts the role in Preparing on the board, by Radar, with "
+                  "the event recorded")
+            app_part = part(got["html"], "app")
+            check('aria-current="step">Preparing' in app_part and "In Preparing" in page_text(app_part)
+                  and 'href="/jobs?show=applied#app-' in app_part,
+                  "and the page it hands back shows Preparing as the stage, in words, with a "
+                  "link to the item on the board")
+            status, got, _h = post(port, "/apply", {"id": oid})
+            row = env.row(oid)
+            c = env.conn()
+            try:
+                app = applications.get(c, applications.role_ref(row))
+            finally:
+                c.close()
+            check(status == 200 and got.get("ok") and row["applied_at"]
+                  and row["applied_cv"] == env_saved_name(env, oid)
+                  and app["stage"] == "applied",
+                  "Mark applied, the page's POST /apply, stamps the role with the saved CV "
+                  "and moves it to Applied")
+            page = render_page(env, oid)
+            check('aria-current="step">Applied' in page
+                  and re.search(r"<button[^>]*data-pa-undo", page)
+                  and not re.search(r"<button[^>]*data-pa-apply", page)
+                  and 'aria-keyshortcuts="Z"' in page,
+                  "the page then shows Applied, with Undo on Z and no Mark applied")
+            status, got, _h = post(port, "/unapply", {"id": oid})
+            c = env.conn()
+            try:
+                app = applications.get(c, applications.role_ref(env.row(oid)))
+            finally:
+                c.close()
+            check(status == 200 and env.row(oid)["applied_at"] is None
+                  and app["stage"] == "preparing",
+                  "and Undo takes it back to Preparing, the CV still saved")
+    src = (REPO_ROOT / "scripts" / "prepare_page.py").read_text(encoding="utf-8")
+    check("INSERT" not in src and "UPDATE" not in src and "applications.get(" in src,
+          "the page only reads the board's store; the writes are the board's own")
+
+
+def env_saved_name(env, oid):
+    c = env.conn()
+    try:
+        found = c.execute("SELECT saved_name FROM tailored_cvs").fetchone()
+        return found["saved_name"] if found else None
+    finally:
+        c.close()
+
+
+def notes_checks() -> None:
+    """The margin notes: gaps first, above the sheet; each note beside the line
+    that backs it up, in the order of the sheet; met notes folded."""
+    with canonical_master(), fresh() as env:
+        oid = env.role()
+        env.prepare(oid)
+        prep.open_copy(oid, env.db, CFG)
+        page = render_page(env, oid)
+        gaps_at = page.index('data-slot="gaps"')
+        check(gaps_at < page.index('id="cv-pane"') < page.index('data-slot="notes"')
+              and page.index('data-slot="bar"') < gaps_at,
+              "the gaps come first, above the sheet, under the bar, and the notes beside it")
+        notes = page[page.index('data-slot="notes"'):page.index('id="prepare-body"')]
+        groups = [int(n) for n in re.findall(r'data-pa-group="(\d+)"', notes)]
+        check(groups and groups == sorted(groups),
+              "the notes sit in groups by the line they stand beside, in the order of the sheet")
+        met = re.findall(r'<li class="note st-met is-closed"[^>]*>\s*<button type="button" '
+                         r'class="note-toggle" aria-expanded="false"', notes)
+        check(met and notes.count('data-status="met"') == len(met)
+              and 'class="note st-partly is-open"' in notes
+              and 'data-status="missing"' not in notes,
+              "met notes are folded to one line behind a button, partly ones open, and no "
+              "gap is beside the sheet")
+        gaps = page[gaps_at:page.index('id="cv-pane"')]
+        check('data-status="missing"' in gaps and "✗ Gap, not on the CV" in page_text(gaps),
+              "the gaps say so in words")
+        lines = cv_store.cv_lines(CANON[0])
+        for raw in re.findall(r'data-pa-group="(\d+)"[^>]*>(.*?)</ol>', notes):
+            n, body = int(raw[0]), raw[1]
+            firsts = [json.loads(__import__("html").unescape(c))[0]
+                      for c in re.findall(r'data-cites="([^"]*)"', body)]
+            if not all(f["now"] == n and lines[n - 1].strip() == f["t"] for f in firsts):
+                check(False, f"the notes beside line {n} cite it first")
+                break
+        else:
+            check(True, "each note stands beside the first line it cites, which is that line")
 
 
 def jobs_page_checks() -> None:
@@ -2454,7 +2726,7 @@ def jobs_page_checks() -> None:
         def links(html):
             out = []
             for tag in re.findall(r'<a [^>]*data-prepare="\d+"[^>]*>', html):
-                href = re.search(r'href="/prepare/(\d+)\?go=1"', tag)
+                href = re.search(r'href="/prepare/(\d+)"', tag)
                 out.append((int(re.search(r'data-prepare="(\d+)"', tag).group(1)),
                             int(href.group(1)) if href else None))
             return out
@@ -2486,48 +2758,30 @@ def server_checks() -> None:
         with serving(env.db) as port:
             own = f"127.0.0.1:{port}"
             before = env.dump()
-            # What the browser sends when the Jobs link is followed.
-            followed = {"Sec-Fetch-Site": "same-origin"}
-            for _ in range(5):
-                status, headers, data = call(port, "GET", f"/prepare/{oid}?go=1",
-                                             headers=followed)
-            check(status == 200 and "text/html" in headers.get("content-type", "")
-                  and headers.get("cache-control") == "no-store"
-                  and b'id="prepare-body"' in data and b'data-run="1"' in data
-                  and headers.get("x-frame-options") == "DENY",
-                  "GET /prepare/<id> is a page, never cached, under the enforce "
-                  "guard's framing rules, and the Jobs link followed from this "
-                  "site tells its script to run")
-            check(env.dump() == before and not FETCHES and not CALLS,
-                  "and five opens by the click's address write nothing, fetch "
-                  "nothing and call nothing")
-            # A GET that spends money must not be one another site can send the
-            # browser to, so the click's address only starts the work when the
-            # browser says it came from here. Every other way of arriving gets
-            # the page and a button.
-            arrivals = {"another site": {"Sec-Fetch-Site": "cross-site"},
+            # What the browser sends when the Jobs link is followed, and every
+            # other way of arriving. The page never spends on opening (decisions
+            # of 15 Nov): every one of them gets the page and its button.
+            arrivals = {"the Jobs link": {"Sec-Fetch-Site": "same-origin"},
+                        "another site": {"Sec-Fetch-Site": "cross-site"},
                         "a sibling site": {"Sec-Fetch-Site": "same-site"},
                         "a typed address or a bookmark": {"Sec-Fetch-Site": "none"},
                         "a browser that sends no such header": {},
                         "a header in capitals": {"Sec-Fetch-Site": "SAME-ORIGIN"}}
             seen = {}
             for how, extra in arrivals.items():
-                status, _h, data = call(port, "GET", f"/prepare/{oid}?go=1",
-                                        headers=extra)
-                seen[how] = (status, b'data-run="1"' in data, bool(BUTTON.search(
-                    data.decode("utf-8", "replace"))))
-            check(seen == {"another site": (200, False, True),
-                           "a sibling site": (200, False, True),
-                           "a typed address or a bookmark": (200, False, True),
-                           "a browser that sends no such header": (200, False, True),
-                           "a header in capitals": (200, True, False)}
+                for path in (f"/prepare/{oid}?go=1", f"/prepare/{oid}"):
+                    for _ in range(3):
+                        status, headers, data = call(port, "GET", path, headers=extra)
+                    seen[(how, path.endswith("go=1"))] = (
+                        status, headers.get("cache-control"), headers.get("x-frame-options"),
+                        len(BUTTON.findall(data.decode("utf-8", "replace"))),
+                        b'id="prepare-body"' in data and b"data-run" not in data)
+            check(set(seen.values()) == {(200, "no-store", "DENY", 1, True)}
                   and env.dump() == before and not FETCHES and not CALLS,
-                  "reached from another site, a sibling site, a typed address, a "
-                  "bookmark or a browser with no such header, the page offers a "
-                  f"button and does not start the work ({seen})")
-            status, _h, data = call(port, "GET", f"/prepare/{oid}", headers=followed)
-            check(b'data-run="0"' in data,
-                  "and the plain address never starts it, whoever asks")
+                  "GET /prepare/<id> is a page, never cached, under the enforce guard's "
+                  "framing rules, and however it is reached, the Jobs link with or without "
+                  "?go=1, another site, a bookmark, it offers the one button and starts "
+                  "nothing: 36 opens fetch nothing, call nothing and write nothing")
             for path in ("/prepare/abc", "/prepare/", "/prepare/99999999999999999999",
                          "/prepare/%C2%B2", "/prepare/-1", "/prepare/1.5",
                          "/prepare/999999", f"/prepare/{oid}x"):
@@ -2573,7 +2827,7 @@ def server_checks() -> None:
             check(status == 200 and "application/json" in got.get("content-type", "")
                   and parsed.get("ok") is True and parsed.get("outcome") == "scored"
                   and isinstance(parsed.get("html"), str)
-                  and "The asks" in parsed["html"]
+                  and '<template data-part="notes">' in parsed["html"]
                   and "IEC 62304 and ISO 13485 in a Class C IVD" in parsed["html"]
                   and len(FETCHES) == 1 and len(CALLS) == 1,
                   "a POST with the header runs the click: one fetch, one call, and "
@@ -2583,9 +2837,9 @@ def server_checks() -> None:
                   and len(FETCHES) == 1 and len(CALLS) == 1,
                   "and the same POST again finds it done and spends nothing")
             status, _h, data = call(port, "GET", f"/prepare/{oid}?go=1",
-                                    headers=followed)
-            check(status == 200 and b'data-run="0"' in data and len(CALLS) == 1,
-                  "as does opening the page by the click again")
+                                    headers={"Sec-Fetch-Site": "same-origin"})
+            check(status == 200 and not BUTTON.search(data.decode("utf-8")) and len(CALLS) == 1,
+                  "and opening the page again by the Jobs link offers nothing to press")
 
             # Two clicks at once, over HTTP.
             MODEL["hook"] = lambda c: time.sleep(0.4)
@@ -2606,163 +2860,65 @@ def server_checks() -> None:
 
 # ------------------------------------------------------------- page script
 
-NODE_PREPARE = r"""
-const vm = require('vm');
-const fs = require('fs');
-const data = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-let bad = 0;
-const say = (ok, label) => {
-  console.log((ok ? 'PASS  ' : 'FAIL  ') + label);
-  if (!ok) bad += 1;
-};
-const settle = () => new Promise((resolve) => setImmediate(resolve));
-function world(run) {
-  const events = [];
-  const handlers = [];
-  const attrs = { 'data-id': '7', 'data-run': run ? '1' : '0' };
-  let status = null;
-  const pending = [];
-  const calls = [];
-  const root = {
-    innerHTML: '<p>stored</p>', firstChild: null,
-    getAttribute(n) { return n in attrs ? attrs[n] : null; },
-    setAttribute(n, v) { attrs[n] = String(v); },
-    querySelector() { return status; },
-    insertBefore(node) { status = node; },
-  };
-  const sandbox = {
-    Headers, calls,
-    document: {
-      addEventListener(type, fn) { handlers.push({ type, fn }); },
-      getElementById(id) { return id === 'prepare-body' ? root : null; },
-      querySelectorAll() { return []; },
-      createElement() { return { setAttribute() {}, className: '', textContent: '' }; },
-      documentElement: { setAttribute() {} },
-    },
-    localStorage: { getItem() { return null; }, setItem() {} },
-    history: { replaceState(a, b, url) { events.push('replace:' + url); } },
-    location: { pathname: '/prepare/7', reload() { events.push('reload'); } },
-    setTimeout() { events.push('timer'); },
-    setInterval() { events.push('timer'); },
-  };
-  sandbox.window = sandbox;
-  sandbox.alert = () => { events.push('alert'); };
-  sandbox.fetch = (url, opts) => {
-    events.push('fetch:' + url);
-    calls.push({ url, opts });
-    return new Promise((resolve, reject) => { pending.push({ resolve, reject }); });
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(data.shared + '\n' + data.prepare, sandbox);
-  const click = (existing) => {
-    const btn = existing || { disabled: false };
-    const event = { target: { closest(sel) {
-      return sel.includes('[data-prepare-go]') ? btn : null;
-    } } };
-    for (const h of handlers.filter((x) => x.type === 'click')) h.fn(event);
-    return btn;
-  };
-  return { root, attrs, events, pending, calls, click, status: () => status };
-}
-const answer = (w, value) => w.pending.shift().resolve({ json: () => Promise.resolve(value) });
-(async () => {
-  if (typeof Headers === 'undefined') {
-    console.log('NOTE  this node has no Headers, so the Prepare script was not run');
-    process.exit(0);
-  }
-  // Opened by the click.
-  let w = world(true);
-  await settle();
-  const sent = w.calls[0] && w.calls[0].opts;
-  say(w.calls.length === 1 && w.calls[0].url === '/prepare' && sent.method === 'POST'
-      && sent.body === '{"id":7}' && sent.headers instanceof Headers
-      && sent.headers.get(data.header.toLowerCase()) === '1'
-      && sent.headers.get('content-type') === 'application/json',
-      'opened by the click, the page makes one POST of its role id to /prepare, '
-      + 'through the fetch wrapper, with the guard header');
-  say(w.events[0] === 'replace:/prepare/7' && w.events[1] === 'fetch:/prepare'
-      && w.attrs['data-run'] === '0',
-      'and cleans its address before the POST goes, so a reload while it works '
-      + 'opens the page and does nothing more');
-  const spare = [w.click(), w.click()];
-  await settle();
-  say(w.calls.length === 1 && spare.every((b) => b.disabled === false),
-      'a click on the button while that POST is out sends nothing, however often, '
-      + 'and does not leave a button disabled that sent nothing');
-  answer(w, { ok: true, html: '<p>done</p>' });
-  await settle(); await settle();
-  say(w.root.innerHTML === '<p>done</p>' && w.calls.length === 1,
-      'the answer is swapped in as the page, and nothing is sent after it');
-  say(!w.events.includes('timer') && !w.events.includes('reload'),
-      'no timer and no reload anywhere in it');
-
-  // Opened any other way.
-  w = world(false);
-  await settle();
-  say(w.calls.length === 0 && w.events.length === 0,
-      'opened any other way the page sends nothing and touches nothing');
-  const btn = w.click();
-  await settle();
-  say(w.calls.length === 1 && btn.disabled === true,
-      'the button sends one POST and disables itself');
-  const again = [w.click(), w.click()];
-  await settle();
-  say(w.calls.length === 1 && again.every((b) => b.disabled === false),
-      'and a second click while it is out sends nothing');
-  answer(w, { ok: false, note: 'The write guard refused this request. Origin is not ours.' });
-  await settle(); await settle();
-  say(w.root.innerHTML === '<p>stored</p>' && w.status()
-      && w.status().textContent === 'The write guard refused this request. Origin is not ours.'
-      && /bad/.test(w.status().className),
-      'a refusal shows the guard\'s own reason and leaves the page as it was');
-  say(btn.disabled === false,
-      'and gives the button back, because the page is as it was and a note that '
-      + 'says try again is no use beside a button that cannot be pressed');
-  w.click(btn);
-  await settle();
-  say(w.calls.length === 2 && btn.disabled === true,
-      'and after it an explicit click on that button may send again');
-  w.pending.shift().reject(new Error('network'));
-  await settle(); await settle();
-  say(w.status() && /No usable answer/.test(w.status().textContent)
-      && /bad/.test(w.status().className) && w.root.innerHTML === '<p>stored</p>',
-      'a request that fails says no answer came back and that the role may still be working');
-  say(btn.disabled === false, 'and gives the button back after that too');
-  w.click(btn);
-  await settle();
-  say(w.calls.length === 3, 'after which a click may send once more');
-  say(!w.events.includes('timer'), 'and nothing retries on a timer');
-  process.exit(bad ? 1 : 0);
-})();
-"""
-
-
 def page_script_checks() -> None:
-    script = build_dashboard.PREPARE_SCRIPT
-    check(script.count("fetch(") == 1 and script.count("method: 'POST'") == 1
-          and "XMLHttpRequest" not in script and "sendBeacon" not in script,
-          "the page script makes its one request with fetch and method POST, the "
-          "one shape the header wrapper covers")
-    # Read without its comments, which say "while" in plain English.
+    script = prepare_page.PREPARE_SCRIPT
     code = re.sub(r"//[^\n]*", "", script)
-    check(not re.search(r"setInterval|setTimeout|requestAnimationFrame|location\.reload"
-                        r"|\bwhile\b|\bfor \(", code)
-          and code.count("start();") == 1 and code.count("start(btn);") == 1,
-          "it has no timer, no reload and no loop, and start() is called from two "
-          "places only: the button, and the first load of a page opened by the click")
+    check(code.count("fetch(") == 2 and code.count("method: 'POST'") == 2
+          and "XMLHttpRequest" not in code and "sendBeacon" not in code,
+          "the page script makes its requests with fetch and method POST, the one shape "
+          "the header wrapper covers: the fetch button's, and Mark applied's and Undo's")
+    check(not re.search(r"setInterval|setTimeout", code)
+          and code.count("start(fetchBtn)") == 1 and code.count("start(") == 2
+          and "data-run" not in code and "go=1" not in code,
+          "it sets no timer, and the fetch starts from its button and nowhere else: "
+          "nothing on load, whatever the address says")
     node = shutil.which("node")
     if not node:
         note("node is not on the path, so the Prepare script was not run")
         return
+    with canonical_master() as master, fresh() as env:
+        before = env.role(title="Head of Quality", company="Orbase Diagnostics")
+        prep.open_copy(before, env.db, CFG)
+        before_page = render_page(env, before)
+        from_jobs = render_page(env, before, go=True)
+        failed = render_inner(env, before, notices=[
+            {"kind": "fetch", "retry": True, "text": prep.fetch_failed_text(
+                "Radar could not reach LinkedIn from this machine.")}])
+        env.prepare(before)
+        scored = render_inner(env, before)
+        main_role = env.role()
+        env.prepare(main_role)
+        prep.open_copy(main_role, env.db, CFG)
+        prep.save_copy(main_role, master, env.db, CFG)
+        main_page = render_page(env, main_role)
+        counts = {"missing": len(re.findall(r'data-status="missing"', part(
+            render_inner(env, main_role), "gaps")))}
+        saved = prep.save_copy(main_role, master, env.db, CFG)
+        saved["html"] = render_inner(env, main_role)
+        applied = env.role(title="Head of Software", company="Pyxis Diagnostics")
+        prep.open_copy(applied, env.db, CFG)
+        prep.save_copy(applied, master, env.db, CFG)
+        with pointed_at(env.db):
+            serve_dashboard.set_applied(applied, True)
+        applied_page = render_page(env, applied)
+    import cv_page
+    payload = {
+        "scripts": "\n".join((build_dashboard.SCRIPT, script, cv_page.CV_MODEL_JS,
+                              cv_page.CV_EDITOR_JS)),
+        "header": HEADER,
+        "ids": {"before": before, "main": main_role, "applied": applied},
+        "pages": {"before": before_page, "fromJobs": from_jobs, "main": main_page,
+                  "applied": applied_page},
+        "answers": {"failed": failed, "scored": scored, "saved": saved},
+        "counts": counts,
+    }
     with tempfile.TemporaryDirectory() as tmp:
-        (Path(tmp) / "prepare.js").write_text(NODE_PREPARE, encoding="utf-8")
-        (Path(tmp) / "scripts.json").write_text(json.dumps({
-            "shared": build_dashboard.SCRIPT, "prepare": script,
-            "header": HEADER}), encoding="utf-8")
+        data = Path(tmp) / "data.json"
+        data.write_text(json.dumps(payload), encoding="utf-8")
         try:
             done = subprocess.run(
-                [node, str(Path(tmp) / "prepare.js"), str(Path(tmp) / "scripts.json")],
-                capture_output=True, text=True, encoding="utf-8", timeout=60)
+                [node, str(REPO_ROOT / "test" / "prepare_script_harness.js"), str(data)],
+                capture_output=True, text=True, encoding="utf-8", timeout=120)
         except (OSError, subprocess.TimeoutExpired) as err:
             check(False, f"node ran the Prepare script ({type(err).__name__})")
             return
@@ -2774,7 +2930,7 @@ def page_script_checks() -> None:
                 note(ln[6:])
         if done.returncode != 0 and not any(ln.startswith("FAIL  ") for ln in lines):
             check(False, "node ran the Prepare script ("
-                  + (done.stderr.strip()[:200] or f"exit {done.returncode}") + ")")
+                  + (done.stderr.strip()[:300] or f"exit {done.returncode}") + ")")
 
 
 # ------------------------------------------------------------ the static scan
@@ -2801,9 +2957,7 @@ def static_checks() -> None:
                      if p.name != "prepare_application.py"
                      and re.search(r"^\s*(import|from)\s+prepare_application\b",
                                    p.read_text(encoding="utf-8"), re.MULTILINE))
-    check(imports == ["build_dashboard.py", "jobs_page.py", "serve_dashboard.py"]
-          or imports == ["build_dashboard.py", "serve_dashboard.py"]
-          or imports == ["serve_dashboard.py"],
+    check(imports == ["jobs_page.py", "prepare_page.py", "serve_dashboard.py"],
           f"and only the dashboard imports the module ({imports})")
     scheduled = [p.name for p in sorted((REPO_ROOT / "workflows").glob("*.json"))
                  if re.search(r"prepare_application|/prepare\b", p.read_text(encoding="utf-8"))]
@@ -2855,8 +3009,10 @@ def static_checks() -> None:
     do_get = next(n for n in ast.walk(tree)
                   if isinstance(n, ast.FunctionDef) and n.name == "do_GET")
     body = ast.get_source_segment(serve, do_get)
-    check("run_prepare" not in body and "prepare_application" not in body,
-          "GET never reaches the click, only the guarded POST does")
+    check("run_prepare" not in body and "prepare_application" not in body
+          and "Sec-Fetch-Site" not in body and '"go"' not in body,
+          "GET never reaches the click, only the guarded POST does, and the page's "
+          "route reads nothing from the address or the headers that could start it")
 
 
 # ----------------------------------------------------- the queries for the box
@@ -3019,7 +3175,9 @@ def docs_checks() -> None:
     for needle in ("GET /prepare/<id>", "POST /prepare", "go=1", "description_hash",
                    "score_working", "tier_from", "SPEC_MAX_TOKENS", "429", "begin_write",
                    "once per version", "no retry", "applied", "Rescore", "second first-open",
-                   "Sec-Fetch-Site", "WRITE_WAIT_SECONDS", "PARK_SECONDS", "disagreement"):
+                   "WRITE_WAIT_SECONDS", "PARK_SECONDS", "disagreement",
+                   "never spends on opening", "prepare_page.py", "sentence_dropped",
+                   "8,192", ".sheet-paper"):
         if needle not in section:
             check(False, f"the notes say {needle!r}")
             break
@@ -3043,7 +3201,8 @@ def main() -> int:
                     odd_replies_checks, page_failure_checks, memo_key_checks,
                     fetch_lock_checks, fetch_spacing_checks,
                     fetch_reuse_checks, page_checks, jobs_page_checks, server_checks,
-                    page_script_checks, static_checks, box_query_checks,
+                    sentence_checks, tailored_never_on_jobs_checks, board_store_checks,
+                    notes_checks, page_script_checks, static_checks, box_query_checks,
                     docs_checks):
         # One section that raises is one FAIL that names it. The sections
         # after it still run, so a mistake in the first does not hide the rest.
