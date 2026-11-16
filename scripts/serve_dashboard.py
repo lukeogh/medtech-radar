@@ -18,9 +18,10 @@ Since the 29 July brief this server is also the write path for human
 actions. Acknowledge and its undo land on POST /ack and /unack, Applied
 and its undo on POST /apply and /unapply, and the CV update section
 lives at /cv. Prepare application is the page /prepare/<id>, which only
-reads, and the one POST /prepare it makes when a click on a Jobs row opens
-it: that fetches the advert's full description once and scores it once
-(prepare_application.py has the guards). Page renders stay read only, the same
+reads and never spends on opening, however it is opened; its own button,
+which states the cost first, makes the one POST /prepare, which fetches the
+advert's full description once and scores it once (prepare_application.py
+has the guards, prepare_page.py draws the page). Page renders stay read only, the same
 guarantee as build_dashboard.py. Writes open their own short-lived
 connection through radar_common.get_db, which also applies migrations.
 
@@ -438,10 +439,11 @@ def log_contact(company_id: int, channel: str, note) -> dict:
 def render_prepare(item_id: int, go: bool = False):
     """The Prepare application page for one role, or None for no such id.
 
-    Reads only, on a read-only connection, whatever the address says. The go
-    flag only changes what the page's script is told to do when it loads, see
-    build_dashboard.render_prepare_page.
+    Reads only, on a read-only connection, whatever the address says. go is
+    kept for old callers and changes nothing: the page never starts work on
+    its own (prepare_page.render_prepare_page).
     """
+    del go
     config = radar_common.load_config()
     dbp = db_path()
     conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
@@ -452,7 +454,7 @@ def render_prepare(item_id: int, go: bool = False):
         except ValueError:
             db_label = str(dbp)
         page = build_dashboard.render_prepare_page(conn, item_id, config,
-                                                   db_label, go=go)
+                                                   db_label)
     finally:
         conn.close()
     return page.encode("utf-8") if page else None
@@ -1738,17 +1740,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, b"Role ids are numbers.",
                            "text/plain; charset=utf-8")
                 return
-            # The click's address starts the work only when the browser says it
-            # came from this site, which is what following the Jobs link is. A
-            # link on another site, a typed address, a bookmark and a browser
-            # that sends no such header all get the page and a button instead,
-            # because a GET that spends money must not be one that any other
-            # page could send the browser to.
-            go = ("1" in parse_qs(urlsplit(self.path).query).get("go", [])
-                  and (self.headers.get("Sec-Fetch-Site") or "").strip().lower()
-                  == "same-origin")
+            # The page never spends on opening, however it is opened: the
+            # Jobs link, an old address with ?go=1 on it, a bookmark, another
+            # site. Its own button, which states the cost first, makes the one
+            # POST that may spend (decisions of 15 Nov).
             try:
-                page = render_prepare(int(raw), go)
+                page = render_prepare(int(raw))
             except Exception as err:  # noqa: BLE001
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")

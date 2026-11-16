@@ -968,9 +968,10 @@ def advert_section(o: dict, reasons: list, quotes: bool, view: str,
                      f'rel="noopener noreferrer">{_use("ic-launch", 16)}Open the advert on '
                      f'{esc(board(o.get("source")))}<span class="visually-hidden"> '
                      '(opens in a new tab)</span></a></p>' if link else "")
-        prepare = (f'<p class="prepare-hint">Prepare application reads the full '
-                   f'advert and scores it once. <a class="link" data-prepare="{oid}" '
-                   f'href="/prepare/{oid}?go=1">Prepare application</a></p>'
+        prepare = (f'<p class="prepare-hint">Prepare application opens the role, where '
+                   f'one button, which says its cost first, reads the full advert and '
+                   f'scores it once. <a class="link" data-prepare="{oid}" '
+                   f'href="/prepare/{oid}">Prepare application</a></p>'
                    if can_prepare else "")
         body = (f'<p class="empty-fact">Advert not read yet. Only the advert card is '
                 f'on file.</p><p class="card-text">{card}{"." if card else ""}</p>'
@@ -991,7 +992,7 @@ def _btn(kind: str, label: str, key: str, oid: int, primary: bool = False) -> st
 
 def actions_html(o: dict, view: str) -> str:
     oid = int(o["id"])
-    prepare = (f'<a class="btn btn-primary" href="/prepare/{oid}?go=1" '
+    prepare = (f'<a class="btn btn-primary" href="/prepare/{oid}" '
                f'data-prepare="{oid}" data-shortcut="p" aria-keyshortcuts="P">'
                'Prepare application<kbd class="kbd" aria-hidden="true">P</kbd></a>')
     if view == "applied":

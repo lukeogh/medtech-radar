@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 """Prepare application. The advert's full description, scored once, with its asks.
 
-The button on a Jobs row opens /prepare/<id>. That page only reads. When it is
-opened by the click (it says so in its address, and the browser says the click
-came from this site) its script makes the one write this module serves,
-POST /prepare, and this is what that does for an open role:
+The button on a Jobs row opens /prepare/<id>. That page only reads, and it
+never spends on opening, however it is opened, the Jobs link included
+(decisions of 15 Nov). Its own button, which states the cost first, makes the
+one write this module serves, POST /prepare, one press at a time, and this is
+what that does for an open role:
 
 1. If the row stores no description, fetch the advert's public LinkedIn page
    once, with the page checker's own fetch, user agent and ladder, and store
@@ -12,7 +13,7 @@ POST /prepare, and this is what that does for an open role:
    not a failure to hammer: nothing is stored, and nothing is asked of LinkedIn
    again from this page for the page checker's backoff, ten minutes. Any other
    page that cannot be read is not asked for again for five minutes. If the
-   page cannot be had, the page opens with the card's score and says so.
+   page cannot be had, the page shows the card's score and says so, and nothing is charged.
 2. Score the role against the stored description, once per version of it. The
    score is stamped spec, with the prompt version and the model, the old score
    goes to score_history first, and the new one is recorded there too. The
@@ -27,10 +28,10 @@ so a second click on it waits for the first, and then finds the score stored
 for this version of the description and spends nothing. A score is made once
 per version of the stored description (S9), so a reload, a second tab and the
 button pressed again all find the work done. One click is one model call, with
-no retry on a bad reply. A reply that could not be used is not paid for again
+no retry on a bad reply, and a fetch that fails makes no call at all. A reply that could not be used is not paid for again
 inside five minutes and a call that raised is not repeated inside twenty
 seconds, so a failure that repeats cannot be clicked into a bill. The page
-script sends one POST per click and none on its own after that.
+script sends one POST per press and none on its own, on opening or after.
 
 Work that has been paid for is not thrown away because the database is busy.
 The inbox run holds the write lock for the whole of an email, model calls
@@ -401,8 +402,11 @@ def rate_line(description: str, model_quote: str | None) -> dict:
 
 # ------------------------------------------------------------ the notices
 
-def _notice(out: dict, kind: str, text: str, retry: bool = False) -> None:
-    out["notices"].append({"kind": kind, "text": text, "retry": retry})
+def _notice(out: dict, kind: str, text: str, retry: bool = False,
+            free: bool = False) -> None:
+    """A notice for the page. retry offers Try again; free says that Try
+    again costs nothing, because what it stores was paid for already."""
+    out["notices"].append({"kind": kind, "text": text, "retry": retry, "free": free})
 
 
 def _minutes(seconds: float) -> str:
@@ -427,7 +431,7 @@ NOT_OPEN_NOTE = ("This role is not open, it has been acknowledged, closed, "
 def fetch_failed_text(why: str) -> str:
     """The sentence a page says when the full description is not to be had."""
     return (f"The full description could not be fetched. {why} The score "
-            "shown is the one made from the advert card.")
+            "shown is the one made from the advert card. Nothing was charged.")
 
 
 def _fetch_failed(out: dict, why: str, retry: bool = False) -> None:
@@ -690,7 +694,7 @@ def _store_score(conn, row: dict, payload: dict, config: dict, key: tuple,
         _notice(out, "score",
                 "The scorer answered, but the score could not be stored yet "
                 "because the database was busy. It is held in memory, and Try "
-                "again stores it without another call.", retry=True)
+                "again stores it without another call.", retry=True, free=True)
         return
     current, why = _fresh_open_row(conn, row["id"])
     if why:
@@ -941,9 +945,8 @@ COPY_MOVED = ("The copy was changed in another tab or window after this page "
 UNCHANGED_COPY = (
     "This copy is the master CV as it stands, and the role has no score of its "
     "own on this description yet. That score is the role's, and the button "
-    "under the description makes it, once, whenever the page offers it. "
-    "Rescore role scores the copy once it differs from the master. Nothing was "
-    "spent.")
+    "beside the score makes it, once, when you press it. Rescore role scores "
+    "the copy once it differs from the master. Nothing was spent.")
 
 
 def summary(record: dict | None) -> dict | None:

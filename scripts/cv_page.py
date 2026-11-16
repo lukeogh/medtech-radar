@@ -833,6 +833,11 @@ CV_EDITOR_JS = r"""
   else draw();
   shown(false);
   lock(false);
+  // For a page that holds the editor (Prepare application): whether the copy
+  // on screen is another text than the one the page took, and a way to say
+  // the page is about to reload itself after a write, so leaving does not ask.
+  window.RadarCvEditor = { edited: function () { return edited(); },
+                           leaving: function () { leaving = true; } };
   if (data.mode === 'tailored' && editable && data.needsCopy) send('open', null);
 })();
 """

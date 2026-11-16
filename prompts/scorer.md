@@ -147,6 +147,14 @@ For met and partly, give cv_lines, the numbers of the CV lines that show it,
 the most direct first and at most four. Every number must be a line that exists
 and has text on it. For missing, cv_lines is an empty list.
 
+For every ask, met, partly or missing, give sentence, the sentence of the
+description the ask comes from, copied character for character, 25 words or
+fewer. Where that sentence is longer, copy the stretch of it that states the ask,
+starting and ending on whole words. Do not add words to it, shorten inside it,
+correct it or join two sentences. Where the ask is read from more than one
+sentence, copy the one that states it most plainly. A sentence that is not found
+in the description word for word is not shown.
+
 cv_match comes from this same evidence. A CV number that the asks do not
 support is a wrong number.
 
@@ -168,5 +176,5 @@ from the card fields beside it.
 
 Return the same JSON as above, with asks and rate_quote added at the end of it.
 
- "asks": [{"ask": "", "status": "met", "cv_lines": [12, 13]}],
+ "asks": [{"ask": "", "status": "met", "cv_lines": [12, 13], "sentence": ""}],
  "rate_quote": ""

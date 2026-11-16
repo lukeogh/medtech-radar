@@ -442,7 +442,7 @@ def pane_checks(tmp: Path) -> None:
         check(f'data-act="{kind}" data-id="{spec}" data-shortcut="{key.lower()}" '
               f'aria-keyshortcuts="{key}">{label}<kbd class="kbd" aria-hidden="true">{key}</kbd>'
               in html, f"the {label} action carries its key, {key}")
-    check(f'href="/prepare/{spec}?go=1" data-prepare="{spec}" data-shortcut="p" '
+    check(f'href="/prepare/{spec}" data-prepare="{spec}" data-shortcut="p" '
           'aria-keyshortcuts="P">Prepare application<kbd' in html
           and 'data-shortcut="o" data-open=' in html and "Open the advert" in html
           and ('aria-keyshortcuts="K">Previous' in html
@@ -491,7 +491,7 @@ def pane_checks(tmp: Path) -> None:
     check("Advert not read yet. Only the advert card is on file." in card_html
           and '<mark id="q-1">IVD analyser</mark>' in card_html
           and '<mark id="q-2">Cambridge, 3 days on site</mark>' in card_html
-          and f'href="/prepare/{card}?go=1">Prepare application</a>' in card_html
+          and f'href="/prepare/{card}">Prepare application</a>' in card_html
           and "No asks yet. Asks are read from the full job spec." in card_html,
           "an advert never read shows the card the score read, its quotes marked, "
           "and Prepare application as the way to read it")

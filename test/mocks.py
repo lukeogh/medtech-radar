@@ -175,13 +175,35 @@ def _cv_fixture_lines() -> list[str]:
     return cv_store.cv_lines(text)
 
 
+def _mock_sentence(ask: str) -> str:
+    """The advert sentence an ask came from, as the scorer would copy it: the
+    bullet's own words. RADAR-BADSENTENCE gives words that are not in the
+    advert, RADAR-NOSENTENCE gives none and RADAR-CUTSENTENCE gives the
+    bullet with its last letter cut, so its last word is not a whole word of
+    the advert."""
+    if "RADAR-BADSENTENCE" in ask:
+        return "You will be expected to lead a team of forty engineers."
+    if "RADAR-NOSENTENCE" in ask:
+        return ""
+    if "RADAR-CUTSENTENCE" in ask:
+        return ask[:-1]
+    return ask
+
+
 def _mock_asks(description: str) -> list[dict]:
     """Each bulleted line of the description as an ask, judged against the
     fixture CV by the words they share. Two shared words on one line is met,
     one is partly, none is missing. A few marker words make the odd cases a
     test needs: RADAR-UNANCHORED cites a line that does not exist,
     RADAR-BLANKLINE cites a blank one, RADAR-TEXTLINE cites a real one as text.
+    Each ask carries its sentence (_mock_sentence).
     """
+    asks = [dict(a, sentence=_mock_sentence(a["ask"]))
+            for a in _mock_asks_judged(description)]
+    return asks
+
+
+def _mock_asks_judged(description: str) -> list[dict]:
     cv = _cv_fixture_lines()
     asks = []
     for raw in (description or "").splitlines():
