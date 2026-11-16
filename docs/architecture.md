@@ -941,6 +941,59 @@ column stay and old code ignores them, though old code's Re-score stale items
 would again reach spec rows. `test/run_cv_test.py` checks all of it, and
 `docs/box-checks-brief-4.md` holds the deploy.
 
+### The CV page final (design/cv/final, 15 Nov)
+
+The page itself is `scripts/cv_screen.py`; `serve_dashboard.py` keeps thin calls
+and the routes. The master is drawn as an A4 sheet of light paper (page_frame's
+`.sheet-paper`, the approved exception to dark only) and edited in place one part
+at a time: the head or a section is read until Enter or a click opens it, and
+only the open part has fields. That is `cv_page.CV_EDITOR_JS` with `sheet` set in
+its data; the Prepare page leaves it off and edits as before. Either way every CV
+line is one `.cvl[data-n]` element numbered as `cv_store.cv_lines` numbers the
+text, now inside `.cv-part` wrappers, which is the contract Prepare's margin
+notes rely on. The editor gives the page `window.RadarCvEditor` (sections, order,
+add, undo and redo of unsaved edits, the page estimate), and the page's own
+script (`CV_SCREEN_JS`) draws the toolbar, Rearrange and Design dialogs, the
+tabs, the keys and the notices on it.
+
+One master with dated versions, as before. History views or compares an older
+version (`/cv?view=`, `/cv?compare=`) and can save one as the next version. The
+Word import shows the file laid out the editor's way with its guesses named
+(`cv_screen.import_report`) and saves that laid-out text (`cv_store.confirm`
+with `laid_out`). Design (`cv_store.read_design`, `config/profile/cv.design.json`)
+sets the font, size, spacing and margins of the sheet and of the Word file
+(`cv_word.build`); the text, and so the scorer, do not change. `cv_doc.
+estimate_pages` estimates where Word would break the A4 pages from the
+template's sizes, and `CV_MODEL_JS`'s `pages` does the same sums in the browser;
+past two pages the page says where page 3 starts, and saving is still allowed.
+
+Preferences are edited on the page and written to the live preferences file only
+(`radar_common.write_scoring_prefs` and `write_pref_section`), each write
+changing its own lines and leaving every other byte as it was. A change to the
+day-rate or salary floor, the CV pass mark or the Filtered floor is a re-sort in
+code, for free: `regate_rates.regate` with `cv_gate_again`, which judges the CV
+gate again from the stored CV match. That is exact because since phase three the
+CV gate has only ever been code's (`score_item.cv_gate`); the rate gate is exact
+wherever a pay figure is stored, and the floor reaches `derive_tier`. What cannot
+be worked out again is left as the scorer judged it and counted on the page: a
+rate the advert states that Radar holds no figure for, roles never gated, and
+the Location and Sector gates, which the model judges from the prose. A re-sort
+keeps each replaced score in `score_history` (writer `cv_preferences`) and logs
+one `regate` run, and applied roles keep their tier.
+
+A location or sector change offers a paid rescore instead, and a master change
+flags the roles still scored on an older version. Rescore affected
+(`rescore.affected`, `rescore.rescore_affected`, `cv_screen.start_rescore`) is
+one confirmed run over every affected role, not 25 a press, in a thread of the
+dashboard that shares Check now's lock, on the card scorer; acknowledged,
+applied and full-description roles are left out and counted. The count and the
+cost are said first (`cv_screen.rescore_cost`: the cost note's 1.1 to 1.8 cents a
+card score, widened by what live rescores on file have cost a role, priced as
+Home prices the week), the confirm sends the count it stated, and a run whose
+count has grown since is refused. `test/run_cv_final_test.py` and
+`test/cv_screen_harness.js` check it, and `docs/box-checks-cv-final-part.md` holds
+the deploy.
+
 ## Quoted reasons
 
 Every score now carries up to four reasons, each with the words of the advert it
