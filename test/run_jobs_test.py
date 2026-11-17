@@ -833,6 +833,15 @@ def advert_checks(tmp: Path) -> None:
           "match gate")
     # Jobs 2 (owner, 17 Nov): the pane as cards, the gates as tiles.
     css = jobs_page.JOBS_CSS
+    phone = css[css.index("@media (max-width:767.98px){\n  :root{--pcard-pad:16px}"):]
+    phone = phone[:phone.index("\n}\n")]
+    check(".role .link,.filtered .link{display:inline-flex;align-items:center;min-height:44px}" in phone
+          and ".advert-rest > summary{min-height:44px}" in phone
+          and ".group-title button.tier-pill::after{content:\"\";position:absolute;inset:-10px -4px}" in phone
+          and ".evidence{position:relative;display:inline-block;padding:12px 0}" in phone
+          and ".dh-nav .prevnext{position:absolute;top:12px;width:44px;height:44px}" in css,
+          "on a phone every target is 44px: the pane's links, the quotes, the advert's fold, the "
+          "tier pill's hit area, and Previous and Next on Back to Jobs' line")
     tiles = re.findall(r'<div class="gate gate-([a-z]+) (is-[a-z]+)( gate-glow)?">'
                        r'<span class="gate-chip (is-[a-z]+)" aria-hidden="true"><svg[^>]*'
                        r'stroke-width="2"[^>]*>(.*?)</svg></span>', html)
