@@ -13,6 +13,7 @@ and open /watchlist.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -78,7 +79,7 @@ def seed(conn, now: datetime) -> dict:
             " VALUES (?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?)",
             (url_hash or f"wl-role-{name}-{title}", day(days_ago), "linkedin-alert", name, title,
              extra.get("location", "Guildford (hybrid)"), extra.get("pay", ""),
-             f"https://jobs.example/{abs(hash(title)) % 10000}", extra.get("score", 74), tier, cid, window,
+             f"https://jobs.example/{int(hashlib.sha1(title.encode()).hexdigest(), 16) % 10000}", extra.get("score", 74), tier, cid, window,
              extra.get("engagement", "contract"), "card"))
         return cur.lastrowid
 

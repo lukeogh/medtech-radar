@@ -11,8 +11,9 @@ invented, as the design's are.
    after it. The template carries the empty line.
 2. The lights: each job_health verdict in one of five words, On time, Late,
    Stale, Off or Not sending (grey, never amber), each with its own mark; the
-   phone push worked out from the signal watcher's runs and the ntfy address;
-   the top bar's light, All running or Check Radar, read by the same rules.
+   phone push worked out from the signal watcher's runs and the ntfy address.
+   The top bar's light, which reads the same rules, is checked with the
+   header in test/run_header_test.py.
 3. The model on a seeded typical day: five figures, each equal to its group
    of Needs you today, an applied role
    in no count and no list (the control: undo it and it is counted), the
@@ -76,7 +77,6 @@ import applications as ap  # noqa: E402
 import build_dashboard as bd  # noqa: E402
 import home_page as hp  # noqa: E402
 import jobs_page as jp  # noqa: E402
-import page_frame  # noqa: E402
 import radar_common as rc  # noqa: E402
 import serve_dashboard  # noqa: E402
 import watchlist  # noqa: E402
@@ -441,9 +441,9 @@ def light_checks(tmp: Path) -> None:
     check(marks["Late"] != marks["Not sending"], "Late and Not sending differ in shape, not only in words")
     check(hp.LIGHTS["Not sending"][0] == "is-neu" and "Dry run" not in hp.LIGHTS,
           "Not sending is grey, never amber, and Dry run is no longer a word on Home")
-    check(hp.job_light is page_frame.job_light,
-          "Home's lights and the top bar's light share one rule, page_frame.job_light")
-    jobs = {"signals": v("ok", "live")}
+    # That the top bar's light reads these same rules is checked with the
+    # header, in test/run_header_test.py.
+    jobs ={"signals": v("ok", "live")}
     check(hp.push_light(jobs, {"ntfy_url": "", "ntfy_topic_radar": "x"}, None)["word"] == "Off",
           "the push is Off when radar.yaml names no ntfy address")
     check(hp.push_light({"signals": {"state": "never"}}, CFG, None)["word"] == "Off",
@@ -478,25 +478,6 @@ def light_checks(tmp: Path) -> None:
         check(li is not None and 'class="ht-light is-neu"' in li.group(1) and "Not sending" in li.group(1)
               and "#st-paused" in li.group(1),
               f"the {job} light on the page is grey and says Not sending")
-    bar = html.split('<header class="appbar">', 1)[1].split("</header>", 1)[0]
-    check('data-state="ok"' in bar and "All running" in bar and 'href="/radar"' in bar,
-          "with nothing late the top bar's light says All running and links to Radar's health")
-    # The top bar's light: amber Check Radar as soon as one job is late or has failed.
-    for name, state in (("inbox", "stale"), ("signals", "late"), ("signals", "failing"),
-                        ("check", "partial"), ("digest", "stale"), ("check", "never")):
-        jobs = {n: v("ok") for n in ("inbox", "signals", "check", "digest")}
-        jobs[name] = v(state)
-        said_bar = page_frame.radar_status_html(jobs)
-        check("Check Radar" in said_bar and "is-check" in said_bar and 'href="/radar"' in said_bar,
-              f"the top bar says Check Radar when the {name} is {state}")
-    jobs = {n: v("ok") for n in ("inbox", "signals", "check", "digest")}
-    jobs["inbox"] = v("late")
-    jobs["digest"] = v("ok", "dry-run")
-    check("All running" in page_frame.radar_status_html(jobs),
-          "a quiet inbox and a digest in dry run still read All running")
-    jobs["check"] = v("never", watched=False)
-    check("All running" in page_frame.radar_status_html(jobs),
-          "and a job /health is told not to watch never turns it")
 
 
 # ================================================================ 3. the model
@@ -994,18 +975,14 @@ def page_checks(tmp: Path) -> None:
     check('class="info' not in panel and "Hover a bar" not in panel and "Green emailed within" not in panel
           and "Weeks start on Monday" not in panel and "Is the flow picking up" not in panel,
           "without their captions, the footnote or the question")
-    check('href="/cv#settings">Settings</a>' in body, "Settings is one link away, in the top bar")
-    check("Light" not in re.sub(r"<[^>]+>", " ", body.split("</header>", 1)[0])
-          and 'aria-label="Appearance"' not in body,
-          "no light or dark switch: Radar stays dark only")
+    check('aria-label="Appearance"' not in body,
+          "no light or dark switch on the page: Radar stays dark only")
+    # The header's own checks (its menu, Settings, its light, its shortcuts
+    # button) are in test/run_header_test.py; this is Home's one check of it.
     check('aria-current="page">Home</a>' in body, "the top bar marks Home current")
-    bar = body.split('<header class="appbar">', 1)[1].split("</header>", 1)[0]
-    menu = re.findall(r'<nav class="nav" aria-label="Pages">(.*?)</nav>', bar)[0]
-    check(re.findall(r">([A-Za-z]+)</a>", menu) == ["Home", "Jobs", "Watchlist", "Insights", "CV", "Settings"],
-          "the menu reads Home, Jobs, Watchlist, Insights, CV, Settings")
-    check('id="keys-open"' not in bar and "Keyboard shortcuts" not in body and "<kbd" not in body
+    check("Keyboard shortcuts" not in body and "<kbd" not in body
           and "aria-keyshortcuts" not in body and "<dialog" not in body,
-          "no shortcuts button, no shortcuts dialog and no key hints on Home")
+          "no shortcuts dialog and no key hints on Home")
     # Needs you today: every item in full, no carousel.
     arts = re.findall(r'<article class="ny-item[^"]*" id="([\w-]+)" data-item="([\w-]+)"', body)
     check(len(arts) == 7 and all(a == b for a, b in arts), "every item is on the page in full, each with its own id")
@@ -1199,9 +1176,6 @@ def state_checks(tmp: Path) -> None:
           "its tag says Stale, 22 hours, with a comma")
     check("data-check>Check now</button>" in html and "Signals as of" not in html and "As of" not in html,
           "the watcher's item offers Check now, and no As of time is on the page")
-    bar = html.split('<header class="appbar">', 1)[1].split("</header>", 1)[0]
-    check("Check Radar" in bar and 'data-state="check"' in bar,
-          "and the top bar's light says Check Radar")
     check('<table class="table">' in html and "<caption" in html,
           "the item's last runs are a table with a caption")
 

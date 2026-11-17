@@ -110,7 +110,10 @@ fires until the step that arms it.
    and preferences into `config/profile/` on that host by hand. Both are
    gitignored, so a clone arrives without them, and live scoring refuses to
    run until the CV is there.
-3. Run `test/run_all.sh`. Everything green before touching n8n.
+3. Run `test/run_all.sh`. Everything green before touching n8n. Its last
+   runner compares every page with a stored copy in `test/snapshots/`;
+   `python test/run_snapshot_test.py --summary` prints, in one line, which
+   pages a change moved (see `test/snapshots/README.md`).
 4. Read `test/last_digest.html`. Carry on only if it reads well.
 5. Import the three workflow JSONs from `workflows/` into n8n. They import
    inactive. Point each workflow's Config node at the repo path and python

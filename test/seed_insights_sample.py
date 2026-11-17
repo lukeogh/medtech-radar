@@ -195,8 +195,18 @@ def main(argv=None) -> int:
         print(f"{path} exists; the seed only writes a new database.", file=sys.stderr)
         return 2
     now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-    iso = lambda when: when.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
     conn = radar_common.get_db(path)
+    seed(conn, now, args.week)
+    conn.close()
+    print(f"Seeded {path} with the {args.week} week.")
+    return 0
+
+
+def seed(conn, now: datetime, week: str = "typical") -> dict:
+    """The sample week on an open connection, counted back from now. Commits,
+    and returns the companies' ids by name. The page snapshot runner calls
+    this on its own database, beside the Jobs and Watchlist samples."""
+    iso = lambda when: when.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
     ids = {}
     for name, (builds, software, stage, city, country, region, people, watched) in COMPANIES.items():
         cid = radar_common.resolve_company(conn, name, iso(now - timedelta(days=60)))
@@ -206,7 +216,7 @@ def main(argv=None) -> int:
                       iso(now - timedelta(days=30)) if watched else None, cid))
         ids[name] = cid
     for days, hour, source, company, kind, rel, headline, summary, why, words, extra in STORIES:
-        if args.week == "quiet" and days < 7 and rel >= 10:
+        if week == "quiet" and days < 7 and rel >= 10:
             continue
         when = (now - timedelta(days=days)).replace(hour=hour, minute=0)
         if when > now:
@@ -235,7 +245,7 @@ def main(argv=None) -> int:
         (radar_common.url_hash("https://example.org/job/pdx"), iso(now - timedelta(days=23)), "linkedin-alert",
          "Software Quality Lead, IVD analyser", "PDX Diagnostics", "Remote (EU)",
          "top", ids["PDX Diagnostics"]))
-    watcher_ran = now - timedelta(hours=22 if args.week == "stale" else 3)
+    watcher_ran = now - timedelta(hours=22 if week == "stale" else 3)
     radar_common.log_run(conn, "inbox", items_in=1, items_new=1)
     conn.execute("UPDATE runs SET ts = ? WHERE workflow = 'inbox'", (iso(now - timedelta(minutes=12)),))
     conn.execute("INSERT INTO runs (ts, workflow, mode, items_in, items_new, note, outcome) VALUES (?,?,?,?,?,?,?)",
@@ -244,14 +254,12 @@ def main(argv=None) -> int:
     for i, src in enumerate(build_dashboard.load_watchlist()):
         if (src.get("status") or "live") == "unverified":
             continue
-        bad = args.week == "stale" and i % 3 == 0
+        bad = week == "stale" and i % 3 == 0
         conn.execute("INSERT OR REPLACE INTO source_state (source_id, url, method, last_checked, last_status)"
                      " VALUES (?,?,?,?,?)", (src["id"], src.get("url"), src.get("method"), iso(watcher_ran),
                                              "599" if bad else "200"))
     conn.commit()
-    conn.close()
-    print(f"Seeded {path} with the {args.week} week.")
-    return 0
+    return ids
 
 
 if __name__ == "__main__":

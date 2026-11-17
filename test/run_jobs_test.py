@@ -18,8 +18,8 @@
 4. The fragments the page script uses, read only, and the routes through
    the real server and its write guard. Rendering writes nothing and never
    fetches or scores.
-5. The frame: every page has the top bar, the Watchlist is not in it, the
-   pages are dark only, and the bar's inbox line is job_health's verdict.
+5. The frame: the pages are dark only, and the bar marks Jobs. The bar itself,
+   on every page, is checked in test/run_header_test.py.
 
 No network beyond a loopback server this runner starts, no model, no n8n.
 Exits non-zero on any failure.
@@ -47,7 +47,6 @@ sys.path.insert(0, str(TEST_DIR))
 
 import build_dashboard  # noqa: E402
 import jobs_page  # noqa: E402
-import page_frame  # noqa: E402
 
 # Between two of a row's facts: a comma for a screen reader, space on screen.
 BIT = '<span class="visually-hidden">, </span><span class="r-bit">'
@@ -709,16 +708,14 @@ def page_checks(tmp: Path) -> None:
     check("if (current && current.id === Number(m[1])) return;" in html
           and ".mk.tip-off .mk-tip{display:none}" in html,
           "a quote's link moves only the hash and redraws nothing, and Escape hides a tooltip")
-    check('<html lang="en-GB">' in html and '<a class="skip-link" href="#main">' in html
+    check('<html lang="en-GB">' in html
           and '<main class="content" id="main">' in html
           and 'role="status" aria-live="polite"' in html,
-          "the page has its language, a skip link, a main landmark and a live region")
-    check(re.search(r'<a class="radar-status( is-check)?" href="/radar" data-state="(ok|check)">'
-                    r'<span class="radar-dot" aria-hidden="true"></span>(All running|Check Radar)<', html),
-          "the top bar's light is Home's lights in two words, linking to Radar's health")
-    stale = page_frame.radar_status_html({"inbox": {"state": "stale", "last_run": ago(2)}})
-    check("is-check" in stale and "Check Radar" in stale and "All running" not in stale,
-          "a stalled inbox turns it to Check Radar, said in words, not by colour alone")
+          "the page has its language, a main landmark and a live region")
+    # The header's own checks (its skip link, its light, the page it marks on
+    # every page) are in test/run_header_test.py; this is the Jobs page's one.
+    check('<a href="/jobs" aria-current="page">Jobs</a>' in html,
+          "the top bar marks Jobs as the page it is on")
     with pointed_at(db):
         pages = {name: serve_dashboard.render(name).decode("utf-8")
                  for name in ("home", "insights", "archive")}
@@ -728,20 +725,12 @@ def page_checks(tmp: Path) -> None:
         """The page's CSS without the CV sheet's paper, the one approved light block."""
         return re.sub(r"\.sheet-paper\{\s*color-scheme:light", ".sheet-paper{", text)
     for name, text in pages.items():
-        bar = text.split('<header class="appbar">', 1)[1].split("</header>", 1)[0] \
-            if '<header class="appbar">' in text else ""
-        check(bar and 'href="/watchlist"' in bar and 'href="/cv"' in bar
-              and 'href="/insights"' in bar and 'href="/jobs"' in bar,
-              f"the {name} page has the top bar, with the Watchlist link back in it")
         check("data-appearance-set" not in text and "radar-appearance" not in text
               and re.search(r"<html [^>]*data-appearance", text) is None
               and unsheeted(text).rfind("color-scheme:dark") > unsheeted(text).rfind("color-scheme:light")
               and text.count("color-scheme:light") - unsheeted(text).count("color-scheme:light") <= 1,
               f"the {name} page is dark only, with no light or auto switch; the CV sheet's "
               "paper is the one light block")
-    check('<a href="/" aria-current="page">Home</a>' in pages["home"]
-          and '<a href="/cv" aria-current="page">CV</a>' in pages["cv"],
-          "the bar marks the page it is on")
 
 
 def location_checks(tmp: Path) -> None:

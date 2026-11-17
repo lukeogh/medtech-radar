@@ -95,6 +95,8 @@ run_one "applications board (test/run_board_test.py)" "test/run_board_test.py"
 run_one "home page        (test/run_home_test.py)" "test/run_home_test.py"
 run_one "watchlist        (test/run_watchlist_test.py)" "test/run_watchlist_test.py"
 run_one "rate not stated  (test/run_rate_test.py)" "test/run_rate_test.py"
+run_one "shared header    (test/run_header_test.py)" "test/run_header_test.py"
+run_one "page snapshots   (test/run_snapshot_test.py)" "test/run_snapshot_test.py"
 
 echo
 echo "=========================================================================="
