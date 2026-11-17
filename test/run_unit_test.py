@@ -1179,8 +1179,8 @@ def main() -> int:
         # and says nothing it does not know; the role pane says Not stated.
         rows6 = {int(m.group(1)): m.group(0) for m in _re5.finditer(
             r'<div class="row [^"]*" data-id="(\d+)".*?</div>', jobs6, _re5.S)}
-        check(" · Contract · " in rows6.get(top_id, "")
-              and " · Permanent · " in rows6.get(span_new, ""),
+        check('<span class="r-bit">Contract</span>' in rows6.get(top_id, "")
+              and '<span class="r-bit">Permanent</span>' in rows6.get(span_new, ""),
               "the row's meta names Contract and Permanent from engagement_type")
         unknown_row = rows6.get(drop_top, "")
         check(unknown_row and "Contract" not in unknown_row
