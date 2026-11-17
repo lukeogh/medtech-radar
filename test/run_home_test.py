@@ -1516,6 +1516,23 @@ def phone_checks(tmp: Path) -> None:
           "border-radius:10px;background:rgba(167,156,240,.18);color:#c9c2f8;" in html
           and "is-current" not in "".join(re.findall(r'<div class="row [^"]*"', html)),
           "Open actions' role rows carry the same purple New pill as Jobs, and no wash")
+    # One count (owner, 17 Nov): Home's company follow-ups tile and the
+    # Watchlist's follow-ups due pill read the same function, on the same data.
+    hm = model_of(db)
+    conn = reader(db)
+    try:
+        wm = watchlist.build_model(conn, CFG, hm["now"])
+        direct = watchlist.follow_ups_due_count(conn, hm["now"])
+    finally:
+        conn.close()
+    check(hp.figure_counts(hm)["threads"] == wm["counts"]["due"] == direct,
+          f"Home's follow-ups tile and the Watchlist's pill give the same count "
+          f"({hp.figure_counts(hm)['threads']}, {wm['counts']['due']}, {direct})")
+    check("@container ny (min-width:1100px){" in hp.HOME_CSS
+          and ".ny-story > .ny-move{grid-column:2;grid-row:1 / span 2;max-width:none}" in hp.HOME_CSS,
+          "a story card wider than 1100px has the Next move and the actions on its right")
+    check('<h5 class="sec-h">Thread</h5>' not in html,
+          "Home's follow-up cards say follow-up, not thread")
     check("function setLights(open)" in hp.HOME_SCRIPT and "'#lights-btn'" in hp.HOME_SCRIPT
           and "setLights(lit);" in hp.HOME_SCRIPT,
           "tapping the chip shows or hides the lights, and a redraw keeps them as they were")

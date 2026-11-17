@@ -588,7 +588,7 @@ def facts_block(rec: dict, lv: int) -> str:
     reread = (
         '<div class="reread-confirm" id="reread-confirm" hidden>'
         f'<p>Read again fetches the company\'s own site once, politely and as its robots file allows, and makes '
-        f'one model call: {cost}. What it finds replaces the facts above, each with its source and date.</p>'
+        f'one model call, {cost}, to replace the facts above with what it finds.</p>'
         '<div class="acts"><button type="button" class="btn btn-primary" id="reread-go"'
         f'{"" if words else " disabled"}>Read again now<span class="visually-hidden">, {esc(words)}</span></button>'
         '<button type="button" class="btn btn-ghost" id="reread-cancel">Cancel</button></div>'
@@ -621,6 +621,11 @@ def record_head(rec: dict, model: dict, view: str) -> str:
         return (f'<a class="btn btn-secondary prevnext" data-focus-record href="{href(other)}" '
                 f'aria-label="{label}, {esc(oname)}" title="{label}">{icon}</a>')
     nav = step("prev", "Previous company", ICON_LEFT) + step("next", "Next company", ICON_RIGHT)
+    if view != "record":
+        # Close, where the list sits beside the record; elsewhere Back to
+        # Watchlist does the job.
+        nav += ('<a class="btn btn-secondary rh-close" data-close-record href="/watchlist" '
+                'aria-label="Close the record">Close</a>')
     if view == "record":
         back = f'<a class="back" href="/watchlist">{ICON_BACK}Back to Watchlist</a>'
         title = f'<h1 class="rec-h" id="rec-h" tabindex="-1">{name}</h1>'
@@ -629,8 +634,9 @@ def record_head(rec: dict, model: dict, view: str) -> str:
                 f'{ICON_BACK}Back to Watchlist</a>')
         title = f'<h2 class="rec-h" id="rec-h" tabindex="-1">{name}</h2>'
     watched = (f"On your Watchlist since {wl.day_words(rec.get('watched_at'))}" if rec.get("watched")
-               else "Not on your Watchlist")
+               else "")
     facts = [x for x in (rec.get("place"), watched) if x]
+    state_words = rec["state_words"] if rec.get("watched") else "Not on your Watchlist"
     line = ('<span class="visually-hidden">, </span>').join(f'<span class="r-bit">{esc(x)}</span>' for x in facts)
     current = rec.get("stored_state") or ""
     items = "".join(
@@ -643,13 +649,13 @@ def record_head(rec: dict, model: dict, view: str) -> str:
     if rec.get("watched"):
         watch_btn = '<button type="button" class="btn btn-quiet" id="remove-btn">Remove from Watchlist</button>'
     else:
-        watch_btn = '<button type="button" class="btn btn-secondary" id="watch-btn">Add to Watchlist</button>'
+        watch_btn = '<button type="button" class="btn btn-teal" id="watch-btn">Add to Watchlist</button>'
     log_btn = ('<button type="button" class="btn btn-teal" id="log-open" aria-expanded="false" '
                'aria-controls="log">Log a contact</button>')
     return (f'<header class="rec-head card g-apps glow-head">{back}<div class="rh-grid">'
             f'<span class="rh-chip">{page_frame.chip("threads", "apps")}</span>{title}'
             f'<div class="rh-nav">{nav}</div>'
-            f'<div class="rh-meta"><p class="rh-facts">{line}</p><span class="stag">{esc(rec["state_words"])}</span></div>'
+            f'<div class="rh-meta"><p class="rh-facts">{line}</p><span class="stag">{esc(state_words)}</span></div>'
             f'</div><div class="rec-acts">{log_btn}{menu}{watch_btn}</div>'
             f'<div class="status rec-flash" id="rec-flash" tabindex="-1" hidden></div>'
             f'<p class="err" id="rec-err" hidden>{ICON_ERR}<span></span></p></header>')
@@ -721,14 +727,24 @@ def render_page(model: dict, jobs: dict | None, view: str = "table") -> str:
     if model.get("missing"):
         missing = ('<div class="status is-warn wl-missing"><span class="what">That company is not on file. '
                    'It may have been merged with another or removed. Your companies are below.</span></div>')
-    layout_cls = "layout has-record" if rec else "layout"
-    record = record_html(rec, model, "table") if rec else ""
+    rows = model.get("rows") or []
+    # Beside the list there is always a record column on a wide screen; with
+    # no company chosen it says so.
+    layout_cls = "layout has-record" if (rec or rows) else "layout"
+    record = (record_html(rec, model, "table") if rec else
+              '<aside class="record no-record" aria-label="Record"><div class="card rcard">'
+              '<p class="rnone">No company chosen.</p></div></aside>' if rows else "")
+    # Dismissed suggestions stay reachable when none wait: one closed fold at
+    # the foot of the page.
+    foot = ""
+    if not model.get("suggestions") and model.get("dismissed"):
+        foot = f'<section class="dis-foot" aria-label="Dismissed suggestions">{dismissed_html(model)}</section>'
     body = (
         f'<div class="page">{title_html(model)}'
         f'<div class="status wl-flash" id="wl-flash" tabindex="-1" hidden></div>{missing}'
         f'{arrivals_html(model)}'
         f'<div class="{layout_cls}"><div class="main-col">{suggestions_section(model)}{table_html(model)}'
-        f'</div>{record}</div></div>')
+        f'{foot}</div>{record}</div></div>')
     title = f"{rec['name']}, Watchlist, MedTech Radar" if rec else "Watchlist, MedTech Radar"
     return _document(title, jobs, body, state)
 
@@ -846,7 +862,8 @@ main:focus{outline:none}
    company, its follow-up, its latest story, its roles on Jobs, Log a contact. */
 .co-list{display:flex;flex-direction:column;gap:12px}
 .co-card{container:cocard / inline-size;padding:16px 20px}
-.co-card.is-selected{border-color:var(--group-apps)}
+/* The chosen company, beside its record: a soft teal wash, no bar. */
+.co-card.is-selected{box-shadow:inset 0 0 0 100vmax rgba(92,195,207,.14)}
 .co-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1.3fr) minmax(0,1.5fr) minmax(0,.7fr) auto;gap:12px 24px;align-items:start}
 .co-col{min-width:0}
 .co-name{display:flex;gap:12px;align-items:flex-start}
@@ -909,6 +926,11 @@ main:focus{outline:none}
 .rh-nav{grid-area:nav;display:flex;gap:8px;align-self:start}
 .prevnext{width:32px;padding:0;justify-content:center}
 .prevnext.is-disabled{color:var(--text-3);border-color:var(--border-subtle);cursor:default}
+.rh-close{display:none;min-height:36px}
+@media (min-width:1024px){.rh-close{display:inline-flex}}
+.no-record .rcard{padding:20px}
+@media (max-width:1023.98px){.no-record{display:none}}
+.dis-foot{margin-top:-8px}
 .rh-meta{grid-area:meta;display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-top:4px}
 .rh-facts{display:flex;flex-wrap:wrap;color:var(--text-2);font-size:14px;line-height:20px}
 .rh-facts .r-bit ~ .r-bit::before{content:"";display:inline-block;width:0;height:14px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-2px}
