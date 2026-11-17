@@ -832,6 +832,17 @@ def page_checks(tmp: Path) -> None:
           "first-seen dates or explanations; no thread, signal or middle dot")
     check('class="tier-pill' in rec.split('id="rl-h"', 1)[1] if 'id="rl-h"' in rec else True,
           "each role on Jobs carries its tier's pill")
+    css = watchlist_page.WATCHLIST_CSS
+    phone = css[css.index("@media (max-width:767.98px){\n  .btn,.menu button"):]
+    phone = phone[:phone.index("\n}\n")]
+    check("@media (min-width:1800px){.layout.has-record{grid-template-columns:minmax(0,1fr) "
+          "clamp(720px,40vw,1000px);gap:32px}}" in css
+          and ".has-record .co-headline,.has-record .co-roles,.has-record .co-act{display:none}" in css
+          and ".btn,.menu button,.logform .radios label,.field,.listbox li{min-height:44px}" in phone
+          and ".prevnext{width:44px;height:44px}" in phone
+          and "@container cocard (max-width:519.98px){.co-grid{grid-template-columns:minmax(0,1fr)}}" in css,
+          "the list sits beside a record from 1800 as before, a narrow card beside a record is compact, "
+          "and on a phone every target is 44px and a card stacks its parts")
     empty_path, empty = fresh(tmp, "page_empty")
     e = watchlist_page.render_page(wl.build_model(empty, CFG, NOW), None, "table")
     check("No companies on your Watchlist yet." in e and "<ol" not in e,

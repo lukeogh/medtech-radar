@@ -876,6 +876,15 @@ main:focus{outline:none}
   .co-act{grid-column:1 / -1;align-self:start}
 }
 @container cocard (max-width:519.98px){.co-grid{grid-template-columns:minmax(0,1fr)}}
+/* Beside a record, from 1024px, a card narrower than 900px is compact: the
+   company, its follow-up and its story's type and date. The record beside it
+   has the rest. On a phone every part stays, one under another. */
+@media (min-width:1024px){
+  @container cocard (max-width:899.98px){
+    .has-record .co-grid{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,.8fr)}
+    .has-record .co-headline,.has-record .co-roles,.has-record .co-act{display:none}
+  }
+}
 .empty{padding:20px}
 .empty p{color:var(--text-2);font-size:14px;line-height:20px}
 
@@ -998,6 +1007,15 @@ input[type=date].field{color-scheme:dark}
 
 /* touch: 44 pixels */
 @media (pointer:coarse){.btn,.menu button,.logform .radios label{min-height:44px}}
+/* A phone: every target 44px, the cards and the record one part under
+   another (their own widths decide that), nothing wider than the window. */
+@media (max-width:767.98px){
+  .btn,.menu button,.logform .radios label,.field,.listbox li{min-height:44px}
+  .prevnext{width:44px;height:44px}
+  .co,.link,.items .ttl a,.rl-title,.rcard a,.dis-head .btn{display:inline-flex;align-items:center;min-height:44px}
+  .rrow{grid-template-columns:96px minmax(0,1fr)}
+  .sg,.co-card,.rec-head,.rcard{padding:14px 16px}
+}
 """
 
 
