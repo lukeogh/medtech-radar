@@ -558,14 +558,15 @@ def pane_checks(tmp: Path) -> None:
           and words == ["Passes", "Passes, 80%", "Passes", "Passes"]
           and all(g[1] == "is-pos" for g in gates) and gates[0][3] == "infusion pumps",
           f"the score block shows the four gates with their notes, in words ({words})")
-    score = re.search(r'<section class="sec score".*?</section>', html, re.S).group(0)
-    check('<p class="tier-line"><span class="tier-pill t-top">Top prospect</span></p>' in score
-          and score.index("tier-pill") < score.index("gate-strip")
+    score = re.search(r'<section class="psec score".*?</section>', html, re.S).group(0)
+    check('<h3 class="sec-title" id="score-heading">Score</h3><span class="tier-pill t-top">'
+          'Top prospect</span></header>' in score
+          and score.index("tier-pill") < score.index("gate-tiles")
           and '<span class="r-bit gate-figure">80%</span>' in score
           and score.index("CV match") < score.index("80%") < score.index("Location")
           and "cv-line" not in html and "cv-figure" not in html,
-          "Score is its own section: the tier's pill, then the gates, the CV figure inside "
-          "the CV match gate and no large figure of its own")
+          "Score is its own section: the tier's pill beside its title, then the gates, the CV "
+          "figure inside the CV match gate and no large figure of its own")
     old_html = pane(db, old)["html"]
     check("Scored on" not in html and "97f11cce" not in html
           and "cv-20261029-091500.md" not in html and "claude-sonnet" not in html
@@ -578,7 +579,7 @@ def pane_checks(tmp: Path) -> None:
     bits[0] = f'<a class="link" id="detail-company" href="/company/{company}">{bits[0]}</a>'
     check(meta is not None and meta.group(1) == jobs_page.meta_html(bits)
           and " · " not in meta.group(1) and ".dh-title{grid-area:title;align-self:center;"
-          "font-size:22px" in jobs_page.JOBS_CSS,
+          "font-size:24px" in jobs_page.JOBS_CSS,
           "under a larger title the pane says the row's facts the row's way, set apart by "
           "the drawn rule, the company linked to its page")
     check("·" not in re.sub(r"<style.*?</style>", "", html, flags=re.S),
@@ -601,12 +602,14 @@ def pane_checks(tmp: Path) -> None:
           and facts.get("Source") == "LinkedIn",
           "the details give the rate as advertised, the rate line, the state, the repost "
           "chain, the red flags and the source")
-    check(f'href="/company/{company}"' in html and "Everything on file for Spec Co" in html,
-          "a company with a page is linked")
+    details = re.search(r'<section class="psec" aria-labelledby="details-heading">.*?</section>', html, re.S)
+    check(f'href="/company/{company}"' in html and "Everything on file for Spec Co" in html
+          and details is not None and "Everything on file for Spec Co" in details.group(0),
+          "a company with a page is linked, at the foot of the Details card")
     card_html = pane(db, card)["html"]
     check("/company/" not in card_html and "Everything on file" not in card_html,
           "a company with no page is not linked")
-    unread = re.search(r'<div class="advert-body">(.*?)</div></section>', card_html, re.S)
+    unread = re.search(r'<div class="pcard advert-body">(.*?)</div></section>', card_html, re.S)
     check(unread is not None
           and unread.group(1) == (f'<div class="advert-unread"><a class="btn btn-secondary" '
                                   f'data-prepare="{card}" href="/prepare/{card}">Prepare '
@@ -819,15 +822,57 @@ def advert_checks(tmp: Path) -> None:
           and ".dh-nav .pn-next{right:16px}" in jobs_page.JOBS_CSS
           and ".back{display:inline-flex;align-items:center;min-height:44px;" in jobs_page.JOBS_CSS,
           "under 1024 wide Previous and Next show at 44px on Back to Jobs' line, at the right")
-    rate = re.search(r'gate-rate"><span class="gate-name">Rate</span><span class="gate-status '
+    rate = re.search(r'gate-rate[^"]*">.*?<span class="gate-name">Rate</span><span class="gate-status '
                      r'(is-[a-z]+)">(.*?)</span>', html)
-    cv = re.search(r'gate-cv"><span class="gate-name">CV match</span>(.*?)'
+    cv = re.search(r'gate-cv[^"]*">.*?<span class="gate-name">CV match</span>(.*?)'
                    r'<span class="gate-note">', html)
     check(rate is not None and rate.group(1) == "is-cau"
           and rate.group(2).endswith("Not stated")
           and cv is not None and _shown_words(cv.group(1)) == ["Passes", ",", "78%"],
           "the 1760 case: Rate reads Not stated in amber, and 78% sits inside the CV "
           "match gate")
+    # Jobs 2 (owner, 17 Nov): the pane as cards, the gates as tiles.
+    css = jobs_page.JOBS_CSS
+    tiles = re.findall(r'<div class="gate gate-([a-z]+) (is-[a-z]+)( gate-glow)?">'
+                       r'<span class="gate-chip (is-[a-z]+)" aria-hidden="true"><svg[^>]*'
+                       r'stroke-width="2"[^>]*>(.*?)</svg></span>', html)
+    check([(t[0], t[1], bool(t[2])) for t in tiles]
+          == [("sector", "is-pos", False), ("cv", "is-pos", False),
+              ("location", "is-pos", False), ("rate", "is-cau", True)]
+          and tiles[0][4] == '<polyline points="5,10.5 8.5,14 15,6.5"/>'
+          and tiles[3][4].startswith('<path d="M7.6 7.6a2.4 2.4 0 1 1 3.5 2.1')
+          and jobs_page.GATE_ICONS[rc.FAILS] == ('<line x1="6" y1="6" x2="14" y2="14"/>'
+                                                 '<line x1="14" y1="6" x2="6" y2="14"/>'),
+          "each gate is a tile with its status chip, a tick for passes and a question mark "
+          "for not stated, and only a gate not stated or failing glows")
+    check(".gate-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}" in css
+          and "@container pcard (max-width:899.98px){.gate-tiles{grid-template-columns:repeat(2,"
+              "minmax(0,1fr))}}" in css
+          and "@container pcard (max-width:479.98px){.gate-tiles{grid-template-columns:minmax(0,1fr)}}"
+              in css
+          and ".gate-glow{background-image:radial-gradient(150% 170% at 0% 0%,rgb(var(--st) / .28) "
+              "0%,rgb(var(--st) / .10) 45%,rgb(var(--st) / 0) 100%)}" in css
+          and ".gate-name{grid-area:name;font-size:15px;" in css
+          and "font-size:14px;line-height:20px;font-weight:500}" in css.split(".gate-status{", 1)[1][:200]
+          and ".gate-note{grid-area:note;margin-top:10px;font-size:14px;" in css,
+          "the tiles are one row, two by two under 900px and one a row on a phone, the name "
+          "15px, the word and the reason 14px")
+    heads = re.findall(r'<header class="sec-head"><span class="gchip g-([a-z]+)" aria-hidden="true">'
+                       r'.*?</span><h3 class="sec-title" id="([a-z]+)-heading">', html, re.S)
+    check(heads[:2] == [("jobs", "score"), ("neutral", "details")]
+          and ('neutral', 'advert') in [(g, k) for g, k in re.findall(
+              r'<header class="sec-head advert-head"><span class="gchip g-([a-z]+)".*?id="([a-z]+)-heading"',
+              html, re.S)],
+          "each section's title sits outside its card with a chip, Score's purple and the "
+          "rest neutral")
+    check('<header class="detail-head">' in html and '<span class="dh-chip"><span class="gchip g-jobs"' in html
+          and "radial-gradient(900px 300px at 0% 0%,rgb(var(--group-jobs-rgb) / .22) 0%,"
+              "rgb(var(--group-jobs-rgb) / .08) 45%,rgb(var(--group-jobs-rgb) / 0) 100%)" in css
+          and ".actions .btn-primary{background:var(--group-apps);" in css
+          and ".lead-line{max-width:80ch;margin-top:16px;font-size:15px;" in css
+          and html.index('class="actions') < html.index('class="lead-line"') < html.index("</header>"),
+          "the header card glows purple, has the Jobs chip, Prepare application in teal and "
+          "the summary under the buttons, 15px and 80 characters at most")
     check('<h4 class="adv-h">Responsibilities</h4><ul>' in html
           and '<details class="advert-rest"><summary>Rest of the advert</summary>' in html
           and html.index("Rest of the advert") < html.index("candidate privacy policy")

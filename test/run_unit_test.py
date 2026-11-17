@@ -1151,7 +1151,7 @@ def main() -> int:
         drop_pane = drop_pane.split('id="role"', 1)[1]
         check(drop_row and f'data-id="{drop_read}"' not in jobs6
               and sec_count(jobs6, "Top prospects") == 2
-              and "Latest advert read lower, reading." in drop_pane,
+              and "Latest advert read lower, Reading." in drop_pane,
               "an old Top advert outranks a fresh Reading one, and the"
               " role pane says the latest advert read lower")
         span_pane = bd4.render_jobs_page(data6, config5, "t", selected=span_new)
