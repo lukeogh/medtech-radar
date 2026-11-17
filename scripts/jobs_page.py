@@ -232,6 +232,13 @@ def build_model(data: dict, now: str | None = None, loc: tuple = ()) -> dict:
     return model
 
 
+def tier_totals(model: dict) -> dict:
+    """Every open role in each tier, whatever location chips are chosen: the
+    number on each tier's band here, and on Home's Top prospects and One
+    question away tiles, so the two pages cannot disagree."""
+    return {t: model["totals"][t] for t in OPEN_TIERS}
+
+
 def _applied_open(data: dict) -> int:
     import board_page
     return board_page.open_count(data)
@@ -549,9 +556,14 @@ def queue_inner_html(model: dict, view: str, current_key: str | None,
     tiers = model["tiers"]
     loc = model.get("loc") or ()
     totals = model.get("totals") or {}
+    bands = tier_totals(model) if model.get("totals") else {}
 
     def count(group, shown):
-        total = totals.get(group, shown)
+        # A tier's band says tier_totals, as Home's tiles do; with a location
+        # chip chosen, the roles shown of that total.
+        total = bands.get(group, totals.get(group, shown))
+        if group in bands and not loc:
+            return total
         return f"{shown} of {total}" if loc and shown != total else shown
 
     def rows(faces, v):

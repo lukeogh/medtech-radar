@@ -752,7 +752,7 @@ def home_checks(tmp: Path) -> None:
         seed_run(c, ago(48), "digest", "dry-run")
 
     page = home(lambda c: fresh(c, signals_hours=22.6))
-    check("Needs a look. Signal watcher stalled" in page
+    check("Needs a look. News watcher stalled" in page
           and 'dot-red" title="Needs a look.' in page,
           "with the watcher stalled Radar's health says so in red, as /health does")
     check(last_lights.get("signals") == "Stale",
@@ -770,7 +770,7 @@ def home_checks(tmp: Path) -> None:
                           "digest": "Not sending", "push": "Not sending"},
           "and Home's lights say Not sending for the digest and the push alone; the watcher and "
           f"the checker in dry run say their state ({last_lights})")
-    check("Signal watcher on schedule, phone push in dry run" in page,
+    check("News watcher on schedule, phone push in dry run" in page,
           "the watcher's line says the phone push is in dry run")
     check("Advert checker on schedule, dry run, writes nothing" in page,
           "the checker's line says a dry run writes nothing")

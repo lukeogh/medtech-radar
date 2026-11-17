@@ -40,6 +40,12 @@ FRAME_CSS = """
   --positive:#74d39b; --positive-tint:#12291c; --caution:#f0c46a; --caution-tint:#2c2311;
   --negative:#ff9b8f; --negative-tint:#33191a; --neutral:#b3bec6; --neutral-tint:#1f262b;
   --focus:#ffd447; --shadow-overlay:0 8px 24px rgba(0,0,0,.5);
+  /* The three groups (owner, 17 Nov): stories (Insights), jobs, and
+     applications and follow-ups. One colour each, for a group's icon chip and
+     the glow on its cards, and as r g b triplets for those tints. Home uses
+     them; other pages may later. */
+  --group-story:#e0a94a; --group-jobs:#a79cf0; --group-apps:#5cc3cf;
+  --group-story-rgb:224 169 74; --group-jobs-rgb:167 156 240; --group-apps-rgb:92 195 207;
   --font-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --radius-2:2px; --radius-4:4px; --dur:120ms;

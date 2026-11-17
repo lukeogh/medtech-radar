@@ -14,8 +14,10 @@ invented, as the design's are.
    phone push worked out from the signal watcher's runs and the ntfy address.
    The top bar's light, which reads the same rules, is checked with the
    header in test/run_header_test.py.
-3. The model on a seeded typical day: five figures, each equal to its group
-   of Needs you today, an applied role
+3. The model on a seeded typical day: five figures, the stories and
+   follow-ups each equal to its group of the list, Top prospects and One
+   question away equal to the Jobs page's tier bands (jobs_page.tier_totals,
+   both pages drawn through the server), an applied role
    in no count and no list (the control: undo it and it is counted), the
    funnel as the Jobs tabs count, the applications tile from the board, the
    week chart rebuilt from score history, and where each item opens.
@@ -476,8 +478,8 @@ def light_checks(tmp: Path) -> None:
     for job in ("digest", "push"):
         li = re.search(rf'<li class="ht-strip-job" data-job="{job}">(.*?)</li>', html)
         check(li is not None and 'class="ht-light is-neu"' in li.group(1) and "Not sending" in li.group(1)
-              and "#st-paused" in li.group(1),
-              f"the {job} light on the page is grey and says Not sending")
+              and 'class="ht-dot is-neu"' in li.group(1),
+              f"the {job} light on the page is grey, dot and word, and says Not sending")
 
 
 # ================================================================ 3. the model
@@ -507,6 +509,36 @@ def model_checks(tmp: Path) -> None:
     check(j["totals"]["top"] == 5 and j["open_total"] == 5 + 3 + 6 + 4 + 1,
           f"the funnel counts as the Jobs tabs do, the applied role in none "
           f"(top {j['totals']['top']}, all open {j['open_total']})")
+    # The Top prospects and One question away tiles are every open role in
+    # the tier, the number on the Jobs page's tier band: both pages are drawn
+    # here through the server from this database, and must agree. A role Done
+    # on Home is still an open role, so it stays in the tile.
+    with pointed_at(db):
+        home_html = serve_dashboard.render("home", {}).decode()
+        jobs_html = serve_dashboard.render("jobs", {}).decode()
+    tiles = {k: int(n) for k, n in re.findall(
+        r'id="figure-(top|question)"[^>]*>.*?<span class="ht-fignum">(\d+)</span>', home_html, re.S)}
+    bands = {k: int(n) for k, n in re.findall(
+        r'<h2 class="group-title" id="group-(top|question|reading)">.*?<span class="group-count">(\d+)</span>',
+        jobs_html, re.S)}
+    shared = jp.tier_totals(j)
+    check(tiles == {"top": bands.get("top"), "question": bands.get("question")}
+          and tiles == {"top": shared["top"], "question": shared["question"]}
+          and tiles["top"] == 5 and tiles["question"] == 3
+          and hp.figure_counts(m)["top"] == tiles["top"],
+          f"the Top prospects and One question away tiles are the Jobs page's tier bands, from one "
+          f"function, jobs_page.tier_totals (Home {tiles}, Jobs {bands})")
+    conn = rc.get_db(db)
+    hp.mark_done(conn, groups["top"][0]["key"], "a Top prospect")
+    conn.close()
+    with pointed_at(db):
+        after = serve_dashboard.render("home", {}).decode()
+    left = re.search(r'id="figure-top"[^>]*>.*?<span class="ht-fignum">(\d+)</span>', after, re.S)
+    check(left is not None and int(left.group(1)) == tiles["top"],
+          "a Top prospect Done on Home is still an open role, so its tile does not drop")
+    conn = rc.get_db(db)
+    hp.mark_undone(conn, groups["top"][0]["key"])
+    conn.close()
     w = m["week"]
     this = w["this"]
     check(not w["first_week"] and len(w["weeks"]) == hp.WEEKS,
@@ -640,7 +672,8 @@ def thread_checks(tmp: Path) -> None:
           == [g for g, _w in hp.GROUPS].index("apps") - 1,
           "Company follow-ups due sits after One question away and before Applications")
     html = page_of(db)
-    fig = re.search(r'<a class="ht-figlink" id="figure-threads" href="([^"]+)" data-group="threads">'
+    fig = re.search(r'<a class="ht-figlink glow-tile g-apps" id="figure-threads" href="([^"]+)" '
+                    r'data-group="threads"><span class="gchip g-apps".*?</svg></span>'
                     r'<span class="ht-fignum">(\d+)</span><span class="ht-figword">([^<]+)</span>', html)
     check(fig is not None and fig.groups() == ("/watchlist", "2", "company follow-ups due"),
           f"the figure: 2 company follow-ups due, linking to the Watchlist ({fig.groups() if fig else None})")
@@ -945,24 +978,40 @@ def page_checks(tmp: Path) -> None:
     check(figs == ["urgent", "top", "question", "threads", "apps"]
           and 'class="ht-figs ht-figs-5"' in body and 'id="group-threads"' not in body,
           f"five figures, company follow-ups due fourth, and no group for them with none due ({figs})")
-    check(re.search(r'class="ht-figlink is-zero" id="figure-threads"', body) is not None
-          and re.search(r'class="ht-figlink" id="figure-top"', body) is not None
-          and ".ht-figlink.is-zero{" in hp.HOME_CSS,
-          "a figure at 0 is dimmed and one with a number is not")
-    welcome = body.split('<div class="ht-welcome-in">', 1)[1].split('class="ht-strip"', 1)[0]
+    check(re.search(r'class="ht-figlink glow-tile g-apps is-zero" id="figure-threads"', body) is not None
+          and re.search(r'class="ht-figlink glow-tile g-jobs" id="figure-top"', body) is not None
+          and ".glow-tile.is-zero{" in hp.HOME_CSS
+          and ".ht-figlink.is-zero .ht-fignum{color:var(--text-3)}" in hp.HOME_CSS,
+          "a tile at 0 keeps its group's colour with the softer glow and a muted number")
+    tiles = re.findall(r'class="ht-figlink glow-tile (g-\w+)[^"]*" id="figure-(\w+)"[^>]*>'
+                       r'<span class="gchip (g-\w+)" aria-hidden="true"><svg viewBox="0 0 20 20" width="18" '
+                       r'height="18" fill="none" stroke="currentColor" stroke-width="1.6" '
+                       r'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">', body)
+    check([(t[1], t[0]) for t in tiles] == [("urgent", "g-story"), ("top", "g-jobs"), ("question", "g-jobs"),
+                                            ("threads", "g-apps"), ("apps", "g-apps")]
+          and all(t[0] == t[2] for t in tiles),
+          f"each tile has its group's colour and icon chip: stories amber, jobs purple, follow-ups teal ({tiles})")
+    welcome = body.split('<div class="ht-welcome-in">', 1)[1].split('<div class="ht-strip"', 1)[0]
     texts = [t.strip() for t in re.sub(r"<[^>]+>", "\n", welcome).split("\n") if t.strip()]
-    check(texts[:3] == [texts[0], "Home.", texts[2]] and re.match(r"\w+day \d+ \w+$", texts[0])
-          and texts[2].startswith("Good ") and texts[3].isdigit(),
-          f"the top section: the date, the greeting, then straight to the figures ({texts[:4]})")
+    check(len(texts) == 3 and texts[1] == "Home." and re.match(r"\w+day \d+ \w+$", texts[0])
+          and texts[2].startswith("Good ") and re.search(r'</section><nav class="ht-figs', body),
+          f"the top section: the date and the greeting, no card and no sentence, then the tiles ({texts})")
     for gone in ("things need you", "thing needs you", "Nothing needs you today", "As of", "Times are UK time",
                  "Settings, on the CV page", "ht-status", "ht-asof", "ht-quiet"):
         check(gone not in body, f"no {gone!r} on Home")
     strip = body.split('class="ht-strip-list"', 1)[1].split("</ul>", 1)[0]
-    lights = re.findall(r'data-job="(\w+)"><span class="ht-light (is-\w+)"><span class="ht-lamp">'
-                        r'<svg[^>]*><use href="#(st-\w+)"></use></svg></span>([A-Za-z ]+)</span>', strip)
+    lights = re.findall(r'data-job="(\w+)"><span class="ht-dot (is-\w+)" aria-hidden="true"></span>'
+                        r'<span class="ht-job-name">([^<]+)</span><span class="visually-hidden">, </span>'
+                        r'<span class="ht-light (is-\w+)">([A-Za-z ]+)</span></li>', strip)
     check([x[0] for x in lights] == ["inbox", "signals", "check", "digest", "push"]
-          and all(x[3] in hp.LIGHTS for x in lights),
-          "five lights, each a mark, a colour and its word")
+          and [x[2] for x in lights] == ["Inbox", "News watcher", "Advert checker", "Monday digest", "Phone push"]
+          and all(x[4] in hp.LIGHTS and x[1] == x[3] == hp.LIGHTS[x[4]][0] for x in lights),
+          "five lights as chips, each a dot, the job's name and its word, the signal watcher named "
+          "the News watcher")
+    check("""<button type="button" class="ht-health-btn" id="health-btn" aria-expanded="false" """
+          """aria-controls="health-panel">Radar's health</button>""" in body
+          and ".ht-health-btn{" in hp.HOME_CSS and "text-decoration:underline" in hp.HOME_CSS.split(".ht-health-btn{", 1)[1].split("}", 1)[0],
+          "Radar's health ends the row, a button drawn as a plain underlined link")
     panel = body.split('id="health-panel"', 1)[1].split('class="hf-bento"', 1)[0] if 'id="health-panel"' in body else ""
     check('id="health-btn" aria-expanded="false" aria-controls="health-panel"' in body
           and '<div class="ht-health" id="health-panel" hidden>' in body,
@@ -1047,7 +1096,7 @@ def page_checks(tmp: Path) -> None:
     check("<script>" not in junk.split("</head>", 1)[1].split("<script>", 1)[0],
           "an address with markup in it selects nothing and prints nothing")
     for width_rule in ("@container app (min-width:1024px)", "@container htw (min-width:1100px)",
-                       "@container htw (min-width:1600px)", "@media (max-width:767.98px)"):
+                       "@container app (max-width:599.98px)", "@media (max-width:767.98px)"):
         check(width_rule in hp.HOME_CSS, f"the layout has its rule {width_rule}")
     check("@media (pointer:coarse)" in hp.HOME_CSS and "min-height:44px" in hp.HOME_CSS,
           "44px targets on a phone and on touch")
@@ -1131,7 +1180,11 @@ def state_checks(tmp: Path) -> None:
     check('class="ht-quiet"' not in html and "The signal watcher last ran at" not in html
           and "sources answering" not in html and "answered at" not in html,
           "and no sentence under the greeting about what Radar read")
-    check(html.count('class="ht-figlink is-zero"') == 5, "the five figures stay, each at 0, dimmed")
+    zero = re.findall(r'class="ht-figlink glow-tile g-\w+ is-zero" id="figure-(\w+)"', html)
+    counts = hp.figure_counts(m)
+    check(zero == [k for k in ("urgent", "top", "question", "threads", "apps") if not counts[k]]
+          and {"urgent", "threads", "apps"} <= set(zero),
+          f"the five tiles stay, each at 0 softened: the stories, the follow-ups and a tier with no open role ({zero})")
     empty = html.split('class="ny-body"', 1)[1].split("</section>", 1)[0] if 'class="ny-body"' in html else ""
     check("ny-is-empty" in html and re.sub(r"<[^>]+>", "", empty.split(">", 1)[1]).strip() == "Nothing today.",
           "the empty list reads Nothing today. and no more")
@@ -1153,10 +1206,10 @@ def state_checks(tmp: Path) -> None:
     html = page_of(db)
     tile = html.split('id="tile-applications"', 1)[1].split("</section>", 1)[0]
     check('<div class="empty"><p>No applications yet.</p></div>' in tile and "<a " not in tile
-          and m["counts"]["apps"] == 0 and "group-apps" not in html,
+          and m["counts"]["apps"] == 0 and 'id="group-apps"' not in html,
           "no applications yet: the tile reads No applications yet. and no more, no Applications group")
-    check(re.search(r'class="ht-figlink is-zero" id="figure-apps"', html),
-          "its figure stays at 0, dimmed")
+    check(re.search(r'class="ht-figlink glow-tile g-apps is-zero" id="figure-apps"', html),
+          "its tile stays at 0, softened")
     db = tmp / "fault.sqlite"
     seed_home(db, "fault")
     m = model_of(db)
@@ -1168,7 +1221,7 @@ def state_checks(tmp: Path) -> None:
     radar = [i for i in m["todo"] if i["group"] == "radar"]
     check([i["id"] for i in radar] == ["radar-signals", "radar-check", "radar-push"],
           "the faults head the list; the quiet inbox and the digest in dry run are not there")
-    check("Signal watcher is stale, 22 hours since its last run" in html
+    check("News watcher is stale, 22 hours since its last run" in html
           and "3 of 5 jobs need a look" in html and "Stale after 6 hours" in html,
           "the stale watcher is named with its age and its limit")
     check("Stale, 22 hours" in html and "\u00b7" not in html,

@@ -317,15 +317,21 @@ def queue_checks(tmp: Path) -> None:
               f"{tiers.NAMES[tier]} has its band: the name in a pill that shows its one line "
               f"when tapped (hidden until then), the count, the new count and a chevron, "
               f"{'open' if opened else 'closed'} to start")
-    check("--tier-top:var(--accent)" in tiers.PILL_CSS
-          and all(tiers.COLOURS[t] not in ("var(--positive)", "var(--negative)", "var(--caution)")
+    check("--tier-top:var(--group-jobs);--tier-top-ink:#15122e;" in tiers.PILL_CSS
+          and "--tier-question:rgba(167,156,240,0.18);--tier-question-ink:#c9c2f8;"
+              "--tier-question-rule:rgba(167,156,240,0.45);" in tiers.PILL_CSS
+          and "--tier-reading:#2a3238;--tier-reading-ink:var(--text-1);" in tiers.PILL_CSS
+          and all(tiers.COLOURS[t] not in ("var(--positive)", "var(--negative)", "var(--caution)",
+                                           "var(--accent)", "var(--group-apps)")
                   for t in tiers.COLOURS)
-          and ".tier-pill.t-question{background:var(--tier-question)}" in html
+          and (".tier-pill.t-question{background:var(--tier-question);color:var(--tier-question-ink);"
+               "border-color:var(--tier-question-rule)}") in html
           and ".group-head{position:sticky;top:0" in html
           and "background:var(--surface-sunken)" in html.split(".group-head{", 1)[1].split("}", 1)[0]
           and ".group-rows .row{padding-left:32px}" in html,
-          "colour is in the pill only, Top prospects in Radar's teal and none in green, red or "
-          "amber; the band is lightly filled and pinned, and its rows are indented")
+          "colour is in the pill only, in the Jobs group's purple (Top prospects filled, One "
+          "question away a tint with a rule, Reading grey) and none in green, red, amber or "
+          "teal; the band is lightly filled and pinned, and its rows are indented")
     check("FOLD_KEY" in html and "localStorage.setItem(FOLD_KEY[tier]" in html
           and "applyFolds();" in html,
           "every tier opens and closes with its chevron, and the browser remembers the choice")
