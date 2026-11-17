@@ -24,6 +24,8 @@ test/*.sqlite-shm
 test/last_digest.html
 test/last_digest.txt
 test/last_signal.txt
+# The page snapshot runner's profile, written fresh on every run
+test/snapshot_profile/
 
 # Python
 __pycache__/

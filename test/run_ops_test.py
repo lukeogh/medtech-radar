@@ -760,10 +760,8 @@ def home_checks(tmp: Path) -> None:
     body = page.split("<main", 1)[1]
     check("Inbox on schedule" not in body,
           "the inbox no longer claims a schedule it does not keep")
-    bar = page.split('<header class="appbar">', 1)[1].split("</header>", 1)[0]
-    check("Check Radar" in bar and 'data-state="check"' in bar and "Inbox" not in bar,
-          "the top bar's light reads every job by Home's rules: with the watcher stalled it "
-          "says Check Radar, in two words and no job names")
+    # The top bar's light on this page, stalled and on time, is checked with
+    # the header in test/run_header_test.py.
 
     page = home(lambda c: fresh(c, inbox_hours=5))
     check("Every job on schedule" in page and "Inbox flowing" in page,
@@ -772,9 +770,6 @@ def home_checks(tmp: Path) -> None:
                           "digest": "Not sending", "push": "Not sending"},
           "and Home's lights say Not sending for the digest and the push alone; the watcher and "
           f"the checker in dry run say their state ({last_lights})")
-    bar = page.split('<header class="appbar">', 1)[1].split("</header>", 1)[0]
-    check("All running" in bar and 'data-state="ok"' in bar,
-          "and with every job on time, the digest and the push in dry run, the top bar says All running")
     check("Signal watcher on schedule, phone push in dry run" in page,
           "the watcher's line says the phone push is in dry run")
     check("Advert checker on schedule, dry run, writes nothing" in page,

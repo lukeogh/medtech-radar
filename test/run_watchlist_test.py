@@ -32,7 +32,7 @@ company, person, story and role here is invented, as the design's are.
 8. The routes through the guard: pages, the lookup, every POST, their 400s
    and 409s, and a forged request refused with nothing written.
 9. The watcher run fills the suggestions; a spot check of one source does not.
-10. The page: one h1, the top bar's Watchlist link, the table, the record
+10. The page: one h1, the bar marking the Watchlist, the table, the record
     beside it and on its own, the keys and their switch, and the script.
 11. The box checks: no command block is empty, every query in them runs, and
     the rollback never restores the backup.
@@ -740,13 +740,11 @@ def watcher_checks(tmp: Path) -> None:
 # ================================================================ 10. the page
 
 def page_checks(tmp: Path) -> None:
-    import page_frame
     try:
         import watchlist_page
     except ImportError as err:
         check(False, f"watchlist_page imports ({err})")
         return
-    check(("watchlist", "/watchlist", "Watchlist") in page_frame.NAV, "the Watchlist link is back in the top bar")
     db, ids = seeded(tmp, "page")
     conn = rc.get_db(db)
     h = ids["Hartwell Infusion Ltd"]

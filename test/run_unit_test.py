@@ -1453,8 +1453,6 @@ def main() -> int:
         check('<details class="sources-fold">' in insights
               and "Where this page" in insights,
               "sources sit collapsed at the bottom of Insights")
-        check('href="/insights" aria-current="page"' in insights,
-              "the Insights tab marks itself current")
         check("The week in numbers" in insights and "Coverage" in insights,
               "the widgets render")
         check(insights.count('class="info"') >= 2,
@@ -1708,24 +1706,17 @@ def main() -> int:
         check(home_with_custom.index("Added so far: Technojobs")
               > home_with_custom.index("Board freshness"),
               "its receipt sits at the foot of Radar's health, below the lights")
-        check('href="/jobs" aria-current="page"' in jobs_page,
-              "the Jobs tab marks itself current")
         keep_pane = build_dashboard.render_jobs_page(
             data, config, "t", selected=ids["Keepit Ltd"])
         check(f'data-act="ack" data-id="{ids["Keepit Ltd"]}"' in keep_pane,
               "the role pane carries the acknowledge action here too")
-        check('>Home</a>' in html_page and 'href="/jobs"' in html_page,
-              "the archive page tab bar names Home and reaches Jobs")
 
         # Radar's health, the old Home: the trends, and the scoring panel,
         # now under the CV page's Settings, with the file's own values in its
         # inputs. The entrance cards went with Home final: the top bar and
-        # the new Home are the way in (test/run_home_test.py checks it).
+        # the new Home are the way in. The top bar on this page and every
+        # other is checked in test/run_header_test.py.
         home = build_dashboard.render_health_page(data, config, "t")
-        for href, word in (("/jobs", "Jobs"), ("/insights", "Insights"),
-                           ("/cv", "CV")):
-            check(f'href="{href}"' in home and f">{word}</a>" in home,
-                  f"the top bar links to {word}")
         check('class="entrance"' not in home and "<h1>Radar's health</h1>" in home,
               "Radar's health has no entrance cards")
         check("Top prospects, week on week" in home
