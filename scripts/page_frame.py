@@ -9,11 +9,12 @@ the names their own stylesheet uses (--paper, --ink-1 and the rest) are
 pointed at the same dark palette here, so a page reads as one product while
 its body waits for its own redesign.
 
-Nothing here reads the database. The inbox line in the bar is drawn from the
-verdict radar_common.job_health gives, which the caller passes in, the same
-verdict /health and Home use, so the bar cannot say on schedule while /health
-says stalled. No external fonts, scripts or images: the mark is inline SVG and
-the font stack ends in the system's own sans.
+Nothing here reads the database. The status light in the bar is drawn from
+the verdicts radar_common.job_health gives, which the caller passes in, read
+by the same rules as Home's five lights (job_light below, which Home uses
+too), so the bar cannot say All running while Home shows a job late. No
+external fonts, scripts or images: the mark is inline SVG and the font stack
+ends in the system's own sans.
 """
 
 from __future__ import annotations
@@ -21,11 +22,12 @@ from __future__ import annotations
 import html
 from datetime import datetime
 
-# The pages in the bar, in order, as the designs draw it: the Watchlist sits
-# between Insights and CV.
+# The pages in the bar, in order (owner's order, 17 Nov). Settings has no page
+# of its own: it is the Settings tab of the CV page, so it links there and is
+# never marked as the page you are on.
 NAV = (("home", "/", "Home"), ("jobs", "/jobs", "Jobs"),
-       ("insights", "/insights", "Insights"), ("watchlist", "/watchlist", "Watchlist"),
-       ("cv", "/cv", "CV"))
+       ("watchlist", "/watchlist", "Watchlist"), ("insights", "/insights", "Insights"),
+       ("cv", "/cv", "CV"), ("settings", "/cv#settings", "Settings"))
 
 FRAME_CSS = """
 :root{
@@ -97,15 +99,19 @@ FRAME_CSS = """
 .appbar .brand-name{font-size:14px;line-height:20px;font-weight:600;white-space:nowrap}
 .appbar .appbar-page{display:none;font-size:16px;line-height:24px;font-weight:600}
 .appbar .nav{display:flex;align-self:stretch;gap:12px;margin:0 0 0 -4px;padding:0;list-style:none}
-.appbar .nav a{display:flex;align-items:center;height:100%;padding:2px 6px 0;border-bottom:2px solid transparent;color:var(--text-2);text-decoration:none;white-space:nowrap;transition:color var(--dur) ease-out}
+.appbar .nav a{display:flex;align-items:center;height:100%;min-height:44px;padding:2px 6px 0;border-bottom:2px solid transparent;color:var(--text-2);font-size:16px;line-height:24px;text-decoration:none;white-space:nowrap;transition:color var(--dur) ease-out}
 .appbar .nav a:hover{color:var(--text-1)}
 .appbar .nav a[aria-current="page"]{color:var(--text-1);border-bottom-color:var(--accent)}
 .appbar .nav a:focus-visible{outline-offset:-4px;box-shadow:none}
 .appbar .appbar-tools{display:flex;align-items:center;gap:16px;min-width:0;margin-left:auto}
-.appbar .inbox-status{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;line-height:16px;color:var(--text-3);white-space:nowrap}
-.appbar .inbox-status svg{flex:none}
-.appbar .inbox-status.is-warn{color:var(--caution)}
-.appbar .inbox-status.is-bad{color:var(--negative)}
+.appbar .radar-status{display:inline-flex;align-items:center;gap:8px;min-height:32px;margin:0;font-size:12px;line-height:16px;font-weight:500;color:var(--text-2);text-decoration:none;white-space:nowrap}
+.appbar .radar-status:hover{color:var(--text-1);text-decoration:underline;text-underline-offset:2px}
+.appbar .radar-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--positive)}
+.appbar .radar-status.is-check{color:var(--caution)}
+.appbar .radar-status.is-check .radar-dot{background:var(--caution)}
+@media (forced-colors:active){.appbar .radar-dot{border:1px solid CanvasText}}
+/* Six pages at 16px: between 768 and 1023 the name gives way to them. */
+@media (max-width:1023.98px){.appbar .brand-name{display:none}.appbar{gap:16px}}
 .appbar .bar-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;min-width:32px;padding:0 8px;border:1px solid transparent;border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 14px/20px var(--font-sans);cursor:pointer;text-decoration:none}
 .appbar .bar-btn:hover{color:var(--text-1);background:var(--row-hover)}
 .appbar .menu-btn{display:none}
@@ -120,7 +126,8 @@ FRAME_CSS = """
   .appbar .menu-panel ul{margin:0;padding:0;list-style:none}
   .appbar .menu-panel a{display:flex;align-items:center;min-height:44px;color:var(--text-1);text-decoration:none;font-size:16px;line-height:24px}
   .appbar .menu-panel a[aria-current="page"]{font-weight:600;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:6px}
-  .appbar .menu-panel .inbox-status{display:flex;margin-top:8px}
+  .appbar .menu-panel .radar-status{display:flex;min-height:44px;margin-top:8px;font-size:16px;line-height:24px}
+  .appbar .menu-panel .radar-dot{width:10px;height:10px}
 }
 @media (pointer:coarse){.appbar .bar-btn{min-width:44px;height:44px}}
 /* A page whose body is still the older one: its own heading row keeps what it
@@ -149,17 +156,6 @@ FRAME_SCRIPT = """
   document.addEventListener('click', function (e) {
     if (bar.classList.contains('menu-open') && !bar.contains(e.target)) setMenu(false);
   });
-  // The inbox time is written in UTC by the server and shown in the
-  // reader's own time here, today's as a time and older ones with the day.
-  bar.querySelectorAll('time[data-local]').forEach(function (t) {
-    var when = new Date(t.getAttribute('datetime'));
-    if (isNaN(when)) return;
-    var now = new Date();
-    var hm = ('0' + when.getHours()).slice(-2) + ':' + ('0' + when.getMinutes()).slice(-2);
-    var sameDay = when.toDateString() === now.toDateString();
-    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    t.textContent = sameDay ? hm : when.getDate() + ' ' + months[when.getMonth()] + ' ' + hm;
-  });
 })();
 """
 
@@ -178,20 +174,16 @@ ICON_HELP = ('<svg viewBox="0 0 20 20" width="20" height="20" fill="none" '
              '3 1.9c-.6.3-.9.8-.9 1.4v.5" stroke="currentColor" stroke-width="1.4" '
              'stroke-linecap="round"/><circle cx="10" cy="13.9" r=".9" '
              'fill="currentColor"/></svg>')
-ICON_WARN = ('<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" '
-             'focusable="false"><circle cx="8" cy="8" r="5.6" fill="none" '
-             'stroke="currentColor" stroke-width="1.6"/><path d="M8 2.4a5.6 5.6 0 0 0 '
-             '0 11.2z" fill="currentColor"/></svg>')
-ICON_BAD = ('<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" '
-            'focusable="false"><path d="M4.2 4.2l7.6 7.6m0-7.6l-7.6 7.6" '
-            'stroke="currentColor" stroke-width="1.8"/></svg>')
-
-# The inbox verdict in the bar's words. The states are job_health's.
-# The inbox's late is quiet: alert mail arrives unevenly, so a gap under a day
-# is normal (Home's light says Quiet, with no warning).
-INBOX_WORDS = {"ok": "on schedule", "partial": "ran, with failures",
-               "late": "quiet", "failing": "failing",
-               "stale": "stalled", "never": "never run"}
+# Radar's five jobs, as Home's strip and the bar's light read them.
+JOB_NAMES = ("inbox", "signals", "check", "digest", "push")
+# A light that is a fault. Not sending (a dry run) is the box as it is set up,
+# and Quiet is the inbox's normal gap between alert emails.
+FAULTS = ("Late", "Stale", "Off")
+# Only these say Not sending (decision 5, 15 Nov; the words of 17 Nov): the
+# digest is built and not sent, the push is written to a file. The signal
+# watcher and the advert checker in dry run still read and store, so their
+# lights are their state.
+DRY_JOBS = ("digest", "push")
 
 
 def esc(value) -> str:
@@ -208,45 +200,73 @@ def _when(iso) -> tuple[str, str] | None:
             f"{moment.day} {moment:%b} {moment:%H:%M} UTC")
 
 
-def inbox_status_html(jobs: dict | None) -> str:
-    """One line on the inbox from its job_health verdict, or nothing.
+def _dry(name: str, verdict: dict) -> bool:
+    mode = str(verdict.get("mode") or "")
+    if name == "digest":
+        return mode not in ("", "build", "commit")
+    return mode in ("dry-run", "mock")
 
-    "Inbox on schedule · ran 09:02". A state that is not on schedule carries
-    an icon as well as its words and a colour, so it never rests on colour.
-    The time is UTC as the server writes it, turned into the reader's own
-    time by FRAME_SCRIPT.
-    """
-    verdict = (jobs or {}).get("inbox")
-    if not verdict:
+
+def job_light(name: str, verdict: dict | None) -> dict:
+    """One job's light from its job_health verdict: never is Off, stale is
+    Stale, late, failing or partial (a run that finished with failures) is
+    Late, except the inbox's late, which is Quiet; and the digest on time
+    whose last build was a dry run says Not sending."""
+    v = dict(verdict or {"state": "never"})
+    state = v.get("state") or "never"
+    if state == "never":
+        word = "Off"
+    elif state == "stale":
+        word = "Stale"
+    elif state == "late" and name == "inbox":
+        word = "Quiet"
+    elif state in ("late", "failing", "partial"):
+        word = "Late"
+    else:
+        word = "Not sending" if name in DRY_JOBS and _dry(name, v) else "On time"
+    return {"name": name, "word": word, "verdict": v, "state": state}
+
+
+def radar_running(jobs: dict | None) -> bool:
+    """True when every job that reads or sends is on time, by Home's lights:
+    no light says Late, Stale or Off. The phone push has no run of its own and
+    rides on the signal watcher, so the watcher's light stands for it. A job
+    /health is told not to watch never turns the light."""
+    jobs = jobs or {}
+    for name in JOB_NAMES[:4]:
+        verdict = jobs.get(name)
+        if verdict is None or verdict.get("watched", True) is False:
+            continue
+        if job_light(name, verdict)["word"] in FAULTS:
+            return False
+    return True
+
+
+def radar_status_html(jobs: dict | None) -> str:
+    """The bar's light: All running, or Check Radar, a link to Radar's health.
+    Nothing when the caller has no verdicts at all. The two states differ in
+    words as well as colour."""
+    if not jobs:
         return ""
-    state = verdict.get("state") or "never"
-    words = INBOX_WORDS.get(state, state)
-    cls, icon = "", ""
-    if state in ("partial", "failing"):
-        cls, icon = " is-warn", ICON_WARN
-    elif state in ("stale", "never"):
-        cls, icon = " is-bad", ICON_BAD
-    ran = _when(verdict.get("last_run"))
-    tail = ""
-    if ran:
-        tail = (f' · ran <time datetime="{ran[0]}" data-local>'
-                f'{esc(ran[1])}</time>')
-    return (f'<p class="inbox-status{cls}" data-state="{esc(state)}">{icon}'
-            f'<span>Inbox {esc(words)}{tail}</span></p>')
+    ok = radar_running(jobs)
+    words = "All running" if ok else "Check Radar"
+    return (f'<a class="radar-status{"" if ok else " is-check"}" href="/radar" '
+            f'data-state="{"ok" if ok else "check"}"><span class="radar-dot" aria-hidden="true"></span>'
+            f'{words}<span class="visually-hidden">, open Radar&#39;s health</span></a>')
 
 
 def appbar_html(current: str, jobs: dict | None = None, page_name: str = "",
                 help_button: bool = False) -> str:
-    """The top bar: the mark and name, the pages, the inbox line and, on the
-    Jobs page, the shortcuts button. Under 768px the bar is the mark, the
-    page's name and a Menu button that opens the pages and the inbox line."""
+    """The top bar: the mark and name, the pages, the status light and, on
+    the Jobs page, the shortcuts button. Under 768px the bar is the mark, the
+    page's name and a Menu button that opens the pages and the light."""
     links = "".join(
         f'<a href="{href}"{" aria-current=" + chr(34) + "page" + chr(34) if key == current else ""}>'
         f'{label}</a>' for key, href, label in NAV)
     items = "".join(
         f'<li><a href="{href}"{" aria-current=" + chr(34) + "page" + chr(34) if key == current else ""}>'
         f'{label}</a></li>' for key, href, label in NAV)
-    status = inbox_status_html(jobs)
+    status = radar_status_html(jobs)
     name = page_name or dict((k, label) for k, _h, label in NAV).get(current, "")
     help_html = ('<button type="button" class="bar-btn help" id="keys-open" '
                  'aria-label="Keyboard shortcuts" aria-keyshortcuts="Shift+?" '

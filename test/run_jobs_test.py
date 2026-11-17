@@ -693,12 +693,12 @@ def page_checks(tmp: Path) -> None:
           and '<main class="content" id="main">' in html
           and 'role="status" aria-live="polite"' in html,
           "the page has its language, a skip link, a main landmark and a live region")
-    check(re.search(r'<p class="inbox-status" data-state="ok"><span>Inbox on schedule · ran '
-                    r'<time datetime="[^"]+Z" data-local>[^<]+UTC</time></span></p>', html),
-          "the top bar's inbox line is job_health's verdict, with the time it ran")
-    stale = page_frame.inbox_status_html({"inbox": {"state": "stale", "last_run": ago(2)}})
-    check("is-bad" in stale and "Inbox stalled" in stale and "<svg" in stale,
-          "a stalled inbox says so in words and with an icon, not by colour alone")
+    check(re.search(r'<a class="radar-status( is-check)?" href="/radar" data-state="(ok|check)">'
+                    r'<span class="radar-dot" aria-hidden="true"></span>(All running|Check Radar)<', html),
+          "the top bar's light is Home's lights in two words, linking to Radar's health")
+    stale = page_frame.radar_status_html({"inbox": {"state": "stale", "last_run": ago(2)}})
+    check("is-check" in stale and "Check Radar" in stale and "All running" not in stale,
+          "a stalled inbox turns it to Check Radar, said in words, not by colour alone")
     with pointed_at(db):
         pages = {name: serve_dashboard.render(name).decode("utf-8")
                  for name in ("home", "insights", "archive")}

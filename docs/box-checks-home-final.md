@@ -107,7 +107,7 @@ Done on.
 6. Look at what Home will list, without serving it. Read only.
 
    ```bash
-   cd /opt/biz-admin/medtech-radar && sudo -u radar env PYTHONDONTWRITEBYTECODE=1 /opt/biz-admin/radar-venv/bin/python -c "import sys, sqlite3; sys.path.insert(0, 'scripts'); import radar_common as rc, build_dashboard as bd, home_page as hp; cfg = rc.load_config(); c = sqlite3.connect('file:db/radar.sqlite?mode=ro', uri=True); c.row_factory = sqlite3.Row; m = hp.build_model(c, bd.collect(c, cfg), cfg); print(hp.greeting(m['now'], m['name'])); print(hp.status_sentence(m)); print('lights:', ', '.join(l['label'] + ' ' + l['word'] for l in m['lights'])); print('groups:', m['counts']); w = m['week']; print('weeks:', [(str(x['week']), x['top'], x['signals']) for x in w['weeks']], 'first week' if w['first_week'] else '')"
+   cd /opt/biz-admin/medtech-radar && sudo -u radar env PYTHONDONTWRITEBYTECODE=1 /opt/biz-admin/radar-venv/bin/python -c "import sys, sqlite3; sys.path.insert(0, 'scripts'); import radar_common as rc, build_dashboard as bd, home_page as hp; cfg = rc.load_config(); c = sqlite3.connect('file:db/radar.sqlite?mode=ro', uri=True); c.row_factory = sqlite3.Row; m = hp.build_model(c, bd.collect(c, cfg), cfg); print(hp.greeting(m['now'], m['name'])); print('lights:', ', '.join(l['label'] + ' ' + l['word'] for l in m['lights'])); print('groups:', m['counts']); w = m['week']; print('weeks:', [(str(x['week']), x['top'], x['signals']) for x in w['weeks']], 'first week' if w['first_week'] else '')"
    ```
 
    Expect the greeting (without a name until step 7), the sentence, five

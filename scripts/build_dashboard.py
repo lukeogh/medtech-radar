@@ -2367,16 +2367,14 @@ def job_light(name: str, verdict: dict) -> tuple[str, str]:
     return dot_cls, word
 
 
-def telemetry_html(data: dict, config: dict) -> str:
-    """The machine, the flow and board freshness, as one strip.
+def _job_sources(data: dict) -> tuple[list, dict]:
+    """(every job board Radar knows, with any source seen in the rows added,
+    {source id: the newest first_seen from it}).
 
-    Moved off Jobs on 3 August. It is operating telemetry, and a person
-    opening Jobs came for roles rather than for whether cron ran. Home
-    is where the heartbeat already lives, so it belongs beside it.
+    Every row that arrived and is not retired, applied roles and reposts of
+    them included. A board's light says whether its email arrives, and mail
+    about a role already applied for is still mail.
     """
-    # Every row that arrived and is not retired, applied roles and reposts of
-    # them included. A board's light says whether its email arrives, and mail
-    # about a role already applied for is still mail.
     everything = data.get("arrivals")
     if everything is None:
         everything = data["opportunities"] + (data.get("acknowledged") or [])
@@ -2397,45 +2395,125 @@ def telemetry_html(data: dict, config: dict) -> str:
                          "name": ("Other email alerts" if extra == "email-other"
                                   else extra),
                          "sender_contains": None})
+    return registry, last_by_source
 
-    builtin_ids = {s["id"] for s in radar_common.BUILTIN_JOB_SOURCES}
-    customs = [s for s in registry
-               if s["id"] not in builtin_ids and s.get("sender_contains")]
 
-    def hours_since(iso) -> float | None:
-        try:
-            then = datetime.strptime(str(iso)[:16], "%Y-%m-%dT%H:%M")
-        except (ValueError, TypeError):
-            return None
-        return max(0.0, (datetime.now(timezone.utc)
-                         - then.replace(tzinfo=timezone.utc)
-                         ).total_seconds() / 3600)
+def _hours_since(iso) -> float | None:
+    try:
+        then = datetime.strptime(str(iso)[:16], "%Y-%m-%dT%H:%M")
+    except (ValueError, TypeError):
+        return None
+    return max(0.0, (datetime.now(timezone.utc)
+                     - then.replace(tzinfo=timezone.utc)
+                     ).total_seconds() / 3600)
 
-    def ago(hours: float | None) -> str:
-        if hours is None:
-            return ""
-        if hours < 1:
-            return "under an hour ago"
-        if hours < 48:
-            n = round(hours)
-            return f"{n} {'hour' if n == 1 else 'hours'} ago"
-        days = round(hours / 24)
-        return f"{days} days ago"
 
-    def dot(cls: str, word: str) -> str:
-        return f'<span class="dot dot-{cls}" title="{esc(word)}"></span>'
+def _ago(hours: float | None) -> str:
+    if hours is None:
+        return ""
+    if hours < 1:
+        return "under an hour ago"
+    if hours < 48:
+        n = round(hours)
+        return f"{n} {'hour' if n == 1 else 'hours'} ago"
+    days = round(hours / 24)
+    return f"{days} days ago"
 
-    # Traffic lights. Boards send daily-ish, so two days is flowing,
-    # a week is quiet, longer means a subscription died. Never-heard-from
-    # is a hollow waiting dot, not an alarm, subscribing is a human step.
-    def board_light(hours: float | None) -> tuple[str, str]:
-        if hours is None:
-            return "grey", "waiting for the first email"
-        if hours <= 48:
-            return "green", "flowing"
-        if hours <= 24 * 7:
-            return "amber", "quiet lately"
-        return "red", "gone silent"
+
+def _dot(cls: str, word: str) -> str:
+    return f'<span class="dot dot-{cls}" title="{esc(word)}"></span>'
+
+
+# Traffic lights. Boards send daily-ish, so two days is flowing,
+# a week is quiet, longer means a subscription died. Never-heard-from
+# is a hollow waiting dot, not an alarm, subscribing is a human step.
+def _board_light(hours: float | None) -> tuple[str, str]:
+    if hours is None:
+        return "grey", "waiting for the first email"
+    if hours <= 48:
+        return "green", "flowing"
+    if hours <= 24 * 7:
+        return "amber", "quiet lately"
+    return "red", "gone silent"
+
+
+def flow_widget(data: dict, captions: bool = True, tag: str = "h4") -> str:
+    """The flow, last fourteen days: arrivals a day, as /radar draws it.
+    Home's health panel draws it without its caption (captions=False)."""
+    counts = [c for _, c in data["daily_arrivals"]]
+    top = max(counts) if any(counts) else 0
+    bars = []
+    for i, (day, c) in enumerate(data["daily_arrivals"]):
+        label = datetime.strptime(day, "%Y-%m-%d").strftime("%d %b").lstrip("0")
+        if c == 0:
+            bars.append(f'<i class="none" title="none on {esc(label)}"></i>')
+        else:
+            h = max(4, round(46 * c / top))
+            today_cls = " today" if i == len(data["daily_arrivals"]) - 1 else ""
+            bars.append(f'<i class="{today_cls.strip()}" '
+                        f'style="height:{h}px" '
+                        f'title="{c} on {esc(label)}"></i>')
+    fortnight_total = sum(counts)
+    dups = max(0, data["week_seen"] - data["week_new"])
+    tip = (info_tip("Arrivals per day, acknowledged and applied ones "
+                    "included, an arrival is an arrival. Hover a bar for "
+                    "its exact count and date.") if captions else "")
+    return (
+        f'<div class="widget"><{tag}>The flow, last fourteen days'
+        + tip
+        + f"</{tag}>"
+        f'<div class="bars">{"".join(bars)}</div>'
+        '<p class="bars-label"><span>two weeks ago</span><span>today</span></p>'
+        '<ul style="margin-top:8px">'
+        f'<li><span class="num">{fortnight_total}</span>'
+        f'{"role" if fortnight_total == 1 else "roles"} arrived</li>'
+        f'<li><span class="num">{data["week_new"]}</span>new this week, '
+        f'{dups} {"duplicate" if dups == 1 else "duplicates"} skipped</li>'
+        "</ul></div>")
+
+
+def freshness_widget(data: dict, captions: bool = True, tag: str = "h4") -> str:
+    """Board freshness: when each job board last sent an email, as /radar
+    draws it. Home's health panel draws it without its caption and without
+    the note under a silent board (captions=False)."""
+    registry, last_by_source = _job_sources(data)
+    fresh_items = []
+    for s in registry:
+        seen = last_by_source.get(s["id"])
+        h = _hours_since(seen)
+        light, word = _board_light(h)
+        fresh_items.append(
+            f"<li>{_dot(light, word)}{esc(s['name'])}"
+            f'<span class="li-age">'
+            + (esc(_ago(h)) if h is not None else "waiting")
+            + "</span></li>")
+    any_red_board = any(
+        _board_light(_hours_since(last_by_source.get(s["id"])))[0] == "red"
+        for s in registry)
+    tip = (info_tip("Green emailed within two days, amber within "
+                    "a week, red was flowing and went silent, a "
+                    "hollow dot has never been heard from and is "
+                    "waiting on a subscription.") if captions else "")
+    return (f'<div class="widget"><{tag}>Board freshness'
+            + tip
+            + f"</{tag}><ul>"
+            + "".join(fresh_items)
+            + ('<li class="board-note">A silent board stopped '
+               "sending email. Check its alert settings on the "
+               "board, then the aggregator's spam folder. LinkedIn "
+               "also rides the personal-Gmail forward filter.</li>"
+               if any_red_board and captions else "")
+            + "</ul></div>")
+
+
+def telemetry_html(data: dict, config: dict) -> str:
+    """The machine, the flow and board freshness, as one strip.
+
+    Moved off Jobs on 3 August. It is operating telemetry, and a person
+    opening Jobs came for roles rather than for whether cron ran. Home
+    is where the heartbeat already lives, so it belongs beside it.
+    """
+    ago, dot = _ago, _dot
 
     # Each job by its own limits, the same verdict /health gives.
     jobs = job_verdicts(data)
@@ -2466,7 +2544,6 @@ def telemetry_html(data: dict, config: dict) -> str:
         for v in jobs.values() if v.get("state") in ("failing", "stale")
         and v.get("failed_note")]
 
-    dups = max(0, data["week_seen"] - data["week_new"])
     metrics = ['<div class="metrics">']
     metrics.append(
         '<div class="widget"><h4>The machine'
@@ -2497,61 +2574,8 @@ def telemetry_html(data: dict, config: dict) -> str:
            if jobs["inbox"].get("state") in ("stale", "never") else "")
         + "</ul></div>")
 
-    counts = [c for _, c in data["daily_arrivals"]]
-    top = max(counts) if any(counts) else 0
-    bars = []
-    for i, (day, c) in enumerate(data["daily_arrivals"]):
-        label = datetime.strptime(day, "%Y-%m-%d").strftime("%d %b").lstrip("0")
-        if c == 0:
-            bars.append(f'<i class="none" title="none on {esc(label)}"></i>')
-        else:
-            h = max(4, round(46 * c / top))
-            today_cls = " today" if i == len(data["daily_arrivals"]) - 1 else ""
-            bars.append(f'<i class="{today_cls.strip()}" '
-                        f'style="height:{h}px" '
-                        f'title="{c} on {esc(label)}"></i>')
-    fortnight_total = sum(counts)
-    metrics.append(
-        '<div class="widget"><h4>The flow, last fourteen days'
-        + info_tip("Arrivals per day, acknowledged and applied ones "
-                   "included, an arrival is an arrival. Hover a bar for "
-                   "its exact count and date.")
-        + "</h4>"
-        f'<div class="bars">{"".join(bars)}</div>'
-        '<p class="bars-label"><span>two weeks ago</span><span>today</span></p>'
-        '<ul style="margin-top:8px">'
-        f'<li><span class="num">{fortnight_total}</span>'
-        f'{"role" if fortnight_total == 1 else "roles"} arrived</li>'
-        f'<li><span class="num">{data["week_new"]}</span>new this week, '
-        f'{dups} {"duplicate" if dups == 1 else "duplicates"} skipped</li>'
-        "</ul></div>")
-
-    fresh_items = []
-    for s in registry:
-        seen = last_by_source.get(s["id"])
-        h = hours_since(seen)
-        light, word = board_light(h)
-        fresh_items.append(
-            f"<li>{dot(light, word)}{esc(s['name'])}"
-            f'<span class="li-age">'
-            + (esc(ago(h)) if h is not None else "waiting")
-            + "</span></li>")
-    any_red_board = any(
-        board_light(hours_since(last_by_source.get(s["id"])))[0] == "red"
-        for s in registry)
-    metrics.append('<div class="widget"><h4>Board freshness'
-                   + info_tip("Green emailed within two days, amber within "
-                              "a week, red was flowing and went silent, a "
-                              "hollow dot has never been heard from and is "
-                              "waiting on a subscription.")
-                   + "</h4><ul>"
-                   + "".join(fresh_items)
-                   + ('<li class="board-note">A silent board stopped '
-                      "sending email. Check its alert settings on the "
-                      "board, then the aggregator's spam folder. LinkedIn "
-                      "also rides the personal-Gmail forward filter.</li>"
-                      if any_red_board else "")
-                   + "</ul></div>")
+    metrics.append(flow_widget(data))
+    metrics.append(freshness_widget(data))
     metrics.append("</div>")
     return "".join(metrics)
 
