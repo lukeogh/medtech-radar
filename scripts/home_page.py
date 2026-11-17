@@ -55,6 +55,7 @@ import applications as ap
 import build_dashboard as bd
 import insights_page as ip
 import jobs_page as jp
+import tiers
 import page_frame
 import radar_common as rc
 import watchlist
@@ -111,7 +112,7 @@ DOES = {"inbox": "Reads job alert emails, then stores and scores the roles.",
         "push": "Sends a signal at 75 or more to the phone, as the watcher stores it."}
 ENDED = {"ok": "Finished", "partial": "Finished, with failures", "failed": "Failed"}
 GROUPS = (("radar", "Radar"), ("urgent", "Urgent signals"),
-          ("top", "Top prospects"), ("question", "One question away"),
+          ("top", tiers.NAMES["top"]), ("question", tiers.NAMES["question"]),
           ("threads", "Company follow-ups due"), ("apps", "Applications"))
 
 
@@ -823,9 +824,9 @@ def funnel_tile(model: dict) -> str:
     # on Home is not new here either; Reading's new are Jobs' own.
     new = {"reading": sum(1 for o in j["tiers"]["reading"] if o.get("_unread")),
            "question": model["counts"]["question"], "top": model["counts"]["top"]}
-    steps = (("top", "Top prospects", t["top"], new["top"], "/jobs#group-top"),
-             ("question", "One question away", t["question"], new["question"], "/jobs#group-question"),
-             ("reading", "Reading", t["reading"], new["reading"], "/jobs?reading=1#group-reading"))
+    steps = (("top", tiers.NAMES["top"], t["top"], new["top"], "/jobs#group-top"),
+             ("question", tiers.NAMES["question"], t["question"], new["question"], "/jobs#group-question"),
+             ("reading", tiers.NAMES["reading"], t["reading"], new["reading"], "/jobs?reading=1#group-reading"))
     # Bar lengths on a square-root scale, the longest of the three full.
     top = math.sqrt(max([1] + [n for _k, _w, n, _f, _h in steps]))
     lis = []

@@ -1074,11 +1074,9 @@ def main() -> int:
         check("Seen 7 times across 2 adverts" in pane5,
               "the role pane carries the sightings and the repost count")
         import re as _re5
-        check("Would they move on the rate" not in jobs5
-              and _re5.search(r'class="r-lead" id="rl-\d+">Stated day rate £600 against'
-                              r' the £700 floor, below\.</span>', jobs5) is not None,
-              "a One question away row leads with the failing gate's stored"
-              " reason, without judged in code, never code's question")
+        check("Would they move on the rate" not in jobs5 and 'class="r-lead"' not in jobs5,
+              "a One question away row carries no lead line and never code's question"
+              " (the row is a title and its facts, owner, 17 Nov)")
 
         # Brief B. One collapse across every tier, the badges, the
         # percentage, the filter, the lead line, and what left the page.
@@ -1129,8 +1127,8 @@ def main() -> int:
         home6 = bd4.render_health_page(data6, config5, "t")
 
         def sec_count(page, title):
-            m = _re5.search(r'id="group-[a-z]+">' + _re5.escape(title)
-                            + r'<span class="group-count">(\d+)', page)
+            m = _re5.search(r'id="group-[a-z]+"><button [^>]*>' + _re5.escape(title)
+                            + r'</button><span class="group-count">(\d+)', page)
             return int(m.group(1)) if m else None
 
         acks = _re5.findall(r'<div class="row [^"]*" data-id="(\d+)"', jobs6)
@@ -1153,8 +1151,7 @@ def main() -> int:
         drop_pane = drop_pane.split('id="role"', 1)[1]
         check(drop_row and f'data-id="{drop_read}"' not in jobs6
               and sec_count(jobs6, "Top prospects") == 2
-              and "Latest advert read lower, reading." in drop_pane
-              and "Scored high then" in drop_row,
+              and "Latest advert read lower, reading." in drop_pane,
               "an old Top advert outranks a fresh Reading one, and the"
               " role pane says the latest advert read lower")
         span_pane = bd4.render_jobs_page(data6, config5, "t", selected=span_new)
@@ -1188,36 +1185,37 @@ def main() -> int:
               and "<dt>Type</dt><dd>Not stated</dd>" in drop_pane,
               "an unknown type is left off the row and named Not stated in the pane")
         check('class="r-cv"' not in jobs6 and '88%' not in jobs6
-              and '<div class="band">CV match 80–89</div>' in jobs6,
-              "the CV figure is off the rows, and the band heading names the range")
+              and 'class="band"' not in jobs6 and "CV match 80–89" not in jobs6,
+              "the CV figure is off the rows, and there are no CV band headings")
         check('id="loc-filter"' not in jobs6
               and 'data-region="europe" data-remote="1"' in jobs6,
               "the location filter is out of this pass (the brief), and the"
               " rows keep the region and remote data for the design's chips")
         check("Rate not stated. Ask before anything else." not in jobs6
-              and "Rate not stated, that's your first question" in jobs6.replace("&#x27;", "'")
-              and "The scorer had its own line." in jobs6,
-              "a Top row with a rate not stated carries no question but the scorer's "
-              "line, and its Rate mark says the rate is the first question")
+              and "that's your first question" not in jobs6.replace("&#x27;", "'")
+              and "The scorer had its own line." not in jobs6,
+              "a Top row with a rate not stated carries no question, no mark and no "
+              "lead line; the role pane says the rate")
         check('Rate not stated</span>' not in jobs6.replace('Rate not stated, ', ''),
               "a row with no pay figure shows no pay words; its Rate mark says it")
         # Top prospects and One question away are open groups, Reading folds,
         # and Applied is a view of its own linked below them.
-        check(jobs6.count('<button type="button" class="fold"') == 1
+        check(jobs6.count('<button type="button" class="fold"') == 3
               and 'aria-controls="group-reading-rows" data-fold="reading"' in jobs6
-              and 'id="group-question">One question away' in jobs6
-              and 'id="group-top">Top prospects' in jobs6
+              and 'aria-controls="group-question-rows" data-fold="question"' in jobs6
+              and 'aria-controls="group-top-rows" data-fold="top"' in jobs6
+              and '>One question away</button>' in jobs6
+              and '>Top prospects</button>' in jobs6
               and 'href="/jobs?show=applied">Applied <span class="group-count">0' in jobs6,
-              "Top and One question away are open, Reading folds, and the"
-              " Applied view is linked below them, at zero too")
+              "every tier folds with its chevron, and the Applied view is"
+              " linked below them, at zero too")
         check("Scored against" not in jobs6 and "row-sub\">Via " not in jobs6
               and "scripts/rescore.py" not in jobs6
               and "Add a job source" not in jobs6,
               "the detail drops the CV stamp, the source line and the rescore"
               " code, and the source strip is gone from Jobs")
-        check('<abbr class="gh-key" title="Rate">R</abbr>' in jobs6
-              and '<abbr class="gh-key" title="Sector">S</abbr>' in jobs6,
-              "the gate column header names each mark's gate")
+        check("gh-key" not in jobs6 and 'class="mk ' not in jobs6,
+              "no gate marks on the rows and no S C L R legend in the bands")
         check("Live · seen" in pane5 and "Unknown, " not in
               next((c for c in jobs5.split('<div class="row ') if f'data-id="{newer}"' in c), "x"),
               "a chain seen this week reads Live, and its row carries no chip")
@@ -1228,9 +1226,8 @@ def main() -> int:
               "the headers read Role, CV match, State, Last seen")
         check("a day converted" not in jobs5,
               "no estimated day rate anywhere on the page")
-        check(">Rate not stated<" not in jobs5
-              and "Rate not stated, that's your first question" in jobs5.replace("&#x27;", "'"),
-              "silence about pay is the Rate mark's, not words on the row")
+        check(">Rate not stated<" not in jobs5,
+              "silence about pay shows no words on the row")
         check(jobs5.index("One question away") < jobs5.index("Reading")
               and "<h2>Ageing</h2>" not in jobs5,
               "the sections run in the draft's order, Ageing after Reading")

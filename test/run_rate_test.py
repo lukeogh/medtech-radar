@@ -401,21 +401,12 @@ def page_checks() -> None:
          "gate_rate_note": "rate unstated, that's your first question", "rate_stated": 0,
          "one_line_why": "A strong fit on the evidence.", "cv_match": 84,
          "question_text": "What is the day rate?"}
-    cls, symbol, words = jobs_page.gate_words(o, "rate", "Rate")
-    check(words == "Rate not stated, that's your first question" and cls == "mk-ns"
-          and symbol == "st-ask",
-          "the Jobs mark for a rate not stated says \"Rate not stated, that's your first "
-          "question\", in its own class and shape, though the stored gate said fail")
-    marks = jobs_page.marks_html(o, True)
-    check('aria-label="Rate not stated, that&#x27;s your first question"' in marks
-          or "aria-label=\"Rate not stated, that's your first question\"" in marks
-          or 'Rate not stated, that&#39;s your first question' in marks,
-          "the mark's screen-reader text and tooltip carry the same words")
-    check("Rate passes" not in marks and "Rate fails" not in marks,
-          "no Passes or Fails for a rate not stated on the row")
-    src = (REPO_ROOT / "scripts" / "jobs_page.py").read_text(encoding="utf-8")
-    check('<symbol id="st-ask"' in jobs_page.SYMBOLS and ".mk-ns{color:var(--neutral)}" in src,
-          "the not stated shape is a symbol of its own, in the neutral colour")
+    row = jobs_page.row_html(o, "open", None, rc.now_iso())
+    check('class="mk ' not in row and "Rate passes" not in row and "Rate fails" not in row
+          and "Rate not stated" not in row,
+          "the Jobs row carries no gate marks (owner, 17 Nov): the role pane says the rate")
+    check('<symbol id="st-ask"' in jobs_page.SYMBOLS,
+          "the not stated shape is a symbol of its own")
     check(jobs_page.lead_line(o) == "A strong fit on the evidence.",
           "a Top prospect shows no question, its stored one included")
     q = {**o, "tier": "question", "gate_location": 0,
@@ -432,9 +423,8 @@ def page_checks() -> None:
     from datetime import datetime, timezone
     item = {"kind": "role", "id": "role-1", "key": "role:top:k", "title": "T", "role": {"id": 1, **o}}
     body = home_page.role_row(item, {"now": datetime.now(timezone.utc), "show": "todo"})
-    check("Rate not stated, that's your first question" in body.replace("&#x27;", "'").replace("&#39;", "'")
-          and 'class="mk mk-ns"' in body and "Rate passes" not in body,
-          "Home's role row, the Jobs row, says not stated in its own neutral mark, never the pass colour")
+    check('class="mk ' not in body and "Rate passes" not in body and "Rate fails" not in body,
+          "Home's role row, the Jobs row, carries no gate marks either")
     check(prepare_page._gate_mark(rc.NOT_STATED) == '<span class="none">? Not stated</span>'
           and "Passes" not in prepare_page._gate_mark(rc.NOT_STATED),
           "Prepare's gates table marks a rate not stated with its own words")

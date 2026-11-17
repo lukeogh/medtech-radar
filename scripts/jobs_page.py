@@ -32,18 +32,17 @@ from datetime import datetime, timedelta, timezone
 import radar_common
 import build_dashboard as bd
 import page_frame
+import tiers
 
 esc = bd.esc
 
 VIEWS = ("open", "acknowledged", "filtered", "applied")
 VIEW_WORDS = {"open": "Open roles", "acknowledged": "Acknowledged",
               "filtered": "Filtered", "applied": "Applied"}
-OPEN_TIERS = ("top", "question", "reading")
-GROUP_WORDS = {"top": "Top prospects", "question": "One question away",
-               "reading": "Reading", "filtered": "Filtered",
+OPEN_TIERS = tiers.OPEN_TIERS
+GROUP_WORDS = {**tiers.NAMES, "filtered": "Filtered",
                "acknowledged": "Acknowledged", "applied": "Applied"}
-TIER_WORDS = {"top": "Top prospect", "question": "One question away",
-              "reading": "Reading", "filtered": "Filtered"}
+TIER_WORDS = {**tiers.SINGULAR, "filtered": "Filtered"}
 GATES = (("sector", "Sector", "S"), ("cv", "CV match", "C"),
          ("location", "Location", "L"), ("rate", "Rate", "R"))
 BOARDS = {"linkedin-alert": "LinkedIn", "reed-alert": "Reed",
@@ -288,6 +287,7 @@ SYMBOLS = """<svg width="0" height="0" style="position:absolute" aria-hidden="tr
 <symbol id="ic-launch" viewBox="0 0 16 16"><path d="M7 3H3.6A1.6 1.6 0 0 0 2 4.6v7.8A1.6 1.6 0 0 0 3.6 14h7.8a1.6 1.6 0 0 0 1.6-1.6V9" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 2H14v4.5M14 2 7.5 8.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
 <symbol id="ic-down" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
 <symbol id="ic-right" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+<symbol id="ic-left" viewBox="0 0 16 16"><path d="M10 4l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
 </svg>"""
 
 
@@ -303,31 +303,6 @@ STATE_MARKS = {radar_common.PASSES: ("mk-pass", "st-pos", "Passes"),
                radar_common.FAILS: ("mk-fail", "st-neg", "Fails"),
                radar_common.NOT_STATED: ("mk-ns", "st-ask", "Not stated"),
                radar_common.NOT_JUDGED: ("mk-nj", "st-neu", "Not judged")}
-
-
-def gate_words(o: dict, gate: str, name: str) -> tuple[str, str, str]:
-    """(mark class, symbol, the mark's name in words) for one gate."""
-    state = radar_common.gate_state(o, gate)
-    cls, symbol, _word = STATE_MARKS[state]
-    if state == radar_common.NOT_STATED:
-        return cls, symbol, f"{name} not stated, that's your first question"
-    note = _clean(o.get(f"gate_{gate}_note"))
-    words = f"{name} {state}" + (f", {note}" if note else "")
-    return cls, symbol, words
-
-
-def marks_html(o: dict, current: bool) -> str:
-    """The four gate marks. Each is named in words and has a tooltip of the
-    same words, shown while that mark is hovered or has focus. The marks of
-    the selected row are in the tab order; the rest are reached by selecting
-    their row, so the queue is not four extra stops a row."""
-    out = []
-    for gate, name, _letter in GATES:
-        cls, symbol, words = gate_words(o, gate, name)
-        out.append(f'<span class="mk {cls}" role="img" aria-label="{esc(words)}" '
-                   f'tabindex="{0 if current else -1}">{_use(symbol)}'
-                   f'<span class="mk-tip" aria-hidden="true">{esc(words)}</span></span>')
-    return f'<span class="r-marks">{"".join(out)}</span>'
 
 
 def lifecycle_tag(o: dict, now: str) -> str:
@@ -385,34 +360,6 @@ def lead_line(o: dict) -> str:
     return bd.sentence(o.get("one_line_why") or "")
 
 
-# What the row leaves out of a gate's stored reason: a verdict word in front,
-# which the mark already says, and code's "judged in code".
-_VERDICT_LEAD = re.compile(r"^\s*(?:location|rate)\s+fails?\s*[,:.]\s*", re.IGNORECASE)
-_JUDGED_IN_CODE = re.compile(r",?\s*judged in code\b", re.IGNORECASE)
-
-
-def gate_reason(o: dict, gate: str) -> str:
-    """One gate's stored reason as the row says it, or "" when none is
-    stored."""
-    text = _clean(o.get(f"gate_{gate}_note"))
-    text = _JUDGED_IN_CODE.sub("", _VERDICT_LEAD.sub("", text)).strip(" ,;")
-    return bd.sentence(text) if text else ""
-
-
-def row_lead(o: dict) -> str:
-    """The row's lead line. On a One question away role, the stored reason of
-    the gate that fails, never code's question, and nothing when no reason is
-    stored. Every other row keeps its lead line (lead_line, which Home uses
-    too)."""
-    if o.get("tier") != "question":
-        return lead_line(o)
-    gates = radar_common.gates_of(o)
-    for gate in radar_common.MOVABLE_GATES:
-        if gates.get(gate) is False:
-            return gate_reason(o, gate)
-    return ""
-
-
 def pane_lead(o: dict) -> str:
     """The role pane's lead line: lead_line, except that code's own question
     on a One question away role is not shown. A question the model wrote and
@@ -449,6 +396,27 @@ def first_seen(o: dict) -> str:
     return o.get("_first") or chain.get("first") or o.get("first_seen") or ""
 
 
+def facts_bits(o: dict) -> list:
+    """A role's facts, each escaped, in the order the row and the role pane
+    say them: company, place, contract or permanent where known, pay only
+    when the advert states a figure, and the source only when it is not
+    LinkedIn."""
+    bits = [esc(o.get("company") or "Unknown company")]
+    place = location_text(o)
+    if place:
+        bits.append(esc(place))
+    word = engagement_word(o)
+    if word:
+        bits.append(word)
+    pay = pay_shown(o)
+    if pay:
+        bits.append(f'<span class="r-rate">{esc(pay)}</span>')
+    source = board(o.get("source"))
+    if source != BOARDS["linkedin-alert"]:
+        bits.append(esc(source))
+    return bits
+
+
 def meta_html(bits: list) -> str:
     """The row's facts (each already escaped), set apart by a thin drawn
     rule with 8px either side (ROW_CSS, owner, 17 Nov), never a typed mark,
@@ -459,13 +427,11 @@ def meta_html(bits: list) -> str:
 
 def row_html(o: dict, view: str, current_key: str | None, now: str,
              loc: tuple = ()) -> str:
-    """One role in the queue. The title is the link that opens it; the rest
-    of the row describes it. The New word and the first-seen date, the
-    company, place, pay when the advert gives a figure, contract or permanent
-    and the source when it is not LinkedIn, the full job spec tag and a
-    Closed tag for an advert the checker confirmed closed, then the lead line
-    (row_lead) and the four gate marks. The Applied view's row keeps its CV
-    match, as it has no band headings."""
+    """One role in the queue: its title, the link that opens it, on up to two
+    lines with New before it, then one line of facts (facts_bits) with the
+    Full job spec tag and a Closed tag for an advert the checker confirmed
+    closed (owner, 17 Nov). The Applied view's row keeps its own facts and
+    its CV match."""
     oid = int(o["id"])
     key = role_key(o)
     current = key == current_key
@@ -500,28 +466,10 @@ def row_html(o: dict, view: str, current_key: str | None, now: str,
                 f'aria-describedby="rm-{oid}"><span class="r-title">{esc(title)}</span></a>{cv}</span>'
                 f'<span class="r2"><span class="r-meta" id="rm-{oid}">{meta}</span></span>'
                 '</div>')
-    # The row says only what differs between roles: pay when the advert gives
-    # a figure, the source when it is not LinkedIn, a state tag only for an
-    # advert confirmed closed. The CV figure is the band heading's and the
-    # pane's, so the title takes the width.
-    meta_bits = [esc(o.get("company") or "Unknown company")]
-    place = location_text(o)
-    if place:
-        meta_bits.append(esc(place))
-    pay = pay_shown(o)
-    if pay:
-        meta_bits.append(f'<span class="r-rate">{esc(pay)}</span>')
-    word = engagement_word(o)
-    if word:
-        meta_bits.append(word)
-    source = board(o.get("source"))
-    if source != BOARDS["linkedin-alert"]:
-        meta_bits.append(esc(source))
+    meta_bits = facts_bits(o)
     tags = spec_tag(o) + state_tag(o)
     if view == "acknowledged" and o.get("acknowledged_at"):
         tags += f'<span class="tag tag-neutral">Acknowledged {esc(_day(o["acknowledged_at"]))}</span>'
-    lead = row_lead(o)
-    seen = _day(first_seen(o))
     new = '<span class="r-new">New</span>' if unread else ""
     # The region and the remote flag stay on the row, as they were for the
     # location filter, so the design's location chips can be wired to them.
@@ -533,51 +481,33 @@ def row_html(o: dict, view: str, current_key: str | None, now: str,
         f'data-remote="{remote}">'
         f'<span class="r1"><a class="r-link" id="rt-{oid}" href="{role_url(oid, view, loc)}"'
         f'{" aria-current=" + chr(34) + "true" + chr(34) if current else ""} '
-        f'aria-describedby="rm-{oid} rl-{oid}">{new}'
-        f'<span class="r-title">{esc(title)}</span></a>'
-        f'<span class="r-first">{"First seen " + esc(seen) if seen else ""}</span></span>'
+        f'aria-describedby="rm-{oid}">{new}'
+        f'<span class="r-title">{esc(title)}</span></a></span>'
         f'<span class="r2"><span class="r-meta" id="rm-{oid}">{meta_html(meta_bits)}</span>{tags}</span>'
-        f'<span class="r3"><span class="r-lead" id="rl-{oid}">{esc(lead)}</span>'
-        f'{marks_html(o, current)}</span>'
         '</div>')
 
 
-def band_of(o: dict) -> str:
-    cv = o.get("cv_match")
-    if cv is None:
-        return "No CV match"
-    low = min(90, (int(cv) // 10) * 10)
-    return f"CV match {low}–{low + 9}" if low < 90 else "CV match 90–100"
-
-
 def rows_html(faces: list, view: str, current_key, now: str, loc: tuple = ()) -> str:
-    """Rows with a divider opening each ten-point CV band."""
-    out, band = [], None
-    for o in faces:
-        b = band_of(o)
-        if view != "applied" and b != band:
-            out.append(f'<div class="band">{esc(b)}</div>')
-            band = b
-        out.append(row_html(o, view, current_key, now, loc))
-    return "".join(out)
-
-
-GATES_HEAD = ('<span class="gates-head"><span class="visually-hidden">Gate marks: '
-              'Sector, CV match, Location, Rate</span><span class="gh-keys" '
-              'aria-hidden="true">'
-              + "".join(f'<abbr class="gh-key" title="{name}">{letter}</abbr>'
-                        for _g, name, letter in GATES)
-              + '</span></span>')
+    """The rows, in the order given."""
+    return "".join(row_html(o, view, current_key, now, loc) for o in faces)
 
 
 def group_html(gid: str, title: str, count, new: int, body: str,
-               fold: str | None = None, gates: bool = True,
-               lazy: bool = False) -> str:
-    """One group: a sticky header with its title, count, new count and gate
-    letters, then its rows. fold is None for a group that is always open,
-    "open" or "closed" for one that folds."""
-    new_html = (f' <span class="group-new" data-new="{new}">· {new} new</span>'
-                if new else f' <span class="group-new" data-new="0"></span>')
+               fold: str | None = None, lazy: bool = False) -> str:
+    """One group: a full-width band, pinned while its rows scroll under it,
+    with the group's name in a pill, its count and new count, and for a tier
+    that folds, a chevron at the end; then its rows. A tier's pill shows and
+    hides one line on what puts a role there. fold is None for a group that
+    is always open, "open" or "closed" for one that folds."""
+    new_html = (f'<span class="group-new" data-new="{new}">{new} new</span>'
+                if new else '<span class="group-new" data-new="0"></span>')
+    means = ""
+    if gid in tiers.OPEN_TIERS:
+        pill = tiers.pill_html(gid, title, toggle_id=f"group-{gid}-means")
+        means = (f'<p class="group-means" id="group-{gid}-means" hidden>'
+                 f'{esc(tiers.MEANINGS[gid])}</p>')
+    else:
+        pill = tiers.pill_html(gid, title)
     fold_html = ""
     hidden = ""
     if fold is not None:
@@ -588,10 +518,9 @@ def group_html(gid: str, title: str, count, new: int, body: str,
         hidden = "" if fold == "open" else " hidden"
     lazy_attr = ' data-lazy="1"' if lazy else ""
     return (f'<section class="group" aria-labelledby="group-{gid}" data-tier="{gid}">'
-            f'<div class="group-head"><h2 class="group-title" id="group-{gid}">'
-            f'{esc(title)}<span class="group-count">{count}{new_html}</span></h2>'
-            f'{fold_html}{GATES_HEAD if gates else ""}</div>'
-            f'<div class="group-rows" id="group-{gid}-rows"{hidden}{lazy_attr}>{body}</div>'
+            f'<div class="group-head"><h2 class="group-title" id="group-{gid}">{pill}'
+            f'<span class="group-count">{count}</span>{new_html}</h2>{fold_html}</div>'
+            f'{means}<div class="group-rows" id="group-{gid}-rows"{hidden}{lazy_attr}>{body}</div>'
             '</section>')
 
 
@@ -610,24 +539,22 @@ def queue_inner_html(model: dict, view: str, current_key: str | None,
     def rows(faces, v):
         return rows_html(faces, v, current_key, now, loc)
 
-    out = ['<p class="queue-note">Scores are from the advert card unless tagged '
-           'Full job spec.</p>']
+    out = []
     if view == "open":
         if model["open_total"] == 0 and not model["acknowledged"] and not model["applied"]:
-            out.append('<p class="empty-note">Nothing scored yet. The inbox '
-                       'workflow fills this page once radar-inbox is armed.</p>')
+            out.append('<p class="empty-note">Nothing scored yet.</p>')
         top = tiers["top"]
         body = (rows(top, view) if top else
                 '<p class="empty-note">Nothing to get excited about this week.</p>'
                 if not loc else '<p class="empty-note">No Top prospect here.</p>')
-        out.append(group_html("top", "Top prospects", count("top", len(top)),
-                              sum(o["_unread"] for o in top), body))
+        out.append(group_html("top", GROUP_WORDS["top"], count("top", len(top)),
+                              sum(o["_unread"] for o in top), body, fold="open"))
         question = tiers["question"]
         body = (rows(question, view) if question else
                 '<p class="empty-note">No role is one question away.</p>')
-        out.append(group_html("question", "One question away",
+        out.append(group_html("question", GROUP_WORDS["question"],
                               count("question", len(question)),
-                              sum(o["_unread"] for o in question), body))
+                              sum(o["_unread"] for o in question), body, fold="open"))
         reading = tiers["reading"]
         if reading or (loc and totals.get("reading")):
             # Reading folds. Its rows are drawn now when it is open, which it
@@ -636,7 +563,7 @@ def queue_inner_html(model: dict, view: str, current_key: str | None,
             show = reading_open or any(role_key(o) == current_key for o in reading)
             body = ((rows(reading, view) if reading else
                      '<p class="empty-note">No Reading role here.</p>') if show else "")
-            out.append(group_html("reading", "Reading", count("reading", len(reading)),
+            out.append(group_html("reading", GROUP_WORDS["reading"], count("reading", len(reading)),
                                   sum(o["_unread"] for o in reading), body,
                                   fold="open" if show else "closed",
                                   lazy=not show))
@@ -658,49 +585,20 @@ def queue_inner_html(model: dict, view: str, current_key: str | None,
                        f'<a class="link" href="/jobs{view_query("filtered", loc)}">Show them</a></p>')
         if model["unscored"]:
             n = len(model["unscored"])
-            out.append(f'<p class="filtered">{n} {"role is" if n == 1 else "roles are"} '
-                       'not scored yet. Home counts them.</p>')
+            out.append(f'<p class="filtered">{n} {"role" if n == 1 else "roles"} '
+                       'not scored yet.</p>')
     else:
         faces = model["lists"][view]
-        if view == "filtered":
-            roll = ", ".join(f"{n} {r}" for r, n in sorted(
-                model["filtered_reasons"].items(), key=lambda kv: -kv[1]))
-            out.append('<p class="queue-note">Filtered roles are hidden from the '
-                       'open roles: CV match under the floor, or not a real '
-                       f'leadership role.{" " + esc(roll) + "." if roll else ""}</p>')
-        if view == "acknowledged":
-            out.append('<p class="queue-note">Acknowledged roles are out of the '
-                       'open roles and the digest, and stay on file.</p>')
-        if view == "applied":
-            out.append('<p class="queue-note">Applied roles stay here and never '
-                       'expire, newest application first, Closed ones included. '
-                       'Roles in Preparing are on the Board, where the Applied '
-                       'count is Preparing to Offer.</p>')
         new = sum(1 for o in faces if o.get("_unread"))
         empty = {"applied": "No applications recorded yet.",
                  "acknowledged": "No acknowledged roles.",
                  "filtered": "No filtered roles."}[view]
         body = (rows(faces, view) if faces else
                 f'<p class="empty-note">{empty}</p>')
-        out.append(group_html(view, GROUP_WORDS[view], count(view, len(faces)), new, body,
-                              gates=view != "applied"))
+        out.append(group_html(view, GROUP_WORDS[view], count(view, len(faces)), new, body))
         out.append(f'<p class="view-link"><a class="link" href="/jobs{view_query("open", loc)}">'
                    'Back to the open roles</a></p>')
     return "".join(out)
-
-
-def counts_html(model: dict) -> str:
-    """The header's counts, each a part the page script can update."""
-    totals = model["totals"]
-    bits = [f'<span data-count="open">{model["open_total"]} open</span>',
-            f'<span data-count="top">{totals["top"]} Top prospects</span>',
-            f'<span data-count="question">{totals["question"]} one question away</span>',
-            f'<span data-count="reading">{totals["reading"]} reading</span>',
-            f'<span data-count="filtered">{totals["filtered"]} filtered</span>']
-    if model["unscored"]:
-        bits.append(f'<span data-count="unscored">{len(model["unscored"])} not scored</span>')
-    bits.append(f'<span data-count="new" data-n="{model["new"]}">{model["new"]} new</span>')
-    return " · ".join(bits)
 
 
 # ----------------------------------------------------------------- the role
@@ -1071,15 +969,13 @@ def advert_section(o: dict, reasons: list, quotes: bool, view: str,
 def _btn(kind: str, label: str, key: str, oid: int, primary: bool = False) -> str:
     cls = "btn-primary" if primary else "btn-secondary"
     return (f'<button type="button" class="btn {cls}" data-act="{kind}" '
-            f'data-id="{oid}" data-shortcut="{key}" aria-keyshortcuts="{key.upper()}">'
-            f'{label}<kbd class="kbd" aria-hidden="true">{key.upper()}</kbd></button>')
+            f'data-id="{oid}">{label}</button>')
 
 
 def actions_html(o: dict, view: str) -> str:
     oid = int(o["id"])
     prepare = (f'<a class="btn btn-primary" href="/prepare/{oid}" '
-               f'data-prepare="{oid}" data-shortcut="p" aria-keyshortcuts="P">'
-               'Prepare application<kbd class="kbd" aria-hidden="true">P</kbd></a>')
+               f'data-prepare="{oid}">Prepare application</a>')
     if view == "applied":
         return ('<div class="actions actions-applied">'
                 f'<button type="button" class="btn btn-secondary" data-act="unapply" '
@@ -1097,8 +993,7 @@ def actions_html(o: dict, view: str) -> str:
         # way back to the open roles comes first.
         return ('<div class="actions actions-open">'
                 + f'<button type="button" class="btn btn-secondary" data-act="unack" '
-                  f'data-id="{oid}" data-shortcut="a" aria-keyshortcuts="A">Back to '
-                  'open roles<kbd class="kbd" aria-hidden="true">A</kbd></button>'
+                  f'data-id="{oid}">Back to open roles</button>'
                 + _btn("dismiss", "Dismiss", "d", oid)
                 + _btn("close", "Close role", "c", oid) + '</div>')
     return ('<div class="actions actions-open">' + prepare
@@ -1150,22 +1045,22 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
                  f'{esc(_day(face.get("applied_at")))}</span>')
     link = bd.safe_url(face.get("source_url"))
     open_advert = (f'<a class="btn btn-ghost open-advert" href="{esc(link)}" '
-                   'target="_blank" rel="noopener noreferrer" data-shortcut="o" '
-                   f'data-open="{oid}" aria-keyshortcuts="O">{_use("ic-launch", 16)}'
+                   'target="_blank" rel="noopener noreferrer" '
+                   f'data-open="{oid}">{_use("ic-launch", 16)}'
                    'Open the advert<span class="visually-hidden"> (opens in a new tab)'
-                   '</span><kbd class="kbd" aria-hidden="true">O</kbd></a>'
+                   '</span></a>'
                    if link else "")
     prev_id, next_id = nav_ids(model, view, face)
 
-    def step(target, label, key, rel):
+    def step(target, label, rel, arrow):
+        # An arrow, named in words for a screen reader and on hover.
         if target is None:
-            return (f'<span class="btn btn-secondary prevnext is-disabled" '
-                    f'aria-disabled="true">{label}<kbd class="kbd" aria-hidden="true">'
-                    f'{key}</kbd></span>')
+            return (f'<span class="btn btn-secondary prevnext is-disabled" role="link" '
+                    f'aria-disabled="true" aria-label="{label}" title="{label}">'
+                    f'{_use(arrow, 16)}</span>')
         return (f'<a class="btn btn-secondary prevnext" href="{role_url(target, view, model["loc"])}" '
-                f'rel="{rel}" data-step="{rel}" data-id="{target}" '
-                f'aria-keyshortcuts="{key}">{label}<kbd class="kbd" aria-hidden="true">'
-                f'{key}</kbd></a>')
+                f'rel="{rel}" data-step="{rel}" data-id="{target}" aria-label="{label}" '
+                f'title="{label}">{_use(arrow, 16)}</a>')
 
     back = (f'<a class="link back" href="/jobs{view_query(view if view != "retired" else "open", model["loc"])}" '
             'data-back>Back to Jobs</a>')
@@ -1174,7 +1069,7 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
             f'<div class="dh-meta"><span class="dh-meta-text">{" · ".join(meta)}</span>'
             f'{tags}</div>'
             f'<div class="dh-nav">{open_advert}'
-            f'{step(prev_id, "Previous", "K", "prev")}{step(next_id, "Next", "J", "next")}'
+            f'{step(prev_id, "Previous job", "prev", "ic-left")}{step(next_id, "Next job", "next", "ic-right")}'
             f'</div></div>{actions_html(face, view)}</header>')
     lead = pane_lead(face)
     body = [f'<p class="lead-line">{esc(lead)}</p>' if lead else "",
@@ -1187,23 +1082,10 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
             f'{"".join(body)}</div>{advert}</div>')
 
 
-KEYMAP = (("J", "Next role"), ("K", "Previous role"),
-          ("P", "Prepare application"), ("A", "Acknowledge"),
-          ("D", "Dismiss"), ("C", "Close role"), ("M", "Mark applied"),
-          ("O", "Open the advert"), ("?", "Show this list"))
-
-
-def keymap_html() -> str:
-    return ('<dl class="keymap">' + "".join(
-        f'<div><dt><kbd class="kbd">{esc(k)}</kbd></dt><dd>{esc(v)}</dd></div>'
-        for k, v in KEYMAP) + '</dl>')
-
-
 def no_selection_html(view: str, note: str = "") -> str:
-    lead = note or ("Choose a role in the list to read it here. The keys below "
-                    "work anywhere on this page except while you type in a field.")
-    return (f'<div class="no-selection"><h2 class="visually-hidden">No role chosen</h2>'
-            f'<p>{esc(lead)}</p>{keymap_html()}</div>')
+    """The role pane with no role chosen: those words and no more, or why the
+    address named no role."""
+    return f'<div class="no-selection"><p>{esc(note or "No role chosen.")}</p></div>'
 
 
 # ------------------------------------------------------------------ the page
@@ -1227,8 +1109,7 @@ def role_payload(data: dict, model: dict, item_id: int, view: str) -> dict | Non
 def queue_payload(model: dict, view: str, current_key: str | None,
                   reading_open: bool) -> dict:
     return {"html": queue_inner_html(model, view, current_key, reading_open),
-            "counts": counts_html(model), "stamp": model["stamp"],
-            "new": model["new"]}
+            "stamp": model["stamp"], "new": model["new"]}
 
 
 def reading_payload(model: dict, current_key: str | None) -> dict:
@@ -1293,14 +1174,14 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
         role_cls = "role role-detail"
         role = role_inner_html(data, model, face, shown)
         label = 'aria-labelledby="role-title"'
-        title = f"{face.get('title') or 'Untitled role'} · Jobs · MedTech Radar"
+        title = f"{face.get('title') or 'Untitled role'}, Jobs, MedTech Radar"
     else:
         role_cls = "role role-empty"
         note = (f"There is no role {int(selected)}. It may have been removed from "
                 "the database." if status == 404 else "")
         role = no_selection_html(view, note)
         label = 'aria-label="Role"'
-        title = "Jobs · MedTech Radar"
+        title = "Jobs, MedTech Radar"
     state = {"view": view, "id": int(face["id"]) if face is not None else None,
              "key": current_key, "tier": (face or {}).get("tier") or "",
              "unread": bool((face or {}).get("_unread")),
@@ -1320,10 +1201,11 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 <body>
 <div class="app" data-page="jobs" data-show="{view}" data-view="{"role" if face is not None else "list"}" data-state="{state_json}">
 {SYMBOLS}
-{page_frame.appbar_html("jobs", bd.job_verdicts(data), "Jobs", help_button=True)}
+{page_frame.appbar_html("jobs", bd.job_verdicts(data), "Jobs")}
 <div class="pagehead">
-<div class="ph-title"><h1>Jobs</h1><p class="counts" id="counts">{counts_html(model)}</p></div>
+<div class="ph-title"><h1>Jobs</h1></div>
 <div class="ph-tools">
+<button type="button" class="btn btn-secondary list-toggle" id="list-toggle" aria-expanded="true" aria-controls="queue">Hide the list</button>
 <div class="arrivals" role="status"><button type="button" class="btn btn-secondary" id="arrivals" hidden></button></div>
 {chips_html(loc)}
 {show_menu_html(model, view)}
@@ -1336,13 +1218,6 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 <section class="{role_cls}" id="role" {label}>{role}</section>
 </main>
 <p class="toast" id="toast" role="status" aria-live="polite"></p>
-<dialog class="keys" id="keys" aria-labelledby="keys-title">
-<h2 id="keys-title">Keyboard shortcuts</h2>
-<p class="keys-note">The keys work anywhere on this page except while you type in a field.</p>
-<p class="keys-toggle"><label><input type="checkbox" id="keys-on" checked> Single-key shortcuts on</label></p>
-{keymap_html()}
-<form method="dialog"><button type="submit" class="btn btn-secondary">Close</button></form>
-</dialog>
 <template id="no-selection">{no_selection_html(view)}</template>
 </div>
 <script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{JOBS_SCRIPT}</script>
@@ -1371,16 +1246,16 @@ def render_board(data: dict, config: dict, loc: tuple = ()) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Applications board · Jobs · MedTech Radar</title>
+<title>Applications board, Jobs, MedTech Radar</title>
 <link rel="icon" href="{bd.FAVICON}">
 <style>{page_frame.FRAME_CSS}{JOBS_CSS}{board_page.BOARD_CSS}</style>
 </head>
 <body>
 <div class="app" data-page="jobs" data-show="applied" data-layout="board" data-state="{state_json}">
 {SYMBOLS}{board_page.SYMBOLS}
-{page_frame.appbar_html("jobs", bd.job_verdicts(data), "Jobs", help_button=True)}
+{page_frame.appbar_html("jobs", bd.job_verdicts(data), "Jobs")}
 <div class="pagehead">
-<div class="ph-title"><h1>Jobs</h1><p class="counts" id="counts">{counts_html(model)}</p></div>
+<div class="ph-title"><h1>Jobs</h1></div>
 <div class="ph-tools">
 {chips_html(loc)}
 {show_menu_html(model, "applied")}
@@ -1393,13 +1268,6 @@ def render_board(data: dict, config: dict, loc: tuple = ()) -> str:
 </main>
 <div class="move-menu" id="move-menu" role="menu" hidden></div>
 <p class="toast" id="toast" role="status" aria-live="polite"></p>
-<dialog class="keys" id="keys" aria-labelledby="keys-title">
-<h2 id="keys-title">Keyboard shortcuts</h2>
-<p class="keys-note">The keys work anywhere on the board except while you type in a field. Inside Move to, its own keys work while it is open.</p>
-<p class="keys-toggle"><label><input type="checkbox" id="keys-on" checked> Single-key shortcuts on</label></p>
-{board_page.keymap_html()}
-<form method="dialog"><button type="submit" class="btn btn-secondary">Close</button></form>
-</dialog>
 </div>
 <script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{board_page.BOARD_SCRIPT}</script>
 </body>
@@ -1411,10 +1279,10 @@ def render_board(data: dict, config: dict, loc: tuple = ()) -> str:
 # The queue row's own rules, shared with Home, whose role items are this row
 # (owner, 17 Nov): ROW_CSS is the row, ROW_NARROW_CSS its narrow queue. Home
 # names a container "queue" around each row so the narrow rules reach it.
-ROW_CSS = """.row{position:relative;display:grid;grid-template-rows:auto 16px 20px;row-gap:2px;min-height:76px;padding:8px 16px 7px;border-bottom:1px solid var(--border-subtle);background:var(--surface);color:var(--text-1);transition:background-color var(--dur) ease-out}
+ROW_CSS = """.row{position:relative;display:grid;grid-template-rows:auto 16px;row-gap:4px;min-height:56px;padding:8px 16px 9px;border-bottom:1px solid var(--border-subtle);background:var(--surface);color:var(--text-1);transition:background-color var(--dur) ease-out}
 .row:hover{background:var(--row-hover)}
-.row.is-current{background:var(--row-selected);border-left:3px solid var(--accent);padding-left:13px}
-.r1,.r2,.r3{display:flex;min-width:0}
+.row.is-current{background:var(--row-selected)}
+.r1,.r2{display:flex;min-width:0}
 .r1{align-items:flex-start;gap:8px}
 .r-link{display:flex;align-items:baseline;gap:8px;flex:1 1 auto;min-width:0;color:var(--text-1);text-decoration:none}
 .r-link::after{content:"";position:absolute;inset:0;z-index:0}
@@ -1426,7 +1294,6 @@ ROW_CSS = """.row{position:relative;display:grid;grid-template-rows:auto 16px 20
 .r-title{flex:1 1 auto;min-width:0;overflow:hidden;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow-wrap:anywhere;font-weight:500}
 .is-unread .r-title{font-weight:600}
 .r-cv{flex:none;width:40px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
-.r-first{flex:none;width:100px;padding-top:2px;text-align:right;font-size:12px;line-height:16px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .r2{align-items:center;gap:8px}
 /* Positioned, so the screen reader's commas (visually-hidden, absolutely
    placed) are clipped with the line when it is cut, and never widen the page;
@@ -1438,32 +1305,12 @@ ROW_CSS = """.row{position:relative;display:grid;grid-template-rows:auto 16px 20
    keeps a system colour in forced colours. */
 .r-bit ~ .r-bit::before{content:"";display:inline-block;width:0;height:12px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-1px}
 .r2 .tag{margin:-2px 0}
-.r3{align-items:center;gap:12px}
-.r-lead{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text-2)}
-.r-marks{position:relative;z-index:1;display:inline-flex;align-items:center;gap:4px;flex:none}
-.mk{position:relative;display:inline-flex;flex:none;border-radius:var(--radius-2)}
-.mk-pass{color:var(--text-3)}
-.mk-fail{color:var(--negative)}
-.mk-nj{color:var(--neutral)}
-.mk-ns{color:var(--neutral)}
-.mk-tip{display:none;position:absolute;right:-4px;bottom:calc(100% + 4px);z-index:6;width:max-content;max-width:min(400px,calc(100cqi - 32px));padding:1px 8px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface);box-shadow:var(--shadow-overlay);color:var(--text-1);font-size:12px;line-height:16px;font-weight:400;text-align:left;white-space:normal}
-.mk:hover .mk-tip,.mk:focus-visible .mk-tip{display:block}
-.mk.tip-off .mk-tip{display:none}
-.mk:focus-visible{outline-offset:1px}
 .row-applied{grid-template-rows:auto 16px;row-gap:4px;min-height:56px}
 """
 
-ROW_NARROW_CSS = """@container queue (max-width:611.98px){
-  .row-question{grid-template-rows:auto 16px 40px;min-height:96px}
-  .row-question .r3{align-items:flex-start}
-  .row-question .r-lead{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal}
-  .row-question .r-marks{height:20px}
-}
-@container queue (max-width:375.98px){
-  .row-question{grid-template-rows:auto 16px 60px;min-height:116px}
-  .row-question .r-lead{-webkit-line-clamp:3;line-clamp:3}
-}
-"""
+# The row is a title and one line of facts at every width now, so the narrow
+# queue needs no rules of its own; Home still includes this, empty.
+ROW_NARROW_CSS = ""
 
 JOBS_CSS = """
 *,*::before,*::after{box-sizing:border-box}
@@ -1479,15 +1326,13 @@ a{color:inherit}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-2);font-size:14px;line-height:20px;font-weight:500;white-space:nowrap;text-decoration:none;cursor:pointer;transition:background-color var(--dur) ease-out,color var(--dur) ease-out,border-color var(--dur) ease-out}
 .btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
-.btn-primary .kbd{background:var(--on-accent);color:var(--accent-hover);border-color:var(--on-accent)}
 .btn-secondary{background:var(--surface);border-color:var(--border-strong);color:var(--text-1)}
 .btn-secondary:hover{background:var(--row-hover)}
 .btn-ghost{background:transparent;color:var(--text-2)}
 .btn-ghost:hover{color:var(--text-1);text-decoration:underline;text-underline-offset:2px}
 .btn.is-disabled,.btn:disabled{color:var(--text-3);border-color:var(--border-subtle);cursor:default;text-decoration:none}
-.btn.is-disabled .kbd{color:var(--text-3);border-color:var(--border-subtle)}
 .btn[aria-busy="true"]{cursor:progress}
-.kbd{display:inline-flex;align-items:center;justify-content:center;flex:none;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface-sunken);color:var(--text-2);font-family:var(--font-mono);font-size:11px;line-height:16px;font-weight:500;white-space:nowrap}
+.prevnext{width:32px;padding:0}
 .link{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px;transition:color var(--dur) ease-out}
 .link:hover{color:var(--accent-hover);text-decoration-thickness:2px}
 .with-icon{display:inline-flex;align-items:center;gap:8px}
@@ -1508,34 +1353,34 @@ a{color:inherit}
 .pagehead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;min-height:56px;padding:12px 16px;background:var(--canvas);border-bottom:1px solid var(--border-subtle)}
 .ph-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px;min-width:0}
 .ph-title h1{font-size:20px;line-height:28px;font-weight:600}
-.counts{font-size:12px;line-height:16px;color:var(--text-3);font-variant-numeric:tabular-nums}
 .ph-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:auto}
 .arrivals:has(#arrivals[hidden]){display:none}
 .show-menu{position:relative}
 .show-list{position:absolute;right:0;top:36px;z-index:12;min-width:220px;padding:4px 0;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay)}
 .show-list a{display:flex;justify-content:space-between;gap:16px;padding:8px 12px;color:var(--text-1);text-decoration:none}
 .show-list a:hover{background:var(--row-hover)}
-.show-list a[aria-current="page"]{font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
+.show-list a[aria-current="page"]{font-weight:600;background:var(--accent-tint)}
 .undo-last{margin-left:4px}
 .content{display:grid;grid-template-columns:minmax(0,1fr);min-width:0;min-height:0;background:var(--surface)}
 .queue,.role{min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;background:var(--surface)}
-.queue{container:queue / inline-size;scroll-padding-top:40px}
+.queue{container:queue / inline-size;scroll-padding-top:48px}
 .queue .link,.queue .fold,.role .link,.role .evidence,.role .btn{scroll-margin-block:8px}
-.queue-note{display:flex;align-items:center;min-height:32px;padding:8px 16px 7px;font-size:12px;line-height:16px;color:var(--text-2);border-bottom:1px solid var(--border-subtle)}
 .empty-note{padding:12px 16px;color:var(--text-2);border-bottom:1px solid var(--border-subtle)}
-.group-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;height:40px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle)}
-.group-title{display:flex;align-items:baseline;gap:8px;min-width:0;font-size:16px;line-height:24px;font-weight:600;white-space:nowrap}
-.group-count{font-size:12px;line-height:16px;font-weight:400;color:var(--text-3);font-variant-numeric:tabular-nums}
-.group-new{color:var(--text-2)}
+/* A tier's band: full width, lightly filled, pinned while its rows scroll
+   under it; the name in its pill, the count and new count, the chevron last. */
+.group-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;height:48px;padding:0 16px;background:var(--surface-sunken);border-bottom:1px solid var(--border-subtle)}
+.group-title{display:flex;align-items:center;gap:12px;min-width:0;font-size:14px;line-height:20px;font-weight:400;white-space:nowrap}
+.group-count{font-size:14px;line-height:20px;color:var(--text-2);font-variant-numeric:tabular-nums}
+.group-new{font-size:14px;line-height:20px;color:var(--text-2)}
+.group-new:empty{display:none}
+.group-new::before{content:"";display:inline-block;width:0;height:12px;margin:0 12px 0 0;border-left:1px solid var(--text-3);vertical-align:-1px}
+.group-means{padding:8px 16px 8px 32px;max-width:72ch;color:var(--text-2);border-bottom:1px solid var(--border-subtle)}
+.group-rows .row{padding-left:32px}
 .fold{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;margin:0 -8px 0 auto;border:0;border-radius:var(--radius-2);background:transparent;color:var(--text-2);cursor:pointer}
 .fold:hover{background:var(--row-hover);color:var(--text-1)}
 .fold svg{transition:transform var(--dur) ease-out}
 .fold[aria-expanded="true"] svg{transform:rotate(90deg)}
-.band{display:flex;align-items:center;height:24px;padding:0 16px;font-size:12px;line-height:16px;color:var(--text-3);border-bottom:1px solid var(--border-subtle);font-variant-numeric:tabular-nums}
-""" + ROW_CSS + """.gates-head{display:flex;flex:none;margin-left:auto}
-.fold + .gates-head{margin-left:8px}
-.gh-keys{display:flex;gap:4px}
-.gh-key{width:12px;font-size:12px;line-height:16px;font-weight:600;color:var(--text-3);text-align:center;text-decoration:none;cursor:help}
+""" + ROW_CSS + tiers.PILL_CSS + """
 .view-link{display:flex;align-items:center;min-height:40px;padding:0 16px;border-bottom:1px solid var(--border-subtle);font-weight:600}
 .view-link .group-count{margin-left:4px}
 .filtered{padding:12px 16px 12px;font-size:12px;line-height:16px;color:var(--text-3)}
@@ -1601,22 +1446,10 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
 .card-text{max-width:72ch;margin:8px 0 12px;font-size:15px;line-height:24px;color:var(--text-2)}
 .no-selection{padding:12px 16px 24px}
 .no-selection > p{max-width:72ch;color:var(--text-2)}
-.keymap{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:8px 16px;align-items:center;margin-top:16px}
-.keymap div{display:contents}
-.keymap dt{display:flex;align-items:center;justify-content:flex-end;gap:4px}
-.keymap dd{color:var(--text-2)}
 .toast{position:fixed;left:50%;bottom:16px;z-index:30;transform:translateX(-50%);display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 32px));padding:8px 8px 8px 16px;background:var(--surface-sunken);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay)}
 .toast:empty{display:none}
 .toast.is-bad{border-color:var(--negative)}
 .toast.is-bad::before{content:"!";display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--negative);color:var(--on-accent);font-weight:700;font-size:12px}
-.keys{max-width:min(480px,calc(100vw - 32px));padding:24px;background:var(--surface);color:var(--text-1);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay)}
-.keys::backdrop{background:rgba(0,0,0,.6)}
-.keys h2{font-size:18px;line-height:24px;font-weight:600}
-.keys-note{margin-top:4px;color:var(--text-2)}
-.keys-toggle{margin-top:12px}
-.keys-toggle label{display:inline-flex;align-items:center;gap:8px;min-height:32px;cursor:pointer}
-.keys-toggle input{width:18px;height:18px;accent-color:var(--accent)}
-.keys form{margin-top:16px}
 @media (max-width:1799.98px){.ph-tools{flex-basis:100%;margin-left:0}}
 """ + ROW_NARROW_CSS + """@media (min-width:1024px){
   .content{grid-template-columns:400px minmax(0,1fr)}
@@ -1631,6 +1464,8 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .role-scroll{overflow:visible}
 }
 @media (min-width:1280px){.content{grid-template-columns:440px minmax(0,1fr)}}
+/* Hide the list: the role pane takes the full width. */
+@media (min-width:1024px){.app.list-off .content{grid-template-columns:minmax(0,1fr)}.app.list-off .queue{display:none}}
 @media (min-width:1800px){
   .content{grid-template-columns:clamp(440px,24vw,640px) minmax(min(640px,100vw - 760px - clamp(440px,24vw,640px)),1fr) 760px;grid-template-rows:auto minmax(0,1fr)}
   .queue{grid-column:1;grid-row:1 / span 2}
@@ -1641,10 +1476,10 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .advert-head{position:sticky;top:0;z-index:2;align-items:center;height:40px;padding:0 16px;border-bottom:1px solid var(--border-subtle)}
   .advert-body{padding-top:16px}
   .no-selection{grid-column:2 / span 2;grid-row:1 / span 2;overflow:auto}
-  .row-question{grid-template-rows:auto 16px 20px}
+  .app.list-off .content{grid-template-columns:0 minmax(0,1fr) 760px}
 }
 @media (max-width:1023.98px){
-  .kbd{display:none}
+  .list-toggle{display:none}
   .app[data-view="role"] .queue{display:none}
   .app[data-view="role"] .pagehead{display:none}
   .app[data-view="list"] .role{display:none}
@@ -1659,7 +1494,6 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .undo-last{margin-left:0;padding-inline:0}
   .ph-title h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
   .btn,.chip{height:44px}
-  .group-head{height:44px}
   .fold{width:44px;height:44px;margin-right:-12px}
   .view-link,.back{min-height:44px}
   .actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -1674,12 +1508,11 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
 @media (pointer:coarse){
   .btn,.chip{height:44px}
   .fold{width:44px;height:44px}
-  .group-head{height:44px}
-  .queue{scroll-padding-top:44px}
+  .queue{scroll-padding-top:48px}
 }
 @media (max-width:767.98px),(pointer:coarse){.fold:focus-visible{outline-offset:-4px;box-shadow:none}}
 @media (max-height:499px){.group-head,.detail-head,.advert-head{position:static}}
-@media (forced-colors:active){.row.is-current{border-left-color:Highlight}.tag,.kbd{border:1px solid CanvasText}}
+@media (forced-colors:active){.row.is-current{outline:2px solid Highlight;outline-offset:-2px}.tag{border:1px solid CanvasText}}
 """
 
 
@@ -1707,11 +1540,9 @@ JOBS_SCRIPT = """
   setQuery();
   var queue = document.getElementById('queue');
   var role = document.getElementById('role');
-  var counts = document.getElementById('counts');
   var toast = document.getElementById('toast');
   var undoBtn = document.getElementById('undo-last');
   var arrivals = document.getElementById('arrivals');
-  var keys = document.getElementById('keys');
   var current = state.id ? { id: state.id, key: state.key, tier: state.tier,
                              unread: state.unread, title: state.title } : null;
   var stamp = state.stamp;
@@ -1776,19 +1607,25 @@ JOBS_SCRIPT = """
       row.classList.toggle('is-current', on);
       var link = row.querySelector('.r-link');
       if (link) { if (on) link.setAttribute('aria-current', 'true'); else link.removeAttribute('aria-current'); }
-      row.querySelectorAll('.mk').forEach(function (m) { m.tabIndex = on ? 0 : -1; });
       if (on) {
         if (focus && link) link.focus({ preventScroll: true });
         if (!narrow.matches) row.scrollIntoView({ block: 'nearest' });
       }
     });
   }
-  function readingRows() { return document.getElementById('group-reading-rows'); }
-  function setReading(open) {
-    var rows = readingRows();
+  // ---- the tiers fold, and this browser remembers each one's choice
+  var FOLD_KEY = { top: 'radar-jobs-fold-top', question: 'radar-jobs-fold-question',
+                   reading: 'radar-reading-open' };
+  function foldRows(tier) { return document.getElementById('group-' + tier + '-rows'); }
+  function readingRows() { return foldRows('reading'); }
+  function setReading(open) { return setFold('reading', open); }
+  function setFold(tier, open, remember) {
+    var rows = foldRows(tier);
     if (!rows) return Promise.resolve();
-    var btn = queue.querySelector('[data-fold="reading"]');
-    try { localStorage.setItem('radar-reading-open', open ? '1' : '0'); } catch (e) {}
+    var btn = queue.querySelector('[data-fold="' + tier + '"]');
+    if (remember !== false && FOLD_KEY[tier]) {
+      try { localStorage.setItem(FOLD_KEY[tier], open ? '1' : '0'); } catch (e) {}
+    }
     if (btn) btn.setAttribute('aria-expanded', String(open));
     if (!open) { rows.hidden = true; return Promise.resolve(); }
     var load = Promise.resolve();
@@ -1803,14 +1640,29 @@ JOBS_SCRIPT = """
       if (current) markCurrent(current.key, false);
     });
   }
+  // The page draws Top prospects and One question away open and Reading
+  // closed. A choice this browser remembers wins, except that the tier
+  // holding the open role is never closed under it.
+  function applyFolds() {
+    Object.keys(FOLD_KEY).forEach(function (tier) {
+      var rows = foldRows(tier);
+      if (!rows) return;
+      var saved = null;
+      try { saved = localStorage.getItem(FOLD_KEY[tier]); } catch (e) {}
+      if (saved === null) return;
+      var open = saved === '1';
+      if (!open && current && current.tier === tier && view === 'open') return;
+      if (open === rows.hidden) setFold(tier, open, false);
+    });
+  }
   function refreshQueue() {
     var top = queue.scrollTop;
     var open = !!readingRows() && !readingRows().hidden;
     return json('/jobs?part=queue' + amp + '&reading=' + (open ? 1 : 0)
                 + (current ? '&current=' + current.id : '')).then(function (j) {
       queue.innerHTML = j.html;
+      applyFolds();
       queue.scrollTop = top;
-      counts.innerHTML = j.counts;
       stamp = j.stamp;
       arrivals.hidden = true;
       if (current) markCurrent(current.key, false);
@@ -1829,13 +1681,7 @@ JOBS_SCRIPT = """
     if (group) {
       var left = Math.max(0, Number(group.dataset.new || 0) - 1);
       group.dataset.new = left;
-      group.textContent = left ? '\\u00b7 ' + left + ' new' : '';
-    }
-    var total = counts.querySelector('[data-count="new"]');
-    if (total && view === 'open' && ['top', 'question', 'reading'].indexOf(info.tier) >= 0) {
-      var t = Math.max(0, Number(total.dataset.n || 0) - 1);
-      total.dataset.n = t;
-      total.textContent = t + ' new';
+      group.textContent = left ? left + ' new' : '';
     }
   }
   function markRead(info) {
@@ -1870,7 +1716,7 @@ JOBS_SCRIPT = """
     current = { id: j.id, key: j.key, tier: j.tier, unread: j.unread, title: j.title };
     if (narrow.matches && app.dataset.view !== 'role') listScroll = window.scrollY;
     app.dataset.view = 'role';
-    document.title = j.title + ' \\u00b7 Jobs \\u00b7 MedTech Radar';
+    document.title = j.title + ', Jobs, MedTech Radar';
     var row = rowFor(j.key);
     var ready = (!row && view === 'open' && j.tier === 'reading') ? setReading(true) : Promise.resolve();
     ready.then(function () { markCurrent(j.key, !!opts.focusRow && !narrow.matches); });
@@ -1905,7 +1751,7 @@ JOBS_SCRIPT = """
     var was = current;
     current = null;
     app.dataset.view = 'list';
-    document.title = 'Jobs \\u00b7 MedTech Radar';
+    document.title = 'Jobs, MedTech Radar';
     if (push) history.pushState({}, '', '/jobs' + qs);
     markCurrent(null);
     if (narrow.matches) {
@@ -2090,8 +1936,26 @@ JOBS_SCRIPT = """
     }
     var fold = e.target.closest('[data-fold]');
     if (fold) {
-      setReading(fold.getAttribute('aria-expanded') !== 'true');
+      setFold(fold.dataset.fold, fold.getAttribute('aria-expanded') !== 'true');
+      return;
     }
+    // A tier's pill shows and hides its one line on what puts a role there.
+    var pill = e.target.closest('[data-pill]');
+    if (pill) {
+      var on = pill.getAttribute('aria-expanded') !== 'true';
+      var means = document.getElementById(pill.getAttribute('aria-controls'));
+      pill.setAttribute('aria-expanded', String(on));
+      if (means) means.hidden = !on;
+    }
+  });
+
+  // ---- Hide the list: the role pane takes the full width
+  var listBtn = document.getElementById('list-toggle');
+  if (listBtn) listBtn.addEventListener('click', function () {
+    var off = !app.classList.contains('list-off');
+    app.classList.toggle('list-off', off);
+    listBtn.setAttribute('aria-expanded', String(!off));
+    listBtn.textContent = off ? 'Show the list' : 'Hide the list';
   });
 
   // ---- the Show menu
@@ -2106,65 +1970,10 @@ JOBS_SCRIPT = """
     if (!showList_.hidden && !e.target.closest('.show-menu')) setShow(false);
   });
 
-  // ---- keys
-  function typing(t) {
-    return t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
-  }
-  function step(dir) {
-    if (!current) {
-      var first = queue.querySelector('.row');
-      if (first) select(Number(first.dataset.id), { focusRow: true, focusTitle: false });
-      return;
-    }
-    var link = role.querySelector('[data-step="' + (dir > 0 ? 'next' : 'prev') + '"]');
-    if (link) select(Number(link.dataset.id), { focusRow: true, focusTitle: false });
-  }
-  function openKeys() {
-    if (keys.open) return;
-    if (keys.showModal) keys.showModal(); else keys.setAttribute('open', '');
-  }
-  var keysBtn = document.getElementById('keys-open');
-  if (keysBtn) keysBtn.addEventListener('click', openKeys);
-  // The single-key shortcuts can be turned off in the list of keys, for
-  // speech input and anyone who presses them by accident (WCAG 2.1.4).
-  var keysToggle = document.getElementById('keys-on');
-  function keysOn() {
-    try { return localStorage.getItem('radar-jobs-keys') !== 'off'; } catch (e) { return true; }
-  }
-  if (keysToggle) {
-    keysToggle.checked = keysOn();
-    keysToggle.addEventListener('change', function () {
-      try { localStorage.setItem('radar-jobs-keys', keysToggle.checked ? 'on' : 'off'); } catch (e) {}
-    });
-  }
-  // Escape hides a gate mark's tooltip while it is hovered or focused
-  // (WCAG 1.4.13); it shows again the next time the mark is reached.
-  function hideTips() {
-    queue.querySelectorAll('.mk:hover, .mk:focus').forEach(function (m) { m.classList.add('tip-off'); });
-  }
-  ['mouseout', 'focusout'].forEach(function (type) {
-    queue.addEventListener(type, function (e) {
-      var m = e.target.closest && e.target.closest('.mk');
-      if (m) m.classList.remove('tip-off');
-    });
-  });
+  // ---- Escape closes the Show menu; the page has no other keys of its own
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') hideTips();
-    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
-    if (typing(e.target) || keys.open) return;
-    if (e.key === 'Escape' && !showList_.hidden) { setShow(false); showBtn.focus(); return; }
-    if (!keysOn()) return;
-    if (e.key === '?') { e.preventDefault(); openKeys(); return; }
-    if (e.shiftKey) return;
-    var k = (e.key || '').toLowerCase();
-    if (k === 'j' || k === 'k') { e.preventDefault(); step(k === 'j' ? 1 : -1); return; }
-    if ('padcmo'.indexOf(k) < 0 || k.length !== 1) return;
-    var el = role.querySelector('[data-shortcut="' + k + '"]');
-    if (!el || el.disabled) return;
-    e.preventDefault();
-    el.click();
+    if (e.key === 'Escape' && !showList_.hidden) { setShow(false); showBtn.focus(); }
   });
-
   // ---- new roles: a notice in place of the old fifteen-minute reload
   function checkArrivals() {
     if (document.hidden) return;
@@ -2188,9 +1997,7 @@ JOBS_SCRIPT = """
   document.addEventListener('visibilitychange', function () { if (!document.hidden) checkArrivals(); });
 
   // ---- on load
-  try {
-    if (localStorage.getItem('radar-reading-open') === '1' && readingRows() && readingRows().hidden) setReading(true);
-  } catch (e) {}
+  applyFolds();
   if (current) {
     history.replaceState({ id: current.id }, '', location.pathname + location.search + location.hash);
     markCurrent(current.key, false);

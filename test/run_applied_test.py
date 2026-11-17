@@ -2372,7 +2372,7 @@ def page_checks() -> None:
         check(tiers.index(link) > tiers.index('id="group-reading"')
               > tiers.index('id="group-question"') > tiers.index('id="group-top"'),
               "and the link sits below the open tiers")
-        check('id="group-applied">Applied<span class="group-count">3' in applied,
+        check('id="group-applied"><span class="tier-pill">Applied</span><span class="group-count">3' in applied,
               "the view's count is three, one per role")
         check(row_titles(applied) == ["Auditor &lt;b&gt;", "Head of QA", QD[0]],
               "it lists the roles newest application first, titles escaped")
@@ -2411,8 +2411,8 @@ def page_checks() -> None:
         check(not any(f'data-id="{i}"' in tiers for i in (a1, a2, a3)),
               "and no applied role is in the open tiers to have one")
         one = open_panes[o1]
-        check(">Mark applied<kbd" in one,
-              "labelled as the other verdicts are, with its key")
+        check(">Mark applied</button>" in one and "<kbd" not in one,
+              "labelled as the other verdicts are, with no key hint")
         # Beside Acknowledge, Dismiss and Close role.
         order = [one.index(f'data-act="ack" data-id="{o1}"'),
                  one.index(f'data-act="dismiss" data-id="{o1}"'),
@@ -2469,7 +2469,7 @@ def page_checks() -> None:
         role(c2, RD)
         c2.close()
         e_tiers, e_applied = split_applied(jobs_html_now(empty))
-        check('id="group-applied">Applied<span class="group-count">0' in e_applied
+        check('id="group-applied"><span class="tier-pill">Applied</span><span class="group-count">0' in e_applied
               and "No applications recorded yet." in e_applied
               and 'href="/jobs?show=applied">Applied <span class="group-count">0'
               in e_tiers,
@@ -2491,7 +2491,7 @@ def page_checks() -> None:
         c4.close()
         _t, a_thin = split_applied(jobs_html_now(thin))
         check(a_thin.count('<div class="row ') == 3
-              and 'id="group-applied">Applied<span class="group-count">3' in a_thin
+              and 'id="group-applied"><span class="tier-pill">Applied</span><span class="group-count">3' in a_thin
               and all(f'data-id="{i}"' in a_thin for i in (k1, k2, k3)),
               "applied roles with no role key are three entries and not one, "
               "each with its own row")
