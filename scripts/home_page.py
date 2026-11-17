@@ -1707,18 +1707,15 @@ a{color:inherit}
 @container ny (max-width:599.98px){.ny-tools{margin-left:0;flex-basis:100%}.facts{grid-template-columns:112px minmax(0,1fr)}.ny-item{padding:16px}.ny-role{padding:14px 16px}}
 /* ---- the page: a dotted ground, then the welcome, the tiles and the rest ---- */
 .app{background-color:var(--canvas);background-image:radial-gradient(rgba(232,237,240,.06) 1px,transparent 1px);background-size:22px 22px}
-/* The content box, set once and read by the page and by the top bar's
-   contents (page_frame's .appbar-in), so the two share their edges at every
-   width: capped at 1440px, 16px in, 24px from 768px and 32px from 1024px. */
-.app > *{--frame-max:1440px;--frame-pad:16px}
+/* The shared content box, page_frame's --frame-max and --frame-pad. */
 .hf{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-content:start;width:100%;max-width:var(--frame-max);margin:0 auto;padding:20px var(--frame-pad) 32px}
 /* Under the tiles, two columns, 2fr and 1fr, 20px apart and aligned at the
    top; under 1024px they stack: Open actions, then Jobs, then Applications. */
 .hf-cols{display:grid;grid-template-columns:minmax(0,1fr);gap:24px;align-items:start;min-width:0}
 .hf-main,.hf-side{min-width:0}
 .hf-side{display:flex;flex-direction:column;gap:24px}
-@container app (min-width:768px){.app > *{--frame-pad:24px}.hf{gap:24px;padding-block:32px 48px}}
-@container app (min-width:1024px){.app > *{--frame-pad:32px}.hf-cols{grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:20px}}
+@container app (min-width:768px){.hf{gap:24px;padding-block:32px 48px}}
+@container app (min-width:1024px){.hf-cols{grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:20px}}
 /* Under 768 every target is 44px. */
 @media (max-width:767.98px){
   html{scroll-padding-top:8px}

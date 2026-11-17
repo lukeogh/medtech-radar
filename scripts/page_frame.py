@@ -77,6 +77,16 @@ FRAME_CSS = """
   --sheet-shadow:0 1px 2px rgba(0,0,0,.35),0 8px 24px rgba(0,0,0,.35);
 }
 @media (prefers-reduced-motion:reduce){:root{--dur:0ms}}
+/* One content box for every page (owner, 17 Nov): capped at 1440px and
+   centred, 16px in on a phone, 24px from 768px and 32px from 1024px. Every
+   page's content and the top bar's contents (.appbar-in) read these two, and
+   no page sets its own, so the menu never moves when the page changes. */
+/* The scroll bar's room is kept on every page, so a page that does not
+   scroll (Jobs) puts the box where one that does (Home) puts it. */
+html{scrollbar-gutter:stable}
+:root{--frame-max:1440px;--frame-pad:16px}
+@media (min-width:768px){:root{--frame-pad:24px}}
+@media (min-width:1024px){:root{--frame-pad:32px}}
 /* The top bar's height, for the pages whose grid or offsets hold a row for it:
    48px on a phone, 64px from 700px (owner, 17 Nov). */
 :root{--bar-h:48px}
@@ -104,10 +114,7 @@ FRAME_CSS = """
 .skip-link{position:absolute;left:8px;top:-60px;z-index:50;padding:8px 12px;background:var(--surface);color:var(--text-1);border:1px solid var(--border-strong);border-radius:var(--radius-2);font:600 14px/20px var(--font-sans)}
 .skip-link:focus{top:8px}
 /* The bar's ground and rule run the full width; its contents sit in
-   .appbar-in, which takes the page's own content box from two tokens the page
-   sets once and its content reads too: --frame-max, the content's cap, and
-   --frame-pad, its side padding. A page that sets neither keeps the bar as it
-   was, the full width and 16px in. */
+   .appbar-in, in the shared content box above. */
 .appbar{position:relative;z-index:20;min-width:0;height:var(--bar-h);background:var(--surface);border-bottom:1px solid var(--border-subtle);color:var(--text-1);font:400 14px/20px var(--font-sans);letter-spacing:0}
 .appbar-in{box-sizing:border-box;display:flex;align-items:center;gap:24px;width:100%;height:100%;min-width:0;max-width:var(--frame-max,none);margin:0 auto;padding:0 var(--frame-pad,16px)}
 .appbar .brand{display:flex;align-items:center;gap:12px;flex:none;color:var(--text-1);text-decoration:none}

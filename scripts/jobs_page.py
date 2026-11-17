@@ -1557,7 +1557,10 @@ a{color:inherit}
 .is-pos{color:var(--positive)}
 .is-neg{color:var(--negative)}
 .is-neu{color:var(--neutral)}
-.pagehead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;min-height:56px;padding:12px 16px;background:var(--canvas);border-bottom:1px solid var(--border-subtle)}
+/* Jobs' head and list keep their ground the full width; their contents sit
+   in the shared content box (page_frame's --frame-max and --frame-pad). The
+   rows carry 16px of their own, so the list's text meets the same edge. */
+.pagehead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;min-height:56px;padding:12px max(var(--frame-pad),calc((100% - var(--frame-max)) / 2 + var(--frame-pad)));background:var(--canvas);border-bottom:1px solid var(--border-subtle)}
 .ph-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px;min-width:0}
 .ph-title h1{font-size:20px;line-height:28px;font-weight:600}
 .ph-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:auto}
@@ -1568,7 +1571,7 @@ a{color:inherit}
 .show-list a:hover{background:var(--row-hover)}
 .show-list a[aria-current="page"]{font-weight:600;background:var(--accent-tint)}
 .undo-last{margin-left:4px}
-.content{display:grid;grid-template-columns:minmax(0,1fr);min-width:0;min-height:0;background:var(--surface)}
+.content{display:grid;grid-template-columns:minmax(0,1fr);min-width:0;min-height:0;padding-inline:max(0px,calc((100% - var(--frame-max)) / 2 + var(--frame-pad) - 16px));background:var(--surface)}
 .queue,.role{min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;background:var(--surface)}
 .queue{container:queue / inline-size;scroll-padding-top:48px}
 .queue .link,.queue .fold,.role .link,.role .evidence,.role .btn{scroll-margin-block:8px}

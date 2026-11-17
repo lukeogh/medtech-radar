@@ -1699,9 +1699,7 @@ a:hover{color:var(--accent-hover)}
 .pa ol,.pa ul{padding:0;list-style:none}
 .pa input,.pa textarea{font:inherit}
 :root{--note-w:440px;--gut:28px}
-/* The content box, set once and read by the page and by the top bar's
-   contents (page_frame's .appbar-in). */
-:root{--frame-max:2560px;--frame-pad:24px}
+/* The shared content box, page_frame's --frame-max and --frame-pad. */
 .pa{padding:24px var(--frame-pad) 48px;max-width:var(--frame-max);margin-inline:auto}
 .pa h2{font:600 16px/24px var(--font-sans);color:var(--text-1)}
 .pa h3{font:600 14px/20px var(--font-sans);color:var(--text-1)}
@@ -1906,7 +1904,6 @@ details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bott
 @media (pointer:coarse){.pa .btn,.pa .btn-sm,.pa .switch,.pa summary,.note-toggle{min-height:44px}.pa .btn-sm,.pa .switch{height:auto}.pa-why summary{padding:12px 0}}
 @media (max-width:767.98px){
   html{scroll-padding-top:16px;scroll-padding-bottom:136px}
-  :root{--frame-pad:16px}
   .pa{padding:24px var(--frame-pad) 48px}
   .facts li{white-space:normal}
   .layout{gap:16px}

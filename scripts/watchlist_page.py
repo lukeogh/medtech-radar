@@ -935,14 +935,9 @@ h1,h2,h3,h4,p,ol,ul,dl,dd{margin:0}
 ol,ul{padding:0;list-style:none}
 button,input,select,textarea{font:inherit}
 main:focus{outline:none}
-:root{--gutter:16px}
-@media (min-width:768px){:root{--gutter:24px}}
-@media (min-width:1920px){:root{--gutter:48px}}
-/* The content box, set once and read by the page and by the top bar's
-   contents (page_frame's .appbar-in): capped at 2560px, a company's record at
-   960px, with the gutter either side. */
-:root{--frame-max:2560px;--frame-pad:var(--gutter)}
-:root:has(.recpage){--frame-max:960px}
+:root{--gutter:var(--frame-pad)}
+/* The shared content box, page_frame's --frame-max and --frame-pad; a
+   company's record keeps its 960px column inside it. */
 .page{margin:0 auto;padding:0 var(--frame-pad) 64px;max-width:var(--frame-max)}
 .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;
   border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface-sunken);

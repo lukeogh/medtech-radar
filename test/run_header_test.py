@@ -234,21 +234,37 @@ def page_checks(tmp: Path) -> None:
         check('data-state="ok"' in bar and "All running" in bar and 'href="/radar"' in bar,
               f"{name}: with every job on time and the digest and the push in dry run, "
               "the light says All running")
-    # The bar's contents follow each page's own content box (owner, 17 Nov).
+    # One content box for every page (owner, 17 Nov): page_frame sets it and no
+    # page sets its own, so the bar's contents, and the logo, sit in the same
+    # place on every page; each page's content reads the same box.
+    frame = page_frame.FRAME_CSS
     for name, (page, _current) in running.items():
         css = " ".join(re.findall(r"(?s)<style>(.*?)</style>", page))
-        own = css.replace(".appbar-in{", "", 1)
-        if name in ("Jobs", "a role on Jobs"):
-            check('<header class="appbar"><div class="appbar-in">' in page
-                  and "--frame-max:" not in css and "--frame-pad:" not in css,
-                  f"{name} fills the window, so its bar keeps the full width and 16px, "
-                  "as its page head does")
-        else:
-            check('<header class="appbar"><div class="appbar-in">' in page
-                  and "--frame-max:" in css and "--frame-pad:" in css
-                  and own.count("var(--frame-max)") >= 1 and own.count("var(--frame-pad)") >= 1,
-                  f"{name} sets its content box once, and its content and the bar's "
-                  "contents both read it")
+        own = css.replace(frame, "")
+        check('<header class="appbar"><div class="appbar-in">' in page and frame in css
+              and "--frame-max:" not in own and "--frame-pad:" not in own
+              and "var(--frame-max)" in own and "var(--frame-pad)" in own,
+              f"{name} sets no content box of its own and lays its content in the shared one")
+    def logo_left(window: float, scroll_bar: float) -> float:
+        """The logo's left edge, from the shared box: the bar's contents are
+        --frame-max wide at most, centred, --frame-pad in (32px from 1024px)."""
+        cap = float(re.search(r":root\{--frame-max:(\d+)px;", frame).group(1))
+        pad = float(re.search(r"@media \(min-width:1024px\)\{:root\{--frame-pad:(\d+)px\}\}",
+                              frame).group(1))
+        return max(0.0, (window - scroll_bar - cap) / 2) + pad
+    for window in (1920, 1440):
+        for bar_w in (0, 15):
+            edges = {name: logo_left(window, bar_w) for name in
+                     ("Home", "Jobs", "Watchlist", "Insights", "CV", "Settings")}
+            check(max(edges.values()) - min(edges.values()) <= 1,
+                  f"at {window} wide ({'a 15px' if bar_w else 'no'} scroll bar) the logo starts "
+                  f"{edges['Home']:g}px in on Home, Jobs, the Watchlist, Insights, CV and Settings")
+    jobs = running["Jobs"][0]
+    check("padding:12px max(var(--frame-pad),calc((100% - var(--frame-max)) / 2 + var(--frame-pad)));"
+          in jobs
+          and "padding-inline:max(0px,calc((100% - var(--frame-max)) / 2 + var(--frame-pad) - 16px));"
+          in jobs,
+          "Jobs' head and list keep their ground the full width and meet the shared edge")
     for name, (page, _current) in stalled.items():
         bar = bar_of(page)
         check("Check Radar" in bar and 'data-state="check"' in bar and "All running" not in bar
@@ -283,12 +299,12 @@ def edge_checks() -> None:
     # edge is the greeting's at every width; worked out at 1920 and 1440, with a
     # 15px scroll bar and without.
     home = hp.HOME_CSS
-    check(".app > *{--frame-max:1440px;--frame-pad:16px}" in home
-          and "@container app (min-width:768px){.app > *{--frame-pad:24px}" in home
-          and "@container app (min-width:1024px){.app > *{--frame-pad:32px}" in home
+    check(":root{--frame-max:1440px;--frame-pad:16px}" in css
+          and "@media (min-width:768px){:root{--frame-pad:24px}}" in css
+          and "@media (min-width:1024px){:root{--frame-pad:32px}}" in css
           and "max-width:var(--frame-max);margin:0 auto;padding:20px var(--frame-pad) 32px}" in home
           and "grid-template-rows:var(--bar-h) auto;" in home,
-          "Home sets its content box once, for its page and its bar alike")
+          "the shared box is 1440px, 16, 24 and 32px in, and Home's page reads it")
     def left(width: float, cap: float = 1440, pad: float = 32) -> float:
         return max(0.0, (width - cap) / 2) + pad
     for window in (1920, 1440):
