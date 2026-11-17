@@ -1057,6 +1057,8 @@ def main() -> int:
              # asks about the rate, the gate that fails.
              gate_sector=1, gate_cv=1, gate_location=1, gate_rate=0,
              pay_currency="GBP", pay_period="day", pay_min=600, pay_max=600,
+             gate_rate_note="Stated day rate £600 against the £700 floor, below,"
+                            " judged in code.",
              question_text="Would they move on the rate")
         conn.commit()
         config5 = radar_common.load_config()
@@ -1071,8 +1073,12 @@ def main() -> int:
               "the chain's locations roll up onto the one row")
         check("Seen 7 times across 2 adverts" in pane5,
               "the role pane carries the sightings and the repost count")
-        check("Would they move on the rate" in jobs5,
-              "the question leads the one-question-away row")
+        import re as _re5
+        check("Would they move on the rate" not in jobs5
+              and _re5.search(r'class="r-lead" id="rl-\d+">Stated day rate £600 against'
+                              r' the £700 floor, below\.</span>', jobs5) is not None,
+              "a One question away row leads with the failing gate's stored"
+              " reason, without judged in code, never code's question")
 
         # Brief B. One collapse across every tier, the badges, the
         # percentage, the filter, the lead line, and what left the page.
@@ -1181,9 +1187,9 @@ def main() -> int:
               and "Permanent" not in unknown_row
               and "<dt>Type</dt><dd>Not stated</dd>" in drop_pane,
               "an unknown type is left off the row and named Not stated in the pane")
-        check('<span class="visually-hidden">CV match </span>88%</span>' in jobs6
-              and _re5.search(r'</span>\d+</span>', jobs6) is None,
-              "CV match shows a % sign on every row")
+        check('class="r-cv"' not in jobs6 and '88%' not in jobs6
+              and '<div class="band">CV match 80–89</div>' in jobs6,
+              "the CV figure is off the rows, and the band heading names the range")
         check('id="loc-filter"' not in jobs6
               and 'data-region="europe" data-remote="1"' in jobs6,
               "the location filter is out of this pass (the brief), and the"
@@ -1193,8 +1199,8 @@ def main() -> int:
               and "The scorer had its own line." in jobs6,
               "a Top row with a rate not stated carries no question but the scorer's "
               "line, and its Rate mark says the rate is the first question")
-        check('<span class="r-rate">Rate not stated</span>' in jobs6,
-              "rate not stated stands in the pay's own place on the row")
+        check('Rate not stated</span>' not in jobs6.replace('Rate not stated, ', ''),
+              "a row with no pay figure shows no pay words; its Rate mark says it")
         # Top prospects and One question away are open groups, Reading folds,
         # and Applied is a view of its own linked below them.
         check(jobs6.count('<button type="button" class="fold"') == 1
@@ -1215,14 +1221,16 @@ def main() -> int:
         check("Live · seen" in pane5 and "Unknown, " not in
               next((c for c in jobs5.split('<div class="row ') if f'data-id="{newer}"' in c), "x"),
               "a chain seen this week reads Live, and its row carries no chip")
-        check("Unknown, " in jobs5, "a silent role reads Unknown on its row")
+        check("Unknown, " not in jobs5 and 'class="tag tag-caution"' not in jobs5,
+              "a silent role carries no Unknown chip on its row")
         check("CV match" in jobs5 and "Capability" not in jobs5
               and "Desire" not in jobs5 and ">Combined<" not in jobs5,
               "the headers read Role, CV match, State, Last seen")
         check("a day converted" not in jobs5,
               "no estimated day rate anywhere on the page")
-        check(">Rate not stated<" in jobs5,
-              "silence about pay carries its prominent flag")
+        check(">Rate not stated<" not in jobs5
+              and "Rate not stated, that's your first question" in jobs5.replace("&#x27;", "'"),
+              "silence about pay is the Rate mark's, not words on the row")
         check(jobs5.index("One question away") < jobs5.index("Reading")
               and "<h2>Ageing</h2>" not in jobs5,
               "the sections run in the draft's order, Ageing after Reading")

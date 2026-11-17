@@ -389,6 +389,19 @@ Rate does not fail (`radar_common.question_kept`), at render and by the re-sort.
 Top prospect carries no question. Its Rate mark, a question mark in the neutral
 colour, says "Rate not stated, that's your first question".
 
+On Jobs the row says only what differs between roles (`jobs_page.row_html`). Pay
+shows when the advert's pay text holds a figure, whatever the Rate mark says, and
+nothing shows otherwise. The source shows when it is not LinkedIn. The CV figure
+is left to the band heading and the role pane. The only state tag is Closed, for
+an advert the checker confirmed closed, and a closed advert never reaches the open,
+acknowledged or filtered lists, so in practice no row carries one; State in the
+pane says live or unknown. A One question away row leads with the stored reason
+of the gate that fails, without "judged in code" (`jobs_page.row_lead`), and never
+with code's question, which the role pane does not show either
+(`jobs_page.pane_lead`). A question the model wrote and that is still stored shows
+in the pane. Home keeps `lead_line` and its own tags. The title wraps to two lines
+before it is cut, at every width.
+
 The re-sort is `regate_rates.regate`, free, the path Preferences uses when a floor
 changes. `python scripts/regate_rates.py` reports what it would do and writes
 nothing. `--write` looks first and writes nothing while `rate_unclear` is above

@@ -385,6 +385,64 @@ def lead_line(o: dict) -> str:
     return bd.sentence(o.get("one_line_why") or "")
 
 
+# What the row leaves out of a gate's stored reason: a verdict word in front,
+# which the mark already says, and code's "judged in code".
+_VERDICT_LEAD = re.compile(r"^\s*(?:location|rate)\s+fails?\s*[,:.]\s*", re.IGNORECASE)
+_JUDGED_IN_CODE = re.compile(r",?\s*judged in code\b", re.IGNORECASE)
+
+
+def gate_reason(o: dict, gate: str) -> str:
+    """One gate's stored reason as the row says it, or "" when none is
+    stored."""
+    text = _clean(o.get(f"gate_{gate}_note"))
+    text = _JUDGED_IN_CODE.sub("", _VERDICT_LEAD.sub("", text)).strip(" ,;")
+    return bd.sentence(text) if text else ""
+
+
+def row_lead(o: dict) -> str:
+    """The row's lead line. On a One question away role, the stored reason of
+    the gate that fails, never code's question, and nothing when no reason is
+    stored. Every other row keeps its lead line (lead_line, which Home uses
+    too)."""
+    if o.get("tier") != "question":
+        return lead_line(o)
+    gates = radar_common.gates_of(o)
+    for gate in radar_common.MOVABLE_GATES:
+        if gates.get(gate) is False:
+            return gate_reason(o, gate)
+    return ""
+
+
+def pane_lead(o: dict) -> str:
+    """The role pane's lead line: lead_line, except that code's own question
+    on a One question away role is not shown. A question the model wrote and
+    that is still stored is."""
+    lead = lead_line(o)
+    if o.get("tier") == "question":
+        own = {bd.sentence(q) for q in radar_common.QUESTIONS.values()}
+        if lead in own:
+            return ""
+    return lead
+
+
+def pay_shown(o: dict) -> str:
+    """The pay text the advert gives, when it states a figure, whatever the
+    Rate mark says. Words with no figure, such as competitive, show
+    nothing."""
+    text = _clean(o.get("salary_rate"))
+    return text if re.search(r"[0-9]", text) else ""
+
+
+def state_tag(o: dict) -> str:
+    """The row's state tag, only for an advert the advert checker has
+    confirmed closed. Live and unknown carry none; State in the role pane
+    says them."""
+    if not o.get("closed_at") or o.get("closed_source") != "page_check":
+        return ""
+    return (f'<span class="tag tag-neutral">Closed '
+            f'{esc(_day(o["closed_at"]))}</span>')
+
+
 def first_seen(o: dict) -> str:
     """The first sighting of the role's repost chain."""
     chain = o.get("_chain") or {}
@@ -394,10 +452,12 @@ def first_seen(o: dict) -> str:
 def row_html(o: dict, view: str, current_key: str | None, now: str,
              loc: tuple = ()) -> str:
     """One role in the queue. The title is the link that opens it; the rest
-    of the row describes it. The New word, the CV match, the first-seen date,
-    the company, place, pay as stated, contract or permanent and the source,
-    the full job spec tag and the lifecycle chip, then the lead line and the
-    four gate marks."""
+    of the row describes it. The New word and the first-seen date, the
+    company, place, pay when the advert gives a figure, contract or permanent
+    and the source when it is not LinkedIn, the full job spec tag and a
+    Closed tag for an advert the checker confirmed closed, then the lead line
+    (row_lead) and the four gate marks. The Applied view's row keeps its CV
+    match, as it has no band headings."""
     oid = int(o["id"])
     key = role_key(o)
     current = key == current_key
@@ -432,20 +492,27 @@ def row_html(o: dict, view: str, current_key: str | None, now: str,
                 f'aria-describedby="rm-{oid}"><span class="r-title">{esc(title)}</span></a>{cv}</span>'
                 f'<span class="r2"><span class="r-meta" id="rm-{oid}">{meta}</span></span>'
                 '</div>')
-    pay = o.get("salary_rate") or "Rate not stated"
+    # The row says only what differs between roles: pay when the advert gives
+    # a figure, the source when it is not LinkedIn, a state tag only for an
+    # advert confirmed closed. The CV figure is the band heading's and the
+    # pane's, so the title takes the width.
     meta_bits = [esc(o.get("company") or "Unknown company")]
     place = location_text(o)
     if place:
         meta_bits.append(esc(place))
-    meta_bits.append(f'<span class="r-rate">{esc(pay)}</span>')
+    pay = pay_shown(o)
+    if pay:
+        meta_bits.append(f'<span class="r-rate">{esc(pay)}</span>')
     word = engagement_word(o)
     if word:
         meta_bits.append(word)
-    meta_bits.append(esc(board(o.get("source"))))
-    tags = spec_tag(o) + lifecycle_tag(o, now)
+    source = board(o.get("source"))
+    if source != BOARDS["linkedin-alert"]:
+        meta_bits.append(esc(source))
+    tags = spec_tag(o) + state_tag(o)
     if view == "acknowledged" and o.get("acknowledged_at"):
         tags += f'<span class="tag tag-neutral">Acknowledged {esc(_day(o["acknowledged_at"]))}</span>'
-    lead = lead_line(o)
+    lead = row_lead(o)
     seen = _day(first_seen(o))
     new = '<span class="r-new">New</span>' if unread else ""
     # The region and the remote flag stay on the row, as they were for the
@@ -459,7 +526,7 @@ def row_html(o: dict, view: str, current_key: str | None, now: str,
         f'<span class="r1"><a class="r-link" id="rt-{oid}" href="{role_url(oid, view, loc)}"'
         f'{" aria-current=" + chr(34) + "true" + chr(34) if current else ""} '
         f'aria-describedby="rm-{oid} rl-{oid}">{new}'
-        f'<span class="r-title">{esc(title)}</span></a>{cv}'
+        f'<span class="r-title">{esc(title)}</span></a>'
         f'<span class="r-first">{"First seen " + esc(seen) if seen else ""}</span></span>'
         f'<span class="r2"><span class="r-meta" id="rm-{oid}">{" · ".join(meta_bits)}</span>{tags}</span>'
         f'<span class="r3"><span class="r-lead" id="rl-{oid}">{esc(lead)}</span>'
@@ -1101,7 +1168,7 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
             f'<div class="dh-nav">{open_advert}'
             f'{step(prev_id, "Previous", "K", "prev")}{step(next_id, "Next", "J", "next")}'
             f'</div></div>{actions_html(face, view)}</header>')
-    lead = lead_line(face)
+    lead = pane_lead(face)
     body = [f'<p class="lead-line">{esc(lead)}</p>' if lead else "",
             score_html(face),
             reasons_section(face, reasons, hits, quotes),
@@ -1400,21 +1467,22 @@ a{color:inherit}
 .fold svg{transition:transform var(--dur) ease-out}
 .fold[aria-expanded="true"] svg{transform:rotate(90deg)}
 .band{display:flex;align-items:center;height:24px;padding:0 16px;font-size:12px;line-height:16px;color:var(--text-3);border-bottom:1px solid var(--border-subtle);font-variant-numeric:tabular-nums}
-.row{position:relative;display:grid;grid-template-rows:20px 16px 20px;row-gap:2px;min-height:76px;padding:8px 16px 7px;border-bottom:1px solid var(--border-subtle);background:var(--surface);color:var(--text-1);transition:background-color var(--dur) ease-out}
+.row{position:relative;display:grid;grid-template-rows:auto 16px 20px;row-gap:2px;min-height:76px;padding:8px 16px 7px;border-bottom:1px solid var(--border-subtle);background:var(--surface);color:var(--text-1);transition:background-color var(--dur) ease-out}
 .row:hover{background:var(--row-hover)}
 .row.is-current{background:var(--row-selected);border-left:3px solid var(--accent);padding-left:13px}
 .r1,.r2,.r3{display:flex;min-width:0}
-.r1{align-items:baseline;gap:8px}
+.r1{align-items:flex-start;gap:8px}
 .r-link{display:flex;align-items:baseline;gap:8px;flex:1 1 auto;min-width:0;color:var(--text-1);text-decoration:none}
 .r-link::after{content:"";position:absolute;inset:0;z-index:0}
 .r-link:focus-visible{outline:none;box-shadow:none}
 .r-link:focus-visible::after{outline:2px solid var(--focus);outline-offset:-5px}
 .r-link:hover .r-title{text-decoration:underline;text-underline-offset:2px}
 .r-new{flex:none;font-size:12px;line-height:16px;font-weight:600;color:var(--text-1)}
-.r-title{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-weight:500}
+/* The title takes the row's width and a second line before it is cut. */
+.r-title{flex:1 1 auto;min-width:0;overflow:hidden;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow-wrap:anywhere;font-weight:500}
 .is-unread .r-title{font-weight:600}
 .r-cv{flex:none;width:40px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
-.r-first{flex:none;width:100px;text-align:right;font-size:12px;line-height:16px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.r-first{flex:none;width:100px;padding-top:2px;text-align:right;font-size:12px;line-height:16px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .r2{align-items:center;gap:8px}
 .r-meta{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;line-height:16px;color:var(--text-3)}
 .r2 .tag{margin:-2px 0}
@@ -1430,7 +1498,7 @@ a{color:inherit}
 .mk:hover .mk-tip,.mk:focus-visible .mk-tip{display:block}
 .mk.tip-off .mk-tip{display:none}
 .mk:focus-visible{outline-offset:1px}
-.row-applied{grid-template-rows:20px 16px;row-gap:4px;min-height:56px}
+.row-applied{grid-template-rows:auto 16px;row-gap:4px;min-height:56px}
 .gates-head{display:flex;flex:none;margin-left:auto}
 .fold + .gates-head{margin-left:8px}
 .gh-keys{display:flex;gap:4px}
@@ -1518,13 +1586,13 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
 .keys form{margin-top:16px}
 @media (max-width:1799.98px){.ph-tools{flex-basis:100%;margin-left:0}}
 @container queue (max-width:611.98px){
-  .row-question{grid-template-rows:20px 16px 40px;min-height:96px}
+  .row-question{grid-template-rows:auto 16px 40px;min-height:96px}
   .row-question .r3{align-items:flex-start}
   .row-question .r-lead{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal}
   .row-question .r-marks{height:20px}
 }
 @container queue (max-width:375.98px){
-  .row-question{grid-template-rows:20px 16px 60px;min-height:116px}
+  .row-question{grid-template-rows:auto 16px 60px;min-height:116px}
   .row-question .r-lead{-webkit-line-clamp:3;line-clamp:3}
 }
 @media (min-width:1024px){
@@ -1550,11 +1618,6 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .advert-head{position:sticky;top:0;z-index:2;align-items:center;height:40px;padding:0 16px;border-bottom:1px solid var(--border-subtle)}
   .advert-body{padding-top:16px}
   .no-selection{grid-column:2 / span 2;grid-row:1 / span 2;overflow:auto}
-  /* Titles are not cut at this width: a long one takes a second line. */
-  .row{grid-template-rows:auto 16px 20px}
-  .r-title{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
-  .r1{align-items:flex-start}
-  .r-first{padding-top:2px}
   .row-question{grid-template-rows:auto 16px 20px}
 }
 @media (max-width:1023.98px){
