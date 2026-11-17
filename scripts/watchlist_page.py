@@ -154,7 +154,7 @@ def signal_kick(sig: dict | None) -> str:
 def run_words(model: dict) -> str:
     ran = model.get("watcher_ran")
     if not ran:
-        return "The signal watcher has not run yet."
+        return "The news watcher has not run yet."
     when = wl.hm(ran)
     day = wl.uk_day(ran)
     if day and day != _today(model):
