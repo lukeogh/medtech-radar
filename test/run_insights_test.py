@@ -263,19 +263,39 @@ def page_checks(tmp: Path) -> None:
     before = conn.execute("SELECT COUNT(*), SUM(LENGTH(COALESCE(acknowledged_at,''))) FROM signals").fetchone()
     model = insights_page.build_model(conn)
     html = insights_page.render_front(conn)
-    top = re.search(r'<ol class="top-row".*?</ol>', html, re.S).group(0)
-    check(top.count('<article class="story') == 5 and 'story-lead' in top,
-          "Top stories is the lead and four smaller")
-    check(model["top"][0]["count"] == 3 and "and 2 more sources" in top,
-          "three reports of one event make one story, led by the highest, with the other sources counted")
-    ranked = re.search(r'<aside class="ranked".*?</aside>', html, re.S).group(0)
-    check(ranked.count("<li data-rank-story=") == 10 and "Most relevant this week" in ranked,
-          "Most relevant lists ten stories, each tied to its story so Hide can take it off")
-    check('[hidden]{display:none!important}' in html, "hidden parts of the page are hidden whatever their display rule")
-    check("toast-undo" not in html and 'id="live" role="status"' in html,
-          "the message bar is for failures only, and an always-present live region carries the rest")
+    # The shared look (owner, 18 Nov): title row, contents, Top stories as
+    # cards, the week's other stories and three sections as rows, More stories.
+    head = re.search(r'<header class="ins-head">.*?</header>', html, re.S).group(0)
+    check('<span class="gchip g-story"' in head and "<h1>Insights</h1>" in head
+          and re.search(r'class="sec-count upd">Updated <time datetime="[^"]+" data-hm>\d\d:\d\d</time>', head)
+          and 'class="plain ins-health" href="/health">' in head,
+          "the title row: amber chip, Insights, Updated HH:MM, and the health link at the right")
+    toc = re.search(r'<nav class="ins-toc".*?</nav>', html, re.S).group(0)
+    order = re.findall(r'href="#([a-z-]+)">([^<]+)<span class="visually-hidden">, </span><span class="toc-n">(\d+)', toc)
+    check([o[1] for o in order] == ["Top stories", "Other stories this week", "Funding",
+                                    "Spin-offs and accelerators", "Regulation and market news", "More stories"]
+          and all(f'id="{o[0]}"' in html for o in order) and toc.count('class="fact-rule"') == 5,
+          "the contents row links each section with its count, in order, thin dividers between")
+    tops = re.findall(r'<article class="card g-story glow-faint tcard[^"]*".*?</article>', html, re.S)
+    check(len(tops) == len(model["top"]) and all(s["relevance"] >= 40 and not s["hidden"] for s in model["top"])
+          and 'tcard is-first' in tops[0] and 'tcard is-first' not in "".join(tops[1:]),
+          "Top stories: a card for every open story at 40 or more, the first one larger")
+    lead = model["top"][0]
+    check(f'href="{lead["url"]}" target="_blank" rel="noopener">' in tops[0] and "and 2 more sources" in tops[0]
+          and 'class="tmove-l">Next move</p>' in tops[0] and 'class="treason"' in tops[0],
+          "a top story's headline goes straight to the article, with its sources, reason and Next move")
+    check('data-act="done"' in tops[0] and ">Done<" in tops[0] and "Hide" not in html,
+          "Done replaces Hide")
+    check(".th{font:600 16px/24px" in html and ".tcard.is-first .th{font-size:20px;line-height:28px}" in html
+          and ".tmove-l{color:var(--group-story);font-size:13px;line-height:20px;font-weight:600}" in html,
+          "headlines 16px/600, the first 20px/600, the Next move label 13px/600 amber")
+    other = re.search(r'<section class="ins-sec" id="other-stories".*?</section>', html, re.S).group(0)
+    check(other.count('<li class="srow"') == len(model["other"]) == 5
+          and not {s["key"] for s in model["other"]} & {s["key"] for s in model["top"]},
+          "Other stories this week: five rows, none of them in Top stories")
     for name in ("Funding", "Spin-offs and accelerators", "Regulation and market news"):
-        check(f">{name}</h2>" in html, f"the {name} section is on the page")
+        check(re.search(rf'<h2 class="sec-title" id="[a-z-]+-h">{name}</h2><span class="sec-count">\d+</span>', html),
+              f"the {name} section is on the page with its count, even at 0")
     hiring = [r for r in conn.execute("SELECT id, headline FROM signals WHERE story_type IN ('buying-window', 'first-hire')")]
     check(len(hiring) >= 3 and "Hiring and buying windows" not in html
           and not any(rc.clean_headline(r["headline"]) in html for r in hiring)
@@ -284,16 +304,30 @@ def page_checks(tmp: Path) -> None:
     check(all(insights_page.render_story(conn, r["id"]) is None for r in hiring)
           and insights_page.render_section(conn, "hiring") is None,
           "a hiring story has no story page and hiring has no section page")
-    check('are on <a href="/jobs">Jobs</a>' in html, "the foot says where hiring went")
-    check("More stories" in html and f"{len(model['below'])} this week under relevance 10" in html
-          and 'id="more-list" hidden' in html, "stories under 40 are folded under More stories")
-    check("Hidden this week" in html and "Show again" in html, "the stories hidden this week are folded with Show again")
-    check(not re.search(r"I did it|Suggestion|Do today|playbook", html, re.I),
+    check('id="more-list" hidden' in html and f"Show all {len(model['below'])} headlines" in html
+          and all(s["relevance"] < 10 for s in model["below"]),
+          "More stories folds everything under 10 behind Show all N headlines")
+    check("Done this week" in html and "Put back" in html, "the stories marked Done this week can be put back")
+    text = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", html)
+    text = re.sub(r"<[^>]+>", " ", text)
+    check(not re.search(r"Relevance \d|Found \d|relevance 40 or more|Times are shown|Check the source", text)
+          and "page-foot" not in html and "tally" not in html and "\u00b7" not in text and "\u2713" not in text,
+          "no relevance numbers, found dates, counts line, footnotes, middle dots or ticks on the front page")
+    check("IBM Plex Serif" not in html and "font-serif:var(--font-sans)" in html,
+          "the serif is gone: no font loads, and the story pages read the shared sans")
+    check('[hidden]{display:none!important}' in html, "hidden parts of the page are hidden whatever their display rule")
+    check("toast-undo" not in html and 'id="live" role="status"' in html,
+          "the message bar is for failures only, and an always-present live region carries the rest")
+    check(not re.search(r"I did it|Suggestion|Do today", html, re.I),
           "no suggestions and no I did it on the front page")
-    check("Add to Watchlist" in html and "On your Watchlist" in html,
-          "a company off the Watchlist offers Add to Watchlist and one on it says On your Watchlist")
-    check('class="visually-hidden">, </span><span class="s">' in html, "the fold button's name is not run together")
+    check("Add company to Watchlist" in html and 'class="wpill" href="/watchlist/' in html,
+          "a company off the Watchlist offers Add company to Watchlist and one on it the On your Watchlist pill")
     check("X-Radar-Request" in html, "the page's writes carry the write header")
+    check(re.search(r'<a class="plain" href="/watchlist/\d+">', html) and "/company/" not in html,
+          "company names link to their record on the Watchlist")
+    check("@media (max-width:767.98px)" in html and "repeat(auto-fill,minmax(min(100%,440px),1fr))" in html
+          and ".story-actions{display:flex;flex-wrap:wrap" in html,
+          "on a phone the cards are one column and the actions wrap under the text")
     sid = model["top"][0]["id"]
     story = insights_page.render_story(conn, sid)
     check(story.count('<li><span class="src">') == 3 and story.count("Not the same story") == 2,
@@ -314,7 +348,7 @@ def page_checks(tmp: Path) -> None:
           and "'/watchlist/remove',{company_id:cid2,undo_add:true,since:since[cid2]||''}" in html
           and "since[cid]=res.already?null:res.watched_at;" in html,
           "the script sends via insights and the signal id, and its Undo sends undo_add with the add's own stamp")
-    check('class="on-list" href="/watchlist/' in html and "a.href='/watchlist/'+cid" in html
+    check('class="wpill" href="/watchlist/' in html and "a.href='/watchlist/'+cid" in html
           and "/company/" not in html,
           "On your Watchlist leads to the company on the Watchlist, drawn or added, never /company/")
     any_report = model["top"][0]["reports"][-1]["id"]
@@ -332,7 +366,8 @@ def page_checks(tmp: Path) -> None:
     after = conn.execute("SELECT COUNT(*), SUM(LENGTH(COALESCE(acknowledged_at,''))) FROM signals").fetchone()
     check(tuple(before) == tuple(after), "rendering writes nothing")
     conn.close()
-    # A week where nothing is a buying window still has a front page: the week is ranked whatever the numbers.
+    # A week with nothing at 40: Top stories is empty and says so with 0;
+    # the week's stories are under Other stories and the sections.
     low = seeded(tmp, "typical")
     w = sqlite3.connect(low)
     w.execute("UPDATE signals SET relevance = MIN(relevance, 22)")
@@ -341,23 +376,31 @@ def page_checks(tmp: Path) -> None:
     lconn = ro(low)
     lmodel = insights_page.build_model(lconn)
     lhtml = insights_page.render_front(lconn)
-    check('id="top-row"' in lhtml and "A quiet week" not in lhtml and len(lmodel["top"]) == 5
-          and lmodel["top"][0]["relevance"] == 22,
-          "a week with nothing at 40 still leads with its five best stories")
-    check("0 at relevance 40 or more" in lhtml and "None reached 40, the mark of a buying window" in lhtml,
-          "the tally and Most relevant say plainly that nothing this week is a buying window")
-    check(all(s["relevance"] < 10 for s in lmodel["below"]) and all(s["relevance"] >= 10 for s in lmodel["ranked"]),
-          "only stories under the floor of 10 are folded under More stories, and none of them is ranked")
+    check(not lmodel["top"] and "No top stories." in lhtml
+          and '<h2 class="sec-title" id="top-stories-h">Top stories</h2><span class="sec-count">0</span>' in lhtml
+          and len(lmodel["other"]) == 5 and lmodel["other"][0]["relevance"] == 22,
+          "a week with nothing at 40 shows Top stories at 0, and its five best under Other stories")
+    funding = next(sec for sec in lmodel["sections"] if sec["key"] == "funding")
+    check(len(funding["stories"]) == 5 and "Show the other 2" in lhtml and 'id="funding-rest" hidden' in lhtml
+          and len(funding["earlier"]) == 2 and "From earlier weeks 2" in lhtml and 'id="funding-earlier" hidden' in lhtml,
+          "a section shows three rows, folds the rest behind Show the other N and older ones behind From earlier weeks N")
+    check(all(s["relevance"] < 10 for s in lmodel["below"])
+          and all(s["relevance"] >= 10 for sec in lmodel["sections"] for s in sec["stories"]),
+          "only stories under the floor of 10 are folded under More stories, and none of them is in a section")
     lconn.close()
     quiet = ro(seeded(tmp, "quiet"))
+    qmodel = insights_page.build_model(quiet)
     qhtml = insights_page.render_front(quiet)
-    check("A quiet week" in qhtml and "From earlier weeks" in qhtml and 'id="top-row"' not in qhtml,
-          "a quiet week says so, offers earlier weeks and draws no Top stories row")
+    earlier = sum(len(sec["earlier"]) for sec in qmodel["sections"])
+    check(qhtml.count('<span class="sec-count">0</span>') >= 3
+          and (not earlier or "From earlier weeks" in qhtml),
+          "a quiet week shows each section's title at 0 and its earlier weeks behind From earlier weeks N")
     quiet.close()
     stale = ro(seeded(tmp, "stale"))
     shtml = insights_page.render_front(stale)
-    check("The watcher has stopped" in shtml and "stories as of" in shtml and "Anything reported since then" in shtml,
-          "a stopped watcher is said in words at the top, and the date line says stories as of")
+    check("The watcher has stopped" in shtml and "Last finished run" in shtml
+          and "Anything reported since then" not in shtml,
+          "a stopped watcher is said at the top with its last run, and no explanation")
     stale.close()
 
 
