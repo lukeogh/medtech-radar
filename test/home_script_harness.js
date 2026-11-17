@@ -116,10 +116,9 @@ function dispatch(target, type, init) {
 // ---- the page, as home_page draws it, for two new Top prospects, every item in full
 const doc = new El('#document');
 const ITEMS = [['role-1', 'role:top:alpha|orrin', 'Head of Software'], ['role-2', 'role:top:beta|kinross', 'Quality Lead']];
-function item(id, key, title, next) {
+function item(id, key, title) {
   const acts = [h('a', { class: 'btn btn-primary', href: '/jobs/' + id.split('-')[1], 'data-open': '' }),
                 h('button', { class: 'btn btn-secondary', 'data-done': key, 'data-title': title })];
-  if (next) acts.push(h('a', { class: 'btn btn-ghost ny-next', href: '#' + next, 'data-next': next }));
   return h('article', { class: 'ny-item', id, 'data-item': id, 'data-key': key, tabindex: '-1' },
     h('header', { class: 'ny-ih' }, Object.assign(h('h4', { class: 'ny-it' }), { text: title })),
     h('div', { class: 'action-bar ny-acts' }, ...acts));
@@ -137,7 +136,7 @@ function buildMain() {
       h('button', { class: 'btn btn-ghost undo-last', id: 'undo-last', disabled: '' })),
     h('div', { class: 'ny-body', id: 'ny-list' },
       h('section', { class: 'ny-group' },
-        ...shown.map(([id, key, title], n) => item(id, key, title, shown[n + 1] ? shown[n + 1][0] : null))))));
+        ...shown.map(([id, key, title]) => item(id, key, title))))));
 }
 main = h('main', { class: 'content hf', id: 'main' });
 main.onInnerHTML = buildMain;
@@ -206,10 +205,6 @@ const $ = (id) => doc.getElementById(id);
   say(!docListeners.keydown && evs.every((e) => !e.defaultPrevented) && posts().length === 0
       && clicked.length === 0 && doc.activeElement === body && addresses.length === 0,
       'J, K, Enter, ?, E and Z on Home do nothing');
-  // Next goes to the next item: its anchor in the address, and the focus.
-  dispatch($('role-1').querySelector('[data-next]'), 'click');
-  say(pushed[pushed.length - 1] === '#role-2' && doc.activeElement === $('role-2'),
-      'Next takes the focus to the item after it, with its anchor in the address');
   // The health panel opens and closes.
   dispatch($('health-btn'), 'click');
   say($('health-btn').getAttribute('aria-expanded') === 'true' && !$('health-panel').hidden,
