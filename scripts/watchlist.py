@@ -255,6 +255,12 @@ def threads_due(conn, now=None) -> list:
     return out
 
 
+def follow_ups_due_count(conn, now=None) -> int:
+    """How many Watchlist companies have a follow-up due today or overdue: the
+    one count the Watchlist's pill and Home's tile both show (owner, 17 Nov)."""
+    return len(threads_due(conn, now))
+
+
 def clean_date(value) -> str | None:
     text = str(value or "").strip()
     if not _DATE.match(text):
@@ -1097,7 +1103,7 @@ def build_model(conn, config: dict | None = None, now=None, company_id=None) -> 
         "now": moment, "rows": rows, "suggestions": sugg["waiting"], "dismissed": sugg["dismissed"],
         "arrivals": arrivals, "selected": selected, "missing": missing,
         "missing_id": company_id if missing else None, "position": position,
-        "counts": {"watched": len(rows), "due": len(due),
+        "counts": {"watched": len(rows), "due": follow_ups_due_count(conn, moment),
                    "today": sum(1 for r in due if r["thread"]["state"] == "today"),
                    "overdue": sum(1 for r in due if r["thread"]["state"] == "overdue"),
                    "waiting": len(sugg["waiting"])},

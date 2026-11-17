@@ -693,6 +693,9 @@ def build_model(conn, data: dict, config: dict, now=None, item: str | None = Non
         "now": moment, "show": show, "items": shown, "todo": todo, "done": gone,
         "selected": selected, "missing": missing, "counts": counts, "overdue": overdue,
         "threads_overdue": threads_overdue,
+        # The tile's count is the Watchlist's own (watchlist.follow_ups_due_count),
+        # so the two pages always agree.
+        "follow_ups_due": len(threads_due(conn, moment)),
         "lights": light_list, "jobs": bd.job_verdicts(data), "jmodel": jmodel, "bmodel": bmodel,
         "week": week_model(data, top_history(conn), moment),
         "name": rc.read_first_name(config), "data": data, "config": config,
@@ -735,7 +738,7 @@ def figure_counts(model: dict) -> dict:
     c = model["counts"]
     totals = jp.tier_totals(model["jmodel"])
     return {"urgent": c["urgent"], "top": totals["top"], "question": totals["question"],
-            "threads": c["threads"], "apps": c["apps"]}
+            "threads": model.get("follow_ups_due", c["threads"]), "apps": c["apps"]}
 
 
 def figures_html(model: dict) -> str:
@@ -1081,7 +1084,7 @@ def _context_company(i: dict, model: dict, uid: str) -> str:
             when.append(f"Due {day(thread['next_action_date'])}")
         when.append(f"Last contact {day(thread.get('touched_at'))}, "
                     f"{CHANNEL_WORDS.get(thread.get('channel') or 'other', 'other')}")
-        parts.append(f'<div class="ny-ctx-part"><h5 class="sec-h">Thread</h5>'
+        parts.append(f'<div class="ny-ctx-part"><h5 class="sec-h">Follow-up</h5>'
                      f'<p class="ny-para">{esc(thread.get("next_action"))}</p>'
                      f'<p class="text-meta ny-under">{esc(", ".join(when))}.</p></div>')
     stories = [s for s in _story_groups({"signals": (data.get("signals") or [])})
@@ -1653,6 +1656,14 @@ a{color:inherit}
 .ny-story .ny-acts .link{display:inline-flex;align-items:center;min-height:44px;font-size:15px;line-height:24px}
 .ny-story .ny-acts .link svg{margin-left:4px}
 .ny-story .ny-acts .ny-onfile{align-self:auto}
+/* A story card wider than 1100px: the header, headline and summary on the
+   left, the Next move and the actions on the right. */
+@container ny (min-width:1100px){
+  .ny-story{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:40px;align-items:start}
+  .ny-story > .story-line,.ny-story > .story-h,.ny-story > .story-sum{grid-column:1}
+  .ny-story > .ny-move{grid-column:2;grid-row:1 / span 2;max-width:none}
+  .ny-story > .ny-acts{grid-column:2;grid-row:3}
+}
 @container ny (max-width:599.98px){.ny-tools{margin-left:0;flex-basis:100%}.facts{grid-template-columns:112px minmax(0,1fr)}.ny-item{padding:16px}.ny-role{padding:14px 16px}}
 /* ---- the page: a dotted ground, then the welcome, the tiles and the rest ---- */
 .app{background-color:var(--canvas);background-image:radial-gradient(rgba(232,237,240,.06) 1px,transparent 1px);background-size:22px 22px}

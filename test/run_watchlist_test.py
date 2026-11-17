@@ -832,6 +832,43 @@ def page_checks(tmp: Path) -> None:
           "first-seen dates or explanations; no thread, signal or middle dot")
     check('class="tier-pill' in rec.split('id="rl-h"', 1)[1] if 'id="rl-h"' in rec else True,
           "each role on Jobs carries its tier's pill")
+    # Put back, and the revised brief (owner, 17 Nov).
+    check('class="btn btn-secondary rh-close" data-close-record href="/watchlist"' in page
+          and 'class="btn btn-secondary rh-close"' not in rec
+          and ".rh-close{display:none;min-height:36px}" in watchlist_page.WATCHLIST_CSS
+          and "@media (min-width:1024px){.rh-close{display:inline-flex}}" in watchlist_page.WATCHLIST_CSS
+          and "<kbd" not in page,
+          "the record beside the list has Close by its arrows, 36px and no key hint; its own page has Back")
+    none_chosen = watchlist_page.render_page(wl.build_model(conn, CFG, NOW), None, "table")
+    check("No company chosen." in none_chosen and 'class="layout has-record"' in none_chosen
+          and ".co-card.is-selected{box-shadow:inset 0 0 0 100vmax rgba(92,195,207,.14)}" in watchlist_page.WATCHLIST_CSS,
+          "with no company chosen the record column says so, and a chosen company's card has a soft teal wash")
+    fake = [{"id": 99, "name": "Okara Diagnostics", "place": "", "type_words": "Funding round",
+             "dismissed_at": NOW, "dismissed_by": "you"}]
+    folded = watchlist_page.render_page(dict(m, suggestions=[], dismissed=fake), None, "table")
+    check('id="sg-panel"' not in folded and '<section class="dis-foot"' in folded
+          and 'id="dis-btn" aria-expanded="false"' in folded and 'id="dis-list" hidden' in folded
+          and 'data-sg="again"' in folded and "(1)" in folded,
+          "with none waiting, dismissed suggestions are one closed fold at the foot, with its count "
+          "and Suggest again")
+    rec_out = dict(m["selected"], watched=False)
+    head_out = watchlist_page.record_head(rec_out, m, "table")
+    check('class="btn btn-teal" id="watch-btn">Add to Watchlist' in head_out
+          and '<span class="stag">Not on your Watchlist</span>' in head_out,
+          "a company not on the Watchlist has Add to Watchlist in teal and a pill saying so")
+    confirm = re.search(r'<div class="reread-confirm" id="reread-confirm" hidden><p>(.*?)</p>', page, re.S)
+    check(confirm is not None and len(re.findall(r"[.!?](\s|$)", re.sub(r"<[^>]+>", "", confirm.group(1)))) == 1
+          and m["selected"]["reread"]["words"] in confirm.group(1),
+          "Read again's confirm is one sentence saying what it does and what it costs")
+    import build_dashboard as bd_
+    import home_page as hp_
+    hm = hp_.build_model(conn, bd_.collect(conn, CFG), CFG, now=NOW)
+    due_n = wl.follow_ups_due_count(conn, NOW)
+    check(due_n > 0 and hp_.figure_counts(hm)["threads"] == m["counts"]["due"] == due_n,
+          f"on the test database Home's follow-ups tile and the Watchlist's pill give the same count "
+          f"({hp_.figure_counts(hm)['threads']}, {m['counts']['due']}, {due_n})")
+    check(".sec-head" not in watchlist_page.WATCHLIST_CSS,
+          "the Watchlist has no section-title rules of its own; it reads the shared ones")
     css = watchlist_page.WATCHLIST_CSS
     phone = css[css.index("@media (max-width:767.98px){\n  .btn,.menu button"):]
     phone = phone[:phone.index("\n}\n")]
