@@ -1529,7 +1529,7 @@ button,input{font:inherit;color:inherit;letter-spacing:0}
 a{color:inherit}
 .mono{font-family:var(--font-mono);white-space:nowrap}
 .seg-nowrap{white-space:nowrap}
-.app{display:grid;grid-template-rows:48px auto minmax(0,1fr);height:100vh;height:100dvh;overflow:hidden;background:var(--surface)}
+.app{display:grid;grid-template-rows:var(--bar-h) auto minmax(0,1fr);height:100vh;height:100dvh;overflow:hidden;background:var(--surface)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-2);font-size:14px;line-height:20px;font-weight:500;white-space:nowrap;text-decoration:none;cursor:pointer;transition:background-color var(--dur) ease-out,color var(--dur) ease-out,border-color var(--dur) ease-out}
 .btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
@@ -1725,7 +1725,7 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
 }
 @media (max-width:767.98px){
   html{scroll-padding-top:44px}
-  .app{grid-template-rows:48px auto auto;height:auto;min-height:100vh;overflow:visible}
+  .app{grid-template-rows:var(--bar-h) auto auto;height:auto;min-height:100vh;overflow:visible}
   .queue,.role{overflow:visible;min-height:auto}
   .detail-head{position:relative}
   .undo-last{margin-left:0;padding-inline:0}

@@ -1227,7 +1227,10 @@ html[data-appearance="dark"]{
 *{box-sizing:border-box}
 html,body{margin:0}
 body{background:var(--paper);color:var(--ink-1);font:400 var(--text-base)/1.55 var(--font-sans);-webkit-font-smoothing:antialiased}
-.page{max-width:var(--page-max);margin:0 auto;padding:var(--space-40) var(--space-24) var(--space-72)}
+/* The content box, set once and read by the page and by the top bar's
+   contents (page_frame's .appbar-in). */
+:root{--frame-max:var(--page-max);--frame-pad:var(--space-24)}
+.page{max-width:var(--frame-max);margin:0 auto;padding:var(--space-40) var(--frame-pad) var(--space-72)}
 a{color:var(--accent);text-decoration:underline;text-decoration-color:var(--accent-quiet);text-underline-offset:2px;transition:text-decoration-color var(--dur-instant) var(--ease)}
 a:hover{text-decoration-color:var(--accent)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--radius-sm)}
@@ -1435,7 +1438,8 @@ code{font:400 var(--text-xs)/1.55 var(--font-mono);background:var(--surface);bor
   .src-result{grid-column:1/-1;text-align:left;white-space:normal}
 }
 @media (max-width:600px){
-  .page{padding:var(--space-24) var(--space-16) var(--space-56)}
+  :root{--frame-pad:var(--space-16)}
+  .page{padding:var(--space-24) var(--frame-pad) var(--space-56)}
   .masthead h1{font-size:var(--text-xl)}
   .standing p{font-size:var(--text-lg)}
   .section{margin-top:var(--space-40)}

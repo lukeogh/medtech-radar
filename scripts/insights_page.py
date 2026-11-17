@@ -208,10 +208,13 @@ a:hover{color:var(--accent-hover)}
 h1,h2,h3,h4,p,ol,ul,dl,dd{margin:0}
 ol,ul{padding:0;list-style:none}
 button,select,textarea{font:inherit}
-.page{margin:0 auto;padding:0 var(--gutter) 64px;max-width:var(--page-max,1280px)}
-.news{--page-max:1280px}
+/* The content box, set once and read by the page and by the top bar's
+   contents (page_frame's .appbar-in): capped at 1280px, 2496px from 1920px,
+   with the gutter either side. */
+:root{--frame-max:1280px;--frame-pad:var(--gutter)}
+.page{margin:0 auto;padding:0 var(--frame-pad) 64px;max-width:var(--frame-max)}
 @media (min-width:768px){:root{--gutter:24px}}
-@media (min-width:1920px){:root{--gutter:48px;--rail-w:400px}.news{--page-max:2496px}}
+@media (min-width:1920px){:root{--gutter:48px;--rail-w:400px;--frame-max:2496px}}
 .masthead{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 24px;padding:24px 0 16px;
   border-bottom:1px solid var(--border-subtle)}
 .masthead h1{font:500 40px/48px var(--font-serif);letter-spacing:-.01em}

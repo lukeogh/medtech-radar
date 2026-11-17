@@ -234,6 +234,21 @@ def page_checks(tmp: Path) -> None:
         check('data-state="ok"' in bar and "All running" in bar and 'href="/radar"' in bar,
               f"{name}: with every job on time and the digest and the push in dry run, "
               "the light says All running")
+    # The bar's contents follow each page's own content box (owner, 17 Nov).
+    for name, (page, _current) in running.items():
+        css = " ".join(re.findall(r"(?s)<style>(.*?)</style>", page))
+        own = css.replace(".appbar-in{", "", 1)
+        if name in ("Jobs", "a role on Jobs"):
+            check('<header class="appbar"><div class="appbar-in">' in page
+                  and "--frame-max:" not in css and "--frame-pad:" not in css,
+                  f"{name} fills the window, so its bar keeps the full width and 16px, "
+                  "as its page head does")
+        else:
+            check('<header class="appbar"><div class="appbar-in">' in page
+                  and "--frame-max:" in css and "--frame-pad:" in css
+                  and own.count("var(--frame-max)") >= 1 and own.count("var(--frame-pad)") >= 1,
+                  f"{name} sets its content box once, and its content and the bar's "
+                  "contents both read it")
     for name, (page, _current) in stalled.items():
         bar = bar_of(page)
         check("Check Radar" in bar and 'data-state="check"' in bar and "All running" not in bar
@@ -242,12 +257,56 @@ def page_checks(tmp: Path) -> None:
               "and no job names")
 
 
+def edge_checks() -> None:
+    """The bar lines up with the page, and the bigger menu (owner, 17 Nov)."""
+    css = page_frame.FRAME_CSS
+    check(".appbar-in{box-sizing:border-box;display:flex;align-items:center;gap:24px;width:100%;"
+          "height:100%;min-width:0;max-width:var(--frame-max,none);margin:0 auto;"
+          "padding:0 var(--frame-pad,16px)}" in css
+          and "height:var(--bar-h);" in css and "padding:0 16px" not in css,
+          "the bar's ground runs the full width and its contents take the page's content box")
+    check(":root{--bar-h:48px}" in css and "@media (min-width:700px){:root{--bar-h:64px}}" in css
+          and "top:var(--bar-h);" in css,
+          "the bar is 64px tall from 700px and 48px on a phone, and the phone menu opens under it")
+    check("font-size:18px;line-height:24px;font-weight:500;" in css
+          and ".appbar .nav{display:flex;align-self:stretch;gap:24px;" in css
+          and "padding:3px 4px 0;border-bottom:3px solid transparent;" in css
+          and '.appbar .nav a[aria-current="page"]{color:var(--text-1);font-weight:600;'
+              'border-bottom-color:var(--accent)}' in css
+          and "height:100%;min-height:44px;" in css,
+          "the menu is 18px at 500, 32px apart, the page you are on 600 with a 3px rule in "
+          "the accent, and each link the bar's full height")
+    check(".appbar .brand-mark{width:68px;height:32px}" in css
+          and ".appbar .brand-name{font-size:17px;line-height:24px}" in css,
+          "the mark and the wordmark grow with the bar, the wordmark 17px")
+    # Home: the bar's contents and the page are the same box, so the logo's left
+    # edge is the greeting's at every width; worked out at 1920 and 1440, with a
+    # 15px scroll bar and without.
+    home = hp.HOME_CSS
+    check(".app > *{--frame-max:1440px;--frame-pad:16px}" in home
+          and "@container app (min-width:768px){.app > *{--frame-pad:24px}" in home
+          and "@container app (min-width:1024px){.app > *{--frame-pad:32px}" in home
+          and "max-width:var(--frame-max);margin:0 auto;padding:20px var(--frame-pad) 32px}" in home
+          and "grid-template-rows:var(--bar-h) auto;" in home,
+          "Home sets its content box once, for its page and its bar alike")
+    def left(width: float, cap: float = 1440, pad: float = 32) -> float:
+        return max(0.0, (width - cap) / 2) + pad
+    for window in (1920, 1440):
+        for bar_w in (0, 15):
+            inner = window - bar_w
+            logo, greeting = left(inner), left(inner)
+            check(abs(logo - greeting) <= 1,
+                  f"at {window} wide ({'a 15px' if bar_w else 'no'} scroll bar) the logo and "
+                  f"the greeting both start {logo:g}px in")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--db", help="ignored: the suite passes it to every runner")
     parser.parse_args(argv)
     frame_checks()
     light_checks()
+    edge_checks()
     tmp = Path(tempfile.mkdtemp(prefix="radar-header-"))
     try:
         page_checks(tmp)

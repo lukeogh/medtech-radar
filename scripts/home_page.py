@@ -1428,7 +1428,7 @@ a{color:inherit}
 :root{--font-serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;--ht-surface:#1a1d1f;--ht-line:#2b3135;--ht-track:#252a2d;--ht-sunk:#15181a;--ht-series-1:#2aa1b3;--ht-series-2:#9a80ea;--link-line:#5b6770}
 .ctx-row:focus-visible{outline-offset:-7px;box-shadow:none}
 /* The page scrolls as one document at every width: Needs you today shows every item in full. */
-.app{container:app / inline-size;display:grid;grid-template-rows:48px auto;min-height:100vh;align-content:start;background:var(--canvas)}
+.app{container:app / inline-size;display:grid;grid-template-rows:var(--bar-h) auto;min-height:100vh;align-content:start;background:var(--canvas)}
 .content{grid-row:2;min-width:0}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-2);font-size:14px;line-height:20px;font-weight:500;white-space:nowrap;text-decoration:none;cursor:pointer;transition:background-color var(--dur) ease-out,color var(--dur) ease-out,border-color var(--dur) ease-out}
 .btn-secondary{background:var(--surface);border-color:var(--border-strong);color:var(--text-1)}
@@ -1595,13 +1595,14 @@ a{color:inherit}
 /* ---- the five tiles, each in its group's colour: two a row on a phone with
    the first across the width, three and two from 600px, five across from
    1024px ---- */
-.ht-figs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+/* Every tile the same height: the rows share the tallest. */
+.ht-figs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));grid-auto-rows:1fr;gap:12px}
 .ht-figlink{display:flex;flex-direction:column;align-items:flex-start;min-width:0;min-height:44px;padding:16px;background-color:var(--surface);border:1px solid var(--border-subtle);border-radius:12px;color:var(--text-1);text-decoration:none;--focus-gap:var(--canvas);transition:border-color var(--dur) ease-out}
 .ht-figlink:hover{border-color:var(--border-strong)}
 .ht-figlink:hover .ht-figword{text-decoration:underline;text-decoration-color:var(--link-line);text-underline-offset:3px}
 .ht-figlink > .gchip{margin-bottom:16px}
-.ht-fignum{font-size:30px;line-height:36px;font-weight:600;font-variant-numeric:tabular-nums}
-.ht-figword{margin-top:2px;font-size:13px;line-height:18px;color:var(--text-2)}
+.ht-fignum{font-size:40px;line-height:48px;font-weight:600;font-variant-numeric:tabular-nums}
+.ht-figword{margin-top:2px;font-size:16px;line-height:24px;font-weight:400;color:var(--text-2)}
 .ht-figlink.is-zero .ht-fignum{color:var(--text-3)}
 @container app (max-width:599.98px){.ht-figs{grid-template-columns:repeat(2,minmax(0,1fr))}.ht-figs > .ht-figlink:first-child{grid-column:1 / -1}}
 @container app (min-width:600px) and (max-width:1023.98px){.ht-figs{grid-template-columns:repeat(6,minmax(0,1fr))}.ht-figs > .ht-figlink{grid-column:span 2}.ht-figs > .ht-figlink:nth-child(n + 4){grid-column:span 3}}
@@ -1706,14 +1707,18 @@ a{color:inherit}
 @container ny (max-width:599.98px){.ny-tools{margin-left:0;flex-basis:100%}.facts{grid-template-columns:112px minmax(0,1fr)}.ny-item{padding:16px}.ny-role{padding:14px 16px}}
 /* ---- the page: a dotted ground, then the welcome, the tiles and the rest ---- */
 .app{background-color:var(--canvas);background-image:radial-gradient(rgba(232,237,240,.06) 1px,transparent 1px);background-size:22px 22px}
-.hf{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-content:start;width:100%;max-width:1440px;margin:0 auto;padding:20px 16px 32px}
+/* The content box, set once and read by the page and by the top bar's
+   contents (page_frame's .appbar-in), so the two share their edges at every
+   width: capped at 1440px, 16px in, 24px from 768px and 32px from 1024px. */
+.app > *{--frame-max:1440px;--frame-pad:16px}
+.hf{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-content:start;width:100%;max-width:var(--frame-max);margin:0 auto;padding:20px var(--frame-pad) 32px}
 /* Under the tiles, two columns, 2fr and 1fr, 20px apart and aligned at the
    top; under 1024px they stack: Open actions, then Jobs, then Applications. */
 .hf-cols{display:grid;grid-template-columns:minmax(0,1fr);gap:24px;align-items:start;min-width:0}
 .hf-main,.hf-side{min-width:0}
 .hf-side{display:flex;flex-direction:column;gap:24px}
-@container app (min-width:768px){.hf{gap:24px;padding:32px 24px 48px}}
-@container app (min-width:1024px){.hf{padding-inline:32px}.hf-cols{grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:20px}}
+@container app (min-width:768px){.app > *{--frame-pad:24px}.hf{gap:24px;padding-block:32px 48px}}
+@container app (min-width:1024px){.app > *{--frame-pad:32px}.hf-cols{grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:20px}}
 /* Under 768 every target is 44px. */
 @media (max-width:767.98px){
   html{scroll-padding-top:8px}
@@ -1737,11 +1742,11 @@ a{color:inherit}
   .ht-lights-sum:hover{border-color:var(--border-strong)}
   .ht-strip-list{display:none;order:3;flex-basis:100%}
   .ht-lights-sum[aria-expanded="true"] ~ .ht-strip-list{display:flex}
-  .ht-figs{gap:8px}
+  .ht-figs{grid-auto-rows:auto;gap:8px}
   .ht-figlink{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:12px;row-gap:0;padding:12px}
   .ht-figlink > .gchip{margin-bottom:0}
   .ht-fignum{font-size:28px;line-height:32px}
-  .ht-figword{grid-column:1 / -1;margin-top:0;font-size:12px;line-height:16px}
+  .ht-figword{grid-column:1 / -1;margin-top:0;font-size:14px;line-height:18px}
 }
 @media (pointer:coarse){
   .btn,.seg{height:44px}
