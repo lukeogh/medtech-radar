@@ -604,7 +604,7 @@ deploy.
 
 Built from design/watchlist/final and the owner's decisions of 15 Nov 2026.
 `scripts/watchlist.py` holds the rules and every read and write;
-`scripts/watchlist_page.py` draws `/watchlist` (the table, with a company's
+`scripts/watchlist_page.py` draws `/watchlist` (the companies as cards, with a company's
 record beside it at `/watchlist?company=<id>` from 1024 wide) and
 `/watchlist/<id>` (the record as its own view, for a phone). The page reads
 only; its script writes through guarded POST routes in serve_dashboard.py
@@ -619,7 +619,7 @@ only; its script writes through guarded POST routes in serve_dashboard.py
   when that contact set `next_action`; it is due when `next_action_date` is
   today or earlier, UK time. A next step logged here needs a due date; one on
   file with no date shows No date set and is never due. Home's fifth figure
-  and the table's tags both read `thread_of`, and only Watchlist companies
+  and the cards' follow-ups both read `thread_of`, and only Watchlist companies
   count.
 - Suggestions live in `watch_suggestions`, worked out in code by
   `refresh_suggestions` at the end of each signal watcher run (not a spot
