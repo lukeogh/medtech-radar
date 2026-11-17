@@ -1155,7 +1155,7 @@ def main() -> int:
               "an old Top advert outranks a fresh Reading one, and the"
               " role pane says the latest advert read lower")
         span_pane = bd4.render_jobs_page(data6, config5, "t", selected=span_new)
-        check(drop_row and "Live · seen" in drop_pane
+        check(drop_row and "Live, seen" in drop_pane
               and "Unknown, " not in drop_row
               and "Latest advert read lower" not in jobs6
               and "Latest advert read lower" not in span_pane,
@@ -1216,7 +1216,7 @@ def main() -> int:
               " code, and the source strip is gone from Jobs")
         check("gh-key" not in jobs6 and 'class="mk ' not in jobs6,
               "no gate marks on the rows and no S C L R legend in the bands")
-        check("Live · seen" in pane5 and "Unknown, " not in
+        check("Live, seen" in pane5 and "Unknown, " not in
               next((c for c in jobs5.split('<div class="row ') if f'data-id="{newer}"' in c), "x"),
               "a chain seen this week reads Live, and its row carries no chip")
         check("Unknown, " not in jobs5 and 'class="tag tag-caution"' not in jobs5,

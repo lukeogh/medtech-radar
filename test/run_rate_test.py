@@ -416,8 +416,10 @@ def page_checks() -> None:
     pane = jobs_page.score_html(o)
     rate_part = pane[pane.index('gate-name">Rate'):]
     check("Not stated" in rate_part[:400] and "Passes" not in rate_part[:400]
-          and "Fails" not in rate_part[:400] and "is-neu" in rate_part[:400],
-          "the role pane's Rate gate reads Not stated, neutral, with no Passes or Fails")
+          and "Fails" not in rate_part[:400] and 'gate-status is-cau"' in rate_part[:400]
+          and ".is-cau{color:var(--caution)}" in jobs_page.JOBS_CSS,
+          "the role pane's Rate gate reads Not stated, in amber, the caution colour, with "
+          "no Passes or Fails (owner, 17 Nov)")
     check(rc.RATE_NOT_STATED_NOTE in html.unescape(rate_part[:600]),
           "and code's note beside it, not the older score's")
     from datetime import datetime, timezone

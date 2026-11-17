@@ -706,56 +706,47 @@ def _spans_for(reasons: list, text: str, offset: int = 0) -> tuple[list, dict]:
     return spans, hit
 
 
-def _basis_html(o: dict) -> str:
-    basis = str(o.get("score_basis") or "").strip().lower()
-    if not basis:
-        return '<p class="basis">Not scored yet.</p>'
-    what = {radar_common.SCORE_BASIS_CARD: "Scored on the advert card",
-            radar_common.SCORE_BASIS_SPEC: "Scored on the full job spec"}.get(
-                basis, f"Scored on {basis}")
-    model = o.get("score_model")
-    bits = [esc(what),
-            esc(_day(o.get("scored_at")) or "date not recorded"),
-            esc(model if model and model != radar_common.UNKNOWN_MODEL
-                else "model unknown")]
-    prompt = o.get("prompt_version")
-    bits.append("prompt " + (f'<span class="mono">{esc(prompt)}</span>' if prompt
-                             else "unknown"))
-    if o.get("cv_version"):
-        bits.append(f'CV <span class="mono">{esc(o["cv_version"])}</span>')
-    return ('<p class="basis">' + " · ".join(f'<span class="seg-nowrap">{b}</span>'
-                                             for b in bits) + '</p>')
+# Each gate state's colour on the role pane: passes green, fails red, not
+# stated amber (the caution colour), not judged grey. The pane only; the
+# row's marks are as they were.
+GATE_TONES = {radar_common.PASSES: "is-pos", radar_common.FAILS: "is-neg",
+              radar_common.NOT_STATED: "is-cau"}
 
 
 def score_html(o: dict) -> str:
+    """Score, its own section: the tier's pill, then the four gates, the CV
+    figure inside the CV match gate. How the score was made stays in the
+    database and is not said here (owner, 17 Nov)."""
     tier = o.get("tier")
     if tier:
-        tier_line = TIER_WORDS.get(tier, tier)
-        if tier == "filtered" and o.get("filter_reason"):
-            tier_line += f", {o['filter_reason']}"
+        reason = (f'<span class="tier-reason">{esc(o["filter_reason"])}</span>'
+                  if tier == "filtered" and o.get("filter_reason") else "")
+        tier_line = (f'<p class="tier-line">{tiers.pill_html(tier, TIER_WORDS.get(tier), singular=True)}'
+                     f'{reason}</p>')
     else:
-        tier_line = "Not scored yet"
+        tier_line = '<p class="tier-line">Not scored yet.</p>'
     gates = []
     for gate, name, _letter in GATES:
         state = radar_common.gate_state(o, gate)
         _mk, symbol, word = STATE_MARKS[state]
-        cls = {radar_common.PASSES: "is-pos",
-               radar_common.FAILS: "is-neg"}.get(state, "is-neu")
+        cls = GATE_TONES.get(state, "is-neu")
         note = o.get(f"gate_{gate}_note") or ""
         if state == radar_common.NOT_STATED:
             # A note an older score wrote may pass or fail it. Code's is said
             # here whatever is stored.
             note = radar_common.RATE_NOT_STATED_NOTE
-        gates.append(f'<div class="gate"><span class="gate-name">{name}</span>'
-                     f'<span class="gate-status {cls}">{_use(symbol)}{word}</span>'
+        status = f'{_use(symbol)}{word}'
+        if gate == "cv" and o.get("cv_match") is not None:
+            # The figure shares the status's line, set apart by the drawn rule.
+            status = (f'<span class="r-bit">{status}</span>'
+                      '<span class="visually-hidden">, </span>'
+                      f'<span class="r-bit gate-figure">{int(o["cv_match"])}%</span>')
+        gates.append(f'<div class="gate gate-{gate}"><span class="gate-name">{name}</span>'
+                     f'<span class="gate-status {cls}">{status}</span>'
                      f'<span class="gate-note">{esc(note)}</span></div>')
-    cv = (f'<p class="cv-line"><span class="cv-label">CV match</span>'
-          f'<span class="cv-figure">{int(o["cv_match"])}%</span></p>'
-          if o.get("cv_match") is not None else "")
     return ('<section class="sec score" aria-labelledby="score-heading">'
             '<h3 class="sec-h" id="score-heading">Score</h3>'
-            f'<p class="tier-line">{esc(tier_line)}</p>'
-            f'<div class="gate-strip">{"".join(gates)}</div>{cv}{_basis_html(o)}'
+            f'{tier_line}<div class="gate-strip">{"".join(gates)}</div>'
             '</section>')
 
 
@@ -789,7 +780,8 @@ def reasons_section(o: dict, reasons: list, hits: dict, quotes: bool) -> str:
 
 def asks_section(o: dict, view: str) -> str:
     """The asks summary from the per-ask working of the score the role holds,
-    and the way to see them. Read from the full job spec only."""
+    and the way to see them. Read from the full job spec only, and not shown
+    at all until there are asks (owner, 17 Nov)."""
     import prepare_application as prep
     working = prep.load_working(o)
     on_description = prep.scored_on_description(o)
@@ -798,15 +790,17 @@ def asks_section(o: dict, view: str) -> str:
             'See them in Prepare application</a>')
     if working is not None and on_description:
         counts = working.get("counts") or {}
-        text = (f'{int(counts.get("met") or 0)} met · '
-                f'{int(counts.get("partly") or 0)} partly · '
-                f'{int(counts.get("missing") or 0)} missing. ')
+        met, partly, missing = (int(counts.get(k) or 0)
+                                for k in ("met", "partly", "missing"))
+        if not met + partly + missing:
+            return ""
+        text = f'{met} met, {partly} partly, {missing} missing. '
         body = f"<p>{text}{link}</p>"
     elif working is not None and (o.get("description_text") or "").strip():
         body = ('<p>The stored job spec has changed since this score, so its '
                 f'asks are not counted here. {link}</p>')
     else:
-        body = '<p>No asks yet. Asks are read from the full job spec.</p>'
+        return ""
     return ('<section class="sec" aria-labelledby="asks-heading">'
             f'<h3 class="sec-h" id="asks-heading">Asks</h3>{body}</section>')
 
@@ -824,15 +818,15 @@ def _state_words(o: dict, view: str, now: str) -> str:
     state = radar_common.life_state(o, now)
     newest = _day(radar_common.latest_liveness(o))
     if state == "live":
-        words = f"Live · seen {newest}"
+        words = f"Live, seen {newest}"
     else:
-        words = f"Unknown · last seen {newest}" if newest else "Unknown"
+        words = f"Unknown, last seen {newest}" if newest else "Unknown"
         moment, latest = _parse(now), _parse(radar_common.latest_liveness(o))
         if moment and latest:
             expires = latest + timedelta(days=expiry_days())
-            words += f" · expires {expires.day} {expires:%b}"
+            words += f", expires {expires.day} {expires:%b}"
     if o.get("acknowledged_at"):
-        words += f" · acknowledged {_day(o['acknowledged_at'])}"
+        words += f", acknowledged {_day(o['acknowledged_at'])}"
     return words
 
 
@@ -895,7 +889,7 @@ def company_section(data: dict, o: dict) -> str:
     touch = (data.get("touch_map") or {}).get(str(o.get("company") or "").lower())
     if touch:
         bits.append(f"last touch {_day(touch.get('touched_at'))}")
-    text = " · ".join(bits)
+    text = ", ".join(bits)
     meta = (f'<p class="company-meta">{esc(text[:1].upper() + text[1:])}</p>'
             if bits else "")
     return ('<section class="sec company" aria-label="Company">'
@@ -906,8 +900,8 @@ def company_section(data: dict, o: dict) -> str:
 def advert_section(o: dict, reasons: list, quotes: bool, view: str,
                    can_prepare: bool) -> tuple[str, dict]:
     """The advert: the stored full description where there is one, marked
-    where the reasons quote it; otherwise the advert-not-read state, the card
-    the score was made on, with Prepare application as the way to read it.
+    where the reasons quote it; otherwise "Advert not read yet." beside
+    Prepare application, the way to read it.
     Returns the section and which reasons' quotes were marked in it."""
     text = (o.get("description_text") or "").strip("\n")
     basis = str(o.get("score_basis") or "").strip().lower()
@@ -922,43 +916,14 @@ def advert_section(o: dict, reasons: list, quotes: bool, view: str,
         body = f'<div class="advert-text">{advert_text_html(text, spans)}</div>'
         head = f'<span class="advert-read">{esc(read)}</span>'
     else:
-        # The card is what the score read: title, company, place and pay, each
-        # its own field, as score_item.quote_sources holds the quotes to them.
-        fields = [str(o.get(f) or "").strip() for f in ("title", "company",
-                                                        "location", "salary_rate")]
-        hits: dict = {}
-        used: set = set()
-        pieces = []
-        remaining = list(enumerate(reasons, 1))
-        for field in fields:
-            if not field:
-                continue
-            spans = []
-            if basis != radar_common.SCORE_BASIS_SPEC:
-                for i, r in remaining:
-                    if i in hits or not r.get("quote"):
-                        continue
-                    found = _quote_span(r["quote"], field)
-                    if found and not any(found[0] < e and s < found[1]
-                                         for s, e, _q in spans):
-                        spans.append((found[0], found[1], f"q-{i}"))
-                        hits[i] = f"q-{i}"
-                spans.sort()
-            pieces.append(_marked(field, 0, len(field), spans, used))
-        card = ". ".join(p.rstrip(".") for p in pieces)
-        link = bd.safe_url(o.get("source_url"))
-        open_link = (f'<p><a class="link with-icon" href="{esc(link)}" target="_blank" '
-                     f'rel="noopener noreferrer">{_use("ic-launch", 16)}Open the advert on '
-                     f'{esc(board(o.get("source")))}<span class="visually-hidden"> '
-                     '(opens in a new tab)</span></a></p>' if link else "")
-        prepare = (f'<p class="prepare-hint">Prepare application opens the role, where '
-                   f'one button, which says its cost first, reads the full advert and '
-                   f'scores it once. <a class="link" data-prepare="{oid}" '
-                   f'href="/prepare/{oid}">Prepare application</a></p>'
+        # Not read yet: those words beside the way to read it, and no more
+        # (owner, 17 Nov). The card's quotes then show without a link.
+        hits = {}
+        prepare = (f'<a class="btn btn-secondary" data-prepare="{oid}" '
+                   f'href="/prepare/{oid}">Prepare application</a>'
                    if can_prepare else "")
-        body = (f'<p class="empty-fact">Advert not read yet. Only the advert card is '
-                f'on file.</p><p class="card-text">{card}{"." if card else ""}</p>'
-                f'{open_link}{prepare}')
+        body = (f'<div class="advert-unread">{prepare}'
+                '<p>Advert not read yet.</p></div>')
         head = ""
     return ('<section class="advert" aria-labelledby="advert-heading" tabindex="-1" '
             'id="advert">'
@@ -1026,19 +991,13 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
     open_view = view in ("open", "filtered")
     advert, hits = advert_section(face, reasons, quotes, view,
                                   can_prepare=open_view)
+    # The row's facts, said the same way, the company a link to its page
+    # where there is one.
+    meta = facts_bits(face)
     cid = face.get("company_id")
-    company = esc(face.get("company") or "Unknown company")
     if cid and int(cid) in (data.get("company_ids") or set()):
-        company = (f'<a class="link" id="detail-company" href="/company/{int(cid)}">'
-                   f'{company}</a>')
-    meta = [company]
-    loc = location_text(face)
-    if loc:
-        meta.append(esc(loc))
-    word = engagement_word(face)
-    if word:
-        meta.append(word)
-    meta.append(esc(board(face.get("source"))))
+        meta[0] = (f'<a class="link" id="detail-company" href="/company/{int(cid)}">'
+                   f'{meta[0]}</a>')
     tags = spec_tag(face)
     if view == "applied":
         tags += (f'<span class="tag tag-positive">{_use("st-pos")}Applied '
@@ -1066,8 +1025,8 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
             'data-back>Back to Jobs</a>')
     head = (f'<header class="detail-head">{back}<div class="dh-grid">'
             f'<h2 class="dh-title" id="role-title" tabindex="-1">{esc(title)}</h2>'
-            f'<div class="dh-meta"><span class="dh-meta-text">{" · ".join(meta)}</span>'
-            f'{tags}</div>'
+            f'<div class="dh-meta"><p class="dh-facts"><span class="dh-facts-in">'
+            f'{meta_html(meta)}</span></p>{tags}</div>'
             f'<div class="dh-nav">{open_advert}'
             f'{step(prev_id, "Previous job", "prev", "ic-left")}{step(next_id, "Next job", "next", "ic-right")}'
             f'</div></div>{actions_html(face, view)}</header>')
@@ -1387,11 +1346,17 @@ a{color:inherit}
 .detail-head{position:sticky;top:0;z-index:3;container:dhead / inline-size;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle)}
 .back{display:none}
 .dh-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title nav" "meta meta";column-gap:16px}
-.dh-title{grid-area:title;align-self:center;font-size:18px;line-height:24px;font-weight:600;text-wrap:balance}
+.dh-title{grid-area:title;align-self:center;font-size:22px;line-height:28px;font-weight:600;text-wrap:balance}
 .dh-title:focus{outline:none}
 .dh-nav{grid-area:nav;display:flex;align-items:center;gap:8px}
 .dh-meta{grid-area:meta;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:20px;margin-top:4px}
-.dh-meta-text{font-size:12px;line-height:16px;color:var(--text-3)}
+/* The row's facts beneath the title, set apart by the same drawn rule. They
+   may wrap here: every fact carries the rule before it, and the line is
+   pulled left by the rule's width and clipped, so no line starts with one. */
+.dh-facts{flex:0 1 auto;min-width:0;overflow:hidden;font-size:14px;line-height:20px;color:var(--text-2)}
+.dh-facts-in{position:relative;display:flex;flex-wrap:wrap;margin-left:-17px}
+.dh-facts .r-bit{min-width:0}
+.dh-facts .r-bit::before{content:"";display:inline-block;width:0;height:14px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-2px}
 .actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
 .applied-note{flex:1 1 32ch;min-width:0;max-width:80ch;margin-left:4px;color:var(--text-2);text-wrap:pretty}
 @container dhead (max-width:759.98px){
@@ -1404,20 +1369,24 @@ a{color:inherit}
   .actions-open .btn-primary{grid-column:1 / -1;justify-self:start}
 }
 .detail-body{display:flex;flex-direction:column;gap:24px;padding:16px 16px 24px}
+/* Sections set apart by a line inset from the pane's edges. */
+.sec ~ .sec{padding-top:24px;border-top:1px solid var(--border-subtle)}
 .sec-h{margin-bottom:8px;font-size:16px;line-height:24px;font-weight:600}
-.lead-line,.tier-line{max-width:80ch}
+.lead-line{max-width:80ch;text-wrap:pretty}
+.tier-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
+.tier-reason{color:var(--text-2)}
 .score{container-type:inline-size}
-.gate-strip{display:grid;grid-template-columns:88px 96px minmax(0,1fr);gap:8px 12px;align-items:start;max-width:960px;margin-top:8px}
+.gate-strip{display:grid;grid-template-columns:88px 120px minmax(0,1fr);gap:8px 12px;align-items:start;max-width:960px;margin-top:8px}
 .gate{display:contents}
 .gate-name,.gate-status{font-size:12px;line-height:16px;font-weight:600}
 .gate-name{color:var(--text-2)}
 .gate-status{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.gate-status > .r-bit:first-child{display:inline-flex;align-items:center;gap:4px}
+.gate-figure{color:var(--text-1);font-variant-numeric:tabular-nums}
+.is-cau{color:var(--caution)}
 .gate-note{font-size:12px;line-height:16px;color:var(--text-3);text-wrap:pretty}
 @container (max-width:479.98px){.gate-strip{grid-template-columns:72px minmax(0,1fr);row-gap:2px}.gate-note{grid-column:2;margin-bottom:8px}}
 @container (min-width:720px){.gate-strip{grid-template-columns:repeat(4,minmax(0,1fr));gap:0 24px}.gate{display:flex;flex-direction:column;gap:2px}}
-.cv-line{display:flex;align-items:baseline;gap:8px;margin-top:16px}
-.cv-label{font-size:12px;line-height:16px;font-weight:600;color:var(--text-2)}
-.cv-figure{font-size:20px;line-height:28px;font-weight:600;font-variant-numeric:tabular-nums}
 .basis{margin-top:2px;font-size:12px;line-height:16px;color:var(--text-3)}
 .reasons{display:flex;flex-direction:column;gap:12px}
 .reasons li{display:flex;flex-direction:column;align-items:flex-start;gap:2px;max-width:80ch}
@@ -1428,7 +1397,8 @@ a{color:inherit}
 .facts dt{font-size:12px;line-height:16px;font-weight:600;color:var(--text-2)}
 .facts dd{max-width:80ch}
 .company-meta{margin-top:2px;font-size:12px;line-height:16px;color:var(--text-3)}
-.advert{border-top:1px solid var(--border-subtle);background:var(--surface)}
+.advert{position:relative;background:var(--surface)}
+.advert::before{content:"";position:absolute;top:0;left:16px;right:16px;border-top:1px solid var(--border-subtle)}
 .advert:focus{outline:none}
 .advert-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px;padding:24px 16px 0;background:var(--surface)}
 .advert-head .sec-h{margin-bottom:0}
@@ -1441,9 +1411,8 @@ a{color:inherit}
 .advert-text li::marker{color:var(--text-3)}
 mark{background:transparent;color:inherit;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:1px;text-underline-offset:3px}
 mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
-.empty-fact,.prepare-hint{max-width:72ch}
-.prepare-hint{margin-top:12px;color:var(--text-2)}
-.card-text{max-width:72ch;margin:8px 0 12px;font-size:15px;line-height:24px;color:var(--text-2)}
+.advert-unread{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.advert-unread p{color:var(--text-2)}
 .no-selection{padding:12px 16px 24px}
 .no-selection > p{max-width:72ch;color:var(--text-2)}
 .toast{position:fixed;left:50%;bottom:16px;z-index:30;transform:translateX(-50%);display:flex;align-items:center;gap:12px;max-width:min(560px,calc(100vw - 32px));padding:8px 8px 8px 16px;background:var(--surface-sunken);border:1px solid var(--border-strong);border-radius:var(--radius-4);box-shadow:var(--shadow-overlay)}
@@ -1472,7 +1441,8 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .role,.role-scroll{display:contents}
   .detail-head{grid-column:2;grid-row:1;position:relative}
   .detail-body{grid-column:2;grid-row:2;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-padding-block:8px}
-  .advert{grid-column:3;grid-row:1 / span 2;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-padding-top:40px;scroll-padding-bottom:8px;border-top:0;border-left:1px solid var(--border-subtle)}
+  .advert{grid-column:3;grid-row:1 / span 2;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-padding-top:40px;scroll-padding-bottom:8px;border-left:1px solid var(--border-subtle)}
+  .advert::before{content:none}
   .advert-head{position:sticky;top:0;z-index:2;align-items:center;height:40px;padding:0 16px;border-bottom:1px solid var(--border-subtle)}
   .advert-body{padding-top:16px}
   .no-selection{grid-column:2 / span 2;grid-row:1 / span 2;overflow:auto}
