@@ -1502,6 +1502,15 @@ def phone_checks(tmp: Path) -> None:
               "min-height:44px;padding:16px;" in css,
           "under 700px a tile has its chip and number on one line and its word under them, "
           "12px in; from 700px it is as it was")
+    check(".ht-fignum{font-size:40px;line-height:48px;font-weight:600;" in css
+          and ".ht-figword{margin-top:2px;font-size:16px;line-height:24px;font-weight:400;"
+              "color:var(--text-2)}" in css
+          and "grid-auto-rows:1fr;" in css
+          and ".ht-fignum{font-size:28px;line-height:32px}" in phone
+          and "font-size:14px;line-height:18px}" in phone[phone.index(".ht-figword{"):]
+          and ".ht-figs{grid-auto-rows:auto;" in phone,
+          "from 700px a tile's number is 40px and its word 16px, every tile the same height; "
+          "on a phone 28px and 14px")
     check("function setLights(open)" in hp.HOME_SCRIPT and "'#lights-btn'" in hp.HOME_SCRIPT
           and "setLights(lit);" in hp.HOME_SCRIPT,
           "tapping the chip shows or hides the lights, and a redraw keeps them as they were")

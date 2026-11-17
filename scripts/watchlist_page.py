@@ -938,7 +938,12 @@ main:focus{outline:none}
 :root{--gutter:16px}
 @media (min-width:768px){:root{--gutter:24px}}
 @media (min-width:1920px){:root{--gutter:48px}}
-.page{margin:0 auto;padding:0 var(--gutter) 64px;max-width:2560px}
+/* The content box, set once and read by the page and by the top bar's
+   contents (page_frame's .appbar-in): capped at 2560px, a company's record at
+   960px, with the gutter either side. */
+:root{--frame-max:2560px;--frame-pad:var(--gutter)}
+:root:has(.recpage){--frame-max:960px}
+.page{margin:0 auto;padding:0 var(--frame-pad) 64px;max-width:var(--frame-max)}
 .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;
   border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface-sunken);
   color:var(--text-2);font:500 12px/16px var(--font-mono)}

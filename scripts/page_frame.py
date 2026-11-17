@@ -77,6 +77,10 @@ FRAME_CSS = """
   --sheet-shadow:0 1px 2px rgba(0,0,0,.35),0 8px 24px rgba(0,0,0,.35);
 }
 @media (prefers-reduced-motion:reduce){:root{--dur:0ms}}
+/* The top bar's height, for the pages whose grid or offsets hold a row for it:
+   48px on a phone, 64px from 700px (owner, 17 Nov). */
+:root{--bar-h:48px}
+@media (min-width:700px){:root{--bar-h:64px}}
 /* Wrap a CV sheet in .sheet-paper and everything inside it, the editor
    included, reads the paper's colours through the names it already uses. */
 .sheet-paper{
@@ -99,15 +103,23 @@ FRAME_CSS = """
 .visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
 .skip-link{position:absolute;left:8px;top:-60px;z-index:50;padding:8px 12px;background:var(--surface);color:var(--text-1);border:1px solid var(--border-strong);border-radius:var(--radius-2);font:600 14px/20px var(--font-sans)}
 .skip-link:focus{top:8px}
-.appbar{position:relative;z-index:20;display:flex;align-items:center;gap:24px;min-width:0;height:48px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);color:var(--text-1);font:400 14px/20px var(--font-sans);letter-spacing:0}
+/* The bar's ground and rule run the full width; its contents sit in
+   .appbar-in, which takes the page's own content box from two tokens the page
+   sets once and its content reads too: --frame-max, the content's cap, and
+   --frame-pad, its side padding. A page that sets neither keeps the bar as it
+   was, the full width and 16px in. */
+.appbar{position:relative;z-index:20;min-width:0;height:var(--bar-h);background:var(--surface);border-bottom:1px solid var(--border-subtle);color:var(--text-1);font:400 14px/20px var(--font-sans);letter-spacing:0}
+.appbar-in{box-sizing:border-box;display:flex;align-items:center;gap:24px;width:100%;height:100%;min-width:0;max-width:var(--frame-max,none);margin:0 auto;padding:0 var(--frame-pad,16px)}
 .appbar .brand{display:flex;align-items:center;gap:12px;flex:none;color:var(--text-1);text-decoration:none}
 .appbar .brand-mark{display:block;width:51px;height:24px;flex:none}
 .appbar .brand-name{font-size:14px;line-height:20px;font-weight:600;white-space:nowrap}
 .appbar .appbar-page{display:none;font-size:16px;line-height:24px;font-weight:600}
-.appbar .nav{display:flex;align-self:stretch;gap:12px;margin:0 0 0 -4px;padding:0;list-style:none}
-.appbar .nav a{display:flex;align-items:center;height:100%;min-height:44px;padding:2px 6px 0;border-bottom:2px solid transparent;color:var(--text-2);font-size:16px;line-height:24px;text-decoration:none;white-space:nowrap;transition:color var(--dur) ease-out}
+/* The pages at 18px, 32px apart, each link the bar's full height; the page
+   you are on in 600 with a 3px rule under it, in the accent as before. */
+.appbar .nav{display:flex;align-self:stretch;gap:24px;margin:0 0 0 -4px;padding:0;list-style:none}
+.appbar .nav a{display:flex;align-items:center;height:100%;min-height:44px;padding:3px 4px 0;border-bottom:3px solid transparent;color:var(--text-2);font-size:18px;line-height:24px;font-weight:500;text-decoration:none;white-space:nowrap;transition:color var(--dur) ease-out}
 .appbar .nav a:hover{color:var(--text-1)}
-.appbar .nav a[aria-current="page"]{color:var(--text-1);border-bottom-color:var(--accent)}
+.appbar .nav a[aria-current="page"]{color:var(--text-1);font-weight:600;border-bottom-color:var(--accent)}
 .appbar .nav a:focus-visible{outline-offset:-4px;box-shadow:none}
 .appbar .appbar-tools{display:flex;align-items:center;gap:16px;min-width:0;margin-left:auto}
 .appbar .radar-status{display:inline-flex;align-items:center;gap:8px;min-height:32px;margin:0;font-size:12px;line-height:16px;font-weight:500;color:var(--text-2);text-decoration:none;white-space:nowrap}
@@ -117,18 +129,20 @@ FRAME_CSS = """
 .appbar .radar-status.is-check .radar-dot{background:var(--caution)}
 @media (forced-colors:active){.appbar .radar-dot{border:1px solid CanvasText}}
 /* Six pages at 16px: between 768 and 1023 the name gives way to them. */
-@media (max-width:1023.98px){.appbar .brand-name{display:none}.appbar{gap:16px}}
+@media (max-width:1023.98px){.appbar .brand-name{display:none}.appbar-in{gap:16px}}
+/* From 700px the mark and the name grow with the bar. */
+@media (min-width:700px){.appbar .brand-mark{width:68px;height:32px}.appbar .brand-name{font-size:17px;line-height:24px}}
 .appbar .bar-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;min-width:32px;padding:0 8px;border:1px solid transparent;border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 14px/20px var(--font-sans);cursor:pointer;text-decoration:none}
 .appbar .bar-btn:hover{color:var(--text-1);background:var(--row-hover)}
 .appbar .menu-btn{display:none}
 .appbar .menu-panel{display:none}
 @media (max-width:767.98px){
-  .appbar{gap:16px}
+  .appbar-in{gap:16px}
   .appbar .nav,.appbar .appbar-tools,.appbar .brand-name{display:none}
   .appbar .appbar-page{display:block}
   .appbar .menu-btn{display:inline-flex;width:44px;height:44px;margin:0 -8px 0 auto}
   .appbar .menu-btn:focus-visible{outline-offset:-2px;box-shadow:none}
-  .appbar.menu-open .menu-panel{display:block;position:absolute;top:48px;left:0;right:0;padding:8px 16px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);box-shadow:var(--shadow-overlay)}
+  .appbar.menu-open .menu-panel{display:block;position:absolute;top:var(--bar-h);left:0;right:0;padding:8px 16px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);box-shadow:var(--shadow-overlay)}
   .appbar .menu-panel ul{margin:0;padding:0;list-style:none}
   .appbar .menu-panel a{display:flex;align-items:center;min-height:44px;color:var(--text-1);text-decoration:none;font-size:16px;line-height:24px}
   .appbar .menu-panel a[aria-current="page"]{font-weight:600;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:6px}
@@ -280,7 +294,7 @@ def appbar_html(current: str, jobs: dict | None = None, page_name: str = "",
                  if help_button else "")
     return (
         '<a class="skip-link" href="#main">Skip to the page</a>'
-        '<header class="appbar">'
+        '<header class="appbar"><div class="appbar-in">'
         f'<a class="brand" href="/" aria-label="MedTech Radar, Home">{MARK_SVG}'
         '<span class="brand-name">MedTech Radar</span>'
         f'<span class="appbar-page" aria-hidden="true">{esc(name)}</span></a>'
@@ -290,4 +304,4 @@ def appbar_html(current: str, jobs: dict | None = None, page_name: str = "",
         'aria-controls="menu-panel">Menu</button>'
         f'<div class="menu-panel" id="menu-panel"><nav aria-label="Pages, menu">'
         f'<ul>{items}</ul></nav>{status}</div>'
-        '</header>')
+        '</div></header>')
