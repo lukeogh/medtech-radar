@@ -2408,7 +2408,7 @@ def _hours_since(iso) -> float | None:
                      ).total_seconds() / 3600)
 
 
-def _ago(hours: float | None) -> str:
+def _hours_ago(hours: float | None) -> str:
     if hours is None:
         return ""
     if hours < 1:
@@ -2485,7 +2485,7 @@ def freshness_widget(data: dict, captions: bool = True, tag: str = "h4") -> str:
         fresh_items.append(
             f"<li>{_dot(light, word)}{esc(s['name'])}"
             f'<span class="li-age">'
-            + (esc(_ago(h)) if h is not None else "waiting")
+            + (esc(_hours_ago(h)) if h is not None else "waiting")
             + "</span></li>")
     any_red_board = any(
         _board_light(_hours_since(last_by_source.get(s["id"])))[0] == "red"
@@ -2513,7 +2513,7 @@ def telemetry_html(data: dict, config: dict) -> str:
     opening Jobs came for roles rather than for whether cron ran. Home
     is where the heartbeat already lives, so it belongs beside it.
     """
-    ago, dot = _ago, _dot
+    ago, dot = _hours_ago, _dot
 
     # Each job by its own limits, the same verdict /health gives.
     jobs = job_verdicts(data)

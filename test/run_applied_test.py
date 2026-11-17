@@ -382,9 +382,12 @@ def radar_html(db) -> str:
 
 
 def home_funnel(html: str) -> dict:
-    """Home's Open roles tile, {step: count}: all, reading, question, top."""
-    return {k: int(n) for k, n in re.findall(
+    """Home's Open roles tile, {step: count}: top, question, reading, and
+    "shown", the three added up (Home has no All open row since 17 Nov)."""
+    out = {k: int(n) for k, n in re.findall(
         r'id="funnel-(\w+)".*?<span class="ht-step-fig">(\d+)<', html)}
+    out["shown"] = sum(out.get(k, 0) for k in ("top", "question", "reading"))
+    return out
 
 
 def home_figures(html: str) -> dict:
@@ -394,9 +397,8 @@ def home_figures(html: str) -> dict:
 
 
 def home_rows(html: str) -> list[str]:
-    """The titles in Home's Needs you today."""
-    return re.findall(r'<a class="row row-3[^"]*"[^>]*><span class="r1"><span class="r-title">(.*?)</span>',
-                      html)
+    """The titles in Home's Needs you today, every item shown in full."""
+    return re.findall(r'<h4 class="ny-it" id="[\w-]+-t">(.*?)</h4>', html)
 
 
 def split_applied(html: str) -> tuple[str, str]:
@@ -1238,7 +1240,7 @@ def repost_checks() -> None:
               "the Applied section lists the role once")
         home = home_html(db)
         funnel = home_funnel(home)
-        check(funnel.get("all") == 1 and funnel.get("top") == 1
+        check(funnel.get("shown") == 1 and funnel.get("top") == 1
               and home_figures(home).get("top") == 1
               and home_rows(home).count(RD[0]) == 1 and QD[0] not in home,
               "Home's Open roles counts the other role once, its two adverts one "
@@ -2421,7 +2423,7 @@ def page_checks() -> None:
         check("data-apply=" not in home and "<h2>Applied</h2>" not in home,
               "the Home page has no Applied button and no Applied section")
         funnel = home_funnel(home)
-        check(funnel.get("all") == 3,
+        check(funnel.get("shown") == 3,
               "its Open roles counts the three open roles and none of the "
               f"three applied ({funnel})")
         archive = serve_dashboard_render(db, "archive")
@@ -2611,9 +2613,10 @@ def home_checks() -> None:
               f"{review.group(0) if review else None})")
         new_home = home_html(db)
         before_funnel = home_funnel(new_home)
-        check(before_funnel.get("all") == 2 and QD[0] not in new_home
+        check(before_funnel.get("shown") == 1 and QD[0] not in new_home
               and "Unscored One" not in new_home,
-              "Home's Open roles counts the two roles that are not applied, and "
+              "Home's Open roles counts the scored role that is not applied (the "
+              "unscored one is in no tier's row), and "
               f"names neither applied role anywhere ({before_funnel})")
 
         # The control: take the application back and every one of them is
@@ -2623,7 +2626,7 @@ def home_checks() -> None:
                   and serve_dashboard.set_applied(ap_un, False)["ok"],
                   "Undo on both applied roles works")
         after_home = home_html(db)
-        check(home_funnel(after_home).get("all") == 4 and QD[0] in after_home,
+        check(home_funnel(after_home).get("shown") == 2 and QD[0] in after_home,
               "undo them and Home counts them, and lists the Top one as new "
               f"({home_funnel(after_home)})")
         data = seen()
