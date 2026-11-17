@@ -130,27 +130,6 @@ def tag_html(th: dict, long: bool = False) -> str:
             f'<span>{esc(words)}</span></span>{tail}')
 
 
-def arrival_tag(arrival: dict | None) -> str:
-    if not arrival:
-        return ""
-    where = "Insights" if arrival.get("via") == "insights" else "a suggestion"
-    return (f'<span class="ntag">{ICON_STAR}<span>Added from {where} at '
-            f'{esc(wl.hm(arrival.get("at")))}</span></span>')
-
-
-def last_contact_words(th: dict) -> str:
-    if not th.get("last_at"):
-        return ""
-    return f"Last contact {wl.day_words(th['last_at'])}, {channel_words(th.get('last_channel')).lower()}"
-
-
-def signal_kick(sig: dict | None) -> str:
-    if not sig:
-        return ""
-    return (f'<span class="sig-type">{esc(sig["type_words"])} · <span class="rel">{int(sig["relevance"] or 0)}'
-            f'</span> · found {esc(wl.day_words(sig["found"]))}</span>')
-
-
 def run_words(model: dict) -> str:
     ran = model.get("watcher_ran")
     if not ran:
@@ -164,39 +143,29 @@ def run_words(model: dict) -> str:
 
 # ================================================================ header
 
-def tally_html(model: dict) -> str:
+def title_html(model: dict) -> str:
+    """The title row (owner, 17 Nov): the teal chip with the building, the
+    title, two count pills, and the add box at the right."""
     c = model["counts"]
-    sep = '<span class="sep" aria-hidden="true">·</span>'
-    parts = [f'<b>{esc(plural(c["watched"], "company", "companies"))}</b> on your Watchlist']
-    if c["watched"]:
-        bits = []
-        if c["today"]:
-            bits.append(f'{c["today"]} today')
-        if c["overdue"]:
-            bits.append(f'{c["overdue"]} overdue')
-        due = f'<b>{esc(plural(c["due"], "thread"))} due</b>'
-        if bits:
-            due += f' ({esc(", ".join(bits))})'
-        parts.append(due)
-    parts.append(f'<b>{esc(plural(c["waiting"], "suggestion"))}</b> waiting')
-    now = wl.uk(wl.moment_of(model.get("now")))
-    parts.append(f'As of {now:%H:%M}, {now:%A} {now.day} {wl.MONTHS[now.month - 1]}. Times are UK time.')
-    return sep.join(parts)
+    return ('<header class="pagehead"><div class="ph-title">'
+            f'{page_frame.chip("threads", "apps")}<h1>Watchlist</h1>'
+            f'<span class="sec-count">{esc(plural(c["watched"], "company", "companies"))}</span>'
+            f'<span class="sec-count">{esc(plural(c["due"], "follow-up"))} due</span></div>'
+            f'{addname_html()}</header>')
 
 
 def addname_html() -> str:
+    # The hint below the box is empty until the box has something to say.
     return (
         '<form class="addname" id="add-form" role="search" aria-label="Add a company by name" novalidate>'
-        '<label for="add-name">Add a company by name <span class="meta keyhint" style="font-weight:400">'
-        '<kbd class="kbd">/</kbd></span></label>'
+        '<label class="visually-hidden" for="add-name">Add a company by name</label>'
         '<div class="row"><div class="combo">'
         '<input class="field" id="add-name" type="text" role="combobox" aria-autocomplete="list" '
         'aria-expanded="false" aria-controls="add-list" aria-describedby="add-hint" autocomplete="off" '
-        'maxlength="120" aria-keyshortcuts="/" placeholder="For example, Okara Diagnostics" value="">'
+        'maxlength="120" placeholder="Add a company by name" value="">'
         '<ul class="listbox" id="add-list" role="listbox" aria-label="Companies Radar has seen" hidden></ul>'
         '</div><button type="submit" class="btn btn-secondary">Add</button></div>'
-        '<p class="hint" id="add-hint">Radar looks the name up among the companies it has seen. '
-        'One it has not seen can still be added.</p>'
+        '<p class="hint" id="add-hint"></p>'
         '<div id="add-status"></div></form>')
 
 
@@ -219,47 +188,23 @@ def arrivals_html(model: dict) -> str:
 
 # ================================================================ suggestions
 
-def _suggestion_sentence(s: dict) -> str:
-    bits = []
-    lead = s.get("summary") or s.get("headline") or ""
-    if s.get("is_advert"):
-        if lead:
-            bits.append(sentence(f"Advertised: {lead}"))
-    elif lead:
-        bits.append(sentence(lead))
-        if s.get("relevance") is not None:
-            bits.append(f"Relevance {int(s['relevance'])}.")
-    last = s.get("last_contact")
-    if last:
-        by = CHANNEL_BY.get(str(last.get("channel") or ""), "")
-        bits.append(f"You contacted them on {wl.day_words(last.get('touched_at'))}"
-                    + (f", {by}." if by else "."))
-    return " ".join(bits)
-
-
-def _source_line(s: dict) -> str:
-    found = wl.day_words(s.get("found"))
-    what = "Read from a job advert" if s.get("is_advert") else "An Insights story"
-    link = (f' · <a href="{esc(s["href"])}">{esc(s["link_words"])}</a>' if s.get("href") else "")
-    return f'<p class="meta src">{esc(what)}{", found " + esc(found) if found else ""}{link}</p>'
-
-
 def suggestion_card(s: dict) -> str:
+    """One suggestion (owner, 17 Nov): a wide card glowing amber, the company,
+    the story's headline and the way to it, Add to Watchlist and Dismiss."""
     sid = int(s["id"])
     name = esc(s["name"])
-    came = '<span class="stag">Dismissed before</span>' if s.get("came_back") else ""
-    where = f' <span class="where">{esc(s["place"])}</span>' if s.get("place") else ""
     data = (f'data-id="{sid}" data-name="{name}" data-kind="{esc(s.get("kind") or "")}" '
             f'data-type="{esc((s.get("type_words") or s.get("kind_words") or "").lower())}"')
+    head = f'<p class="sg-headline">{esc(s["headline"])}</p>' if s.get("headline") else ""
+    words = "Open the role on Jobs" if s.get("is_advert") else "Open the story"
+    link = (f'<p class="sg-link"><a class="link" href="{esc(s["href"])}">{words}'
+            f'<span class="visually-hidden">: {name}</span></a></p>' if s.get("href") else "")
     return (
-        f'<li class="sg" aria-labelledby="sg-{sid}"><div>'
-        f'<p class="kick"><span class="type">{esc(s.get("type_words") or s.get("kind_words"))}</span>'
-        f'<span>Suggested by Radar</span>{came}</p>'
-        f'<h3 id="sg-{sid}">{name}{where}</h3>'
-        f'<p>{esc(_suggestion_sentence(s))}</p>{_source_line(s)}</div>'
-        f'<div class="acts"><button type="button" class="btn btn-secondary" data-sg="accept" {data}>'
+        f'<li class="sg card g-story glow-short" aria-labelledby="sg-{sid}"><div class="sg-main">'
+        f'<h3 id="sg-{sid}">{name}</h3>{head}{link}</div>'
+        f'<div class="acts"><button type="button" class="btn btn-teal" data-sg="accept" {data}>'
         f'Add to Watchlist<span class="visually-hidden">: {name}</span></button>'
-        f'<button type="button" class="btn btn-ghost" data-sg="dismiss" {data}>'
+        f'<button type="button" class="btn btn-secondary" data-sg="dismiss" {data}>'
         f'Dismiss<span class="visually-hidden">: {name}</span></button></div></li>')
 
 
@@ -284,145 +229,93 @@ def dismissed_html(model: dict) -> str:
             f'({len(items)})</button></p><ul class="dis-list" id="dis-list" hidden>{"".join(rows)}</ul>')
 
 
-def _name_list(names: list) -> str:
-    if len(names) <= 1:
-        return "".join(names)
-    return ", ".join(names[:-1]) + " and " + names[-1]
-
-
-def suggestions_strip(model: dict) -> str:
+def suggestions_section(model: dict) -> str:
+    """Suggested by Radar: always shown while any wait, under its amber title
+    with a count; not drawn at all when none wait."""
     waiting = model.get("suggestions") or []
-    dismissed = model.get("dismissed") or []
-    if not waiting and not dismissed:
+    if not waiting:
         return ""
-    if waiting:
-        lead = (f'<b>{esc(plural(len(waiting), "suggestion"))} waiting</b> from Radar: '
-                f'{esc(_name_list([s["name"] for s in waiting]))}. None joins your Watchlist until you add it.')
-        extra = f" the {plural(len(waiting), 'suggestion')}"
-    else:
-        lead = (f'<b>No suggestions waiting</b> from Radar. {esc(plural(len(dismissed), "company", "companies"))} '
-                f'dismissed in the last {wl.DISMISSED_DAYS} days.')
-        extra = " the suggestions and what was dismissed"
-    return (f'<div class="sg-strip" role="region" aria-label="Suggestions from Radar"><p>{lead}</p>'
-            f'<button type="button" class="btn btn-secondary" id="sg-show" aria-expanded="false" '
-            f'aria-controls="sg-panel"><span class="sg-word">Show</span>'
-            f'<span class="visually-hidden">{esc(extra)}</span></button></div>')
-
-
-def suggestions_section(model: dict, folded: bool) -> str:
-    waiting = model.get("suggestions") or []
-    dismissed = model.get("dismissed") or []
-    if not waiting and not dismissed and folded:
-        return ""
-    count = (f"{len(waiting)} waiting. None is on your Watchlist until you add it." if waiting
-             else "None waiting.")
-    ran = wl.hm(model.get("watcher_ran")) if model.get("watcher_ran") else ""
-    note = (f"From buying windows (a first quality or software hire at a company you have contacted), "
-            f"funding rounds at {wl.FUNDING_BAR} or more and Insights stories at {wl.SUGGEST_BAR} or more, "
-            f"for companies you do not watch. "
-            f"Checked after each watcher run" + (f", the last at {ran}." if ran else "."))
-    body = (f'<ul class="sg-list">{"".join(suggestion_card(s) for s in waiting)}</ul>' if waiting
-            else '<p class="sec-note">Radar has nothing to suggest just now. It looks again after the next '
-                 'watcher run.</p>')
-    cls = "suggest after is-folded" if folded else "suggest after"
-    hide = ('<button type="button" class="btn btn-ghost sg-hide" id="sg-hide" aria-controls="sg-panel">'
-            'Hide the suggestions</button>') if folded else ""
-    return (f'<section class="{cls}" id="sg-panel" aria-labelledby="sg-h">'
-            f'<div class="sec-head"><h2 id="sg-h" tabindex="-1">Suggested by Radar</h2>'
-            f'<span class="count">{esc(count)}</span>{hide}</div>'
-            f'<p class="sec-note">{esc(note)}</p>{body}{dismissed_html(model)}</section>')
+    return (f'<section class="suggest" id="sg-panel" aria-labelledby="sg-h">'
+            f'<header class="sec-head">{page_frame.chip("story", "story")}'
+            f'<h2 class="sec-title" id="sg-h" tabindex="-1">Suggested by Radar</h2>'
+            f'<span class="sec-count">{len(waiting)}</span></header>'
+            f'<ul class="sg-list">{"".join(suggestion_card(s) for s in waiting)}</ul>'
+            f'{dismissed_html(model)}</section>')
 
 
 # ================================================================ the table
 
-def _row_cells(r: dict, selected_id) -> str:
-    rid = int(r["id"])
-    th = r["thread"]
-    sel = rid == selected_id
-    cur = ' aria-current="true"' if sel else ""
-    place = f'<span class="co-where">{esc(r["place"])}</span>' if r.get("place") else ""
-    arr = arrival_tag(r.get("arrival"))
-    arr = f'<span class="arr">{arr}</span>' if arr else ""
-    step = f'<span class="next">{esc(th["next_step"])}</span>' if th.get("next_step") else ""
-    lc = last_contact_words(th)
-    lc_inline = f'<span class="meta lc-inline">{esc(lc)}</span>' if lc else ""
-    if th.get("last_at"):
-        last = (f'{esc(wl.day_words(th["last_at"]))}'
-                f'<span class="co-where">{esc(channel_words(th.get("last_channel")))}</span>')
+def story_kick(sig: dict) -> str:
+    """A story's type in amber, a drawn rule, then its date."""
+    return (f'<span class="kick"><span class="r-bit sk-type">{esc(sig["type_words"])}</span>'
+            '<span class="visually-hidden">, </span>'
+            f'<span class="r-bit">{esc(wl.day_words(sig["found"]))}</span></span>')
+
+
+def followup_html(th: dict) -> str:
+    """The follow-up: the next step and when it is due, or No contact yet; the
+    last contact on a second line; Due today or Overdue as a pill."""
+    state = th.get("state") or "none"
+    due = th.get("due_date")
+    pill = ""
+    if state == "today":
+        pill = f'<span class="ttag is-today">{ICON_TODAY}<span>Due today</span></span>'
+    elif state == "overdue":
+        pill = f'<span class="ttag is-overdue">{ICON_OVERDUE}<span>Overdue</span></span>'
+    if th.get("next_step"):
+        when = (f", due {wl.day_words(due)}" if due and state in ("upcoming", "today", "overdue")
+                else ", no date set" if state == "nodate" else "")
+        line = f'{esc(th["next_step"])}<span class="fu-when">{esc(when)}</span>'
+    elif state == "none":
+        line = "No contact yet"
     else:
-        last = '<span class="meta">None yet</span>'
-    sig = r.get("latest")
-    sig_html = (f'{signal_kick(sig)}<span class="sig-h">{esc(sig["headline"])}</span>' if sig
-                else '<span class="meta">None yet</span>')
-    roles = str(int(r["roles"])) if r.get("roles") else '<span class="meta">None</span>'
-    return (
-        f'<tr{" class=" + chr(34) + "is-selected" + chr(34) if sel else ""} data-row="{rid}">'
-        f'<th scope="row"><a class="co" data-row-link="{rid}" href="/watchlist?company={rid}"{cur}>'
-        f'{esc(r["name"])}</a>{place}{arr}</th>'
-        f'<td>{tag_html(th)}{step}{lc_inline}</td>'
-        f'<td class="c-wide">{last}</td>'
-        f'<td>{sig_html}</td>'
-        f'<td class="c-wide num">{roles}</td>'
-        f'<td class="c-wide"><span class="stag">{esc(r["state_words"])}</span></td></tr>')
+        line = "No next step"
+    last = (f'<p class="fu-last">Last contact {esc(wl.day_words(th["last_at"]))}</p>'
+            if th.get("last_at") else "")
+    return f'<p class="fu-step">{line}</p>{pill}{last}'
 
 
-def _plist_row(r: dict, selected_id) -> str:
+def company_card(r: dict, selected_id) -> str:
+    """One company (owner, 17 Nov): a wide card glowing teal, more strongly with
+    a follow-up due, laid out in columns: the company, its follow-up, its latest
+    story, its roles on Jobs, and Log a contact."""
     rid = int(r["id"])
     th = r["thread"]
+    due = (th.get("state") or "") in ("today", "overdue")
     cur = ' aria-current="true"' if rid == selected_id else ""
-    where = f'<span class="where">{esc(r["place"])}</span>' if r.get("place") else ""
-    step = f'<span>{esc(th["next_step"])}</span>' if th.get("next_step") else ""
-    lc = last_contact_words(th)
+    place = f'<p class="co-where">{esc(r["place"])}</p>' if r.get("place") else ""
     sig = r.get("latest")
-    sig_line = (f'<span class="sg-line">{esc(sig["type_words"])} · {int(sig["relevance"] or 0)} · found '
-                f'{esc(wl.day_words(sig["found"]))}</span>' if sig else "")
-    return (f'<li><a class="prow" href="/watchlist/{rid}"{cur}><span class="nm">{esc(r["name"])}{where}</span>'
-            f'{arrival_tag(r.get("arrival"))}<span class="th">{tag_html(th)}</span>{step}'
-            f'{"<span class=" + chr(34) + "sg-line" + chr(34) + ">" + esc(lc) + "</span>" if lc else ""}'
-            f'{sig_line}</a></li>')
-
-
-KEYS_HTML = (
-    '<div class="keys" role="group" aria-label="Keys">'
-    '<span><kbd class="kbd">J</kbd> <kbd class="kbd">K</kbd> next, previous</span>'
-    '<span><kbd class="kbd">Enter</kbd> open the record</span>'
-    '<span><kbd class="kbd">Esc</kbd> back to the row</span>'
-    '<span><kbd class="kbd">L</kbd> log a contact</span>'
-    '<span><kbd class="kbd">/</kbd> add by name</span>'
-    '<button type="button" class="switch" id="keys-switch" role="switch" aria-checked="true">'
-    'Single-key shortcuts: <span class="sw-word">On</span><span class="knob" aria-hidden="true"></span>'
-    '</button></div>')
+    story = (f'{story_kick(sig)}<p class="co-headline">{esc(sig["headline"])}</p>' if sig
+             else '<p class="muted">None yet</p>')
+    n = int(r.get("roles") or 0)
+    roles = (f'<span class="role-pill">{n} open</span>' if n
+             else '<span class="role-pill is-none">None</span>')
+    cls = "co-card card g-apps glow-row" + (" is-due" if due else "") + (" is-selected" if cur else "")
+    return (
+        f'<li class="{cls}" data-row="{rid}"><div class="co-grid">'
+        f'<div class="co-col co-name">{page_frame.chip("threads", "apps")}<div class="co-id">'
+        f'<a class="co" data-row-link="{rid}" href="/watchlist?company={rid}"{cur}>{esc(r["name"])}</a>'
+        f'{place}<span class="stag">{esc(r["state_words"])}</span></div></div>'
+        f'<div class="co-col co-fu"><p class="co-label fu-label">Follow-up</p>{followup_html(th)}</div>'
+        f'<div class="co-col co-story"><p class="co-label story-label">Latest story</p>{story}</div>'
+        f'<div class="co-col co-roles"><p class="co-label roles-label">Roles on Jobs</p>{roles}</div>'
+        f'<div class="co-col co-act"><a class="btn btn-secondary" data-focus-log href="/watchlist?company={rid}#log">'
+        f'Log a contact<span class="visually-hidden">: {esc(r["name"])}</span></a></div></div></li>')
 
 
 def table_html(model: dict) -> str:
+    """Your companies: the teal title with a count, then one card a company,
+    in the order they are kept."""
     rows = model["rows"]
     selected_id = (model.get("selected") or {}).get("id")
-    count = f'{len(rows)} watched'
-    order = ("Due first: overdue, then today. Then the next due dates, then threads with no date, then "
-             "companies with no next step, newest signal first. " + run_words(model))
-    head = (f'<div class="sec-head"><h2 id="wt-h">Your companies</h2><span class="count">{esc(count)}</span></div>')
+    head = (f'<header class="sec-head">{page_frame.chip("threads", "apps")}'
+            '<h2 class="sec-title" id="wt-h">Your companies</h2>'
+            f'<span class="sec-count">{len(rows)}</span></header>')
     if not rows:
-        return (f'<section aria-labelledby="wt-h">{head}<div class="empty" style="margin-top:12px">'
-                '<h3>Your Watchlist is empty</h3><p>Choose the companies you want to follow. Their signals, '
-                'stories and roles gather here, with every contact you log and your next step.</p><ol>'
-                '<li><span>Add one by name in the field above.</span></li>'
-                '<li><span>Add a suggestion below. Radar suggests, you choose.</span></li>'
-                '<li><span>Press Add to Watchlist on any Insights story. It saves straight away.</span></li>'
-                '</ol></div></section>')
-    body = "".join(_row_cells(r, selected_id) for r in rows)
-    plist = "".join(_plist_row(r, selected_id) for r in rows)
-    return (
-        f'<section aria-labelledby="wt-h">{head}'
-        f'<table class="wt" aria-labelledby="wt-h"><caption>{esc(order)}</caption>'
-        '<thead><tr><th scope="col" class="w-co">Company</th><th scope="col" class="w-th">Thread</th>'
-        '<th scope="col" class="c-wide w-lc">Last contact</th>'
-        '<th scope="col" class="w-sig">Latest signal or story</th>'
-        '<th scope="col" class="c-wide w-rl num">Roles on Jobs</th>'
-        '<th scope="col" class="c-wide w-st">State</th></tr></thead>'
-        f'<tbody>{body}</tbody></table>{KEYS_HTML}'
-        '<p class="sec-note plist-note">Due first: overdue, then today, then the next due dates, then the rest, '
-        'newest signal first. Each opens its record.</p>'
-        f'<ul class="plist">{plist}</ul></section>')
+        return (f'<section class="companies" aria-labelledby="wt-h">{head}'
+                '<div class="card empty"><p>No companies on your Watchlist yet.</p></div></section>')
+    return (f'<section class="companies" aria-labelledby="wt-h">{head}'
+            f'<ul class="co-list">{"".join(company_card(r, selected_id) for r in rows)}</ul></section>')
 
 
 # ================================================================ the record
@@ -482,8 +375,7 @@ def thread_block(rec: dict, lv: int) -> str:
     else:
         step = f'<p class="step">{esc(th["next_step"])}</p>'
     primary = "btn-primary" if th.get("due") else "btn-secondary"
-    acts = [f'<a class="btn {primary}" href="#log" data-log-focus aria-keyshortcuts="L">Log a contact '
-            '<kbd class="kbd">L</kbd></a>']
+    acts = [f'<a class="btn {primary}" href="#log" data-log-focus>Log a contact</a>']
     if open_:
         move_words = "Set a date" if state == "nodate" else "Move the date"
         acts.append(f'<button type="button" class="btn btn-secondary" id="move-btn" aria-expanded="false" '
@@ -792,16 +684,14 @@ def record_head(rec: dict, model: dict, view: str) -> str:
                 if other is not None:
                     oname = rows.get(other, {}).get("name", "")
                     walk.append(f'<a class="btn btn-secondary" data-focus-record href="/watchlist?company={int(other)}" '
-                                f'aria-label="{label} company, {esc(oname)}" aria-keyshortcuts="{k}">{label} '
-                                f'<kbd class="kbd">{k}</kbd></a>')
+                                f'aria-label="{label} company, {esc(oname)}">{label}</a>')
                 else:
-                    walk.append(f'<button type="button" class="btn btn-secondary" disabled>{label} '
-                                f'<kbd class="kbd">{k}</kbd></button>')
+                    walk.append(f'<button type="button" class="btn btn-secondary" disabled>{label}</button>')
         else:
             where = "Not on your Watchlist"
             walk = []
-        walk.append(f'<a class="btn btn-ghost" data-close-record href="/watchlist" aria-label="Close the record" '
-                    'aria-keyshortcuts="Escape">Close <kbd class="kbd">Esc</kbd></a>')
+        walk.append('<a class="btn btn-ghost" data-close-record href="/watchlist" aria-label="Close the record">'
+                    'Close</a>')
         top = (f'<div class="rec-top"><p class="meta">{esc(where)}</p><div class="rec-walk">{"".join(walk)}</div></div>'
                f'<h2 class="rec-h" id="rec-h" tabindex="-1">{name}</h2>')
     stage = ""
@@ -873,7 +763,7 @@ def _document(title: str, jobs, body: str, state: dict) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title>
 <link rel="icon" href="{bd.FAVICON}">
-<style>{page_frame.FRAME_CSS}{WATCHLIST_CSS}</style>
+<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{WATCHLIST_CSS}</style>
 </head>
 <body>
 {page_frame.appbar_html("watchlist", jobs, "Watchlist")}
@@ -896,24 +786,20 @@ def render_page(model: dict, jobs: dict | None, view: str = "table") -> str:
         body = (f'<div class="page recpage">'
                 f'<div class="status wl-flash" id="wl-flash" tabindex="-1" hidden></div>'
                 f'{record_html(rec, model, "record")}</div>')
-        return _document(f"{rec['name']} · Watchlist · MedTech Radar", jobs, body, state)
+        return _document(f"{rec['name']}, Watchlist, MedTech Radar", jobs, body, state)
     missing = ""
     if model.get("missing"):
         missing = ('<div class="status is-warn wl-missing"><span class="what">That company is not on file. '
                    'It may have been merged with another or removed. Your companies are below.</span></div>')
-    rows = model.get("rows") or []
-    folded = bool(rows)
     layout_cls = "layout has-record" if rec else "layout"
     record = record_html(rec, model, "table") if rec else ""
-    strip = suggestions_strip(model) if folded else ""
     body = (
-        '<div class="page"><header class="pagehead"><div><h1>Watchlist</h1>'
-        f'<p class="tally">{tally_html(model)}</p></div>{addname_html()}</header>'
+        f'<div class="page">{title_html(model)}'
         f'<div class="status wl-flash" id="wl-flash" tabindex="-1" hidden></div>{missing}'
         f'{arrivals_html(model)}'
-        f'<div class="{layout_cls}"><div class="main-col">{strip}{table_html(model)}'
-        f'{suggestions_section(model, folded)}</div>{record}</div></div>')
-    title = f"{rec['name']} · Watchlist · MedTech Radar" if rec else "Watchlist · MedTech Radar"
+        f'<div class="{layout_cls}"><div class="main-col">{suggestions_section(model)}{table_html(model)}'
+        f'</div>{record}</div></div>')
+    title = f"{rec['name']}, Watchlist, MedTech Radar" if rec else "Watchlist, MedTech Radar"
     return _document(title, jobs, body, state)
 
 
@@ -939,9 +825,6 @@ main:focus{outline:none}
 /* The shared content box, page_frame's --frame-max and --frame-pad; a
    company's record keeps its 960px column inside it. */
 .page{margin:0 auto;padding:0 var(--frame-pad) 64px;max-width:var(--frame-max)}
-.kbd{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 5px;
-  border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface-sunken);
-  color:var(--text-2);font:500 12px/16px var(--font-mono)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:32px;padding:5px 12px;
   border:1px solid transparent;border-radius:var(--radius-2);font:500 14px/20px var(--font-sans);text-decoration:none;
   cursor:pointer;text-align:left}
@@ -952,26 +835,23 @@ main:focus{outline:none}
 .btn-ghost{background:transparent;color:var(--text-2);padding-left:8px;padding-right:8px}
 .btn-ghost:hover{color:var(--text-1);text-decoration:underline;text-underline-offset:2px}
 .btn[disabled]{cursor:default;color:var(--text-3);border-color:var(--border-subtle);background:transparent}
-.btn .kbd{margin-left:2px}
 .meta{color:var(--text-3);font-size:13px;line-height:20px}
 .muted{color:var(--text-2)}
 
-/* masthead */
-.pagehead{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px 32px;
-  padding:24px 0 16px;border-bottom:1px solid var(--border-subtle)}
+/* The title row (owner, 17 Nov): the teal chip and title with two count
+   pills, the add box at the right. */
+.pagehead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px 32px;padding:24px 0 8px}
+.ph-title{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-width:0}
 .pagehead h1{font:600 20px/28px var(--font-sans)}
-.tally{margin-top:4px;color:var(--text-2);font-size:14px;line-height:20px;max-width:90ch}
-.tally b{color:var(--text-1);font-weight:600}
-.tally .sep{color:var(--text-3);padding:0 6px}
 .addname{display:grid;gap:4px;min-width:0;width:min(100%,440px)}
-.addname label{font:600 14px/20px var(--font-sans)}
 .addname .row{display:flex;gap:8px;min-width:0}
 .field{min-width:0;width:100%;min-height:36px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:var(--radius-2);
   background:var(--surface-sunken);color:var(--text-1);font:400 15px/20px var(--font-sans)}
 .field::placeholder{color:var(--text-3)}
 .field.is-error{border-color:var(--negative)}
 @media (pointer:coarse){.field{min-height:44px}}
-.hint{color:var(--text-3);font-size:13px;line-height:20px}
+.hint{color:var(--text-2);font-size:13px;line-height:20px}
+.hint:empty{display:none}
 .combo{position:relative;flex:1;min-width:0}
 .listbox{position:absolute;z-index:15;left:0;right:0;top:100%;margin-top:4px;max-height:320px;overflow:auto;
   border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface);box-shadow:var(--shadow-overlay)}
@@ -979,17 +859,17 @@ main:focus{outline:none}
   font-size:14px;line-height:20px;cursor:pointer}
 .listbox li:last-child{border-bottom:0}
 .listbox li:hover{background:var(--row-hover)}
-.listbox li[aria-selected="true"]{background:var(--row-selected);box-shadow:inset 3px 0 0 var(--accent)}
+.listbox li[aria-selected="true"]{background:var(--row-selected)}
 .listbox .opt-name{color:var(--text-1);font-weight:600}
 #add-status .status{margin-top:8px}
 .arrived{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-top:16px;padding:10px 12px;
-  border:1px solid var(--accent);border-left-width:4px;border-radius:var(--radius-2);background:var(--accent-tint);font-size:14px;line-height:20px}
+  border:1px solid var(--accent);border-radius:var(--radius-2);background:var(--accent-tint);font-size:14px;line-height:20px}
 .arrived .what{flex:1 1 320px;min-width:0}
 .status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:10px 12px;border:1px solid var(--border-strong);
-  border-left-width:4px;border-radius:var(--radius-2);background:var(--surface);font-size:14px;line-height:20px}
+  border-radius:var(--radius-2);background:var(--surface);font-size:14px;line-height:20px}
 .status:focus{outline:none}
 .status .what{flex:1 1 260px;min-width:0}
-.status.is-ok{border-left-color:var(--positive)}
+.status.is-ok{border-color:var(--positive)}
 .status.is-bad{border-color:var(--negative);background:var(--negative-tint)}
 .status.is-warn{border-color:var(--caution);background:var(--caution-tint)}
 .status svg{flex:none}
@@ -998,52 +878,32 @@ main:focus{outline:none}
 .wl-flash,.wl-missing{margin-top:16px}
 .rec-flash{margin-top:12px}
 
-/* layout: the table, and the record beside it from 1024 */
+/* layout: the list, and the record beside it from 1024 */
 .layout{display:grid;grid-template-columns:minmax(0,1fr);gap:24px;margin-top:24px;align-items:start}
-.main-col{min-width:0}
+.main-col{display:flex;flex-direction:column;gap:32px;min-width:0}
 @media (min-width:1024px){
   .layout.has-record{grid-template-columns:minmax(0,1fr) 560px}
   .layout>.record{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto}
 }
 @media (min-width:1800px){.layout.has-record{grid-template-columns:minmax(0,1fr) clamp(720px,40vw,1000px);gap:32px}}
 @media (max-width:1023.98px){.layout>.record{order:-1}}
-.sg-strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-bottom:24px;padding:10px 12px;
-  border:1px dashed var(--border-strong);border-radius:var(--radius-4);font-size:14px;line-height:20px}
-.sg-strip p{flex:1 1 280px;min-width:0;color:var(--text-2)}
-.sg-strip b{color:var(--text-1)}
-@media (min-width:1920px){.sg-strip{display:none}}
-.switch{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:0 8px;border:1px solid var(--border-strong);
-  border-radius:var(--radius-2);background:var(--surface);color:var(--text-1);font:500 13px/20px var(--font-sans);cursor:pointer}
-.switch .knob{position:relative;width:28px;height:16px;border-radius:8px;background:var(--accent)}
-.switch .knob::after{content:"";position:absolute;top:2px;right:2px;width:12px;height:12px;border-radius:50%;background:var(--on-accent)}
-.switch[aria-checked="false"] .knob{background:var(--surface-sunken);box-shadow:inset 0 0 0 1px var(--border-strong)}
-.switch[aria-checked="false"] .knob::after{right:auto;left:2px;background:var(--text-3)}
-.sec-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding-top:12px;border-top:3px solid var(--text-1)}
-.sec-head h2{font:600 18px/24px var(--font-sans)}
-.sec-head h2:focus{outline:none}
-.sec-head .count{color:var(--text-3);font-size:14px;line-height:20px}
-.sec-note{margin-top:4px;color:var(--text-3);font-size:13px;line-height:20px;max-width:100ch}
 
-/* suggestions: kept apart, dashed, never in the table; folded below 1920 */
-.suggest{margin-bottom:32px}
-.suggest.after{margin-top:40px;margin-bottom:0}
-.sg-hide{display:none;margin-left:auto}
-@media (max-width:1919.98px){
-  .suggest.is-folded:not(.is-open){display:none}
-  .suggest.is-folded .sg-hide{display:inline-flex}
-}
-.sg-list{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin-top:12px}
-@media (min-width:1920px){.sg-list{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}}
-.sg{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:start;padding:12px;
-  border:1px dashed var(--border-strong);border-radius:var(--radius-4);background:var(--canvas)}
-@media (min-width:1920px){.sg{grid-template-columns:minmax(0,1fr)}.sg .acts{margin-top:8px}}
-@media (max-width:767.98px){.sg{grid-template-columns:minmax(0,1fr)}.sg .acts{margin-top:8px}.page .kbd,.keyhint{display:none}}
-.sg .kick{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;color:var(--text-3);font-size:12px;line-height:16px}
-.sg .kick .type{color:var(--text-2);font-weight:600}
-.sg h3{margin-top:2px;font:600 16px/24px var(--font-sans);overflow-wrap:anywhere}
-.sg h3 .where{font-weight:400;color:var(--text-3);font-size:14px}
-.sg p{color:var(--text-2);font-size:14px;line-height:20px}
-.sg .src{margin-top:2px}
+/* cards on the page's ground: the site's ground and border, 14px corners,
+   a glow of their group's colour over it. Text on them is the secondary
+   colour at its quietest, never the muted one. */
+.card{min-width:0;border:1px solid var(--border-subtle);border-radius:14px;background-color:var(--surface)}
+.muted{color:var(--text-2)}
+.link{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}
+.btn-teal{background:var(--group-apps);border-color:var(--group-apps);color:var(--on-accent)}
+.btn-teal:hover{color:var(--on-accent);filter:brightness(1.08)}
+
+/* Suggested by Radar: wide cards glowing amber */
+.sg-list{display:flex;flex-direction:column;gap:12px}
+.sg{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 24px;padding:16px 20px}
+.sg-main{flex:1 1 360px;min-width:0}
+.sg h3{font:600 17px/24px var(--font-sans);overflow-wrap:anywhere}
+.sg-headline{margin-top:2px;color:var(--text-2);font-size:14px;line-height:20px;max-width:80ch}
+.sg-link{margin-top:4px;font-size:14px;line-height:20px}
 .sg .acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .dis-head{margin-top:12px}
 .dis-head .btn{padding-left:0}
@@ -1052,43 +912,46 @@ main:focus{outline:none}
 .dis-list li>span{min-width:0;flex:1 1 260px}
 .dis-list .d-how{display:block}
 
-/* the watched table: three columns from 1024, six from 1800; a list below 1024 */
-.wt{width:100%;margin-top:8px;border-collapse:collapse;table-layout:fixed;font-size:14px;line-height:20px}
-.wt caption{caption-side:top;text-align:left;color:var(--text-3);font-size:13px;line-height:20px;padding:4px 0 8px}
-.wt thead th{padding:8px;border-bottom:1px solid var(--border-strong);color:var(--text-2);font:600 12px/16px var(--font-sans);text-align:left;vertical-align:bottom}
-.wt tbody th{font:inherit;font-weight:400;text-align:left;padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere}
-.wt td{padding:12px 8px;border-bottom:1px solid var(--border-subtle);vertical-align:top;overflow-wrap:anywhere}
-.wt tr.is-selected>*{background:var(--row-selected)}
-.wt tr.is-selected>:first-child{box-shadow:inset 3px 0 0 var(--accent)}
-.wt tbody tr:not(.is-selected):hover>*{background:var(--row-hover)}
-.wt .co{color:var(--text-1);font-weight:600;text-decoration:none}
-.wt .co:hover{text-decoration:underline}
-.wt .co-where{display:block;color:var(--text-3);font-size:13px}
-.wt .arr{display:block;margin-top:4px}
-.wt .next{display:block;margin-top:4px;color:var(--text-1)}
-.wt .lc-inline{display:block;margin-top:2px}
-.wt .sig-type{display:block;color:var(--text-3);font-size:12px;line-height:16px}
-.wt .sig-h{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--text-2)}
-.wt .rel{font-weight:600;color:var(--text-1)}
-.wt .num{text-align:right}
-.wt .c-wide{display:none}
-.wt .w-co{width:30%}.wt .w-th{width:38%}.wt .w-sig{width:32%}
-@media (min-width:1800px){
-  .wt .c-wide{display:table-cell}
-  .wt .lc-inline{display:none}
-  .wt .w-co{width:20%}.wt .w-th{width:27%}.wt .w-lc{width:12%}.wt .w-sig{width:25%}.wt .w-rl{width:7%}.wt .w-st{width:9%}
+/* Your companies: one wide card a company, glowing teal, in columns: the
+   company, its follow-up, its latest story, its roles on Jobs, Log a contact. */
+.co-list{display:flex;flex-direction:column;gap:12px}
+.co-card{container:cocard / inline-size;padding:16px 20px}
+.co-card.is-selected{border-color:var(--group-apps)}
+.co-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1.3fr) minmax(0,1.5fr) minmax(0,.7fr) auto;gap:12px 24px;align-items:start}
+.co-col{min-width:0}
+.co-name{display:flex;gap:12px;align-items:flex-start}
+.co-id{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
+.co{color:var(--text-1);font:600 16px/24px var(--font-sans);text-decoration:none;overflow-wrap:anywhere}
+.co:hover{color:var(--text-1);text-decoration:underline;text-underline-offset:2px}
+.co-where{color:var(--text-2);font-size:14px;line-height:20px}
+.co-label{font:600 13px/20px var(--font-sans)}
+.fu-label{color:var(--group-apps)}
+.story-label{color:var(--text-2)}
+.roles-label{color:var(--group-jobs)}
+.fu-step{color:var(--text-1);font-size:14px;line-height:20px;overflow-wrap:anywhere}
+.fu-when{color:var(--text-2)}
+.fu-last{margin-top:2px;color:var(--text-2);font-size:14px;line-height:20px}
+.co-fu .ttag{margin-top:6px}
+.kick{display:flex;flex-wrap:wrap;align-items:center;font-size:13px;line-height:20px;color:var(--text-2)}
+.kick .r-bit ~ .r-bit::before{content:"";display:inline-block;width:0;height:12px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-1px}
+.sk-type{color:var(--group-story);font-weight:600}
+.co-headline{margin-top:2px;color:var(--text-2);font-size:14px;line-height:20px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.role-pill{display:inline-flex;align-items:center;height:24px;margin-top:4px;padding:0 10px;border-radius:12px;background:rgba(167,156,240,.18);color:#c9c2f8;font:600 13px/20px var(--font-sans);white-space:nowrap}
+.role-pill.is-none{background:rgba(167,156,240,.10);color:var(--text-2);font-weight:500}
+.co-act{align-self:center}
+/* Narrower than 900px of card: two columns, the company and its follow-up,
+   then the story and the roles, Log a contact last. */
+@container cocard (max-width:899.98px){
+  .co-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .co-act{grid-column:1 / -1;align-self:start}
 }
-.keys{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin-top:12px;color:var(--text-3);font-size:13px;line-height:20px}
-.keys>span{display:inline-flex;align-items:center;gap:6px}
-.plist,.plist-note{display:none}
-@media (max-width:1023.98px){
-  .wt,.keys{display:none}
-  .plist,.plist-note{display:block}
-}
+@container cocard (max-width:519.98px){.co-grid{grid-template-columns:minmax(0,1fr)}}
+.empty{padding:20px}
+.empty p{color:var(--text-2);font-size:14px;line-height:20px}
 
 /* tags: a shape and a word, never colour alone */
 .ttag,.ntag,.stag{display:inline-flex;align-items:center;gap:5px;padding:1px 7px;border:1px solid;border-radius:var(--radius-2);
-  font:600 12px/18px var(--font-sans);white-space:nowrap}
+  font:600 13px/18px var(--font-sans);white-space:nowrap}
 .ttag.is-overdue{color:var(--negative);border-color:var(--negative);background:var(--negative-tint)}
 .ttag.is-today{color:var(--caution);border-color:var(--caution);background:var(--caution-tint)}
 .ttag.is-later{color:var(--text-1);border-color:var(--border-strong);background:var(--surface)}
@@ -1195,30 +1058,13 @@ input[type=date].field{color-scheme:dark}
 .menu .chk{display:inline-flex;width:14px;color:var(--accent)}
 .menu [aria-checked="false"] .chk svg{visibility:hidden}
 
-/* the phone list and the record as its own view */
-.plist{margin-top:8px}
-.plist li{border-bottom:1px solid var(--border-subtle)}
-.prow{display:grid;gap:4px;padding:12px 0;color:var(--text-1);text-decoration:none;font-size:14px;line-height:20px;min-height:44px}
-.prow:hover{color:var(--text-1)}
-.prow[aria-current="true"]{box-shadow:inset 3px 0 0 var(--accent);padding-left:10px;background:var(--row-selected)}
-.prow .nm{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font:600 16px/24px var(--font-sans)}
-.prow .nm .where{font-weight:400;font-size:13px;color:var(--text-3)}
-.prow .th{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
-.prow .ntag{justify-self:start}
-.prow .sg-line{color:var(--text-3);font-size:13px;line-height:20px}
+/* the record as its own view */
 .back{display:inline-flex;align-items:center;gap:6px;min-height:44px;color:var(--accent);font-size:15px}
 .recpage{max-width:960px;padding-top:8px}
 .recpage .wl-flash{margin:8px 0}
 @media (max-width:767.98px){.recpage .record{padding:16px;border-left:0;border-right:0;border-radius:0;margin:0 calc(-1 * var(--gutter))}}
-.empty{padding:24px;border:1px dashed var(--border-strong);border-radius:var(--radius-4)}
-.empty h3{font:600 18px/24px var(--font-sans)}
-.empty p{margin-top:4px;color:var(--text-2);font-size:14px;line-height:20px;max-width:70ch}
-.empty ol{margin-top:12px;display:grid;gap:8px;counter-reset:e}
-.empty ol li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;font-size:14px;line-height:20px;color:var(--text-1)}
-.empty ol li::before{counter-increment:e;content:counter(e);display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1px solid var(--border-strong);border-radius:50%;color:var(--text-2);font-size:12px}
-
 /* touch: 44 pixels */
-@media (pointer:coarse){.btn,.switch,.menu button,.logform .radios label{min-height:44px}}
+@media (pointer:coarse){.btn,.menu button,.logform .radios label{min-height:44px}}
 """
 
 
@@ -1230,7 +1076,7 @@ WATCHLIST_SCRIPT = r"""
   if (!main) return;
   var state = {};
   try { state = JSON.parse(main.getAttribute('data-state') || '{}'); } catch (e) { state = {}; }
-  var FLASH = 'radar-watchlist-flash', FOCUS = 'radar-watchlist-focus', KEYS = 'radar-watchlist-keys';
+  var FLASH = 'radar-watchlist-flash', FOCUS = 'radar-watchlist-focus';
   var SG = 'radar-watchlist-suggestions';
   var live = document.getElementById('wl-live');
   var ICON_OK = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true" focusable="false">'
@@ -1252,7 +1098,6 @@ WATCHLIST_SCRIPT = r"""
       else window.sessionStorage.setItem(key, value);
     } catch (e) {}
   }
-  function keysOn() { try { return window.localStorage.getItem(KEYS) !== 'off'; } catch (e) { return true; } }
   function typing(el) {
     if (!el || !el.tagName) return false;
     var t = el.tagName;
@@ -1399,7 +1244,6 @@ WATCHLIST_SCRIPT = r"""
       else if (want.indexOf('row:') === 0) {
         var id = want.slice(4);
         el = document.querySelector('[data-row-link="' + id + '"]');
-        if (!visible(el)) el = document.querySelector('.plist a[href="/watchlist/' + id + '"]');
       }
       if (el && el.focus) el.focus();
     }
@@ -1412,80 +1256,13 @@ WATCHLIST_SCRIPT = r"""
   document.addEventListener('click', function (e) {
     var a = e.target.closest('a');
     if (!a) return;
-    if (a.hasAttribute('data-focus-record') || a.hasAttribute('data-row-link')) sset(FOCUS, 'record');
+    if (a.hasAttribute('data-focus-log')) sset(FOCUS, 'log');
+    else if (a.hasAttribute('data-focus-record') || a.hasAttribute('data-row-link')) sset(FOCUS, 'record');
     else if (a.hasAttribute('data-close-record') && state.selected) sset(FOCUS, 'row:' + state.selected);
     else if (a.hasAttribute('data-log-focus')) {
       var first = document.getElementById('log-date');
       if (first) { e.preventDefault(); first.focus(); }
     }
-  });
-
-  // ---- single-key shortcuts and their switch
-  var sw = document.getElementById('keys-switch');
-  function paintSwitch() {
-    var on = keysOn();
-    document.querySelectorAll('[aria-keyshortcuts], [data-keys-off]').forEach(function (n) {
-      var k = n.getAttribute('aria-keyshortcuts') || n.getAttribute('data-keys-off');
-      if (k === 'Escape') return;
-      if (on) { n.setAttribute('aria-keyshortcuts', k); n.removeAttribute('data-keys-off'); }
-      else { n.setAttribute('data-keys-off', k); n.removeAttribute('aria-keyshortcuts'); }
-    });
-    if (!sw) return;
-    sw.setAttribute('aria-checked', on ? 'true' : 'false');
-    sw.querySelector('.sw-word').textContent = on ? 'On' : 'Off';
-  }
-  paintSwitch();
-  if (sw) sw.addEventListener('click', function () {
-    var on = !keysOn();
-    try { window.localStorage.setItem(KEYS, on ? 'on' : 'off'); } catch (e) {}
-    paintSwitch();
-    say(on ? 'Single-key shortcuts are on.' : 'Single-key shortcuts are off. Every one is still a button or link.');
-  });
-  function step(dir) {
-    var id = null;
-    if (state.selected && state.positioned) {
-      id = dir > 0 ? state.next : state.prev;
-      if (id === null || id === undefined) { say(dir > 0 ? 'This is the last company.' : 'This is the first company.'); return; }
-    } else {
-      id = dir > 0 ? state.first : state.last;
-    }
-    if (id === null || id === undefined) return;
-    go(recordUrl(id), null, 'record');
-  }
-  document.addEventListener('keydown', function (e) {
-    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
-    if (typing(e.target)) return;
-    if (document.querySelector('.appbar.menu-open')) return;
-    var key = e.key || '';
-    // Esc and Enter are not single-character keys, so the switch leaves them on.
-    if (state.view === 'table' && key === 'Escape' && state.selected) {
-      e.preventDefault();
-      go('/watchlist', null, 'row:' + state.selected);
-      return;
-    }
-    if (state.view === 'table' && key === 'Enter' && state.selected) {
-      var t0 = e.target;
-      if (t0 === document.body || t0 === main || (t0 && t0.tagName === 'TR')) {
-        var h0 = document.getElementById('rec-h');
-        if (h0) { e.preventDefault(); h0.focus(); }
-      }
-      return;
-    }
-    if (!keysOn()) return;
-    if (key === '/') {
-      var add = document.getElementById('add-name');
-      if (add) { e.preventDefault(); add.focus(); }
-      return;
-    }
-    if (e.shiftKey) return;
-    var k = key.toLowerCase();
-    if (k === 'l') {
-      var first = document.getElementById('log-date');
-      if (first) { e.preventDefault(); first.focus(); }
-      return;
-    }
-    if (state.view !== 'table') return;
-    if (k === 'j' || k === 'k') { e.preventDefault(); step(k === 'j' ? 1 : -1); return; }
   });
 
   // ---- add a company by name: a combobox
@@ -1648,34 +1425,14 @@ WATCHLIST_SCRIPT = r"""
     form.addEventListener('submit', function (e) { e.preventDefault(); submitAdd(); });
   }
 
-  // ---- suggestions: Show and Hide below 1920, answers, and Dismissed
-  var panel = document.getElementById('sg-panel');
-  var showBtn = document.getElementById('sg-show');
-  function setPanel(open, focusTo) {
-    if (!panel) return;
-    panel.classList.toggle('is-open', open);
-    if (showBtn) {
-      showBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-      showBtn.querySelector('.sg-word').textContent = open ? 'Hide' : 'Show';
-    }
-    if (focusTo && focusTo.focus) focusTo.focus();
-  }
-  if (showBtn) showBtn.addEventListener('click', function () {
-    var open = showBtn.getAttribute('aria-expanded') !== 'true';
-    setPanel(open, open ? document.getElementById('sg-h') : null);
-    if (open) {
-      var h = document.getElementById('sg-h');
-      if (h && h.scrollIntoView) h.scrollIntoView({ block: 'start' });
-    }
-  });
-  // A suggestion answered with the panel open finds it open again after the reload.
+  // ---- suggestions: answers, and Dismissed
+  // A company suggested again finds the suggestions' title focused after the reload.
   var sgWant = sget(SG);
   if (sgWant) {
     sset(SG, null);
-    setPanel(true, sgWant === 'focus' ? document.getElementById('sg-h') : null);
+    var sgH = document.getElementById('sg-h');
+    if (sgWant === 'focus' && sgH) sgH.focus();
   }
-  var hideBtn = document.getElementById('sg-hide');
-  if (hideBtn) hideBtn.addEventListener('click', function () { setPanel(false, showBtn); });
   var disBtn = document.getElementById('dis-btn');
   if (disBtn) disBtn.addEventListener('click', function () {
     var open = disBtn.getAttribute('aria-expanded') !== 'true';
@@ -1693,7 +1450,6 @@ WATCHLIST_SCRIPT = r"""
     b.disabled = true;
     post('/watchlist/suggestion', { id: id, action: action }).then(function (r) {
       if (!r.ok) { b.disabled = false; refusal(r.note); return; }
-      if (panel && panel.classList.contains('is-open')) sset(SG, 'open');
       var undo = { url: '/watchlist/suggestion', body: { id: id, action: 'undo' }, sg: true };
       if (action === 'accept') {
         undo.done = 'is back in the suggestions, not on your Watchlist.';

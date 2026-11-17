@@ -1300,7 +1300,7 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
     lead_html = f'<p class="lead-line">{esc(lead)}</p>' if lead else ""
     # The header card (owner, 17 Nov): the Jobs chip, the title and its facts,
     # the advert and the arrows at the right, the buttons, then the summary.
-    head = (f'<header class="detail-head">{back}<div class="dh-grid">'
+    head = (f'<header class="detail-head g-jobs glow-head">{back}<div class="dh-grid">'
             f'<span class="dh-chip">{page_frame.chip("jobs", "jobs")}</span>'
             f'<h2 class="dh-title" id="role-title" tabindex="-1">{esc(title)}</h2>'
             f'<div class="dh-meta"><p class="dh-facts"><span class="dh-facts-in">'
@@ -1646,7 +1646,7 @@ a{color:inherit}
    pattern. The header card glows purple from its top left. */
 .role{background:var(--canvas)}
 :root{--pcard-pad:20px}
-.detail-head{container:dhead / inline-size;margin:16px 16px 0;padding:16px var(--pcard-pad);border:1px solid var(--border-subtle);border-radius:14px;background-color:var(--surface);background-image:radial-gradient(900px 300px at 0% 0%,rgb(var(--group-jobs-rgb) / .22) 0%,rgb(var(--group-jobs-rgb) / .08) 45%,rgb(var(--group-jobs-rgb) / 0) 100%)}
+.detail-head{container:dhead / inline-size;margin:16px 16px 0;padding:16px var(--pcard-pad);border:1px solid var(--border-subtle);border-radius:14px;background-color:var(--surface)}
 .back{display:none}
 .dh-grid{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"chip title nav" ". meta meta";column-gap:14px}
 .dh-chip{grid-area:chip;align-self:start;padding-top:2px}
