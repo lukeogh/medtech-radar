@@ -77,14 +77,15 @@ FRAME_CSS = """
   --sheet-shadow:0 1px 2px rgba(0,0,0,.35),0 8px 24px rgba(0,0,0,.35);
 }
 @media (prefers-reduced-motion:reduce){:root{--dur:0ms}}
-/* One content box for every page (owner, 17 Nov): capped at 1440px and
-   centred, 16px in on a phone, 24px from 768px and 32px from 1024px. Every
+/* One content box for every page (owner, 17 Nov): the window's width up to
+   2560px, centred beyond that, 16px in on a phone, 24px from 768px and 32px
+   from 1024px. Every
    page's content and the top bar's contents (.appbar-in) read these two, and
    no page sets its own, so the menu never moves when the page changes. */
 /* The scroll bar's room is kept on every page, so a page that does not
    scroll (Jobs) puts the box where one that does (Home) puts it. */
 html{scrollbar-gutter:stable}
-:root{--frame-max:1440px;--frame-pad:16px}
+:root{--frame-max:2560px;--frame-pad:16px}
 @media (min-width:768px){:root{--frame-pad:24px}}
 @media (min-width:1024px){:root{--frame-pad:32px}}
 /* The top bar's height, for the pages whose grid or offsets hold a row for it:

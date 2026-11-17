@@ -1700,7 +1700,11 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
 /* Hide the list: the role pane takes the full width. */
 @media (min-width:1024px){.app.list-off .content{grid-template-columns:minmax(0,1fr)}.app.list-off .queue{display:none}}
 @media (min-width:1800px){
-  .content{grid-template-columns:clamp(440px,24vw,640px) minmax(min(640px,100vw - 760px - clamp(440px,24vw,640px)),1fr) 760px;grid-template-rows:auto minmax(0,1fr)}
+  /* The shared box is a little narrower than the window (its 32px edge and
+     the scroll bar's room), so where the three columns come up short the
+     advert, the widest text column, gives up the difference; its lines stay
+     66 characters. */
+  .content{grid-template-columns:clamp(440px,24vw,640px) minmax(min(640px,100vw - 760px - clamp(440px,24vw,640px)),1fr) min(760px,100% - clamp(440px,24vw,640px) - min(640px,100vw - 760px - clamp(440px,24vw,640px)));grid-template-rows:auto minmax(0,1fr)}
   .queue{grid-column:1;grid-row:1 / span 2}
   .role,.role-scroll{display:contents}
   .detail-head{grid-column:2;grid-row:1;position:relative}
