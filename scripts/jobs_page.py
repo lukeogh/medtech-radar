@@ -969,15 +969,19 @@ GATE_ICONS = {
 }
 
 
-def pane_section(key: str, title: str, body: str, icon: str, group: str = "neutral",
-                 extra: str = "", cls: str = "") -> str:
+def pane_section(key: str, title: str, body: str, icon: str, group: str = "jobs",
+                 extra: str = "", cls: str = "", card: bool = True) -> str:
     """One section of the role pane (owner, 17 Nov): its title outside its card,
     in Home's pattern, the chip, the title and an optional pill or note; then
-    the card."""
+    the card, with a faint glow of the chip's colour. Every chip on Jobs is
+    purple, the page's colour (the colour rule, 17 Nov). Score has no card: its
+    tiles sit under its title."""
+    inner = (f'<div class="pcard g-{group} glow-faint">{body}</div>' if card
+             else f'<div class="pbare">{body}</div>')
     return (f'<section class="psec{" " + cls if cls else ""}" aria-labelledby="{key}-heading">'
             f'<header class="sec-head">{page_frame.chip(icon, group)}'
             f'<h3 class="sec-title" id="{key}-heading">{title}</h3>{extra}</header>'
-            f'<div class="pcard">{body}</div></section>')
+            f'{inner}</section>')
 
 
 def score_html(o: dict) -> str:
@@ -1017,7 +1021,7 @@ def score_html(o: dict) -> str:
                      f'<span class="gate-status {cls}">{status}</span>'
                      f'<span class="gate-note">{esc(note)}</span></div>')
     return pane_section("score", "Score", f'{lead}<div class="gate-tiles">{"".join(gates)}</div>',
-                        "top", "jobs", extra=pill, cls="score")
+                        "top", "jobs", extra=pill, cls="score", card=False)
 
 
 def reasons_section(o: dict, reasons: list, hits: dict, quotes: bool) -> str:
@@ -1195,9 +1199,9 @@ def advert_section(o: dict, reasons: list, quotes: bool, view: str,
         head = ""
     return ('<section class="advert" aria-labelledby="advert-heading" tabindex="-1" '
             'id="advert">'
-            f'<header class="sec-head advert-head">{page_frame.chip("story", "neutral")}'
+            f'<header class="sec-head advert-head">{page_frame.chip("story", "jobs")}'
             f'<h3 class="sec-title" id="advert-heading">Advert</h3>{head}</header>'
-            f'<div class="pcard advert-body">{body}</div></section>'), hits
+            f'<div class="pcard g-jobs glow-faint advert-body">{body}</div></section>'), hits
 
 
 def _btn(kind: str, label: str, key: str, oid: int, primary: bool = False) -> str:
@@ -1519,7 +1523,8 @@ ROW_CSS = """.row{position:relative;display:grid;grid-template-rows:auto 16px;ro
 .r-link:focus-visible{outline:none;box-shadow:none}
 .r-link:focus-visible::after{outline:2px solid var(--focus);outline-offset:-5px}
 .r-link:hover .r-title{text-decoration:underline;text-underline-offset:2px}
-.r-new{flex:none;font-size:12px;line-height:16px;font-weight:600;color:var(--text-1)}
+/* New: a small purple pill, on Jobs and on Home's role rows alike. */
+.r-new{display:inline-flex;align-items:center;flex:none;height:20px;padding:0 8px;border-radius:10px;background:rgba(167,156,240,.18);color:#c9c2f8;font-size:13px;line-height:16px;font-weight:600}
 /* The title takes the row's width and a second line before it is cut. */
 .r-title{flex:1 1 auto;min-width:0;overflow:hidden;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow-wrap:anywhere;font-weight:500}
 .is-unread .r-title{font-weight:600}
@@ -1627,7 +1632,6 @@ a{color:inherit}
 .group .row:hover{background:rgba(232,237,240,.04)}
 .group .row.is-current{background:rgba(167,156,240,.16)}
 .group .r-meta{font-size:13px;line-height:20px;color:var(--text-2)}
-.group .r-new{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:10px;background:rgba(167,156,240,.18);color:#c9c2f8;font-size:13px;line-height:16px;font-weight:600}
 .group .empty-note{padding:12px 16px}
 .fold{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;margin:0 -8px 0 auto;border:0;border-radius:var(--radius-2);background:transparent;color:var(--text-2);cursor:pointer}
 .fold:hover{background:var(--row-hover);color:var(--text-1)}
@@ -1673,7 +1677,8 @@ a{color:inherit}
 }
 .detail-body{display:flex;flex-direction:column;gap:24px;padding:24px 16px}
 .psec{min-width:0}
-.pcard{container:pcard / inline-size;min-width:0;padding:var(--pcard-pad);border:1px solid var(--border-subtle);border-radius:14px;background:var(--surface)}
+.pcard{container:pcard / inline-size;min-width:0;padding:var(--pcard-pad);border:1px solid var(--border-subtle);border-radius:14px;background-color:var(--surface)}
+.pbare{container:pcard / inline-size;min-width:0}
 .psec .sec-head .tier-pill{margin-left:2px}
 .tier-reason{margin-bottom:12px;color:var(--text-2)}
 /* The four gates as tiles: one row, two by two under 900px of card, one a row

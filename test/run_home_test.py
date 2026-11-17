@@ -1512,6 +1512,10 @@ def phone_checks(tmp: Path) -> None:
           and ".ht-figs{grid-auto-rows:auto;" in phone,
           "from 700px a tile's number is 40px and its word 16px, every tile the same height; "
           "on a phone 28px and 14px")
+    check(".r-new{display:inline-flex;align-items:center;flex:none;height:20px;padding:0 8px;"
+          "border-radius:10px;background:rgba(167,156,240,.18);color:#c9c2f8;" in html
+          and "is-current" not in "".join(re.findall(r'<div class="row [^"]*"', html)),
+          "Open actions' role rows carry the same purple New pill as Jobs, and no wash")
     check("function setLights(open)" in hp.HOME_SCRIPT and "'#lights-btn'" in hp.HOME_SCRIPT
           and "setLights(lit);" in hp.HOME_SCRIPT,
           "tapping the chip shows or hides the lights, and a redraw keeps them as they were")
