@@ -563,6 +563,8 @@ def model_checks(tmp: Path) -> None:
           and "due today" in tile and "due tomorrow" in tile,
           "Waiting on you lists the next steps, soonest first, with their due words")
     check('href="/jobs?show=applied#col-preparing"' in tile, "each stage links to its column on the board")
+    check("Radar fills" not in tile and "Filled by Radar" not in tile and "apm-radar" not in hp.HOME_CSS,
+          "and no line on what Radar fills by itself")
     # ---- a non-hiring urgent story opens on Insights
     conn = rc.get_db(db)
     conn.execute("INSERT INTO signals (url_hash, first_seen, source_id, company, headline, relevance,"
@@ -995,8 +997,8 @@ def page_checks(tmp: Path) -> None:
     for gone in ('id="ny-pane"', 'id="ny-store"', "data-step", ">Previous<", "row-3", "Done takes this off Home",
                  "Scores are from the advert card", "Undo last puts it back"):
         check(gone not in body, f"no carousel and no line on how to use it: {gone!r} is gone")
-    nexts = re.findall(r'data-next="([\w-]+)">Next</a>', body)
-    check(nexts == [a for a, _b in arts][1:], "each item but the last has Next, to the item after it")
+    check("data-next" not in body and ">Next</a>" not in body and "ny-next" not in hp.HOME_CSS,
+          "no Next button: every item is on screen")
     check(body.count("data-done=") == 7 and 'id="undo-last"' in body and '>To do</a>' in body
           and '?show=done"' in body, "Done on each, Undo last, and To do and Done stay")
     # The urgent signal: an Insights story.
@@ -1004,11 +1006,16 @@ def page_checks(tmp: Path) -> None:
     card = sig.group(0) if sig else ""
     check(card and '<p class="story-line"><span class="co">Hartwell Infusion Ltd</span>, via a job advert</p>' in card
           and 'class="story-h"' in card and 'class="story-sum"' in card
-          and re.search(r'<span class="rel">Relevance 90</span><span>Found \d+ \w+</span>', card)
           and ">Read the advert" in card and "Everything on file" in card
           and f'href="/company/' in card and "data-done=" in card,
-          "the urgent signal is drawn as an Insights story: company, source, headline, why, relevance, "
-          "found, the announcement and everything on file")
+          "the urgent signal is drawn as an Insights story: company, source, headline, why, "
+          "the announcement and everything on file")
+    check(card and "Relevance" not in card and "Found" not in card and "Details" not in card,
+          "without relevance, the found date or the Details table")
+    move = re.search(r'<p class="story-sum">.*?</p><section class="ny-move"[^>]*><h5 class="sec-h"[^>]*>'
+                     r'Next move</h5><p class="ny-para">(.*?)</p></section>', card)
+    check(move is not None and move.group(1) == "Send the compliance-cost article, or the gap assessment one-pager.",
+          "its Next move, the playbook step, sits under the summary line")
     check(card and "<dt>" not in card and "On file for" not in card and "Builds" not in card,
           "without the fixed On file fields (builds, software, stage, where, people)")
     check("@font-face{font-family:\"IBM Plex Serif\"" in html and "var(--font-serif)" in hp.HOME_CSS,
@@ -1084,9 +1091,10 @@ def state_checks(tmp: Path) -> None:
     seed_home(db, "noapps")
     m = model_of(db)
     html = page_of(db)
-    check("No applications yet. Radar adds an item when you save a tailored CV or mark a role applied."
-          in html and m["counts"]["apps"] == 0 and "group-apps" not in html,
-          "no applications yet: the tile's one fact and link, no Applications group")
+    tile = html.split('id="tile-applications"', 1)[1].split("</section>", 1)[0]
+    check('<div class="empty"><p>No applications yet.</p></div>' in tile and "<a " not in tile
+          and m["counts"]["apps"] == 0 and "group-apps" not in html,
+          "no applications yet: the tile reads No applications yet. and no more, no Applications group")
     check(re.search(r'class="ht-figlink is-zero" id="figure-apps"', html),
           "its figure stays at 0, dimmed")
     db = tmp / "fault.sqlite"
@@ -1220,7 +1228,7 @@ def harness_checks(tmp: Path) -> None:
     for ln in lines:
         check(ln.startswith("PASS"), "the Home script: " + ln[6:])
     check(out.returncode == 0 and len(lines) >= 12,
-          f"the Home script runs Done, Undo, the toast, Next and the health panel in node "
+          f"the Home script runs Done, Undo, the toast and the health panel in node "
           f"({out.stderr.strip()[:200]})")
 
 

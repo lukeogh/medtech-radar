@@ -758,10 +758,7 @@ def apps_tile(model: dict) -> str:
     head = ('<header class="ht-head"><h2 class="ht-title" id="tile-applications">Applications</h2>'
             '</header>')
     if not total:
-        body = ('<div class="apm"><div class="empty"><p>No applications yet. Radar adds an item '
-                'when you save a tailored CV or mark a role applied.</p>'
-                '<a class="link link-block" href="/jobs#group-top">Open Top prospects on Jobs</a>'
-                '</div></div>')
+        body = '<div class="apm"><div class="empty"><p>No applications yet.</p></div></div>'
         return (f'<section class="ht ht-apps-tile" aria-labelledby="tile-applications"><div class="ht-in">'
                 f'{head}<div class="ht-body">{body}</div></div></section>')
     cols = []
@@ -771,16 +768,14 @@ def apps_tile(model: dict) -> str:
         said.append(f"{n} {ap.STAGE_WORDS[stage]}")
         pips = "".join(f'<span class="apm-pip{" is-closed" if stage == "closed" else ""}"></span>'
                        for _ in range(min(n, 24)))
-        by = '<small>Filled by Radar</small>' if stage in ("preparing", "applied") else ""
         cols.append(f'<li class="apm-col"><a class="apm-link" id="mini-{stage}" '
                     f'href="/jobs?show=applied#col-{stage}"><span class="apm-name">'
-                    f'<span class="apm-label">{ap.STAGE_WORDS[stage]}</span>{by}</span>'
+                    f'<span class="apm-label">{ap.STAGE_WORDS[stage]}</span></span>'
                     f'<span class="apm-pips" aria-hidden="true">{pips}</span>'
                     f'<span class="apm-count">{n}</span></a></li>')
     label = (f"Applications by column. {_n(total, 'application')}: "
              + ", ".join(said[:-1]) + " and " + said[-1] + ".")
-    parts = [f'<ol class="apm-cols" aria-label="{esc(label)}">{"".join(cols)}</ol>',
-             '<p class="apm-radar">Radar fills Preparing and Applied by itself.</p>']
+    parts = [f'<ol class="apm-cols" aria-label="{esc(label)}">{"".join(cols)}</ol>']
     closed = b["totals"]["closed"]
     if closed:
         apps = model["data"].get("applications") or []
@@ -1139,9 +1134,10 @@ def _on_file_link(i: dict, model: dict) -> str:
             f'Everything on file<span class="visually-hidden"> for {esc(c["display_name"])}</span></a>')
 
 
-def _actions(i: dict, model: dict, next_id) -> str:
+def _actions(i: dict, model: dict) -> str:
     """Open where the item lives (a signal's card has its headline for that),
-    Done or Put back, Check now for the signal watcher, and Next."""
+    Done or Put back, and Check now for the signal watcher. No Next: every
+    item is on screen."""
     done_view = model["show"] == "done"
     acts = []
     if i["kind"] == "radar":
@@ -1165,9 +1161,6 @@ def _actions(i: dict, model: dict, next_id) -> str:
                     f'data-title="{esc(i["title"])}">Done</button>')
     if i["kind"] == "radar" and i["light"]["name"] == "signals" and not done_view:
         acts.append('<button type="button" class="btn btn-secondary" data-check>Check now</button>')
-    if next_id:
-        acts.append(f'<a class="btn btn-ghost ny-next" href="#{esc(next_id)}" data-next="{esc(next_id)}">'
-                    'Next</a>')
     return f'<div class="action-bar ny-acts">{"".join(acts)}</div>'
 
 
@@ -1180,11 +1173,12 @@ def _signal_href(i: dict) -> tuple[str, bool]:
     return open_[0], open_[2]
 
 
-def signal_card(i: dict, model: dict, next_id) -> str:
+def signal_card(i: dict, model: dict) -> str:
     """An urgent signal as Insights draws a story (insights_page.card):
-    company and source, the headline, the line on why it matters, relevance,
-    found, the announcement, and everything on file. Laid out without
-    separators, and with Done and Next in place of Insights' own actions."""
+    company and source, the headline, the line on why it matters, its next
+    move (the playbook step), the announcement, and everything on file. Laid
+    out without separators, with Done in place of Insights' own actions, and
+    without the relevance and found date (owner, 17 Nov)."""
     s = i["story"]
     lead = s["lead"]
     uid = esc(i["id"])
@@ -1202,22 +1196,24 @@ def signal_card(i: dict, model: dict, next_id) -> str:
     announce = (f'<a href="{esc(url)}" target="_blank" rel="noopener noreferrer">{what}'
                 f'<span class="visually-hidden"> on {esc(i["source"])} (opens in a new tab)</span>'
                 f'{ip.ICON_OUT}</a>' if url else "")
+    step = lead.get("playbook_step")
+    move = (f'<section class="ny-move" aria-labelledby="{uid}-move"><h5 class="sec-h" id="{uid}-move">'
+            f'Next move</h5><p class="ny-para">{esc(step)}</p></section>' if step else "")
+    meta = f'<p class="story-meta">{announce}</p>' if announce else ""
     return (f'<article class="ny-item ny-story" id="{uid}" data-item="{uid}" data-key="{esc(i["key"])}" '
             f'aria-labelledby="{uid}-t" tabindex="-1">'
             f'<p class="story-line"><span class="co">{esc(i.get("company") or "Unknown company")}</span>, '
             f'via {esc(i["source"])}{esc(more)}</p>'
             f'<h4 class="story-h" id="{uid}-t">{headline}</h4>'
-            f'<p class="story-sum">{esc(i.get("lead") or "")}</p>'
-            f'<p class="story-meta"><span class="rel">Relevance {esc(s["relevance"])}</span>'
-            f'<span>Found {esc(day(s["found"]))}</span>{announce}</p>'
-            f'{_on_file_link(i, model)}{_actions(i, model, next_id)}</article>')
+            f'<p class="story-sum">{esc(i.get("lead") or "")}</p>{move}{meta}'
+            f'{_on_file_link(i, model)}{_actions(i, model)}</article>')
 
 
-def item_html(i: dict, model: dict, next_id) -> str:
+def item_html(i: dict, model: dict) -> str:
     """One item in full: its title, what it is, its tags, the body, what else
     is on file, and its controls."""
     if i["kind"] == "signal":
-        return signal_card(i, model, next_id)
+        return signal_card(i, model)
     uid = esc(i["id"])
     meta_bits = {"radar": ["Radar", SCHEDULE[i["light"]["name"]] if i["kind"] == "radar" else ""],
                  "role": [i.get("company") or "",
@@ -1239,19 +1235,17 @@ def item_html(i: dict, model: dict, next_id) -> str:
             f'aria-labelledby="{uid}-t" tabindex="-1">'
             f'<header class="ny-ih"><h4 class="ny-it" id="{uid}-t">{esc(i["title"])}</h4>'
             f'<p class="ny-im">{meta}{tags}</p></header>'
-            f'<div class="ny-ib">{body}</div>{_on_file_link(i, model)}{_actions(i, model, next_id)}</article>')
+            f'<div class="ny-ib">{body}</div>{_on_file_link(i, model)}{_actions(i, model)}</article>')
 
 
 def list_html(model: dict) -> str:
     items = model["items"]
-    ids = [i["id"] for i in items]
-    nxt = {k: (ids[n + 1] if n + 1 < len(ids) else None) for n, k in enumerate(ids)}
     parts = []
     for group, _word in GROUPS:
         members = [i for i in items if i["group"] == group]
         if not members:
             continue
-        body = "".join(item_html(i, model, nxt[i["id"]]) for i in members)
+        body = "".join(item_html(i, model) for i in members)
         parts.append(f'<section class="ny-group" aria-labelledby="group-{group}">'
                      f'{group_head(group, members, model)}{body}</section>')
     return "".join(parts)
@@ -1498,8 +1492,6 @@ a{color:inherit}
 .apm-name{min-width:0}
 .apm-label{color:var(--text-1);text-decoration:underline;text-decoration-color:var(--border-strong);text-underline-offset:3px}
 .apm-link:hover .apm-label{text-decoration-color:currentColor}
-.apm-name small{display:block;font-size:12px;color:var(--text-3)}
-.apm-radar{display:none;font-size:12px;line-height:16px;color:var(--text-3)}
 .apm-count{text-align:right;font-size:14px;line-height:20px;font-weight:600;color:var(--text-1);font-variant-numeric:tabular-nums}
 .apm-pips{display:flex;flex-wrap:wrap;gap:2px;justify-content:flex-end}
 .apm-pip{width:8px;height:12px;background:var(--text-3)}
@@ -1518,9 +1510,7 @@ a{color:inherit}
   .apm-col:first-child .apm-link{padding-left:0;border-left:0}
   .apm-count{grid-row:1;font-size:20px;line-height:28px;text-align:left}
   .apm-name{grid-row:2}
-  .apm-name small{display:none}
   .apm-pips{grid-row:3;justify-content:flex-start}
-  .apm-radar{display:block}
   .apm-wait{flex-direction:row;flex-wrap:wrap;gap:4px 24px}
 }
 /* ---- the welcome ---- */
@@ -1600,12 +1590,12 @@ a{color:inherit}
 .ny-story{gap:8px}
 .ny-story .story-line{color:var(--text-3);font-size:13px;line-height:20px;overflow-wrap:anywhere}
 .ny-story .story-line .co{color:var(--text-2);font-weight:600}
+.ny-move{margin-top:4px}
 .ny-story .story-h{max-width:60ch;font:500 22px/28px var(--font-serif);letter-spacing:-.005em;overflow-wrap:anywhere}
 .ny-story .story-h a{color:var(--text-1);text-decoration:none}
 .ny-story .story-h a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px}
 .ny-story .story-sum{max-width:72ch;color:var(--text-2);font-size:15px;line-height:22px;text-wrap:pretty}
 .ny-story .story-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;color:var(--text-3);font-size:13px;line-height:20px}
-.ny-story .story-meta .rel{color:var(--text-2)}
 .ny-story .story-meta a{color:var(--accent);white-space:nowrap}
 .ny-story .story-meta a:hover{color:var(--accent-hover)}
 .ny-story .story-meta a svg{vertical-align:-1px;margin-left:3px}
@@ -1848,14 +1838,6 @@ HOME_SCRIPT = r"""
   main.addEventListener('click', function (e) {
     if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     if (e.target.closest('#health-btn')) { setHealth(!healthOpen()); return; }
-    var nxt = e.target.closest('[data-next]');
-    if (nxt) {
-      // The address keeps the item's anchor, so the browser's Back returns.
-      e.preventDefault();
-      try { history.pushState(null, '', '#' + nxt.dataset.next); } catch (err) {}
-      goTo(nxt.dataset.next);
-      return;
-    }
     var at = e.target.closest('[data-item]');
     var id = at ? at.dataset.item : null;
     var done = e.target.closest('[data-done]');
