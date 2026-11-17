@@ -887,7 +887,7 @@ def log_run(conn: sqlite3.Connection, workflow: str, mode: str = "live",
 #   hours, stale is a Monday and a day.
 JOB_LIMITS = {
     "inbox": {"label": "Inbox", "late": 12, "stale": 24},
-    "signals": {"label": "Signal watcher", "late": 4, "stale": 6},
+    "signals": {"label": "News watcher", "late": 4, "stale": 6},
     "check": {"label": "Advert checker", "late": 26, "stale": 50},
     "digest": {"label": "Monday digest", "late": 7 * 24 + 2, "stale": 8 * 24},
 }

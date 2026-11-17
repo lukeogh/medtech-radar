@@ -2,22 +2,29 @@
 
 Built from Home final (design/round-1 branch, design/home/final, 15 Nov 2026)
 and the owner's decisions of that day in design/README.md, on the shared frame
-in page_frame.py, dark only. At /, with every item at its own address,
-/?item=<id>, and the items taken off Home at /?show=done.
+in page_frame.py, dark only. Restyled 17 Nov ("Option B"): colour groups
+things. Stories are amber, jobs purple, applications and follow-ups teal
+(page_frame's --group-* colours); each group has an icon chip and a soft glow
+from the top left of its cards. At /, with every item at its own address,
+/?item=<id>, and the items taken off Home at /?show=done. On Home a signal is
+a story, and the signal watcher is the News watcher.
 
 What is on it, top to bottom (trimmed 17 Nov: no sentence under the greeting,
 no As of time, no question under a widget's title, no footnotes, no keys):
-- The welcome: the date, the greeting (by the first name on the optional
-  first_name line of the owner's preferences file, never a name in the code)
-  and five figures, each a link to where those items live and each equal to a
-  group of the list below: urgent signals, new Top prospects, new One
-  question away roles, company follow-ups due and application follow-ups due.
-  A figure at 0 is dimmed. Company follow-ups due are read from
+- The welcome, with no card: the date, the greeting (by the first name on the
+  optional first_name line of the owner's preferences file, never a name in
+  the code) and, at the right, Radar's lights and Radar's health.
+- Five tiles, each a link to where those items live: urgent stories, Top
+  prospects, One question away, company follow-ups due and application
+  follow-ups due. Urgent stories and the follow-ups each equal a group of the
+  list below; Top prospects and One question away are every open role in the
+  tier, jobs_page.tier_totals, the number on the Jobs page's tier bands. A
+  tile at 0 keeps its colour, softer. Company follow-ups due are read from
   watchlist.threads_due, the rule the Watchlist's tags use: a Watchlist
   company's next step due today or overdue, UK date; a next step with no date
   never counts.
-- Radar's five jobs as lights, a mark in a ring, a colour and a word (On time,
-  Late, Stale, Off, Not sending or, for the inbox, Quiet), from
+- Radar's five jobs as lights, each a chip with a dot, the job's name and a
+  word (On time, Late, Stale, Off, Not sending or, for the inbox, Quiet), from
   radar_common.job_health, the verdict /health gives, read by
   page_frame.job_light, as the top bar's light is. The phone push has no run
   of its own: it rides on the signal watcher, so its light is worked out from
@@ -80,7 +87,7 @@ CHANNEL_WORDS = {"comment": "comment", "connection-note": "connection note",
                  "other": "other"}
 
 # Radar's five jobs, as the strip names them, in order.
-JOBS = (("inbox", "Inbox"), ("signals", "Signal watcher"),
+JOBS = (("inbox", "Inbox"), ("signals", "News watcher"),
         ("check", "Advert checker"), ("digest", "Monday digest"),
         ("push", "Phone push"))
 # The words each light can say, with its colour class and its mark, each word
@@ -102,6 +109,37 @@ SYMBOLS = """<svg width="0" height="0" style="position:absolute" aria-hidden="tr
 <symbol id="st-paused" viewBox="0 0 16 16"><path d="M6 4.5v7M10 4.5v7" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
 <symbol id="ic-down" viewBox="0 0 16 16"><path d="M3.5 6l4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
 </svg>"""
+# The groups' line icons (owner, 17 Nov): drawn on a 20 by 20 grid, no fill,
+# in the colour of their chip. Each group has one colour, page_frame's
+# --group-story, --group-jobs and --group-apps; Radar's own items and the
+# Open actions title take a neutral chip.
+ICONS = {
+    "story": '<rect x="3.5" y="3.5" width="13" height="13" rx="2"/><line x1="6.5" y1="7.5" x2="13.5" y2="7.5"/>'
+             '<line x1="6.5" y1="10.5" x2="13.5" y2="10.5"/><line x1="6.5" y1="13.5" x2="10.5" y2="13.5"/>',
+    "top": '<circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="2.5"/>',
+    "question": '<circle cx="10" cy="10" r="6.5"/><path d="M8 8.3a2 2 0 1 1 2.9 1.8c-.6.3-.9.7-.9 1.3"/>'
+                '<circle cx="10" cy="13.7" r="0.5" fill="currentColor"/>',
+    "threads": '<rect x="5" y="3.5" width="10" height="13" rx="1.5"/><line x1="8" y1="7" x2="12" y2="7"/>'
+               '<line x1="8" y1="10" x2="12" y2="10"/><line x1="8" y1="13" x2="12" y2="13"/>',
+    "apps": '<rect x="3" y="5" width="14" height="10" rx="2"/><polyline points="3.5,6.5 10,11 16.5,6.5"/>',
+    "actions": '<rect x="3.5" y="3.5" width="13" height="13" rx="3"/><polyline points="6.8,10.2 9,12.4 13.4,7.8"/>',
+    "jobs": '<rect x="3" y="6.5" width="14" height="9.5" rx="2"/>'
+            '<path d="M7.5 6.5V5A1.5 1.5 0 0 1 9 3.5h2A1.5 1.5 0 0 1 12.5 5v1.5"/>',
+    "applications": '<path d="M17 3 3 9l5.5 2.5L11 17z"/><line x1="8.5" y1="11.5" x2="17" y2="3"/>',
+    # Radar's own item, a job that needs a look: a clock, as the Late mark is.
+    "radar": '<circle cx="10" cy="10" r="6.5"/><polyline points="10,6.5 10,10 12.5,11.5"/>',
+}
+
+
+def chip(icon: str, group: str) -> str:
+    """A group's icon chip: 32px square, the icon in the group's colour on a
+    tint of it. group is story, jobs, apps or neutral."""
+    return (f'<span class="gchip g-{group}" aria-hidden="true"><svg viewBox="0 0 20 20" '
+            'width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" '
+            'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
+            f'{ICONS[icon]}</svg></span>')
+
+
 SCHEDULE = {"inbox": "Each alert email, as n8n finds it in the inbox",
             "signals": "Every two hours", "check": "Once a day",
             "digest": "Mondays at 07:30", "push": "With the signal watcher"}
@@ -207,7 +245,7 @@ def push_light(jobs: dict, config: dict, last_push) -> dict:
                 "why": "radar.yaml names no ntfy address, so nothing can be pushed."}
     if (watcher.get("state") or "never") == "never":
         return {"name": "push", "word": "Off", "verdict": v, "state": "never",
-                "why": "The signal watcher has never run, so nothing has been pushed."}
+                "why": "The news watcher has never run, so nothing has been pushed."}
     # The watcher's state first: a push goes only when the watcher runs.
     light = job_light("signals", watcher)
     light.update(name="push", verdict=v)
@@ -228,10 +266,14 @@ def lights(data: dict, config: dict, last_push) -> list:
 
 
 def light_html(light: dict) -> str:
-    cls, sym = LIGHTS[light["word"]]
-    return (f'<li class="ht-strip-job" data-job="{light["name"]}"><span class="ht-light {cls}">'
-            f'<span class="ht-lamp">{_use(sym)}</span>{esc(light["word"])}</span>'
-            f'<span class="ht-job-name">{esc(light["label"])}</span></li>')
+    """One light as a chip: a dot, the job's name, then its word. The word is
+    always there, so the dot's colour never stands alone."""
+    cls, _sym = LIGHTS[light["word"]]
+    return (f'<li class="ht-strip-job" data-job="{light["name"]}">'
+            f'<span class="ht-dot {cls}" aria-hidden="true"></span>'
+            f'<span class="ht-job-name">{esc(light["label"])}</span>'
+            '<span class="visually-hidden">, </span>'
+            f'<span class="ht-light {cls}">{esc(light["word"])}</span></li>')
 
 
 # ================================================================ reads of its own
@@ -667,14 +709,17 @@ def build_model(conn, data: dict, config: dict, now=None, item: str | None = Non
 
 # ================================================================ the welcome
 
-FIGURES = (("urgent", "urgent signal", "urgent signals", "#group-urgent"),
-           ("top", "new Top prospect", "new Top prospects", "/jobs#group-top"),
-           ("question", "new One question away", "new One question away", "/jobs#group-question"),
+# The five tiles: (group, one, many, where it links, icon, colour group).
+FIGURES = (("urgent", "urgent story", "urgent stories", "#group-urgent", "story", "story"),
+           ("top", tiers.NAMES["top"], tiers.NAMES["top"], "/jobs#group-top", "top", "jobs"),
+           ("question", tiers.NAMES["question"], tiers.NAMES["question"], "/jobs#group-question",
+            "question", "jobs"),
            # The Watchlist sorts its due follow-ups first.
-           ("threads", "company follow-up due", "company follow-ups due", "/watchlist"),
+           ("threads", "company follow-up due", "company follow-ups due", "/watchlist",
+            "threads", "apps"),
            ("apps", "application follow-up due", "application follow-ups due",
-            "/jobs?show=applied"))
-JOB_PHRASES = {"inbox": "the inbox", "signals": "the signal watcher", "check": "the advert checker",
+            "/jobs?show=applied", "apps", "apps"))
+JOB_PHRASES = {"inbox": "the inbox", "signals": "the news watcher", "check": "the advert checker",
                "digest": "the Monday digest", "push": "the phone push"}
 
 
@@ -689,17 +734,30 @@ def apps_word(model: dict, count: int) -> str:
     return f"{base} due today" if not model["overdue"] else f"{base} due or overdue"
 
 
-def figures_html(model: dict) -> str:
-    """The five figures. One at 0 is dimmed, so the ones with a number stand out."""
+def figure_counts(model: dict) -> dict:
+    """The five tiles' numbers. Urgent stories and the two kinds of follow-up
+    are their groups in Open actions; Top prospects and One question away are
+    every open role in the tier, jobs_page.tier_totals, the same count the
+    Jobs page puts on its tier bands, so the two pages cannot disagree."""
     c = model["counts"]
+    totals = jp.tier_totals(model["jmodel"])
+    return {"urgent": c["urgent"], "top": totals["top"], "question": totals["question"],
+            "threads": c["threads"], "apps": c["apps"]}
+
+
+def figures_html(model: dict) -> str:
+    """The five tiles, each in its group's colour. One at 0 keeps the colour
+    with a softer glow and its number muted."""
+    c = figure_counts(model)
     out = []
-    for key, one, many, href in FIGURES:
+    for key, one, many, href, icon, group in FIGURES:
         n = c[key]
         word = one if n == 1 else many
         if key == "apps":
             word = apps_word(model, n)
-        out.append(f'<a class="ht-figlink{" is-zero" if not n else ""}" id="figure-{key}" '
-                   f'href="{esc(href)}" data-group="{key}"><span class="ht-fignum">{n}</span>'
+        out.append(f'<a class="ht-figlink glow-tile g-{group}{" is-zero" if not n else ""}" '
+                   f'id="figure-{key}" href="{esc(href)}" data-group="{key}">{chip(icon, group)}'
+                   f'<span class="ht-fignum">{n}</span>'
                    f'<span class="ht-figword">{esc(word)}</span></a>')
     return (f'<nav class="ht-figs ht-figs-5" aria-label="What needs you, by kind">'
             f'{"".join(out)}</nav>')
@@ -726,18 +784,16 @@ def welcome_html(model: dict) -> str:
     now = uk(model["now"])
     strip = "".join(light_html(l) for l in model["lights"])
     return (
-        '<section class="ht-welcome hf-hero" id="welcome" aria-labelledby="welcome-h">'
-        '<div class="ht-welcome-in">'
+        '<section class="ht-welcome" id="welcome" aria-labelledby="welcome-h">'
+        '<div class="ht-welcome-in"><div class="ht-hello">'
         f'<p class="ht-date">{now:%A} {now.day} {now:%B}</p>'
         f'<h1 class="ht-greet" id="welcome-h"><span class="visually-hidden">Home. </span>'
-        f'{esc(greeting(model["now"], model["name"]))}</h1>'
-        f'{figures_html(model)}'
+        f'{esc(greeting(model["now"], model["name"]))}</h1></div>'
         '<div class="ht-strip"><ul class="ht-strip-list" aria-label="Radar\'s five jobs">'
-        f'{strip}</ul><button type="button" class="btn btn-secondary ht-health-btn" id="health-btn" '
-        'aria-expanded="false" aria-controls="health-panel">Radar\'s health'
-        f'<span class="ht-chev">{_use("ic-down", 16)}</span></button></div>'
-        f'{health_panel_html(model)}'
-        '</div></section>')
+        f'{strip}</ul><button type="button" class="ht-health-btn" id="health-btn" '
+        'aria-expanded="false" aria-controls="health-panel">Radar\'s health</button></div>'
+        f'</div>{health_panel_html(model)}</section>'
+        f'{figures_html(model)}')
 
 
 # ================================================================ the tiles
@@ -1350,7 +1406,7 @@ h1,h2,h3,h4,h5,h6,p,ul,ol,dl,dd{margin:0}
 ul,ol{list-style:none;padding:0}
 button,input{font:inherit;color:inherit;letter-spacing:0}
 a{color:inherit}
-:root{--font-serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;--ht-surface:#1a1d1f;--ht-line:#2b3135;--ht-track:#252a2d;--ht-sunk:#15181a;--ht-series-1:#2aa1b3;--ht-series-2:#9a80ea;--hf-hero-a:#221e19;--hf-hero-b:#1a1d1f;--hf-hero-line:#3b342b}
+:root{--font-serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;--ht-surface:#1a1d1f;--ht-line:#2b3135;--ht-track:#252a2d;--ht-sunk:#15181a;--ht-series-1:#2aa1b3;--ht-series-2:#9a80ea;--link-line:#5b6770}
 .ctx-row:focus-visible{outline-offset:-7px;box-shadow:none}
 /* The page scrolls as one document at every width: Needs you today shows every item in full. */
 .app{container:app / inline-size;display:grid;grid-template-rows:48px auto;min-height:100vh;align-content:start;background:var(--canvas)}
@@ -1418,6 +1474,21 @@ a{color:inherit}
 .toast:empty{display:none}
 .toast.is-bad{border-color:var(--negative)}
 .toast.is-bad::before{content:"!";display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;height:16px;border-radius:50%;background:var(--negative);color:var(--on-accent);font-weight:700;font-size:12px}
+/* ---- the groups (owner, 17 Nov): each has one colour, page_frame's
+   --group-*, for its icon chip and a soft glow from the top left of its
+   cards. The glow is background only, over the card's own ground. ---- */
+.g-story{--g:var(--group-story-rgb);--gc:var(--group-story)}
+.g-jobs{--g:var(--group-jobs-rgb);--gc:var(--group-jobs)}
+.g-apps{--g:var(--group-apps-rgb);--gc:var(--group-apps)}
+.g-neutral{--g:232 237 240;--gc:var(--text-1)}
+.gchip{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;border-radius:8px;background:rgb(var(--g) / .16);color:var(--gc)}
+.gchip.g-neutral{background:rgb(var(--g) / .10)}
+.gchip svg{display:block}
+.glow-tile{background:radial-gradient(150% 170% at 0% 0%,rgb(var(--g) / .30) 0%,rgb(var(--g) / .11) 45%,rgb(var(--g) / 0) 100%),var(--surface)}
+.glow-tile.is-zero{background:radial-gradient(150% 170% at 0% 0%,rgb(var(--g) / .16) 0%,rgb(var(--g) / .06) 45%,rgb(var(--g) / 0) 100%),var(--surface)}
+.glow-wide{background:radial-gradient(115% 160% at 0% 0%,rgb(var(--g) / .20) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%),var(--surface)}
+.glow-short{background:radial-gradient(80% 260% at 0% 0%,rgb(var(--g) / .22) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%),var(--surface)}
+@media (forced-colors:active){.gchip{border:1px solid CanvasText}}
 /* ---- the tiles ---- */
 .ht{container:ht / inline-size;min-width:0;background:var(--ht-surface);border:1px solid var(--ht-line);border-radius:var(--radius-4);color:var(--text-1);--focus-gap:var(--ht-surface)}
 .ht-in{display:flex;flex-direction:column;gap:16px;height:100%;padding:16px}
@@ -1490,29 +1561,39 @@ a{color:inherit}
   .apm-pips{grid-row:3;justify-content:flex-start}
   .apm-wait{flex-direction:row;flex-wrap:wrap;gap:4px 24px}
 }
-/* ---- the welcome ---- */
+/* ---- the welcome: no card; the date and the greeting, and Radar's lights
+   as chips, each a dot, the job's name and its word ---- */
 .ht-welcome{container:htw / inline-size;min-width:0;color:var(--text-1)}
-.ht-welcome-in{display:flex;flex-direction:column;gap:4px;padding:20px 16px}
-.ht-date{font-size:14px;line-height:20px;color:var(--text-2)}
-.ht-greet{font-size:24px;line-height:32px;font-weight:600;color:var(--text-1);text-wrap:balance}
-.ht-figs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:16px}
-.ht-figlink{display:flex;flex-direction:column;gap:2px;min-height:24px;padding:12px 14px;background:var(--ht-surface);border:1px solid var(--ht-line);border-radius:var(--radius-4);color:var(--text-1);text-decoration:none;--focus-gap:var(--canvas)}
+.ht-welcome-in{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px 32px}
+.ht-hello{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ht-date{font-size:14px;line-height:20px;color:var(--text-3)}
+.ht-greet{font-size:34px;line-height:42px;font-weight:600;letter-spacing:-.01em;color:var(--text-1);text-wrap:balance}
+.ht-strip{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 16px;min-width:0}
+.ht-strip-list{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.ht-strip-job{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;background:var(--surface);border:1px solid var(--border-subtle);border-radius:18px;font-size:13px;line-height:20px;white-space:nowrap}
+.ht-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--text-3)}
+.ht-dot.is-pos{background:var(--positive)}
+.ht-dot.is-cau{background:var(--caution)}
+.ht-dot.is-neg{background:var(--negative)}
+.ht-job-name{font-weight:500;color:var(--text-1)}
+.ht-light.is-neu{color:var(--text-3)}
+.ht-health-btn{display:inline-flex;align-items:center;min-height:36px;padding:0;border:0;background:none;color:var(--text-1);font-size:13px;line-height:20px;font-weight:500;text-decoration:underline;text-decoration-color:var(--link-line);text-decoration-thickness:1px;text-underline-offset:3px;cursor:pointer;white-space:nowrap}
+.ht-health-btn:hover{text-decoration-color:var(--text-1)}
+@container htw (max-width:719.98px){.ht-strip,.ht-strip-list{justify-content:flex-start}}
+@media (forced-colors:active){.ht-dot{border:1px solid CanvasText}}
+/* ---- the five tiles, each in its group's colour: two a row on a phone with
+   the first across the width, three and two from 600px, five across from
+   1024px ---- */
+.ht-figs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.ht-figlink{display:flex;flex-direction:column;align-items:flex-start;min-width:0;min-height:44px;padding:16px;border:1px solid var(--border-subtle);border-radius:12px;color:var(--text-1);text-decoration:none;--focus-gap:var(--canvas);transition:border-color var(--dur) ease-out}
 .ht-figlink:hover{border-color:var(--border-strong)}
-.ht-figlink:hover .ht-figword{text-decoration:underline;text-underline-offset:2px}
-.ht-fignum{font-size:32px;line-height:40px;font-weight:600;font-variant-numeric:tabular-nums}
-.ht-figword{font-size:14px;line-height:20px;color:var(--text-2)}
-/* A figure at 0 steps back, so the ones with a number stand out. */
-.ht-figlink.is-zero{background:transparent;border-color:var(--border-subtle)}
-.ht-figlink.is-zero .ht-fignum,.ht-figlink.is-zero .ht-figword{color:var(--text-3);font-weight:400}
-.ht-strip{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-top:12px;padding-top:12px;border-top:1px solid var(--ht-line)}
-.ht-strip-list{display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px}
-.ht-strip-job{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:20px}
-.ht-light{display:inline-flex;align-items:center;gap:6px;font-size:12px;line-height:20px;font-weight:600;white-space:nowrap}
-.ht-lamp{display:inline-flex;flex:none;align-items:center;justify-content:center;width:20px;height:20px;border:1.5px solid currentColor;border-radius:50%}
-.ht-job-name{font-size:12px;line-height:16px;font-weight:500;color:var(--text-1)}
-.ht-health-btn{margin-left:auto;--focus-gap:var(--hf-hero-a)}
-.ht-chev{display:inline-flex;transition:transform var(--dur) ease-out}
-.ht-health-btn[aria-expanded="true"] .ht-chev{transform:rotate(180deg)}
+.ht-figlink:hover .ht-figword{text-decoration:underline;text-decoration-color:var(--link-line);text-underline-offset:3px}
+.ht-figlink > .gchip{margin-bottom:16px}
+.ht-fignum{font-size:30px;line-height:36px;font-weight:600;font-variant-numeric:tabular-nums}
+.ht-figword{margin-top:2px;font-size:13px;line-height:18px;color:var(--text-2)}
+.ht-figlink.is-zero .ht-fignum{color:var(--text-3)}
+@container app (max-width:599.98px){.ht-figs{grid-template-columns:repeat(2,minmax(0,1fr))}.ht-figs > .ht-figlink:first-child{grid-column:1 / -1}}
+@container app (min-width:600px) and (max-width:1023.98px){.ht-figs{grid-template-columns:repeat(6,minmax(0,1fr))}.ht-figs > .ht-figlink{grid-column:span 2}.ht-figs > .ht-figlink:nth-child(n + 4){grid-column:span 3}}
 /* ---- the health panel, under the lights ---- */
 .ht-health{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;margin-top:16px}
 .ht-health-widgets{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
@@ -1536,7 +1617,6 @@ a{color:inherit}
 .ht-health-foot{padding-top:4px}
 @container htw (min-width:600px){.ht-health-widgets{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @container htw (min-width:1100px){.ht-health{grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr)}.ht-health-widgets{display:contents}.ht-health-foot{grid-column:1 / -1}}
-@container htw (min-width:720px){.ht-welcome-in{padding:24px 24px}.ht-greet{font-size:28px;line-height:36px}.ht-figs{grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}}
 /* ---- Needs you today: every item in full, one under another ---- */
 .ny{container:ny / inline-size;min-width:0;background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius-4)}
 .ny-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;min-height:56px;padding:12px 16px;border-bottom:1px solid var(--border-subtle)}
@@ -1586,48 +1666,18 @@ a{color:inherit}
 .ny-story .story-meta a svg{vertical-align:-1px;margin-left:3px}
 .ny-story .ny-acts{margin-top:8px}
 @container ny (max-width:599.98px){.ny-tools{margin-left:0}.facts{grid-template-columns:112px minmax(0,1fr)}}
-/* ---- the page: the hero, the two tiles, the list ---- */
-.hf{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-content:start;padding:12px 0 24px;background:var(--canvas)}
-.hf > .ht-welcome,.hf > .hf-bento{margin:0 12px}
-.hf > .ny{border-radius:0;border-left:0;border-right:0}
-.hf-hero{background:linear-gradient(135deg,var(--hf-hero-a),var(--hf-hero-b) 70%);border:1px solid var(--hf-hero-line);border-radius:var(--radius-4);--focus-gap:var(--hf-hero-a)}
-.hf-hero .ht-welcome-in{padding:20px 16px 16px}
-.hf-hero .ht-greet{font-size:28px;line-height:36px}
-.hf-hero .ht-strip{border-top-color:var(--hf-hero-line)}
-.hf-bento{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:stretch}
-/* Five figures: two, two, then the fifth across the width with its words beside the number;
-   three and two from 720px of welcome; five across from 960px. */
-@container htw (max-width:719.98px){.ht-figs-5 > .ht-figlink:last-child{grid-column:1 / -1;flex-direction:row;align-items:baseline;gap:12px}}
-@container htw (min-width:720px) and (max-width:959.98px){.ht-figs.ht-figs-5{grid-template-columns:repeat(6,minmax(0,1fr))}.ht-figs-5 > .ht-figlink{grid-column:span 2}.ht-figs-5 > .ht-figlink:nth-child(n + 4){grid-column:span 3}}
-@container htw (min-width:960px){.ht-figs.ht-figs-5{grid-template-columns:repeat(5,minmax(0,1fr))}}
-@container htw (min-width:720px){.hf-hero .ht-welcome-in{padding:24px 24px 16px}.hf-hero .ht-figs{margin-top:12px}.hf-hero .ht-strip{margin-top:16px}}
-@container htw (min-width:720px) and (max-width:1599.98px){.hf-hero .ht-figlink{flex-direction:row;align-items:baseline;gap:10px;padding:10px 16px}}
-@container htw (min-width:960px) and (max-width:1599.98px){.hf-hero .ht-figs.ht-figs-5{grid-template-columns:repeat(5,minmax(max-content,1fr))}}
-@container htw (min-width:1600px){
-  .hf-hero .ht-welcome-in{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);grid-template-areas:"date figs" "greet figs" "strip strip" "panel panel";column-gap:64px;row-gap:6px;padding:40px 40px 20px}
-  .hf-hero .ht-date{grid-area:date;align-self:end;font-size:16px;line-height:24px}
-  .hf-hero .ht-greet{grid-area:greet;align-self:start;font-size:40px;line-height:52px}
-  .hf-hero .ht-figs{grid-area:figs;align-self:center;margin-top:0;gap:16px}
-  .hf-hero .ht-figs.ht-figs-5{grid-template-columns:repeat(5,minmax(max-content,1fr))}
-  .hf-hero .ht-figlink{padding:20px 20px}
-  .hf-hero .ht-fignum{font-size:48px;line-height:56px}
-  .hf-hero .ht-figword{font-size:16px;line-height:24px}
-  .hf-hero .ht-strip{grid-area:strip;margin-top:24px;padding-top:16px}
-  .hf-hero .ht-health{grid-area:panel}
-}
-@container app (min-width:768px){
-  .hf{gap:16px;padding:16px}
-  .hf > .ht-welcome,.hf > .hf-bento{margin:0}
-  .hf > .ny{border-radius:var(--radius-4);border-left:1px solid var(--border-subtle);border-right:1px solid var(--border-subtle)}
-  .hf-bento{gap:16px}
-}
-@container app (min-width:1024px){.hf-bento{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}}
+/* ---- the page: a dotted ground, then the welcome, the tiles and the rest ---- */
+.app{background-color:var(--canvas);background-image:radial-gradient(rgba(232,237,240,.06) 1px,transparent 1px);background-size:22px 22px}
+.hf{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-content:start;width:100%;max-width:1440px;margin:0 auto;padding:20px 16px 32px}
+.hf-bento{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:stretch}
+@container app (min-width:768px){.hf{gap:24px;padding:32px 24px 48px}}
+@container app (min-width:1024px){.hf{padding-inline:32px}.hf-bento{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}}
 /* Under 768 every target is 44px. */
 @media (max-width:767.98px){
   html{scroll-padding-top:8px}
   .btn,.seg{height:44px}
   .undo-last{padding-inline:8px}
-  .ht-step,.ht .link-block,.ht-figlink,.apm-link,.link-block,.ctx-row{min-height:44px}
+  .ht-step,.ht .link-block,.ht-figlink,.apm-link,.link-block,.ctx-row,.ht-health-btn{min-height:44px}
   .apm-wait li .link{display:inline-flex;align-items:center;min-height:44px}
   .ny-story .story-meta a{display:inline-flex;align-items:center;min-height:44px}
   .ny-story .story-h{font-size:20px;line-height:26px}
@@ -1636,11 +1686,11 @@ a{color:inherit}
 }
 @media (pointer:coarse){
   .btn,.seg{height:44px}
-  .ht-step,.ht .link-block,.ht-figlink,.apm-link,.link-block{min-height:44px}
+  .ht-step,.ht .link-block,.ht-figlink,.apm-link,.link-block,.ht-health-btn{min-height:44px}
   .apm-wait li .link{display:inline-flex;align-items:center;min-height:44px}
   .ny-story .story-meta a{display:inline-flex;align-items:center;min-height:44px}
 }
-@media (forced-colors:active){.ny-item:target{border-left:3px solid Highlight}.tag,.ht-lamp{border:1px solid CanvasText}}
+@media (forced-colors:active){.ny-item:target{border-left:3px solid Highlight}.tag{border:1px solid CanvasText}}
 """
 
 
@@ -1803,12 +1853,12 @@ HOME_SCRIPT = r"""
     var at = btn.closest('[data-item]');
     btn.setAttribute('aria-busy', 'true');
     btn.textContent = 'Checking';
-    say('The signal watcher is running. This can take up to ten minutes.');
+    say('The news watcher is running. This can take up to ten minutes.');
     fetch('/watch', { method: 'POST' })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (!j || j.ok === false) { say((j && j.note) || 'The run did not finish.', true); }
-        else { say('The signal watcher ran.'); }
+        else { say('The news watcher ran.'); }
         refresh(at ? at.dataset.item : null, false);
       }, function () {
         say('No usable answer came back. Reload to check.', true);
