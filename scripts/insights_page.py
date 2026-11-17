@@ -197,7 +197,7 @@ FONT_CSS = "".join(
     for name, weight in zip(FONT_FILES, (400, 500, 600)))
 
 PAGE_CSS = """
-:root{--font-serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;--gutter:16px;--rail-w:320px}
+:root{--font-serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;--gutter:var(--frame-pad);--rail-w:320px}
 *,*::before,*::after{box-sizing:border-box}
 [hidden]{display:none!important}
 html{background:var(--canvas)}
@@ -208,13 +208,10 @@ a:hover{color:var(--accent-hover)}
 h1,h2,h3,h4,p,ol,ul,dl,dd{margin:0}
 ol,ul{padding:0;list-style:none}
 button,select,textarea{font:inherit}
-/* The content box, set once and read by the page and by the top bar's
-   contents (page_frame's .appbar-in): capped at 1280px, 2496px from 1920px,
-   with the gutter either side. */
-:root{--frame-max:1280px;--frame-pad:var(--gutter)}
+/* The shared content box, page_frame's --frame-max and --frame-pad; the
+   gutter is its padding. */
 .page{margin:0 auto;padding:0 var(--frame-pad) 64px;max-width:var(--frame-max)}
-@media (min-width:768px){:root{--gutter:24px}}
-@media (min-width:1920px){:root{--gutter:48px;--rail-w:400px;--frame-max:2496px}}
+@media (min-width:1920px){:root{--rail-w:400px}}
 .masthead{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 24px;padding:24px 0 16px;
   border-bottom:1px solid var(--border-subtle)}
 .masthead h1{font:500 40px/48px var(--font-serif);letter-spacing:-.01em}

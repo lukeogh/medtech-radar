@@ -1065,9 +1065,7 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .cvp h1,.cvp h2,.cvp h3,.cvp h4,.cvp p,.cvp ol,.cvp ul,.cvp dl,.cvp dd{margin:0}
 .cvp ol,.cvp ul{padding:0;list-style:none}
 .cvp button,.cvp input,.cvp select,.cvp textarea{font:inherit}
-/* The content box, set once and read by the page and by the top bar's
-   contents (page_frame's .appbar-in). */
-:root{--frame-max:2560px;--frame-pad:24px}
+/* The shared content box, page_frame's --frame-max and --frame-pad. */
 .cvp{display:block;padding:24px var(--frame-pad) 48px;max-width:var(--frame-max);margin:0 auto}
 .page-head{margin:0 0 16px}
 .ph-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;min-height:28px}
@@ -1187,7 +1185,6 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .over-label{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px;color:var(--caution);font:600 14px/20px var(--font-sans)}
 @media (min-width:768px) and (max-width:841.98px){.sheet{zoom:.9}}
 @media (max-width:767.98px){
-  :root{--frame-pad:16px}
   .cvp{padding:16px var(--frame-pad) 40px}
   .canvas{align-items:stretch}
   .canvas > .toolbar{width:100%}
