@@ -91,9 +91,6 @@ FIXTURE_CV = TEST_DIR / "fixtures" / "profile_snapshot.md"
 CV_NAME = "cv-20261029-091500.md"     # the version the Jobs sample scored against
 HOST = "127.0.0.1:8787"
 
-# 13 Nov 2026, 09:14 UTC: the Jobs design's "today", in the UK morning.
-FROZEN = datetime(2026, 11, 13, 9, 14, tzinfo=timezone.utc)
-
 # Substitutions made on every page before it is compared, as (pattern,
 # replacement, why). Empty: nothing varies once the sources above are fixed.
 MASKS: list[tuple[str, str, str]] = []
@@ -149,6 +146,12 @@ class FrozenDatetime(datetime):
     def _of(cls, moment: datetime) -> "FrozenDatetime":
         return cls(moment.year, moment.month, moment.day, moment.hour, moment.minute,
                    moment.second, moment.microsecond, moment.tzinfo)
+
+
+# 13 Nov 2026, 09:14 UTC: the Jobs design's "today", in the UK morning. A
+# FrozenDatetime itself, so a module's isinstance(x, datetime), with datetime
+# swapped for the subclass, holds for it as for every moment made from it.
+FROZEN = FrozenDatetime(2026, 11, 13, 9, 14, tzinfo=timezone.utc)
 
 
 # Every module a page can reach, imported now so that the clock reaches them
