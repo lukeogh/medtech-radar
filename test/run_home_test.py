@@ -10,10 +10,11 @@ invented, as the design's are.
    read like the other labelled lines, and an empty line never reads the line
    after it. The template carries the empty line.
 2. The lights: each job_health verdict in one of five words, On time, Late,
-   Stale, Off or Dry run, each with its own mark; the phone push worked out
-   from the signal watcher's runs and the ntfy address.
+   Stale, Off or Not sending (grey, never amber), each with its own mark; the
+   phone push worked out from the signal watcher's runs and the ntfy address;
+   the top bar's light, All running or Check Radar, read by the same rules.
 3. The model on a seeded typical day: five figures, each equal to its group
-   of Needs you today, the status sentence counting the same, an applied role
+   of Needs you today, an applied role
    in no count and no list (the control: undo it and it is counted), the
    funnel as the Jobs tabs count, the applications tile from the board, the
    week chart rebuilt from score history, and where each item opens.
@@ -21,20 +22,22 @@ invented, as the design's are.
    changes, an application step back when its date changes, and the item where
    it lives untouched (the database apart from home_done is byte for byte
    the same).
-5. The page: one h1, the five figures, the lights in words,
-   every control a link or a button, the item addresses, the Done view, the
-   fragment, and no light or dark switch.
+5. The page (trimmed 17 Nov): one h1, the date and the greeting and no
+   sentence under them, the five figures with 0 dimmed, the lights in words,
+   the health panel closed with Week by week, the flow and board freshness in
+   it, Open roles in three rows, every item in full with no carousel, an
+   urgent signal as an Insights story, no middle dot, no key hints, no
+   question under a title, no footnote and no As of time.
 6. The states: a quiet day, the first week, no applications yet and a Radar
    fault, as the states board draws them.
 7. The routes: POST /home/done and /home/undone through the guard, their 400s,
    409s and 200s, a forged request refused with nothing written, GET /radar
    (Radar's health, the old Home) and the CV page's Settings.
-8. The script parses (node --check) and keeps its keys off while typing and
-   behind the shortcut switch.
+8. The script parses (node --check) and listens for no keys.
 9. The box checks: no command block is empty, every query in them runs on a
    seeded database, every python -c compiles, and the rollback never
    restores the backup.
-10. Threads due: the fifth figure equals its group, read by the Watchlist's
+10. Company follow-ups due: the fifth figure equals its group, read by the Watchlist's
    own rule (watchlist.threads_due): only a Watchlist company's next step due
    today or overdue counts; one not on the Watchlist, one with no date and
    one due tomorrow do not; removing the company stops it counting; Done
@@ -69,6 +72,7 @@ sys.path.insert(0, str(TEST_DIR))
 import applications as ap  # noqa: E402
 import build_dashboard as bd  # noqa: E402
 import home_page as hp  # noqa: E402
+import page_frame  # noqa: E402
 import radar_common as rc  # noqa: E402
 import serve_dashboard  # noqa: E402
 import watchlist  # noqa: E402
@@ -409,17 +413,21 @@ def light_checks(tmp: Path) -> None:
           "the inbox under its stale limit is Quiet, a sixth word; stale is still Stale")
     check(hp.job_light("signals", v("ok", "dry-run"))["word"] == "On time"
           and hp.job_light("check", v("ok", "dry-run"))["word"] == "On time",
-          "the signal watcher and the advert checker in dry run say their state, never Dry run")
-    check(hp.job_light("digest", v("ok", "dry-run"))["word"] == "Dry run"
+          "the signal watcher and the advert checker in dry run say their state, never Not sending")
+    check(hp.job_light("digest", v("ok", "dry-run"))["word"] == "Not sending"
           and hp.job_light("digest", v("ok", "build"))["word"] == "On time"
           and hp.job_light("digest", v("ok", "commit"))["word"] == "On time",
-          "the digest on time in dry run says Dry run; its build and commit are live")
+          "the digest on time in dry run says Not sending; its build and commit are live")
     check(hp.job_light("digest", v("stale", "dry-run"))["word"] == "Stale",
           "a stale digest says Stale, dry run or not")
     marks = {w: sym for w, (_c, sym) in hp.LIGHTS.items()}
     check(len(set(marks.values())) == len(marks) == 6,
           f"each of the six words has its own mark as well as a colour ({marks})")
-    check(marks["Late"] != marks["Dry run"], "Late and Dry run differ in shape, not only in words")
+    check(marks["Late"] != marks["Not sending"], "Late and Not sending differ in shape, not only in words")
+    check(hp.LIGHTS["Not sending"][0] == "is-neu" and "Dry run" not in hp.LIGHTS,
+          "Not sending is grey, never amber, and Dry run is no longer a word on Home")
+    check(hp.job_light is page_frame.job_light,
+          "Home's lights and the top bar's light share one rule, page_frame.job_light")
     jobs = {"signals": v("ok", "live")}
     check(hp.push_light(jobs, {"ntfy_url": "", "ntfy_topic_radar": "x"}, None)["word"] == "Off",
           "the push is Off when radar.yaml names no ntfy address")
@@ -428,8 +436,8 @@ def light_checks(tmp: Path) -> None:
     check(hp.push_light({"signals": v("stale", "dry-run")}, CFG, None)["word"] == "Stale"
           and hp.push_light({"signals": v("late", "dry-run")}, CFG, None)["word"] == "Late",
           "the watcher's state comes first: Stale or Late, in dry run or not")
-    check(hp.push_light({"signals": v("ok", "dry-run")}, CFG, None)["word"] == "Dry run",
-          "then Dry run while the watcher runs in dry run")
+    check(hp.push_light({"signals": v("ok", "dry-run")}, CFG, None)["word"] == "Not sending",
+          "then Not sending while the watcher runs in dry run")
     check(hp.push_light(jobs, CFG, None)["word"] == "On time",
           "and On time with a live watcher on time")
     db = tmp / "dry.sqlite"
@@ -445,11 +453,35 @@ def light_checks(tmp: Path) -> None:
     m = model_of(db)
     said = {light["name"]: light["word"] for light in m["lights"]}
     check(said == {"inbox": "Quiet", "signals": "On time", "check": "On time",
-                   "digest": "Dry run", "push": "Dry run"},
+                   "digest": "Not sending", "push": "Not sending"},
           f"the box as it is set up: a quiet inbox, the digest and the push in dry run ({said})")
-    check(not [i for i in m["todo"] if i["group"] == "radar"]
-          and "dry run" not in hp.status_sentence(m) and "quiet" not in hp.status_sentence(m).lower(),
-          "and none of it is an item or a part of the sentence: Dry run and Quiet are not faults")
+    check(not [i for i in m["todo"] if i["group"] == "radar"],
+          "and none of it is an item: Not sending and Quiet are not faults")
+    html = page_of(db)
+    for job in ("digest", "push"):
+        li = re.search(rf'<li class="ht-strip-job" data-job="{job}">(.*?)</li>', html)
+        check(li is not None and 'class="ht-light is-neu"' in li.group(1) and "Not sending" in li.group(1)
+              and "#st-paused" in li.group(1),
+              f"the {job} light on the page is grey and says Not sending")
+    bar = html.split('<header class="appbar">', 1)[1].split("</header>", 1)[0]
+    check('data-state="ok"' in bar and "All running" in bar and 'href="/radar"' in bar,
+          "with nothing late the top bar's light says All running and links to Radar's health")
+    # The top bar's light: amber Check Radar as soon as one job is late or has failed.
+    for name, state in (("inbox", "stale"), ("signals", "late"), ("signals", "failing"),
+                        ("check", "partial"), ("digest", "stale"), ("check", "never")):
+        jobs = {n: v("ok") for n in ("inbox", "signals", "check", "digest")}
+        jobs[name] = v(state)
+        said_bar = page_frame.radar_status_html(jobs)
+        check("Check Radar" in said_bar and "is-check" in said_bar and 'href="/radar"' in said_bar,
+              f"the top bar says Check Radar when the {name} is {state}")
+    jobs = {n: v("ok") for n in ("inbox", "signals", "check", "digest")}
+    jobs["inbox"] = v("late")
+    jobs["digest"] = v("ok", "dry-run")
+    check("All running" in page_frame.radar_status_html(jobs),
+          "a quiet inbox and a digest in dry run still read All running")
+    jobs["check"] = v("never", watched=False)
+    check("All running" in page_frame.radar_status_html(jobs),
+          "and a job /health is told not to watch never turns it")
 
 
 # ================================================================ 3. the model
@@ -464,9 +496,6 @@ def model_checks(tmp: Path) -> None:
           == (1, 3, 2, 1), f"each figure equals its group of the list ({c})")
     check(c["radar"] == 0 and [l["word"] for l in m["lights"]] == ["On time"] * 5,
           "a day with every job live and on time has no Radar group")
-    check(hp.status_sentence(m) == "Four things need you: 1 urgent signal, 3 new Top prospects, "
-          "2 new One question away roles and 1 application follow-up due today.",
-          f"the status sentence counts four kinds ({hp.status_sentence(m)})")
     keys = [i["key"] for i in m["todo"]]
     check(len(keys) == len(set(keys)) and len({i["id"] for i in m["todo"]}) == len(keys),
           "every item has its own key and its own address")
@@ -582,7 +611,7 @@ def thread_checks(tmp: Path) -> None:
     group = [i for i in m["todo"] if i["group"] == "threads"]
     check(m["counts"]["threads"] == len(group) == 2
           and [i["company_id"] for i in group] == [lum, kin],
-          f"the fifth figure equals the Threads due group, most overdue first "
+          f"the fifth figure equals the Company follow-ups due group, most overdue first "
           f"({m['counts']['threads']}, {[i['title'] for i in group]})")
     ro = reader(db)
     try:
@@ -597,9 +626,8 @@ def thread_checks(tmp: Path) -> None:
           "a next step with no date is not counted")
     check(all(i["company_id"] != cids["PDX Diagnostics"] for i in group),
           "a thread due tomorrow is not counted")
-    check(hp.status_sentence(m) == "Five things need you: 1 urgent signal, 3 new Top prospects, "
-          "2 new One question away roles, 2 threads due and 1 application follow-up due today.",
-          f"the status sentence counts threads due fourth, as Home final ({hp.status_sentence(m)})")
+    check([m["counts"][g] for g in ("urgent", "top", "question", "threads", "apps")] == [1, 3, 2, 2, 1],
+          f"the five figures count company follow-ups due fourth ({m['counts']})")
     first, second = group
     check(first["title"] == "Lumenhal Photonics" and first["lead"] == "Send the connection note to the chief executive."
           and first["seen"] == hp.day(uk_day(-1)) and first["meta"] == f"Last contact {hp.day(ago(20))}, comment"
@@ -612,22 +640,22 @@ def thread_checks(tmp: Path) -> None:
           "it opens on the Watchlist and is keyed on the company and its due date")
     check([g for g, _w in hp.GROUPS].index("threads") == [g for g, _w in hp.GROUPS].index("question") + 1
           == [g for g, _w in hp.GROUPS].index("apps") - 1,
-          "Threads due sits after One question away and before Applications")
+          "Company follow-ups due sits after One question away and before Applications")
     html = page_of(db)
     fig = re.search(r'<a class="ht-figlink" id="figure-threads" href="([^"]+)" data-group="threads">'
                     r'<span class="ht-fignum">(\d+)</span><span class="ht-figword">([^<]+)</span>', html)
-    check(fig is not None and fig.groups() == ("/watchlist", "2", "threads due"),
-          f"the figure: 2 threads due, linking to the Watchlist ({fig.groups() if fig else None})")
+    check(fig is not None and fig.groups() == ("/watchlist", "2", "company follow-ups due"),
+          f"the figure: 2 company follow-ups due, linking to the Watchlist ({fig.groups() if fig else None})")
     head = html.split('id="group-threads"', 1)[1][:200] if 'id="group-threads"' in html else ""
-    check('Threads due<span class="group-count">2 <span class="group-new">· 1 overdue</span>' in html
+    check('Company follow-ups due<span class="group-count">2 due, 1 overdue</span>' in html
           and head and html.index('id="group-question"') < html.index('id="group-threads"')
           < html.index('id="group-apps"'),
           "the group is drawn between One question away and Applications, its overdue counted")
-    check(f'href="/?item=thread-{lum}"' in html and f'data-key="thread:{lum}:{uk_day(-1)}"' in html,
-          "each thread has its own address and Done key")
+    check(f'id="thread-{lum}" data-item="thread-{lum}" data-key="thread:{lum}:{uk_day(-1)}"' in html,
+          "each follow-up has its own address and Done key")
     sel = page_of(db, item=f"thread-{lum}")
-    check(f'href="/watchlist?company={lum}" data-open' in sel and "Thread due" in sel,
-          "its detail opens it on the Watchlist")
+    check(f'href="/watchlist?company={lum}" data-open' in sel and '"target": "thread-' in sel.replace("&quot;", '"'),
+          "it opens on the Watchlist, and its own address brings it into view")
     # Done holds until the date moves.
     conn = rc.get_db(db)
     hp.mark_done(conn, first["key"], first["title"])
@@ -705,8 +733,8 @@ def done_checks(tmp: Path) -> None:
     conn.close()
     m5 = model_of(db)
     check(m5["counts"]["apps"] == 1 and m5["overdue"] == 1
-          and "1 application follow-up due or overdue" in hp.status_sentence(m5),
-          "and comes back when its date changes, now overdue and said so")
+          and "1</span><span class=\"ht-figword\">application follow-up due or overdue" in hp.figures_html(m5),
+          "and comes back when its date changes, now overdue and said so on its figure")
     # A Radar item is done until its job's state changes.
     fault = tmp / "done-fault.sqlite"
     seed_home(fault, "fault")
@@ -764,8 +792,8 @@ def episode_checks(tmp: Path) -> None:
     hp.mark_done(conn, late["key"], late["title"])
     conn.close()
     m = model_of(db)
-    check(all(i["id"] != "radar-signals" for i in m["todo"]) and "watcher" not in hp.status_sentence(m),
-          "Done takes it off the list and out of the sentence")
+    check(all(i["id"] != "radar-signals" for i in m["todo"]),
+          "Done takes it off the list")
     set_runs(db, *base, ("signals", 5, "live", "ok"), ("signals", 1, "live", "ok"))
     m = model_of(db)
     check(all(i["id"] != "radar-signals" for i in m["todo"])
@@ -775,9 +803,8 @@ def episode_checks(tmp: Path) -> None:
     set_runs(db, *base, ("signals", 9, "live", "ok"), ("signals", 4.5, "live", "ok"))
     m = model_of(db)
     again = next((i for i in m["todo"] if i["id"] == "radar-signals"), None)
-    check(again is not None and again["key"] != late["key"]
-          and "the signal watcher is late" in hp.status_sentence(m),
-          "Late again later is back in the list and the sentence, under a new key")
+    check(again is not None and again["key"] != late["key"],
+          "Late again later is back in the list, under a new key")
 
 
 def review_checks(tmp: Path) -> None:
@@ -814,8 +841,7 @@ def review_checks(tmp: Path) -> None:
     conn.close()
     m4 = model_of(db)
     tops = [i["role"]["id"] for i in m4["todo"] if i["group"] == "top"]
-    check(ids["hartwell_role"] in tops and m4["counts"]["urgent"] == 0
-          and "urgent signal" not in hp.status_sentence(m4),
+    check(ids["hartwell_role"] in tops and m4["counts"]["urgent"] == 0,
           "a buying window read from an advert listed as a new Top prospect is not listed again")
     # The tile's Waiting on you names an interview with no step.
     conn = rc.get_db(db)
@@ -828,19 +854,19 @@ def review_checks(tmp: Path) -> None:
     check("Interview with Severn Renal Systems" in tile
           and all("Severn" not in i["title"] for i in m5["todo"]) and m5["counts"]["apps"] == 1,
           "an interview with no step is on the tile's Waiting on you, and never an item or a figure")
-    # Done-view rows keep the view in their address.
+    # The Done view lists the item in full, with Put back in place of Done.
     conn = rc.get_db(db)
     first = model_of(db)["todo"][0]
     hp.mark_done(conn, first["key"], first["title"])
     conn.close()
     done_page = page_of(db, show="done")
-    check(f'href="/?item={first["id"]}&amp;show=done"' in done_page,
-          "a row in the Done view links with show=done")
-    # The fill layout only on a screen tall enough.
+    check(f'id="{first["id"]}" data-item="{first["id"]}"' in done_page
+          and f'data-back="{first["key"]}"' in done_page and "data-done=" not in done_page,
+          "the Done view shows the item in full with Put back")
+    # The page scrolls as one document: no list block one screen high, no inner scrolling.
     css = hp.HOME_CSS
-    fill = css[css.index("@media (min-height:1300px)"):]
-    check("@container app (min-width:1800px)" in fill.split("}}")[0] and "overflow:hidden" in fill.split("}}")[0],
-          "from 1800px the list block fills the rest only when the screen is 1300px tall or more")
+    check("@media (min-height:1300px)" not in css and "scroll-snap" not in css and "100dvh" not in css,
+          "the page scrolls as one document at every width")
     # The first name can be cleared from Settings.
     with prefs("keywords: a\nfirst_name: Sam\n") as cfg:
         stored = rc.update_pref_line("first_name", "", cfg)
@@ -920,37 +946,91 @@ def page_checks(tmp: Path) -> None:
     figs = re.findall(r'id="figure-(\w+)"', body)
     check(figs == ["urgent", "top", "question", "threads", "apps"]
           and 'class="ht-figs ht-figs-5"' in body and 'id="group-threads"' not in body,
-          f"five figures, threads due fourth, and no Threads due group with none due ({figs})")
+          f"five figures, company follow-ups due fourth, and no group for them with none due ({figs})")
+    check(re.search(r'class="ht-figlink is-zero" id="figure-threads"', body) is not None
+          and re.search(r'class="ht-figlink" id="figure-top"', body) is not None
+          and ".ht-figlink.is-zero{" in hp.HOME_CSS,
+          "a figure at 0 is dimmed and one with a number is not")
+    welcome = body.split('<div class="ht-welcome-in">', 1)[1].split('class="ht-strip"', 1)[0]
+    texts = [t.strip() for t in re.sub(r"<[^>]+>", "\n", welcome).split("\n") if t.strip()]
+    check(texts[:3] == [texts[0], "Home.", texts[2]] and re.match(r"\w+day \d+ \w+$", texts[0])
+          and texts[2].startswith("Good ") and texts[3].isdigit(),
+          f"the top section: the date, the greeting, then straight to the figures ({texts[:4]})")
+    for gone in ("things need you", "thing needs you", "Nothing needs you today", "As of", "Times are UK time",
+                 "Settings, on the CV page", "ht-status", "ht-asof", "ht-quiet"):
+        check(gone not in body, f"no {gone!r} on Home")
     strip = body.split('class="ht-strip-list"', 1)[1].split("</ul>", 1)[0]
     lights = re.findall(r'data-job="(\w+)"><span class="ht-light (is-\w+)"><span class="ht-lamp">'
                         r'<svg[^>]*><use href="#(st-\w+)"></use></svg></span>([A-Za-z ]+)</span>', strip)
     check([x[0] for x in lights] == ["inbox", "signals", "check", "digest", "push"]
           and all(x[3] in hp.LIGHTS for x in lights),
           "five lights, each a mark, a colour and its word")
-    check('href="/radar">Radar\'s health</a>' in body and 'href="/cv#settings"' in body,
-          "Radar's health and Settings are one link away")
+    panel = body.split('id="health-panel"', 1)[1].split('class="hf-bento"', 1)[0] if 'id="health-panel"' in body else ""
+    check('id="health-btn" aria-expanded="false" aria-controls="health-panel"' in body
+          and '<div class="ht-health" id="health-panel" hidden>' in body,
+          "the health strip has a button for its panel, closed by default")
+    check(panel and panel.index("Week by week") < panel.index("The flow, last fourteen days")
+          < panel.index("Board freshness") < panel.index('href="/radar">Open the full health page</a>'),
+          "the panel holds Week by week, the flow, board freshness, then the full health page")
+    check('href="/jobs#group-top">Open Top prospects</a>' in panel and 'href="/insights">Open Insights</a>' in panel
+          and "This week " in panel, "Week by week keeps its chart, its This week line and its two links")
+    check('class="info' not in panel and "Hover a bar" not in panel and "Green emailed within" not in panel
+          and "Weeks start on Monday" not in panel and "Is the flow picking up" not in panel,
+          "without their captions, the footnote or the question")
+    check('href="/cv#settings">Settings</a>' in body, "Settings is one link away, in the top bar")
     check("Light" not in re.sub(r"<[^>]+>", " ", body.split("</header>", 1)[0])
           and 'aria-label="Appearance"' not in body,
           "no light or dark switch: Radar stays dark only")
     check('aria-current="page">Home</a>' in body, "the top bar marks Home current")
-    rows = re.findall(r'<a class="row row-3[^"]*" id="row-([\w-]+)" href="/\?item=([\w-]+)"', body)
-    check(rows and all(a == b for a, b in rows), "every item's row links to its own address")
-    selected = re.findall(r'id="row-([\w-]+)"[^>]*aria-current="true"', body)
-    check(len(selected) == 1, "one row is selected")
-    pane = body.split('id="ny-pane"', 1)[1].split('id="ny-store"', 1)[0]
-    check('data-done="' in pane and "data-open" in pane and "Done takes this off Home" in pane,
-          "the selected item's detail has Open, Done and the line under them")
+    bar = body.split('<header class="appbar">', 1)[1].split("</header>", 1)[0]
+    menu = re.findall(r'<nav class="nav" aria-label="Pages">(.*?)</nav>', bar)[0]
+    check(re.findall(r">([A-Za-z]+)</a>", menu) == ["Home", "Jobs", "Watchlist", "Insights", "CV", "Settings"],
+          "the menu reads Home, Jobs, Watchlist, Insights, CV, Settings")
+    check('id="keys-open"' not in bar and "Keyboard shortcuts" not in body and "<kbd" not in body
+          and "aria-keyshortcuts" not in body and "<dialog" not in body,
+          "no shortcuts button, no shortcuts dialog and no key hints on Home")
+    # Needs you today: every item in full, no carousel.
+    arts = re.findall(r'<article class="ny-item[^"]*" id="([\w-]+)" data-item="([\w-]+)"', body)
+    check(len(arts) == 7 and all(a == b for a, b in arts), "every item is on the page in full, each with its own id")
+    for gone in ('id="ny-pane"', 'id="ny-store"', "data-step", ">Previous<", "row-3", "Done takes this off Home",
+                 "Scores are from the advert card", "Undo last puts it back"):
+        check(gone not in body, f"no carousel and no line on how to use it: {gone!r} is gone")
+    nexts = re.findall(r'data-next="([\w-]+)">Next</a>', body)
+    check(nexts == [a for a, _b in arts][1:], "each item but the last has Next, to the item after it")
+    check(body.count("data-done=") == 7 and 'id="undo-last"' in body and '>To do</a>' in body
+          and '?show=done"' in body, "Done on each, Undo last, and To do and Done stay")
+    # The urgent signal: an Insights story.
+    sig = re.search(r'<article class="ny-item ny-story" id="(signal-\d+)".*?</article>', body, re.S)
+    card = sig.group(0) if sig else ""
+    check(card and '<p class="story-line"><span class="co">Hartwell Infusion Ltd</span>, via a job advert</p>' in card
+          and 'class="story-h"' in card and 'class="story-sum"' in card
+          and re.search(r'<span class="rel">Relevance 90</span><span>Found \d+ \w+</span>', card)
+          and ">Read the advert" in card and "Everything on file" in card
+          and f'href="/company/' in card and "data-done=" in card,
+          "the urgent signal is drawn as an Insights story: company, source, headline, why, relevance, "
+          "found, the announcement and everything on file")
+    check(card and "<dt>" not in card and "On file for" not in card and "Builds" not in card,
+          "without the fixed On file fields (builds, software, stage, where, people)")
+    check("@font-face{font-family:\"IBM Plex Serif\"" in html and "var(--font-serif)" in hp.HOME_CSS,
+          "in Insights' serif headline")
+    # Open roles: three rows, Top prospects first, no footnote.
+    funnel = body.split('id="tile-open-roles"', 1)[1].split("</section>", 1)[0]
+    check(re.findall(r'id="funnel-(\w+)"', funnel) == ["top", "question", "reading"]
+          and "All open" not in funnel and 'class="ht-note"' not in funnel
+          and 'href="/jobs">Open Jobs</a>' in funnel,
+          "Open roles shows three rows, Top prospects first, no footnote, and keeps Open Jobs")
+    check('class="ht-q"' not in body and "Where do my applications stand" not in body
+          and "Where do the open roles narrow" not in body, "no question under a widget's title")
+    check("\u00b7" not in html, "no middle dot anywhere on Home, its title, script and styles included")
     # Every control is a link or a button, so the keyboard reaches it.
     clickable = re.findall(r"<(div|span|li|p)[^>]*\sonclick=", body)
-    check(not clickable and "tabindex=\"-1\"" not in body.replace('tabindex="-1">', ""),
-          "every control is a link or a button")
+    check(not clickable, "every control is a link or a button")
     check(" color " not in re.sub(r"<[^>]+>", " ", body).lower()
           and "favorite" not in body.lower(), "UK English in the words")
     item = f"role-{ids['top_new'][1]}"
     with_item = page_of(db, item=item)
-    check(f'id="row-{item}" href="/?item={item}" data-item="{item}" data-key' in with_item
-          and re.search(rf'id="row-{item}"[^>]*aria-current="true"', with_item) is not None,
-          "an item's address selects it")
+    check(f'&quot;target&quot;: &quot;{item}&quot;' in with_item and f'id="{item}" data-item="{item}"' in with_item,
+          "an item's address brings that item into view")
     gone = page_of(db, item="role-999999")
     check("That item is no longer on Home" in gone, "an address for an item not on Home says so")
     # The fragment and the Done view, through the server's own functions.
@@ -960,14 +1040,14 @@ def page_checks(tmp: Path) -> None:
         full = serve_dashboard.render("home", {"item": [item]}).decode()
         junk = serve_dashboard.render("home", {"item": ["<script>"]}).decode()
     check(frag["item"] == item and 'id="ny"' in frag["html"] and frag["count"] == 7,
-          "the main fragment comes back with its selection and count")
-    check("Done on Home" in done_page and "Nothing is done on Home" in done_page,
+          "the main fragment comes back with its item and count")
+    check("Done on Home" in done_page and "<p>Nothing done.</p>" in done_page,
           "the Done view, empty")
     check(full.count('id="welcome-h"') == 1, "the server renders the page")
     check("<script>" not in junk.split("</head>", 1)[1].split("<script>", 1)[0],
           "an address with markup in it selects nothing and prints nothing")
-    for width_rule in ("@container ny (min-width:720px)", "@container ny (min-width:1500px)",
-                       "@container app (min-width:1800px)", "@media (max-width:767.98px)"):
+    for width_rule in ("@container app (min-width:1024px)", "@container htw (min-width:1100px)",
+                       "@container htw (min-width:1600px)", "@media (max-width:767.98px)"):
         check(width_rule in hp.HOME_CSS, f"the layout has its rule {width_rule}")
     check("@media (pointer:coarse)" in hp.HOME_CSS and "min-height:44px" in hp.HOME_CSS,
           "44px targets on a phone and on touch")
@@ -980,47 +1060,26 @@ def state_checks(tmp: Path) -> None:
     seed_home(db, "quiet")
     m = model_of(db)
     html = page_of(db)
-    check(not m["todo"] and hp.status_sentence(m) == "Nothing needs you today.",
-          "a quiet day: nothing needs you today")
-    check('class="ht-quiet"' in html and "The signal watcher last ran at" in html,
-          "and a line of what Radar read and when")
-    # The watcher's sources: only live ones are expected to answer, each by
-    # its own latest check; the ones not switched on are named apart.
-    def src(i, status):
-        return {"id": i, "status": status}
-    watch = ([src(f"l{n}", "live") for n in range(4)] + [src("u1", "unverified"),
-             src("u2", "unverified"), src("p1", "parked")])
-    seen = {"l0": "200", "l1": "304", "l2": "0"}
-    state = {k: {"last_checked": ago(hours=1), "last_status": v} for k, v in seen.items()}
-    said = hp.source_count_line({"watchlist": watch, "sources_state": state})
-    check(said == "2 of 4 live sources answered at their last check, 2 are not "
-                  "switched on yet and 1 is parked.",
-          f"only live sources count, a never-checked live one as not answered (got {said!r})")
-    said = hp.source_count_line({"watchlist": watch[:4], "sources_state": state})
-    check(said == "2 of 4 live sources answered at their last check.",
-          f"with every source live there is no second clause (got {said!r})")
-    check(hp.source_count_line({"watchlist": watch, "sources_state": {}}) == "",
-          "before any live source is checked there is no count")
-    said = hp.source_count_line({"watchlist": [src("l0", "live"), src("u1", "unverified")],
-                                 "sources_state": state})
-    check(said == "1 of 1 live source answered at its last check, and 1 is not switched on yet.",
-          f"one live source and one off read in the singular (got {said!r})")
-    check("sources answering" not in html, "the old count of every source is gone")
+    check(not m["todo"], "a quiet day: nothing needs you today")
+    check('class="ht-quiet"' not in html and "The signal watcher last ran at" not in html
+          and "sources answering" not in html and "answered at" not in html,
+          "and no sentence under the greeting about what Radar read")
     check(html.count('class="ht-figlink is-zero"') == 5, "the five figures stay, each at 0, dimmed")
-    check("ny-is-empty" in html and "Look through the 1 One question away role on Jobs" in html,
-          "the list block gives one fact and one next step")
+    empty = html.split('class="ny-body"', 1)[1].split("</section>", 1)[0] if 'class="ny-body"' in html else ""
+    check("ny-is-empty" in html and re.sub(r"<[^>]+>", "", empty.split(">", 1)[1]).strip() == "Nothing today.",
+          "the empty list reads Nothing today. and no more")
     gone = page_of(db, item="radar-signals")
     check("ny-is-empty" in gone and "That item is no longer on Home" in gone
-          and gone.index("That item is no longer on Home") < gone.index("Nothing needs you today. An item"),
+          and gone.index("That item is no longer on Home") < gone.index("Nothing today."),
           "an address for an item that has gone says so on an empty Home too, above the empty state")
     check("That item is no longer on Home" not in html, "and an empty Home without an address does not")
     db = tmp / "first.sqlite"
     seed_home(db, "first")
     m = model_of(db)
     html = page_of(db)
-    check(m["week"]["first_week"] and "Trends start after your first full week" in html
-          and 'class="ht-plot"' not in html,
-          "the first week: this week's two figures and the day the trend starts, no empty axes")
+    check(m["week"]["first_week"] and "this week so far" in html and 'class="ht-plot"' not in html
+          and "Trends start after" not in html,
+          "the first week: this week's two figures, no empty axes and no footnote")
     db = tmp / "noapps.sqlite"
     seed_home(db, "noapps")
     m = model_of(db)
@@ -1028,29 +1087,28 @@ def state_checks(tmp: Path) -> None:
     check("No applications yet. Radar adds an item when you save a tailored CV or mark a role applied."
           in html and m["counts"]["apps"] == 0 and "group-apps" not in html,
           "no applications yet: the tile's one fact and link, no Applications group")
-    check("application follow-up" not in hp.status_sentence(m)
-          and re.search(r'class="ht-figlink is-zero" id="figure-apps"', html),
-          "the sentence leaves the zero out and its figure stays at 0")
+    check(re.search(r'class="ht-figlink is-zero" id="figure-apps"', html),
+          "its figure stays at 0, dimmed")
     db = tmp / "fault.sqlite"
     seed_home(db, "fault")
     m = model_of(db)
     html = page_of(db)
     words = {l["name"]: l["word"] for l in m["lights"]}
-    check(words == {"inbox": "Quiet", "signals": "Stale", "check": "Late", "digest": "Dry run",
+    check(words == {"inbox": "Quiet", "signals": "Stale", "check": "Late", "digest": "Not sending",
                     "push": "Stale"},
           f"a Radar fault: the strip names each job's state in a word ({words})")
     radar = [i for i in m["todo"] if i["group"] == "radar"]
-    check([i["id"] for i in radar] == ["radar-signals", "radar-check", "radar-push"]
-          and m["selected"]["id"] == "radar-signals",
-          "the faults head the list, the first selected; the quiet inbox and the digest in dry run are not there")
+    check([i["id"] for i in radar] == ["radar-signals", "radar-check", "radar-push"],
+          "the faults head the list; the quiet inbox and the digest in dry run are not there")
     check("Signal watcher is stale, 22 hours since its last run" in html
           and "3 of 5 jobs need a look" in html and "Stale after 6 hours" in html,
           "the stale watcher is named with its age and its limit")
-    check(hp.status_sentence(m).endswith(
-          "the signal watcher is stale, the advert checker is late and the phone push is stale."),
-          f"and the sentence names the faults after the four counts ({hp.status_sentence(m)})")
-    check("Check now" in html and "Signals as of" in html,
-          "the watcher's item offers Check now, and the trend says how old its signals are")
+    check("Stale, 22 hours" in html and "\u00b7" not in html, "its tag says Stale, 22 hours, with a comma")
+    check("data-check>Check now</button>" in html and "Signals as of" not in html and "As of" not in html,
+          "the watcher's item offers Check now, and no As of time is on the page")
+    bar = html.split('<header class="appbar">', 1)[1].split("</header>", 1)[0]
+    check("Check Radar" in bar and 'data-state="check"' in bar,
+          "and the top bar's light says Check Radar")
     check('<table class="table">' in html and "<caption" in html,
           "the item's last runs are a table with a caption")
 
@@ -1108,8 +1166,8 @@ def route_checks(tmp: Path) -> None:
               "Done is a 200, and Done again a 409")
         s3, _t, b3 = call(port, "GET", f"/?part=main&item={item['id']}", headers={"Host": own})
         frag = json.loads(b3)
-        check(s3 == 200 and f'id="row-{item["id"]}"' not in frag["html"]
-              and frag["item"] is not None, "the fragment no longer lists it and selects another")
+        check(s3 == 200 and f'id="{item["id"]}" data-item' not in frag["html"]
+              and frag["item"] is not None, "the fragment no longer lists it")
         s4, _t, _b4 = call(port, "POST", "/home/undone", body, write)
         s5, _t, _b5 = call(port, "POST", "/home/undone", body, write)
         check(s4 == 200 and s5 == 409, "Undo is a 200, and again a 409")
@@ -1139,9 +1197,8 @@ def script_checks(tmp: Path) -> None:
         check(out.returncode == 0, f"the script parses ({out.stderr.strip()[:200]})")
     else:
         print("NOTE  node is not installed, the script parse check is skipped")
-    check("if (typing(e.target) || keys.open) return;" in js
-          and "if (!keysOn()) return;" in js and "radar-home-keys" in js,
-          "the keys rest while typing and turn off with the shortcut switch (WCAG 2.1.4)")
+    check("keydown" not in js and "radar-home-keys" not in js and "showModal" not in js,
+          "the script listens for no keys and opens no shortcuts dialog")
     check("'/home/done'" in js and "'/home/undone'" in js and "sessionStorage" in js,
           "Done and Undo last post to the two routes, with the undo stack kept for the tab")
     check("method: 'POST'" in js, "every write is a fetch POST, so the write header goes with it")
@@ -1162,8 +1219,9 @@ def harness_checks(tmp: Path) -> None:
     lines = [ln for ln in out.stdout.splitlines() if ln.startswith(("PASS", "FAIL"))]
     for ln in lines:
         check(ln.startswith("PASS"), "the Home script: " + ln[6:])
-    check(out.returncode == 0 and len(lines) >= 15,
-          f"the Home script runs its keys, Done, Undo and the toast in node ({out.stderr.strip()[:200]})")
+    check(out.returncode == 0 and len(lines) >= 12,
+          f"the Home script runs Done, Undo, the toast, Next and the health panel in node "
+          f"({out.stderr.strip()[:200]})")
 
 
 # ================================================================ 9. the box checks
