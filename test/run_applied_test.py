@@ -391,16 +391,16 @@ def home_funnel(html: str) -> dict:
 
 
 def home_figures(html: str) -> dict:
-    """Home's four figures, {kind: count}."""
+    """Home's five tiles, {kind: count}."""
     return {k: int(n) for k, n in re.findall(
-        r'id="figure-(\w+)"[^>]*><span class="ht-fignum">(\d+)<', html)}
+        r'id="figure-(\w+)"[^>]*>.*?<span class="ht-fignum">(\d+)<', html)}
 
 
 def home_rows(html: str) -> list[str]:
-    """The titles in Home's Needs you today: a role's from its Jobs row, any
+    """The titles in Home's Open actions: a role's from its Jobs row, any
     other item's from its heading."""
     return (re.findall(r'<span class="r-title">(.*?)</span>', html)
-            + re.findall(r'<h4 class="ny-it" id="[\w-]+-t">(.*?)</h4>', html))
+            + re.findall(r'<h3 class="ny-it" id="[\w-]+-t">(.*?)</h3>', html))
 
 
 def split_applied(html: str) -> tuple[str, str]:
