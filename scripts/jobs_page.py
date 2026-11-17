@@ -450,9 +450,9 @@ def first_seen(o: dict) -> str:
 
 
 def meta_html(bits: list) -> str:
-    """The row's facts (each already escaped), set apart by space, not by a
-    separator mark (owner, 17 Nov), with a comma between them for a screen
-    reader."""
+    """The row's facts (each already escaped), set apart by a thin drawn
+    rule with 8px either side (ROW_CSS, owner, 17 Nov), never a typed mark,
+    with a comma between them for a screen reader."""
     comma = '<span class="visually-hidden">, </span>'
     return comma.join(f'<span class="r-bit">{b}</span>' for b in bits)
 
@@ -1428,8 +1428,15 @@ ROW_CSS = """.row{position:relative;display:grid;grid-template-rows:auto 16px 20
 .r-cv{flex:none;width:40px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
 .r-first{flex:none;width:100px;padding-top:2px;text-align:right;font-size:12px;line-height:16px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .r2{align-items:center;gap:8px}
-.r-meta{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;line-height:16px;color:var(--text-3)}
-.r-bit ~ .r-bit{margin-left:12px}
+/* Positioned, so the screen reader's commas (visually-hidden, absolutely
+   placed) are clipped with the line when it is cut, and never widen the page;
+   clicks pass through it to the row's link, as they did before it was positioned. */
+.r-meta{position:relative;pointer-events:none;flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;line-height:16px;color:var(--text-3)}
+/* A thin rule between two facts, drawn, not typed: the second fact's own
+   mark, so none comes before the first or after the last, and the line,
+   which never wraps, can only start with its first fact. A border, so it
+   keeps a system colour in forced colours. */
+.r-bit ~ .r-bit::before{content:"";display:inline-block;width:0;height:12px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-1px}
 .r2 .tag{margin:-2px 0}
 .r3{align-items:center;gap:12px}
 .r-lead{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text-2)}

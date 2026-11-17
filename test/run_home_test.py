@@ -1116,6 +1116,10 @@ def role_row_checks(tmp: Path) -> None:
               and f'data-done="{esc_attr(i["key"])}"' in rest
               and re.sub(r"<[^>]+>", "", rest).strip() == "Done",
               f"role {oid}: the row links to the role on Jobs, and Done is all else")
+    metas = [re.search(r'<span class="r-meta"[^>]*>(.*?)</span></span>', row).group(1) for row in rows.values()]
+    check(metas and all("|" not in re.sub(r"<[^>]+>", "", m) and '<span class="visually-hidden">, </span>' in m
+                        for m in metas),
+          "between a row's facts, a drawn rule and a comma for a screen reader, never a typed bar")
     for gone in ("Why it is here", "The four gates", "Scored on the",
                  "Would they go remote", "Would they move on the rate"):
         check(gone not in body, f"{gone!r} appears nowhere on Home")

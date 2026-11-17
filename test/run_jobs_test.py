@@ -326,12 +326,26 @@ def queue_checks(tmp: Path) -> None:
           and '<span class="r-bit">C Co</span>' + BIT + 'Guildford</span>' + BIT in row
           and '<span class="r-rate">£720/day</span>' in row
           and row.endswith("</div>") and BIT + "Contract</span>" in row
-          and "·" not in row and ".r-bit ~ .r-bit{margin-left:12px}" in jobs_page.ROW_CSS
+          and "·" not in row and "|" not in re.sub(r"<[^>]+>", "", row)
           and "LinkedIn" not in row and "A fit." in row,
           "a row carries the title, the first-seen date, the company, place, pay "
           "as stated, contract or permanent and the reason, and no CV figure and "
-          "no LinkedIn; its facts are set apart by space, with no middle dot, and a "
+          "no LinkedIn; no middle dot and no typed bar between its facts, and a "
           "comma between them for a screen reader")
+    rule = re.search(r"\.r-bit ~ \.r-bit::before\{([^}]*)\}", jobs_page.ROW_CSS)
+    rule = rule.group(1) if rule else ""
+    check('content:""' in rule and "border-left:1px solid var(--text-3)" in rule
+          and "margin:0 8px" in rule and "width:0" in rule
+          and ".r-bit::before" not in jobs_page.ROW_CSS.replace(".r-bit ~ .r-bit::before", "")
+          and ".r-bit::after" not in jobs_page.ROW_CSS,
+          "between two facts a drawn 1px rule in the muted text colour, 8px either side, "
+          "and none before the first fact or after the last")
+    meta = jobs_page.ROW_CSS[jobs_page.ROW_CSS.index(".r-meta{"):].split("}", 1)[0]
+    check("white-space:nowrap" in meta and "text-overflow:ellipsis" in meta,
+          "the facts' line never wraps, it is cut, so it always starts with the first fact")
+    check("position:relative" in meta and "overflow:hidden" in meta and "pointer-events:none" in meta,
+          "the line is the screen reader commas' positioning box, so a cut line clips them and "
+          "never widens the page, and a click on it still reaches the row's link")
     # Only what differs between roles: a source other than LinkedIn, pay only
     # when the advert gives a figure.
     face = dict(next(o for o in jobs_page.build_model(collect(db))["lists"]["open"]
