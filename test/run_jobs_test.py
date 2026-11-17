@@ -439,7 +439,7 @@ def queue_checks(tmp: Path) -> None:
     check("Unknown" not in quiet and "Unknown" not in old_days
           and 'class="tag tag-caution"' not in html and quiet and old_days,
           "an Unknown role carries no chip on its row, close to expiry or not")
-    check(f"Unknown · last seen" in pane(db, old_unknown).get("html", "")
+    check(f"Unknown, last seen" in pane(db, old_unknown).get("html", "")
           and f"expires {expiry.day} {expiry:%b}" in pane(db, old_unknown).get("html", ""),
           "and the role pane's State still says Unknown and when it expires")
     check(jobs_page.state_tag({"closed_at": ago(1), "closed_source": "page_check"})
@@ -521,33 +521,50 @@ def pane_checks(tmp: Path) -> None:
           and "data-shortcut" not in html and "aria-keyshortcuts" not in html,
           "Prepare application and Open the advert are there, and no button carries a key")
     gates = re.findall(r'<span class="gate-name">([^<]+)</span><span class="gate-status '
-                       r'(is-[a-z]+)">.*?(Passes|Fails|Not judged)</span>'
-                       r'<span class="gate-note">([^<]*)</span>', html)
+                       r'(is-[a-z]+)">(.*?)</span><span class="gate-note">([^<]*)</span>', html)
+    words = [re.sub(r"<[^>]+>", "", g[2]) for g in gates]
     check([g[0] for g in gates] == ["Sector", "CV match", "Location", "Rate"]
-          and all(g[2] == "Passes" for g in gates) and gates[0][3] == "infusion pumps",
-          "the score block shows the four gates with their notes, in words")
-    basis = re.sub(r"<[^>]+>", "", re.search(r'<p class="basis">(.*?)</p>', html).group(1))
-    check(basis == (f"Scored on the full job spec · {jobs_page._day(scored)} · "
-                    "claude-sonnet-4-6 · prompt 97f11cce · CV cv-20261029-091500.md"),
-          f"the provenance line gives basis, date, model, prompt and CV version ({basis})")
-    old_basis = re.sub(r"<[^>]+>", "", re.search(r'<p class="basis">(.*?)</p>',
-                                                 pane(db, old)["html"]).group(1))
-    check(old_basis == "Scored on the advert card · date not recorded · model unknown · "
-                       "prompt pre-record",
-          "and says what was not recorded for a score from before the record")
+          and words == ["Passes", "Passes, 80%", "Passes", "Passes"]
+          and all(g[1] == "is-pos" for g in gates) and gates[0][3] == "infusion pumps",
+          f"the score block shows the four gates with their notes, in words ({words})")
+    score = re.search(r'<section class="sec score".*?</section>', html, re.S).group(0)
+    check('<p class="tier-line"><span class="tier-pill t-top">Top prospect</span></p>' in score
+          and score.index("tier-pill") < score.index("gate-strip")
+          and '<span class="r-bit gate-figure">80%</span>' in score
+          and score.index("CV match") < score.index("80%") < score.index("Location")
+          and "cv-line" not in html and "cv-figure" not in html,
+          "Score is its own section: the tier's pill, then the gates, the CV figure inside "
+          "the CV match gate and no large figure of its own")
+    old_html = pane(db, old)["html"]
+    check("Scored on" not in html and "97f11cce" not in html
+          and "cv-20261029-091500.md" not in html and "claude-sonnet" not in html
+          and 'class="basis"' not in html and "Scored on" not in old_html
+          and "pre-record" not in old_html,
+          "the pane says nothing of how the score was made: no basis, date, model, prompt or CV")
+    meta = re.search(r'<p class="dh-facts"><span class="dh-facts-in">(.*?)</span></p>', html)
+    face = next(o for o in jobs_page.build_model(collect(db))["lists"]["open"] if o["id"] == spec)
+    bits = jobs_page.facts_bits(face)
+    bits[0] = f'<a class="link" id="detail-company" href="/company/{company}">{bits[0]}</a>'
+    check(meta is not None and meta.group(1) == jobs_page.meta_html(bits)
+          and " · " not in meta.group(1) and ".dh-title{grid-area:title;align-self:center;"
+          "font-size:22px" in jobs_page.JOBS_CSS,
+          "under a larger title the pane says the row's facts the row's way, set apart by "
+          "the drawn rule, the company linked to its page")
+    check("·" not in re.sub(r"<style.*?</style>", "", html, flags=re.S),
+          "and no middle dot anywhere in the role pane")
     check('<a class="evidence" id="reason-1-evidence" href="#q-1">' in html
           and '<mark id="q-1">You will own the IEC 62304 software lifecycle</mark>' in html
           and '<mark id="q-2">Act as internal auditor under ISO 13485.</mark>' in html
           and "A reason with no quote.</span></li>" in html,
           "each reason's quote links to the words it rests on, marked in the advert, "
           "and a reason without a quote stands alone")
-    check("3 met · 2 partly · 1 missing. " in html
+    check("3 met, 2 partly, 1 missing. " in html
           and f'<a class="link" id="asks-in-prepare" href="/prepare/{spec}">' in html,
           "the asks summary counts the asks and links to Prepare application")
     facts = dict(re.findall(r"<dt>([^<]+)</dt><dd>(.*?)</dd>", html))
     check(facts.get("Rate as advertised") == "£720/day, outside IR35"
           and "Day rate £700–£750, outside IR35." in facts.get("Rate line", "")
-          and facts.get("State", "").startswith("Live · seen ")
+          and facts.get("State", "").startswith("Live, seen ")
           and facts.get("Repost chain", "").startswith("Seen 3 times across 2 adverts since ")
           and facts.get("Red flags") == "No pay band for the permanent option"
           and facts.get("Source") == "LinkedIn",
@@ -558,13 +575,17 @@ def pane_checks(tmp: Path) -> None:
     card_html = pane(db, card)["html"]
     check("/company/" not in card_html and "Everything on file" not in card_html,
           "a company with no page is not linked")
-    check("Advert not read yet. Only the advert card is on file." in card_html
-          and '<mark id="q-1">IVD analyser</mark>' in card_html
-          and '<mark id="q-2">Cambridge, 3 days on site</mark>' in card_html
-          and f'href="/prepare/{card}">Prepare application</a>' in card_html
-          and "No asks yet. Asks are read from the full job spec." in card_html,
-          "an advert never read shows the card the score read, its quotes marked, "
-          "and Prepare application as the way to read it")
+    unread = re.search(r'<div class="advert-body">(.*?)</div></section>', card_html, re.S)
+    check(unread is not None
+          and unread.group(1) == (f'<div class="advert-unread"><a class="btn btn-secondary" '
+                                  f'data-prepare="{card}" href="/prepare/{card}">Prepare '
+                                  'application</a><p>Advert not read yet.</p></div>')
+          and "<mark" not in card_html and 'href="#q-' not in card_html
+          and "&ldquo;IVD analyser&rdquo;" in card_html,
+          "an advert never read says Advert not read yet. beside Prepare application and no "
+          "more; the card's quotes stay with their reasons, unlinked")
+    check('id="asks-heading"' not in card_html and "No asks yet" not in card_html,
+          "and there is no Asks section until there are asks")
     check(dump(db) == before, "drawing the panes wrote nothing")
 
 

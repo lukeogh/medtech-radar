@@ -1794,11 +1794,10 @@ def page_checks() -> None:
         archive = build_dashboard.render_page(data, config, "t",
                                               Path(tmp) / "archive.html", serve=True)
         read.close()
-        basis = re.search(r'<p class="basis">(.*?)</p>', jobs_page)
-        basis = re.sub(r"<[^>]+>", "", basis.group(1)) if basis else ""
-        check(basis.startswith("Scored on the advert card · 8 Nov · "),
-              "the Jobs page's role pane carries the line, read from the stored "
-              f"columns ({basis!r})")
+        check('id="role-title"' in jobs_page and "Scored on" not in jobs_page
+              and 'class="basis"' not in jobs_page,
+              "the Jobs page's role pane no longer says how the score was made "
+              "(owner, 17 Nov): the record stays in the stored columns")
         check("Scored on" not in archive,
               "the archive renders the same role after the Jobs page and carries no "
               "such line")
