@@ -126,8 +126,11 @@ ICONS = {
     "top": '<circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="2.5"/>',
     "question": '<circle cx="10" cy="10" r="6.5"/><path d="M8 8.3a2 2 0 1 1 2.9 1.8c-.6.3-.9.7-.9 1.3"/>'
                 '<circle cx="10" cy="13.7" r="0.5" fill="currentColor"/>',
-    "threads": '<rect x="5" y="3.5" width="10" height="13" rx="1.5"/><line x1="8" y1="7" x2="12" y2="7"/>'
-               '<line x1="8" y1="10" x2="12" y2="10"/><line x1="8" y1="13" x2="12" y2="13"/>',
+    # A company: a building, so it never reads as the story's page. Two rows
+    # of windows; three ran together at 18px.
+    "threads": '<path d="M4.5 16.5V5.5A1.5 1.5 0 0 1 6 4h5a1.5 1.5 0 0 1 1.5 1.5v11"/>'
+               '<path d="M12.5 9H14a1.5 1.5 0 0 1 1.5 1.5v6"/><line x1="3" y1="16.5" x2="17" y2="16.5"/>'
+               '<line x1="7.2" y1="8" x2="9.8" y2="8"/><line x1="7.2" y1="12" x2="9.8" y2="12"/>',
     "apps": '<rect x="3" y="5" width="14" height="10" rx="2"/><polyline points="3.5,6.5 10,11 16.5,6.5"/>',
     "actions": '<rect x="3.5" y="3.5" width="13" height="13" rx="3"/><polyline points="6.8,10.2 9,12.4 13.4,7.8"/>',
     "jobs": '<rect x="3" y="6.5" width="14" height="9.5" rx="2"/>'
@@ -151,10 +154,10 @@ SCHEDULE = {"inbox": "Each alert email, as n8n finds it in the inbox",
             "signals": "Every two hours", "check": "Once a day",
             "digest": "Mondays at 07:30", "push": "With the signal watcher"}
 DOES = {"inbox": "Reads job alert emails, then stores and scores the roles.",
-        "signals": "Reads the watched sources, then stores and scores signals.",
+        "signals": "Reads the watched sources, then stores and scores stories.",
         "check": "Opens each advert's page to see whether the role is still open.",
-        "digest": "Builds Monday's email of the week's roles and signals.",
-        "push": "Sends a signal at 75 or more to the phone, as the watcher stores it."}
+        "digest": "Builds Monday's email of the week's roles and stories.",
+        "push": "Sends a story at 75 or more to the phone, as the watcher stores it."}
 ENDED = {"ok": "Finished", "partial": "Finished, with failures", "failed": "Failed"}
 GROUPS = (("radar", "Radar"), ("urgent", "Urgent stories"),
           ("top", tiers.NAMES["top"]), ("question", tiers.NAMES["question"]),
@@ -281,6 +284,18 @@ def light_html(light: dict) -> str:
             f'<span class="ht-job-name">{esc(light["label"])}</span>'
             '<span class="visually-hidden">, </span>'
             f'<span class="ht-light {cls}">{esc(light["word"])}</span></li>')
+
+
+def lights_summary(lights: list) -> tuple[str, str]:
+    """The phone's one chip for the five lights: their words counted, in the
+    order the lights' words are listed ("3 on time, 2 not sending"), and the
+    dot's class, the positive one only when every light is on time."""
+    counts: dict = {}
+    for light in lights:
+        counts[light["word"]] = counts.get(light["word"], 0) + 1
+    words = ", ".join(f"{counts[w]} {w.lower()}" for w in LIGHTS if w in counts)
+    every = bool(lights) and all(l["word"] == "On time" for l in lights)
+    return words, ("is-pos" if every else "is-neu")
 
 
 # ================================================================ reads of its own
@@ -790,13 +805,19 @@ def health_panel_html(model: dict) -> str:
 def welcome_html(model: dict) -> str:
     now = uk(model["now"])
     strip = "".join(light_html(l) for l in model["lights"])
+    said, dot = lights_summary(model["lights"])
+    # Under 700px the five chips fold behind one that counts them.
+    summary = (f'<button type="button" class="ht-lights-sum" id="lights-btn" aria-expanded="false" '
+               f'aria-controls="lights-list"><span class="ht-dot {dot}" aria-hidden="true"></span>'
+               f'<span class="visually-hidden">Radar\'s five jobs: </span>{esc(said)}</button>')
     return (
         '<section class="ht-welcome" id="welcome" aria-labelledby="welcome-h">'
         '<div class="ht-welcome-in"><div class="ht-hello">'
         f'<p class="ht-date">{now:%A} {now.day} {now:%B}</p>'
         f'<h1 class="ht-greet" id="welcome-h"><span class="visually-hidden">Home. </span>'
         f'{esc(greeting(model["now"], model["name"]))}</h1></div>'
-        '<div class="ht-strip"><ul class="ht-strip-list" aria-label="Radar\'s five jobs">'
+        f'<div class="ht-strip">{summary}<ul class="ht-strip-list" id="lights-list" '
+        'aria-label="Radar\'s five jobs">'
         f'{strip}</ul><button type="button" class="ht-health-btn" id="health-btn" '
         'aria-expanded="false" aria-controls="health-panel">Radar\'s health</button></div>'
         f'</div>{health_panel_html(model)}</section>'
@@ -871,8 +892,7 @@ def apps_tile(model: dict) -> str:
                      f'<span class="apm-wn">{len(waiting)}</span></h3>'
                      f'<ul class="apm-wait" aria-labelledby="mini-waiting">{"".join(lis)}</ul></div>')
     else:
-        parts.append('<p class="apm-split">Nothing is waiting on you. A next step you set, or '
-                     'Radar\'s Follow up, shows here.</p>')
+        parts.append('<p class="apm-split">Nothing is waiting on you.</p>')
     return (f'<section class="ht-side ht-apps-tile" aria-labelledby="tile-applications">{head}'
             f'<div class="side-card glow-wide g-apps"><div class="ht-body"><div class="apm">{"".join(parts)}</div></div>'
             '<p class="ht-foot"><a class="link link-block" href="/jobs?show=applied">Open the board</a>'
@@ -933,7 +953,7 @@ def week_html(model: dict) -> str:
 
         said_top = ", ".join(f"{label(x, i)} {x['top']}" for i, x in enumerate(weeks))
         said_sig = ", ".join(f"{label(x, i)} {x['signals']}" for i, x in enumerate(weeks))
-        aria = (f"New Top prospects per week, weeks starting {said_top}. Signals at 40 or more "
+        aria = (f"New Top prospects per week, weeks starting {said_top}. Stories at 40 or more "
                 f"per week, {said_sig}. Each row has its own scale.")
         week_cells = "".join(
             f'<span class="ht-week{" is-now" if i == n - 1 else ""}">{x["week"].day} {x["week"]:%b}'
@@ -946,7 +966,7 @@ def week_html(model: dict) -> str:
                 '<div class="ht-series"><p class="ht-series-name"><span class="ht-swatch ht-swatch-1">'
                 f'</span>Top prospects</p>{plot("top", "ht-bar-1")}</div>'
                 '<div class="ht-series"><p class="ht-series-name"><span class="ht-swatch ht-swatch-2">'
-                f'</span>Signals at 40 or more</p>{plot("signals", "ht-bar-2")}</div>'
+                f'</span>Stories at 40 or more</p>{plot("signals", "ht-bar-2")}</div>'
                 f'<div class="ht-weeks" style="--n:{n}" aria-hidden="true">{week_cells}</div></div>'
                 f'<p class="ht-say">{esc(say)}</p>')
     return ('<section class="ht-week-block" aria-labelledby="tile-week-by-week">'
@@ -1570,6 +1590,7 @@ a{color:inherit}
 .ht-health-btn{display:inline-flex;align-items:center;min-height:36px;padding:0;border:0;background:none;color:var(--text-1);font-size:13px;line-height:20px;font-weight:500;text-decoration:underline;text-decoration-color:var(--link-line);text-decoration-thickness:1px;text-underline-offset:3px;cursor:pointer;white-space:nowrap}
 .ht-health-btn:hover{text-decoration-color:var(--text-1)}
 @container htw (max-width:719.98px){.ht-strip,.ht-strip-list{justify-content:flex-start}}
+.ht-lights-sum{display:none}
 @media (forced-colors:active){.ht-dot{border:1px solid CanvasText}}
 /* ---- the five tiles, each in its group's colour: two a row on a phone with
    the first across the width, three and two from 600px, five across from
@@ -1703,6 +1724,25 @@ a{color:inherit}
   .table th:first-child,.table td:first-child{width:112px}
   .table th:nth-child(2),.table td:nth-child(2){width:80px}
 }
+/* Under 700px (owner, 17 Nov): Open actions comes up the page. The five
+   lights fold behind one chip that counts them, Radar's health beside it; the
+   tiles are shorter, the chip and the number on one line and the word under
+   them; the greeting and the gaps are a little tighter. */
+@media (max-width:699.98px){
+  .hf{gap:16px;padding-top:12px}
+  .ht-welcome-in{row-gap:12px}
+  .ht-greet{font-size:30px;line-height:36px}
+  .ht-strip{flex-wrap:wrap;gap:8px 16px}
+  .ht-lights-sum{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;background:var(--surface);border:1px solid var(--border-subtle);border-radius:22px;color:var(--text-1);font:500 13px/20px var(--font-sans);white-space:nowrap;cursor:pointer}
+  .ht-lights-sum:hover{border-color:var(--border-strong)}
+  .ht-strip-list{display:none;order:3;flex-basis:100%}
+  .ht-lights-sum[aria-expanded="true"] ~ .ht-strip-list{display:flex}
+  .ht-figs{gap:8px}
+  .ht-figlink{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:12px;row-gap:0;padding:12px}
+  .ht-figlink > .gchip{margin-bottom:0}
+  .ht-fignum{font-size:28px;line-height:32px}
+  .ht-figword{grid-column:1 / -1;margin-top:0;font-size:12px;line-height:16px}
+}
 @media (pointer:coarse){
   .btn,.seg{height:44px}
   .ht-figlink,.apm-link,.link-block,.ht-health-btn,.sec-link,.ny-acts .link{min-height:44px}
@@ -1804,6 +1844,15 @@ HOME_SCRIPT = r"""
     btn.setAttribute('aria-expanded', String(open));
     panel.hidden = !open;
   }
+  // ---- the lights on a phone: one chip that shows the five, or hides them
+  function setLights(open) {
+    var btn = el('lights-btn');
+    if (btn) btn.setAttribute('aria-expanded', String(open));
+  }
+  function lightsOpen() {
+    var btn = el('lights-btn');
+    return !!btn && btn.getAttribute('aria-expanded') === 'true';
+  }
   function healthOpen() {
     var btn = el('health-btn');
     return !!btn && btn.getAttribute('aria-expanded') === 'true';
@@ -1811,7 +1860,7 @@ HOME_SCRIPT = r"""
 
   // ---- redrawing after a write: the main element, from the server
   function refresh(item, focusIt) {
-    var open = healthOpen();
+    var open = healthOpen(), lit = lightsOpen();
     return fetch('/' + (query(item) || '?') + (query(item) ? '&' : '') + 'part=main',
                  { headers: { 'Accept': 'application/json' } })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -1819,6 +1868,7 @@ HOME_SCRIPT = r"""
         main.innerHTML = j.html;
         document.title = j.title;
         setHealth(open);
+        setLights(lit);
         setStack(stack());
         try { history.replaceState(null, '', '/' + query(null)); } catch (e) {}
         if (!focusIt) return;
@@ -1891,6 +1941,7 @@ HOME_SCRIPT = r"""
   main.addEventListener('click', function (e) {
     if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     if (e.target.closest('#health-btn')) { setHealth(!healthOpen()); return; }
+    if (e.target.closest('#lights-btn')) { setLights(!lightsOpen()); return; }
     var at = e.target.closest('[data-item]');
     var id = at ? at.dataset.item : null;
     var done = e.target.closest('[data-done]');

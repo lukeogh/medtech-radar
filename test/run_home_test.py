@@ -1468,6 +1468,56 @@ def box_doc_checks(tmp: Path) -> None:
     check("home_page.py" in arch and "home_done" in arch, "the architecture note names Home's parts")
 
 
+def phone_checks(tmp: Path) -> None:
+    """Home on a phone (owner, 17 Nov): the lights fold behind one chip, the
+    tiles are shorter, and the leftover wording and the company icon."""
+    lit = [{"word": w} for w in ("On time", "Not sending", "On time", "Not sending", "On time")]
+    check(hp.lights_summary(lit) == ("3 on time, 2 not sending", "is-neu")
+          and hp.lights_summary([{"word": "On time"}] * 5) == ("5 on time", "is-pos")
+          and hp.lights_summary([{"word": "Late"}, {"word": "On time"}])[0] == "1 on time, 1 late",
+          "the lights' chip counts their words, green only when every light is on time")
+    db = tmp / "phone.sqlite"
+    seed_home(db)
+    html = page_of(db)
+    chip_at = html.find('<button type="button" class="ht-lights-sum" id="lights-btn" '
+                        'aria-expanded="false" aria-controls="lights-list">')
+    check(chip_at > 0 and chip_at < html.find('<ul class="ht-strip-list" id="lights-list"')
+          < html.find('id="health-btn"')
+          and html.count('<li class="ht-strip-job"') == 5
+          and "<span class=\"visually-hidden\">Radar's five jobs: </span>" in html.replace("&#x27;", "'"),
+          "the chip comes first, closed, says what it counts in words, and controls the five "
+          "lights, which stay in the page; Radar's health follows")
+    css = hp.HOME_CSS
+    phone = css[css.index("@media (max-width:699.98px){"):]
+    phone = phone[:phone.index("\n}\n") + 3]
+    check(".ht-lights-sum{display:none}" in css
+          and ".ht-strip-list{display:none;order:3;flex-basis:100%}" in phone
+          and '.ht-lights-sum[aria-expanded="true"] ~ .ht-strip-list{display:flex}' in phone
+          and "min-height:44px" in phone[phone.index(".ht-lights-sum{"):],
+          "under 700px the five chips fold behind the summary chip, 44px tall, and open "
+          "beneath it")
+    check(".ht-figlink{display:grid;grid-template-columns:auto minmax(0,1fr);" in phone
+          and "padding:12px}" in phone and ".ht-figword{grid-column:1 / -1;" in phone
+          and ".ht-figlink{display:flex;flex-direction:column;align-items:flex-start;min-width:0;"
+              "min-height:44px;padding:16px;" in css,
+          "under 700px a tile has its chip and number on one line and its word under them, "
+          "12px in; from 700px it is as it was")
+    check("function setLights(open)" in hp.HOME_SCRIPT and "'#lights-btn'" in hp.HOME_SCRIPT
+          and "setLights(lit);" in hp.HOME_SCRIPT,
+          "tapping the chip shows or hides the lights, and a redraw keeps them as they were")
+    check(hp.ICONS["threads"].startswith('<path d="M4.5 16.5V5.5')
+          and hp.ICONS["threads"] != hp.ICONS["story"],
+          "company follow-ups have a building, not the story's page")
+    check(not any("signal" in v.lower() for v in hp.DOES.values())
+          and "Stories at 40 or more" in html and "Signals at 40 or more" not in html,
+          "Radar's own items and the Week by week chart say story, not signal")
+    check("A next step you set" not in html and "Follow up, shows here" not in html,
+          "the Applications card says only that nothing is waiting on you")
+    import watchlist_page
+    check(watchlist_page.run_words({"watcher_ran": None}) == "The news watcher has not run yet.",
+          "the Watchlist names the news watcher")
+
+
 def main() -> int:
     ap_ = argparse.ArgumentParser(description="Home final checks")
     ap_.add_argument("--db", help="accepted for suite symmetry, unused")
@@ -1484,7 +1534,7 @@ def main() -> int:
         tmp_path = Path(tmp)
         for section in (name_checks, light_checks, model_checks, done_checks, episode_checks,
                         review_checks, greeting_page_checks, week_exact_checks, page_checks,
-                        role_row_checks,
+                        role_row_checks, phone_checks,
                         state_checks, thread_checks, route_checks, script_checks, harness_checks,
                         box_doc_checks):
             try:
