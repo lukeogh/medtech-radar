@@ -2029,9 +2029,10 @@ def history_checks() -> None:
                 jobs = serve_dashboard.render("jobs").decode("utf-8")
             finally:
                 serve_dashboard.ARGS = saved_args
-            check('<span class="visually-hidden">CV match </span>80%</span>' in jobs
-                  and "90%" not in jobs,
-                  "the Jobs page shows the master CV's score, 80, and not the tailored 90")
+            # The row carries no CV figure; its band heading is the master's.
+            check('<div class="band">CV match 80–89</div>' in jobs
+                  and "CV match 90–100" not in jobs and "90%" not in jobs,
+                  "the Jobs page files the role by the master CV's score, 80, and not the tailored 90")
 
 
 # ------------------------------------------------- Re-score stale items

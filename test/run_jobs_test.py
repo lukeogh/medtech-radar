@@ -318,18 +318,59 @@ def queue_checks(tmp: Path) -> None:
 
     row = row_html(html, t_low_old)
     check(">Top Low Old</span></a>" in row
-          and '<span class="visually-hidden">CV match </span>72%</span>' in row
+          and 'class="r-cv"' not in row and "72%" not in row
           and "First seen " in row and "C Co · Guildford · " in row
           and '<span class="r-rate">£720/day</span>' in row
-          and " · Contract · LinkedIn" in row and "A fit." in row,
-          "a row carries the title, the CV match, the first-seen date, the company, "
-          "place, pay as stated, contract or permanent, source and the reason")
+          and row.endswith("</div>") and " · Contract</span>" in row
+          and "LinkedIn" not in row and "A fit." in row,
+          "a row carries the title, the first-seen date, the company, place, pay "
+          "as stated, contract or permanent and the reason, and no CV figure and "
+          "no LinkedIn")
+    # Only what differs between roles: a source other than LinkedIn, pay only
+    # when the advert gives a figure.
+    face = dict(next(o for o in jobs_page.build_model(collect(db))["lists"]["open"]
+                     if o["id"] == t_low_old))
+    other = jobs_page.row_html({**face, "source": "email-other",
+                                "salary_rate": "Competitive"}, "open", None, ago(0))
+    check(" · Contract · Email alert</span>" in other
+          and 'class="r-rate"' not in other and "Competitive" not in other
+          and "Rate not stated" not in other.replace("Rate not stated, ", ""),
+          "a source other than LinkedIn is named, and pay words with no figure show nothing")
+    check(jobs_page.pay_shown({"salary_rate": "up to £200k"}) == "up to £200k"
+          and jobs_page.pay_shown({"salary_rate": "Competitive salary"}) == ""
+          and jobs_page.pay_shown({"salary_rate": None}) == "",
+          "pay shows whenever the advert's text holds a figure, whatever the Rate mark says")
+    check(".r-title{flex:1 1 auto;min-width:0;overflow:hidden;white-space:normal;"
+          "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;" in html
+          and ".r-title{white-space:normal" not in html,
+          "a title wraps to two lines before it is cut, at every width")
     check("Full job spec</span>" in row and "Full job spec</span>" not in row_html(html, t_high),
           "only a score made on the full job spec carries the Full job spec tag")
     qrow = row_html(html, q)
-    check("Would they move on the rate? £650/day is £50 under the floor." in qrow
-          and "A fit." not in qrow and "row-question" in qrow,
-          "a One question away row leads with its open question")
+    check('id="rl-' in qrow and ">£650/day is under the £700 floor.</span>" in qrow
+          and "Would they" not in qrow and "A fit." not in qrow and "row-question" in qrow,
+          "a One question away row leads with the failing gate's stored reason, "
+          "not the question")
+    qface = {"tier": "question", "gate_sector": 1, "gate_cv": 1, "gate_location": 0,
+             "gate_rate": None, "rate_stated": 0, "one_line_why": "A fit.",
+             "gate_location_note": "Location fails, Karlsruhe is on site.",
+             "question_text": "Would they go remote"}
+    rate_face = {**qface, "gate_location": 1, "gate_rate": 0, "rate_stated": 1,
+                 "pay_currency": "GBP", "pay_period": "year", "pay_max": 53474,
+                 "gate_rate_note": "Stated salary £53,474 against the £100,000 floor,"
+                                   " below, judged in code."}
+    check(jobs_page.row_lead(qface) == "Karlsruhe is on site."
+          and jobs_page.row_lead(rate_face)
+          == "Stated salary £53,474 against the £100,000 floor, below."
+          and jobs_page.row_lead({**qface, "gate_location_note": None}) == "",
+          "the reason loses its verdict words and judged in code, and no stored "
+          "reason shows nothing")
+    check(jobs_page.pane_lead(qface) == ""
+          and jobs_page.pane_lead({**qface, "question_text": "Is German fluency a "
+                                   "hard requirement?"}) == "Is German fluency a hard requirement?"
+          and jobs_page.lead_line(qface) == "Would they go remote.",
+          "the pane drops code's own question and keeps one the model wrote; Home's "
+          "lead line is unchanged")
     marks = re.findall(r'<span class="mk (mk-[a-z]+)" role="img" aria-label="([^"]+)" '
                        r'tabindex="(-?\d)">.*?<span class="mk-tip" aria-hidden="true">([^<]+)</span>',
                        qrow, re.S)
@@ -371,13 +412,17 @@ def queue_checks(tmp: Path) -> None:
     quiet = row_html(html, old_unknown)
     old_days = row_html(html, ageing)
     expiry = datetime.strptime(ago(40)[:10], "%Y-%m-%d") + timedelta(days=jobs_page.expiry_days())
-    check(f"Unknown, expires {expiry.day} {expiry:%b}" in quiet
-          and "Unknown, 12 days" in old_days
-          and "Unknown, " not in row_html(html, t_high),
-          "the lifecycle chip gives an Unknown role's age, or its expiry once it is "
-          "close, and a live role has none")
-    check("tag-caution" in quiet and 'href="#st-cau"' in quiet,
-          "and it carries an icon as well as its colour")
+    check("Unknown" not in quiet and "Unknown" not in old_days
+          and 'class="tag tag-caution"' not in html and quiet and old_days,
+          "an Unknown role carries no chip on its row, close to expiry or not")
+    check(f"Unknown · last seen" in pane(db, old_unknown).get("html", "")
+          and f"expires {expiry.day} {expiry:%b}" in pane(db, old_unknown).get("html", ""),
+          "and the role pane's State still says Unknown and when it expires")
+    check(jobs_page.state_tag({"closed_at": ago(1), "closed_source": "page_check"})
+          .startswith('<span class="tag tag-neutral">Closed ')
+          and jobs_page.state_tag({"closed_at": ago(1), "closed_source": "hand"}) == ""
+          and jobs_page.state_tag({}) == "",
+          "a row's only state tag is Closed, for an advert the checker confirmed closed")
     first = datetime.strptime(ago(90)[:10], "%Y-%m-%d")
     check(f"First seen {first.day} {first:%b}" in row_html(html, revived),
           "the first-seen date is the chain's first sighting, an expired advert's included")
