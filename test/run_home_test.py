@@ -340,13 +340,6 @@ def esc_attr(text: str) -> str:
     return _h.escape(text, quote=True)
 
 
-def outside_rows(html: str) -> str:
-    """The page without its Jobs rows, which are Jobs' own and keep its look."""
-    for row in role_rows(html).values():
-        html = html.replace(row, "")
-    return html
-
-
 def page_of(db: Path, cfg=None, **kw) -> str:
     conn = reader(db)
     try:
@@ -1050,8 +1043,8 @@ def page_checks(tmp: Path) -> None:
           "Open roles shows three rows, Top prospects first, no footnote, and keeps Open Jobs")
     check('class="ht-q"' not in body and "Where do my applications stand" not in body
           and "Where do the open roles narrow" not in body, "no question under a widget's title")
-    check("\u00b7" not in outside_rows(html),
-          "no middle dot anywhere on Home outside the Jobs rows, its title, script and styles included")
+    check("\u00b7" not in html,
+          "no middle dot anywhere on Home, the Jobs rows, title, script and styles included")
     # Every control is a link or a button, so the keyboard reaches it.
     clickable = re.findall(r"<(div|span|li|p)[^>]*\sonclick=", body)
     check(not clickable, "every control is a link or a button")
@@ -1198,7 +1191,7 @@ def state_checks(tmp: Path) -> None:
     check("Signal watcher is stale, 22 hours since its last run" in html
           and "3 of 5 jobs need a look" in html and "Stale after 6 hours" in html,
           "the stale watcher is named with its age and its limit")
-    check("Stale, 22 hours" in html and "\u00b7" not in outside_rows(html),
+    check("Stale, 22 hours" in html and "\u00b7" not in html,
           "its tag says Stale, 22 hours, with a comma")
     check("data-check>Check now</button>" in html and "Signals as of" not in html and "As of" not in html,
           "the watcher's item offers Check now, and no As of time is on the page")

@@ -48,6 +48,9 @@ sys.path.insert(0, str(TEST_DIR))
 import build_dashboard  # noqa: E402
 import jobs_page  # noqa: E402
 import page_frame  # noqa: E402
+
+# Between two of a row's facts: a comma for a screen reader, space on screen.
+BIT = '<span class="visually-hidden">, </span><span class="r-bit">'
 import radar_common as rc  # noqa: E402
 import serve_dashboard  # noqa: E402
 
@@ -319,20 +322,23 @@ def queue_checks(tmp: Path) -> None:
     row = row_html(html, t_low_old)
     check(">Top Low Old</span></a>" in row
           and 'class="r-cv"' not in row and "72%" not in row
-          and "First seen " in row and "C Co · Guildford · " in row
+          and "First seen " in row
+          and '<span class="r-bit">C Co</span>' + BIT + 'Guildford</span>' + BIT in row
           and '<span class="r-rate">£720/day</span>' in row
-          and row.endswith("</div>") and " · Contract</span>" in row
+          and row.endswith("</div>") and BIT + "Contract</span>" in row
+          and "·" not in row and ".r-bit ~ .r-bit{margin-left:12px}" in jobs_page.ROW_CSS
           and "LinkedIn" not in row and "A fit." in row,
           "a row carries the title, the first-seen date, the company, place, pay "
           "as stated, contract or permanent and the reason, and no CV figure and "
-          "no LinkedIn")
+          "no LinkedIn; its facts are set apart by space, with no middle dot, and a "
+          "comma between them for a screen reader")
     # Only what differs between roles: a source other than LinkedIn, pay only
     # when the advert gives a figure.
     face = dict(next(o for o in jobs_page.build_model(collect(db))["lists"]["open"]
                      if o["id"] == t_low_old))
     other = jobs_page.row_html({**face, "source": "email-other",
                                 "salary_rate": "Competitive"}, "open", None, ago(0))
-    check(" · Contract · Email alert</span>" in other
+    check(BIT + "Contract</span>" + BIT + "Email alert</span>" in other
           and 'class="r-rate"' not in other and "Competitive" not in other
           and "Rate not stated" not in other.replace("Rate not stated, ", ""),
           "a source other than LinkedIn is named, and pay words with no figure show nothing")
@@ -436,7 +442,7 @@ def queue_checks(tmp: Path) -> None:
     applied_view = page(applied_db, view="applied")
     check(f'data-id="{a}"' not in open_view and f'data-id="{a}"' in applied_view
           and f'data-id="{o}"' not in applied_view
-          and "Applied " + jobs_page._day(ago(2)) + " · K Co" in applied_view,
+          and '<span class="r-bit">Applied ' + jobs_page._day(ago(2)) + '</span>' + BIT + "K Co" in applied_view,
           "Applied roles have their own view, with the date applied, and stay out of "
           "the open roles")
 
