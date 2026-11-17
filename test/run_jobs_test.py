@@ -883,9 +883,9 @@ def advert_checks(tmp: Path) -> None:
               "0%,rgb(var(--g) / .04) 45%,rgb(var(--g) / 0) 100%)}" in page_frame.GROUPS_CSS,
           "Score's tiles sit under its title with no card round them, and the other cards "
           "glow faintly purple from the top left")
-    check('<header class="detail-head">' in html and '<span class="dh-chip"><span class="gchip g-jobs"' in html
-          and "radial-gradient(900px 300px at 0% 0%,rgb(var(--group-jobs-rgb) / .22) 0%,"
-              "rgb(var(--group-jobs-rgb) / .08) 45%,rgb(var(--group-jobs-rgb) / 0) 100%)" in css
+    check('<header class="detail-head g-jobs glow-head">' in html and '<span class="dh-chip"><span class="gchip g-jobs"' in html
+          and ".glow-head{background-image:radial-gradient(900px 300px at 0% 0%,rgb(var(--g) / .22) 0%,"
+              "rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%)}" in page_frame.GROUPS_CSS
           and ".actions .btn-primary{background:var(--group-apps);" in css
           and ".lead-line{max-width:80ch;margin-top:16px;font-size:15px;" in css
           and html.index('class="actions') < html.index('class="lead-line"') < html.index("</header>"),

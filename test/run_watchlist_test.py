@@ -755,20 +755,54 @@ def page_checks(tmp: Path) -> None:
           "the bar marks the Watchlist as the page")
     check("Your companies" in page and "Hartwell Infusion Ltd" in page and "Qurio" in page,
           "the table lists the companies")
-    check("Overdue by" in page and "Due today" in page and "No date set" in page and "No contact yet" in page,
-          "the thread tags say overdue, due today, no date set and no contact yet in words")
-    check("<caption" in page and 'aria-current="true"' in page, "the table has its caption and the selected row")
+    check("<span>Overdue</span>" in page and "<span>Due today</span>" in page and ", no date set" in page
+          and "No contact yet" in page,
+          "the follow-ups say overdue, due today, no date set and no contact yet in words")
+    check("<table" not in page and 'class="co-card card g-apps glow-row' in page
+          and 'class="co-card card g-apps glow-row is-due' in page and 'aria-current="true"' in page,
+          "each company is a card glowing teal, more strongly with a follow-up due, the selected one marked")
+    title = page.split('<header class="pagehead">', 1)[1].split("</header>", 1)[0]
+    check('<span class="gchip g-apps" aria-hidden="true">' in title and "<h1>Watchlist</h1>" in title
+          and re.search(r'<span class="sec-count">\d+ compan(y|ies)</span>', title)
+          and re.search(r'<span class="sec-count">\d+ follow-ups? due</span>', title)
+          and 'placeholder="Add a company by name"' in title and "As of" not in page
+          and "Times are UK time" not in page and '<p class="hint" id="add-hint"></p>' in title,
+          "the title row has the teal chip, the counts as pills and the add box, and no As of line "
+          "and no sentence under the box")
+    cards = re.findall(r'<li class="co-card.*?</li>', page, re.S)
+    one = next(c for c in cards if "Hartwell Infusion Ltd" in c)
+    check('<p class="co-label fu-label">Follow-up</p>' in one and '<p class="co-label story-label">Latest story</p>' in one
+          and '<p class="co-label roles-label">Roles on Jobs</p>' in one and 'class="role-pill' in one
+          and 'data-focus-log href="/watchlist?company=' in one and "Relevance" not in one
+          and "found" not in one and "Added from" not in page and "·" not in one,
+          "a company's card has its follow-up, its latest story with no relevance or found, its roles "
+          "as a pill and Log a contact, and no Added from tag")
     check("Log a contact" in page and "Drafts to copy" in page and "Read again" in page
           and m["selected"]["reread"]["words"] in page, "the record has Log a contact, the drafts and Read again with its cost")
-    check("Single-key shortcuts" in page and "radar-watchlist-keys" in watchlist_page.WATCHLIST_SCRIPT,
-          "the keys have their switch, remembered on this device")
+    check("Single-key shortcuts" not in page and "<kbd" not in page and "aria-keyshortcuts" not in page
+          and "radar-watchlist-keys" not in watchlist_page.WATCHLIST_SCRIPT
+          and "e.key === 'Escape'" not in watchlist_page.WATCHLIST_SCRIPT.split("// ---- add a company", 1)[0],
+          "no key hints, no single-key shortcuts and no switch for them, on the list or the record")
     check("Suggested by Radar" in page or "suggestions waiting" in page, "the suggestions are on the page")
+    if m.get("suggestions"):
+        sg = re.findall(r'<li class="sg card g-story glow-short".*?</li>', page, re.S)
+        check(len(sg) == len(m["suggestions"])
+              and all('class="btn btn-teal" data-sg="accept"' in c and 'class="btn btn-secondary" data-sg="dismiss"' in c
+                      for c in sg)
+              and '<span class="gchip g-story" aria-hidden="true">' in page.split('id="sg-h"', 1)[0][-600:]
+              and 'id="sg-show"' not in page and 'id="sg-hide"' not in page and "sg-strip" not in page
+              and "Relevance" not in "".join(sg),
+              "each suggestion is a wide card glowing amber, Add to Watchlist in teal and Dismiss "
+              "outlined, always shown, with no banner and no Show or Hide")
+    else:
+        check('id="sg-panel"' not in page, "with no suggestions the section is not drawn")
     check("Just added from Insights" in page and "Selwick Photonics" in page, "the arrival from Insights is said")
     rec = watchlist_page.render_page(m, None, "record")
     check(rec.count("<h1") == 1 and "Back to Watchlist" in rec, "the record on its own view: its own h1 and Back")
     empty_path, empty = fresh(tmp, "page_empty")
     e = watchlist_page.render_page(wl.build_model(empty, CFG, NOW), None, "table")
-    check("Your Watchlist is empty" in e, "an empty Watchlist says so and how to add")
+    check("No companies on your Watchlist yet." in e and "<ol" not in e,
+          "an empty Watchlist says so, and no more")
     empty.close()
     bare = rc.resolve_company(conn, "Halden Medical")
     conn.commit()
