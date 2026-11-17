@@ -677,11 +677,13 @@ def thread_checks(tmp: Path) -> None:
                     r'<span class="ht-fignum">(\d+)</span><span class="ht-figword">([^<]+)</span>', html)
     check(fig is not None and fig.groups() == ("/watchlist", "2", "company follow-ups due"),
           f"the figure: 2 company follow-ups due, linking to the Watchlist ({fig.groups() if fig else None})")
-    head = html.split('id="group-threads"', 1)[1][:200] if 'id="group-threads"' in html else ""
-    check('Company follow-ups due<span class="group-count">2 due, 1 overdue</span>' in html
-          and head and html.index('id="group-question"') < html.index('id="group-threads"')
-          < html.index('id="group-apps"'),
-          "the group is drawn between One question away and Applications, its overdue counted")
+    block = html.split('<div class="ny-group" id="group-threads">', 1)[1] if 'id="group-threads"' in html else ""
+    check(block and html.index('id="group-question"') < html.index('id="group-threads"')
+          < html.index('id="group-apps"')
+          and block.startswith('<article class="ny-item ny-follow glow-wide g-apps"')
+          and 'class="group-title"' not in html and "2 due, 1 overdue" not in html,
+          "the follow-ups are drawn between One question away and Applications, teal cards with no "
+          "subheading over them")
     check(f'id="thread-{lum}" data-item="thread-{lum}" data-key="thread:{lum}:{uk_day(-1)}"' in html,
           "each follow-up has its own address and Done key")
     sel = page_of(db, item=f"thread-{lum}")
@@ -1042,25 +1044,48 @@ def page_checks(tmp: Path) -> None:
           "no Next button: every item is on screen")
     check(body.count("data-done=") == 7 and 'id="undo-last"' in body and '>To do</a>' in body
           and '?show=done"' in body, "Done on each, Undo last, and To do and Done stay")
-    # The urgent signal: an Insights story.
-    sig = re.search(r'<article class="ny-item ny-story" id="(signal-\d+)".*?</article>', body, re.S)
+    # Open actions: its title outside the cards, with its chip and count.
+    head = re.search(r'<header class="sec-head ny-head"><span class="gchip g-neutral" aria-hidden="true">'
+                     r'.*?</svg></span><h2 class="sec-title ny-title" id="ny-title">Open actions'
+                     r'<span class="sec-count"><span class="visually-hidden">, </span>(\d+)'
+                     r'<span class="visually-hidden"> items</span></span></h2><div class="ny-tools">', body)
+    check(head is not None and head.group(1) == "7" and "Needs you today" not in body
+          and 'class="group-title"' not in body.split('id="ny"', 1)[1],
+          "Open actions, with its neutral chip and its count of items to do, outside the cards, "
+          "and no subheadings in the list")
+    check(re.findall(r'<div class="ny-group" id="group-(\w+)">', body) == ["urgent", "top", "question", "apps"],
+          "each group's items keep its address for the tiles, in today's order")
+    check(".ny-item{" in hp.HOME_CSS and "border-radius:14px" in hp.HOME_CSS.split(".ny-item{", 1)[1].split("}", 1)[0]
+          and ".ny-acts .btn{height:44px;padding:0 16px;border-radius:8px}" in hp.HOME_CSS
+          and "background:var(--surface-sunken);border-color:#39424a" in hp.HOME_CSS,
+          "each item is a card; Done is 44px, quiet, radius 8px")
+    check("inset 3px 0 0" not in hp.HOME_CSS and "border-left:3px" not in hp.HOME_CSS,
+          "no coloured left-edge bar, the item an address brings into view included")
+    # The urgent story: its own card.
+    sig = re.search(r'<article class="ny-item ny-story glow-wide g-story" id="(signal-\d+)".*?</article>', body, re.S)
     card = sig.group(0) if sig else ""
-    check(card and '<p class="story-line"><span class="co">Hartwell Infusion Ltd</span>, via a job advert</p>' in card
-          and 'class="story-h"' in card and 'class="story-sum"' in card
+    line = re.search(r'<p class="story-line"><span class="gchip g-story" aria-hidden="true">.*?</svg></span>'
+                     r'<span class="story-kind">Urgent story</span><span class="fact-rule" aria-hidden="true">'
+                     r'</span><span class="visually-hidden">, </span><span class="story-src">'
+                     r'<span class="co">Hartwell Infusion Ltd</span>, via a job advert</span></p>', card)
+    check(card and line and '<h3 class="story-h"' in card and 'class="story-sum"' in card
           and ">Read the advert" in card and "Everything on file" in card
           and f'href="/company/' in card and "data-done=" in card,
-          "the urgent signal is drawn as an Insights story: company, source, headline, why, "
-          "the announcement and everything on file")
+          "the urgent story is an amber card: its chip, Urgent story, a drawn rule and the source, "
+          "then the headline, the summary, the announcement and everything on file")
     check(card and "Relevance" not in card and "Found" not in card and "Details" not in card,
           "without relevance, the found date or the Details table")
-    move = re.search(r'<p class="story-sum">.*?</p><section class="ny-move"[^>]*><h5 class="sec-h"[^>]*>'
-                     r'Next move</h5><p class="ny-para">(.*?)</p></section>', card)
-    check(move is not None and move.group(1) == "Send the compliance-cost article, or the gap assessment one-pager.",
-          "its Next move, the playbook step, sits under the summary line")
+    move = re.search(r'<p class="story-sum">.*?</p><section class="ny-move"[^>]*><h4 class="sec-h"[^>]*>'
+                     r'Next move</h4><p class="ny-para">(.*?)</p></section><div class="action-bar ny-acts">'
+                     r'<a class="link" href="[^"]+" target="_blank"', card)
+    check(move is not None and move.group(1) == "Send the compliance-cost article, or the gap assessment one-pager."
+          and ".ny-move{padding:14px 16px;background:#101417;border:1px solid #1f262b;border-radius:10px}" in hp.HOME_CSS,
+          "its Next move, the playbook step, sits under the summary in an inset panel, then its links and Done")
     check(card and "<dt>" not in card and "On file for" not in card and "Builds" not in card,
           "without the fixed On file fields (builds, software, stage, where, people)")
-    check("@font-face{font-family:\"IBM Plex Serif\"" in html and "var(--font-serif)" in hp.HOME_CSS,
-          "in Insights' serif headline")
+    check("font-size:21px;line-height:1.3;font-weight:600" in hp.HOME_CSS
+          and "var(--font-serif)" not in hp.HOME_CSS.split(".ny-story .story-h{", 1)[1].split("}", 1)[0],
+          "its headline in the site's sans, 21px, weight 600")
     # Open roles: three rows, Top prospects first, no footnote.
     funnel = body.split('id="tile-open-roles"', 1)[1].split("</section>", 1)[0]
     check(re.findall(r'id="funnel-(\w+)"', funnel) == ["top", "question", "reading"]
@@ -1135,13 +1160,17 @@ def role_row_checks(tmp: Path) -> None:
           f"(the same {len(same)}, the one selected on Jobs apart: {current})")
     for i in roles:
         oid = i["role"]["id"]
-        art = re.search(rf'<article class="ny-item ny-role" id="{i["id"]}".*?</article>', body, re.S)
+        art = re.search(rf'<article class="ny-item ny-role glow-short g-jobs" id="{i["id"]}".*?</article>', body, re.S)
         art = art.group(0) if art else ""
         rest = art.replace(rows.get(oid, "\0"), "")
+        pill = f'<span class="tier-pill t-{i["group"]}">{jp.GROUP_WORDS[i["group"]]}</span>'
         check(art and f'<a class="r-link" id="rt-{oid}" href="/jobs/{oid}"' in art
               and f'data-done="{esc_attr(i["key"])}"' in rest
-              and re.sub(r"<[^>]+>", "", rest).strip() == "Done",
-              f"role {oid}: the row links to the role on Jobs, and Done is all else")
+              and re.search(r'^<article[^>]*><span class="gchip g-jobs" aria-hidden="true">', art)
+              and f'<div class="action-bar ny-acts">{pill}<button' in rest
+              and re.sub(r"<[^>]+>", "", rest).strip() == jp.GROUP_WORDS[i["group"]] + "Done",
+              f"role {oid}: a purple card, its chip, the row linking to the role on Jobs, then its "
+              f"tier's pill and Done, and nothing else")
     metas = [re.search(r'<span class="r-meta"[^>]*>(.*?)</span></span>', row).group(1) for row in rows.values()]
     check(metas and all("|" not in re.sub(r"<[^>]+>", "", m) and '<span class="visually-hidden">, </span>' in m
                         for m in metas),
@@ -1222,7 +1251,8 @@ def state_checks(tmp: Path) -> None:
     check([i["id"] for i in radar] == ["radar-signals", "radar-check", "radar-push"],
           "the faults head the list; the quiet inbox and the digest in dry run are not there")
     check("News watcher is stale, 22 hours since its last run" in html
-          and "3 of 5 jobs need a look" in html and "Stale after 6 hours" in html,
+          and "Stale after 6 hours" in html
+          and '<article class="ny-item ny-radar" id="radar-signals"' in html,
           "the stale watcher is named with its age and its limit")
     check("Stale, 22 hours" in html and "\u00b7" not in html,
           "its tag says Stale, 22 hours, with a comma")

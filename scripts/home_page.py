@@ -36,11 +36,15 @@ no As of time, no question under a widget's title, no footnotes, no keys):
   the applications table (applications.load, board_page.board_model).
 - Open roles: Top prospects, One question away and Reading, as the Jobs tabs
   count them, with today's new.
-- Needs you today: Radar's jobs that need a look, urgent signals, new Top
-  prospects, new One question away roles, company follow-ups due and
-  application follow-ups due, every item shown in full, one under another. An
-  urgent signal is drawn as Insights draws a story; a role is the Jobs row
-  (jobs_page.row_html, with Jobs' own row rules) and Done, nothing else.
+- Open actions (until 17 Nov, Needs you today): Radar's jobs that need a
+  look, urgent stories, new Top prospects, new One question away roles,
+  company follow-ups due and application follow-ups due, in that order, every
+  item its own card in full, one under another, with no subheadings. An
+  urgent story is an amber card: its kind and source, the headline, the
+  summary, its Next move, its links and Done. A role is a short purple card:
+  the Jobs row (jobs_page.row_html, with Jobs' own row rules), its tier's
+  pill and Done, nothing else. A follow-up is a teal card; a job of Radar's
+  that needs a look takes a neutral chip and no glow.
 
 Done takes an item off Home and only off Home, in the home_done table; Undo
 last puts it back. It never changes the item where it lives. Everything else
@@ -149,7 +153,7 @@ DOES = {"inbox": "Reads job alert emails, then stores and scores the roles.",
         "digest": "Builds Monday's email of the week's roles and signals.",
         "push": "Sends a signal at 75 or more to the phone, as the watcher stores it."}
 ENDED = {"ok": "Finished", "partial": "Finished, with failures", "failed": "Failed"}
-GROUPS = (("radar", "Radar"), ("urgent", "Urgent signals"),
+GROUPS = (("radar", "Radar"), ("urgent", "Urgent stories"),
           ("top", tiers.NAMES["top"]), ("question", tiers.NAMES["question"]),
           ("threads", "Company follow-ups due"), ("apps", "Applications"))
 
@@ -961,27 +965,7 @@ def week_html(model: dict) -> str:
             '<a class="link link-block" href="/insights">Open Insights</a></p></section>')
 
 
-# ================================================================ Needs you today
-
-def group_head(group: str, items: list, model: dict) -> str:
-    n = len(items)
-    title = dict(GROUPS)[group]
-    if group == "radar":
-        count = f"{n} of {len(JOBS)} jobs need a look"
-    elif group == "urgent":
-        count = str(n)
-    elif group in ("top", "question"):
-        count = f"{n} new"
-    elif group == "threads":
-        late = sum(1 for i in items if i["thread"]["state"] == "overdue")
-        count = f"{n} due, {late} overdue" if late else f"{n} due today"
-    else:
-        late = sum(1 for i in items if ap.parse(i["app"].get("next_step_due")).date()
-                   < uk(model["now"]).date())
-        count = f"{n} due" + (f", {late} overdue" if late else " today")
-    return (f'<h3 class="group-title" id="group-{group}">{esc(title)}'
-            f'<span class="group-count">{esc(count)}</span></h3>')
-
+# ================================================================ Open actions
 
 # ---- one item, in full
 
@@ -991,7 +975,7 @@ def _facts(rows) -> str:
 
 
 def _sec(hid: str, title: str, body: str) -> str:
-    return (f'<section class="sec" aria-labelledby="{hid}"><h5 class="sec-h" id="{hid}">{esc(title)}</h5>'
+    return (f'<section class="sec" aria-labelledby="{hid}"><h4 class="sec-h" id="{hid}">{esc(title)}</h4>'
             f'{body}</section>')
 
 
@@ -1009,8 +993,8 @@ def _body_radar(i: dict, uid: str) -> str:
             f'<td>{esc(ENDED.get(r["outcome"] or "ok", "Finished"))}{": " + esc(str(r["note"])[:160]) if r.get("note") else ""}</td></tr>'
             for r in runs)
         name = JOB_PHRASES["signals" if i["light"]["name"] == "push" else i["light"]["name"]]
-        out.append(f'<div class="ny-runs"><h5 class="sec-h" id="{uid}-runs">Last runs'
-                   f'<span class="group-count"> {len(runs)}</span></h5>'
+        out.append(f'<div class="ny-runs"><h4 class="sec-h" id="{uid}-runs">Last runs'
+                   f'<span class="group-count"> {len(runs)}</span></h4>'
                    f'<div class="table-wrap" role="region" aria-labelledby="{uid}-runs" tabindex="0">'
                    f'<table class="table"><caption class="visually-hidden">The last runs of {esc(name)}</caption>'
                    '<thead><tr><th scope="col">Ran</th><th scope="col">Mode</th>'
@@ -1036,14 +1020,17 @@ def _context_radar(i: dict, uid: str) -> str:
 
 
 def role_row(i: dict, model: dict) -> str:
-    """A role on Home is the Jobs row (jobs_page.row_html, the same function
-    the Jobs queue draws with), its title the link to the role on Jobs, with
-    Done beside it and nothing else (owner, 17 Nov)."""
+    """A role on Home is one short card in the Jobs purple: its chip, the Jobs
+    row (jobs_page.row_html, the same function the Jobs queue draws with), its
+    title the link to the role on Jobs, then its tier's pill and Done, and
+    nothing else (owner, 17 Nov)."""
     uid = esc(i["id"])
     row = jp.row_html(i["role"], "open", None, ap.iso(model["now"]))
-    return (f'<article class="ny-item ny-role" id="{uid}" data-item="{uid}" data-key="{esc(i["key"])}" '
-            f'aria-labelledby="rt-{int(i["role"]["id"])}" tabindex="-1">'
-            f'<div class="ny-role-row">{row}</div>{_actions(i, model)}</article>')
+    tier = i.get("group") or i["role"].get("tier") or ""
+    pill = tiers.pill_html(tier) if tier in tiers.OPEN_TIERS else ""
+    return (f'<article class="ny-item ny-role glow-short g-jobs" id="{uid}" data-item="{uid}" '
+            f'data-key="{esc(i["key"])}" aria-labelledby="rt-{int(i["role"]["id"])}" tabindex="-1">'
+            f'{chip("jobs", "jobs")}<div class="ny-role-row">{row}</div>{_actions(i, model, pill)}</article>')
 
 
 def _body_app(i: dict, uid: str, now: datetime) -> str:
@@ -1113,7 +1100,7 @@ def _context_company(i: dict, model: dict, uid: str) -> str:
             when.append(f"Due {day(thread['next_action_date'])}")
         when.append(f"Last contact {day(thread.get('touched_at'))}, "
                     f"{CHANNEL_WORDS.get(thread.get('channel') or 'other', 'other')}")
-        parts.append(f'<div class="ny-ctx-part"><h6 class="sec-h">Thread</h6>'
+        parts.append(f'<div class="ny-ctx-part"><h5 class="sec-h">Thread</h5>'
                      f'<p class="ny-para">{esc(thread.get("next_action"))}</p>'
                      f'<p class="text-meta ny-under">{esc(", ".join(when))}.</p></div>')
     stories = [s for s in _story_groups({"signals": (data.get("signals") or [])})
@@ -1132,8 +1119,8 @@ def _context_company(i: dict, model: dict, uid: str) -> str:
                 rows.append(f'<div class="ctx-row is-static">{inner}</div>')
             else:
                 rows.append(f'<a class="ctx-row" href="/insights/story/{int(lead["id"])}">{inner}</a>')
-        parts.append(f'<div class="ny-ctx-part"><h6 class="sec-h">Signals on file'
-                     f'<span class="group-count"> {len(stories)}</span></h6>{"".join(rows)}</div>')
+        parts.append(f'<div class="ny-ctx-part"><h5 class="sec-h">Stories on file'
+                     f'<span class="group-count"> {len(stories)}</span></h5>{"".join(rows)}</div>')
     roles = [o for o in (model["jmodel"]["all_lists"]["open"] + model["jmodel"]["all_lists"]["acknowledged"])
              if o.get("company_id") == cid]
     if roles:
@@ -1150,12 +1137,12 @@ def _context_company(i: dict, model: dict, uid: str) -> str:
                         f'<span class="c-fig"><span class="visually-hidden">CV match </span>'
                         f'{f"{int(cv)}%" if cv is not None else "–"}</span></span>'
                         f'<span class="c2"><span class="c-meta">{esc(", ".join(bits))}</span></span></a>')
-        parts.append(f'<div class="ny-ctx-part"><h6 class="sec-h">Roles on Jobs'
-                     f'<span class="group-count"> {len(roles)}</span></h6>{"".join(rows)}</div>')
+        parts.append(f'<div class="ny-ctx-part"><h5 class="sec-h">Roles on Jobs'
+                     f'<span class="group-count"> {len(roles)}</span></h5>{"".join(rows)}</div>')
     if not parts:
         return ""
     return (f'<section class="sec ny-context" aria-labelledby="{uid}-file">'
-            f'<h5 class="sec-h" id="{uid}-file">On file for {esc(name)}</h5>{"".join(parts)}</section>')
+            f'<h4 class="sec-h" id="{uid}-file">On file for {esc(name)}</h4>{"".join(parts)}</section>')
 
 
 def _on_file_link(i: dict, model: dict) -> str:
@@ -1167,12 +1154,13 @@ def _on_file_link(i: dict, model: dict) -> str:
             f'Everything on file<span class="visually-hidden"> for {esc(c["display_name"])}</span></a>')
 
 
-def _actions(i: dict, model: dict) -> str:
-    """Open where the item lives (a signal's card has its headline for that,
-    a role's row its title), Done or Put back, and Check now for the signal
-    watcher. No Next: every item is on screen."""
+def _actions(i: dict, model: dict, lead: str = "") -> str:
+    """Open where the item lives (a story's card has its headline for that,
+    a role's row its title), Done or Put back, and Check now for the news
+    watcher, after lead (a story's links, a role's tier pill). No Next: every
+    item is on screen."""
     done_view = model["show"] == "done"
-    acts = []
+    acts = [lead] if lead else []
     if i["kind"] == "radar":
         n8n = bd.safe_url(model["config"].get("n8n_url"))
         open_ = ((n8n, "Open the workflow scheduler", True) if n8n
@@ -1226,20 +1214,21 @@ def signal_card(i: dict, model: dict) -> str:
         more = f' and {n} more source{"s" if n > 1 else ""}'
     url = bd.safe_url(lead.get("source_url"))
     what = "Read the advert" if lead.get("source_id") in ("job-advert", "qa-tripwire") else "Read the announcement"
-    announce = (f'<a href="{esc(url)}" target="_blank" rel="noopener noreferrer">{what}'
+    announce = (f'<a class="link" href="{esc(url)}" target="_blank" rel="noopener noreferrer">{what}'
                 f'<span class="visually-hidden"> on {esc(i["source"])} (opens in a new tab)</span>'
                 f'{ip.ICON_OUT}</a>' if url else "")
     step = lead.get("playbook_step")
-    move = (f'<section class="ny-move" aria-labelledby="{uid}-move"><h5 class="sec-h" id="{uid}-move">'
-            f'Next move</h5><p class="ny-para">{esc(step)}</p></section>' if step else "")
-    meta = f'<p class="story-meta">{announce}</p>' if announce else ""
-    return (f'<article class="ny-item ny-story" id="{uid}" data-item="{uid}" data-key="{esc(i["key"])}" '
-            f'aria-labelledby="{uid}-t" tabindex="-1">'
-            f'<p class="story-line"><span class="co">{esc(i.get("company") or "Unknown company")}</span>, '
-            f'via {esc(i["source"])}{esc(more)}</p>'
-            f'<h4 class="story-h" id="{uid}-t">{headline}</h4>'
-            f'<p class="story-sum">{esc(i.get("lead") or "")}</p>{move}{meta}'
-            f'{_on_file_link(i, model)}{_actions(i, model)}</article>')
+    move = (f'<section class="ny-move" aria-labelledby="{uid}-move"><h4 class="sec-h" id="{uid}-move">'
+            f'Next move</h4><p class="ny-para">{esc(step)}</p></section>' if step else "")
+    return (f'<article class="ny-item ny-story glow-wide g-story" id="{uid}" data-item="{uid}" '
+            f'data-key="{esc(i["key"])}" aria-labelledby="{uid}-t" tabindex="-1">'
+            f'<p class="story-line">{chip("story", "story")}<span class="story-kind">Urgent story</span>'
+            '<span class="fact-rule" aria-hidden="true"></span><span class="visually-hidden">, </span>'
+            f'<span class="story-src"><span class="co">{esc(i.get("company") or "Unknown company")}</span>, '
+            f'via {esc(i["source"])}{esc(more)}</span></p>'
+            f'<h3 class="story-h" id="{uid}-t">{headline}</h3>'
+            f'<p class="story-sum">{esc(i.get("lead") or "")}</p>{move}'
+            f'{_actions(i, model, announce + _on_file_link(i, model))}</article>')
 
 
 def item_html(i: dict, model: dict) -> str:
@@ -1264,10 +1253,16 @@ def item_html(i: dict, model: dict) -> str:
         body = _body_thread(i, uid, model["now"]) + _context_company(i, model, uid)
     else:
         body = _body_app(i, uid, model["now"]) + _context_company(i, model, uid)
-    return (f'<article class="ny-item" id="{uid}" data-item="{uid}" data-key="{esc(i["key"])}" '
+    # A follow-up is teal, with a glow; a job of Radar's that needs a look
+    # takes a neutral chip and no glow, as it belongs to no group.
+    look = {"thread": ("threads", "apps", " ny-follow glow-wide g-apps"),
+            "app": ("apps", "apps", " ny-follow glow-wide g-apps"),
+            "radar": ("radar", "neutral", " ny-radar")}[i["kind"]]
+    return (f'<article class="ny-item{look[2]}" id="{uid}" data-item="{uid}" data-key="{esc(i["key"])}" '
             f'aria-labelledby="{uid}-t" tabindex="-1">'
-            f'<header class="ny-ih"><h4 class="ny-it" id="{uid}-t">{esc(i["title"])}</h4>'
-            f'<p class="ny-im">{meta}{tags}</p></header>'
+            f'<header class="ny-ih">{chip(look[0], look[1])}<div class="ny-ih-text">'
+            f'<h3 class="ny-it" id="{uid}-t">{esc(i["title"])}</h3>'
+            f'<p class="ny-im">{meta}{tags}</p></div></header>'
             f'<div class="ny-ib">{body}</div>{_on_file_link(i, model)}{_actions(i, model)}</article>')
 
 
@@ -1279,8 +1274,9 @@ def list_html(model: dict) -> str:
         if not members:
             continue
         body = "".join(item_html(i, model) for i in members)
-        parts.append(f'<section class="ny-group" aria-labelledby="group-{group}">'
-                     f'{group_head(group, members, model)}{body}</section>')
+        # No subheading (owner, 17 Nov): each card carries its kind. The
+        # block keeps the group's address, which the tiles link to.
+        parts.append(f'<div class="ny-group" id="group-{group}">{body}</div>')
     return "".join(parts)
 
 
@@ -1290,17 +1286,26 @@ def empty_html(model: dict) -> str:
     return '<div class="empty"><p>Nothing today.</p></div>'
 
 
+def sec_count(n: int, one: str, many: str) -> str:
+    """A section title's count pill, read as ", 3 items"."""
+    return (f'<span class="sec-count"><span class="visually-hidden">, </span>{n}'
+            f'<span class="visually-hidden"> {one if n == 1 else many}</span></span>')
+
+
 def needs_html(model: dict) -> str:
+    """Open actions: the title row (its chip, the title, the count of items to
+    do, then To do, Done and Undo last), then every item as its own card."""
     items = model["items"]
     done_view = model["show"] == "done"
-    title = "Done on Home" if done_view else "Needs you today"
-    count = f'<span class="ny-count">{_n(len(items), "item")}</span>' if items else ""
+    title = "Done on Home" if done_view else "Open actions"
+    count = sec_count(len(items), "item", "items") if items else ""
     n_done = len(model["done"])
     seg = ('<nav class="segmented" aria-label="Show">'
            f'<a class="seg" href="/"{" aria-current=" + chr(34) + "page" + chr(34) if not done_view else ""}>To do</a>'
            f'<a class="seg" href="/?show=done"{" aria-current=" + chr(34) + "page" + chr(34) if done_view else ""}>'
            f'Done<span class="visually-hidden">, {n_done} {"item" if n_done == 1 else "items"}</span></a></nav>')
-    head = (f'<header class="ny-head"><h2 class="ny-title" id="ny-title">{title}{count}</h2>'
+    head = (f'<header class="sec-head ny-head">{chip("actions", "neutral")}'
+            f'<h2 class="sec-title ny-title" id="ny-title">{title}{count}</h2>'
             f'<div class="ny-tools">{seg}<button type="button" class="btn btn-ghost undo-last" '
             'id="undo-last" disabled>Undo last</button></div></header>')
     # An address for an item that has gone says so, on an empty Home as well.
@@ -1335,7 +1340,7 @@ def render(conn, data: dict, config: dict, item: str | None = None, show: str = 
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(page_title(model))}</title>
 <link rel="icon" href="{bd.FAVICON}">
-<style>{ip.FONT_CSS}{page_frame.FRAME_CSS}{jp.ROW_CSS}{jp.ROW_NARROW_CSS}{HOME_CSS}</style>
+<style>{ip.FONT_CSS}{page_frame.FRAME_CSS}{jp.ROW_CSS}{jp.ROW_NARROW_CSS}{tiers.PILL_CSS}{HOME_CSS}</style>
 </head>
 <body>
 <div class="app" data-page="home" data-state="{esc(json.dumps(state))}">
@@ -1436,14 +1441,10 @@ a{color:inherit}
 .text-figure-large{font-size:20px;line-height:28px;font-weight:600;font-variant-numeric:tabular-nums}
 .ink-2{color:var(--text-2)}
 .action-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.segmented{display:inline-flex;flex:none}
-.seg{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px;margin-left:-1px;padding:0 8px;border:1px solid var(--border-strong);border-radius:0;background:var(--surface);color:var(--text-2);font-size:12px;line-height:16px;font-weight:600;text-decoration:none}
-.seg:first-child{margin-left:0;border-radius:var(--radius-2) 0 0 var(--radius-2)}
-.seg:last-child{border-radius:0 var(--radius-2) var(--radius-2) 0}
+.segmented{display:inline-flex;flex:none;gap:4px}
+.seg{display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:16px;background:transparent;color:var(--text-2);font-size:13px;line-height:20px;font-weight:500;text-decoration:none}
 .seg:hover{color:var(--text-1)}
-.seg[aria-current]{background:var(--surface-sunken);color:var(--text-1)}
-.seg[aria-current]::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-1px;height:2px;background:var(--accent)}
-.seg:focus-visible{z-index:1}
+.seg[aria-current]{background:#1a2025;border-color:#2a3238;color:var(--text-1)}
 .pane-note{display:flex;align-items:center;min-height:32px;padding:8px 16px 7px;font-size:12px;line-height:16px;color:var(--text-2);border-bottom:1px solid var(--border-subtle)}
 .group-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;min-width:0;font-size:16px;line-height:24px;font-weight:600}
 .group-count{font-size:12px;line-height:16px;font-weight:400;color:var(--text-3);font-variant-numeric:tabular-nums}
@@ -1484,10 +1485,10 @@ a{color:inherit}
 .gchip{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;border-radius:8px;background:rgb(var(--g) / .16);color:var(--gc)}
 .gchip.g-neutral{background:rgb(var(--g) / .10)}
 .gchip svg{display:block}
-.glow-tile{background:radial-gradient(150% 170% at 0% 0%,rgb(var(--g) / .30) 0%,rgb(var(--g) / .11) 45%,rgb(var(--g) / 0) 100%),var(--surface)}
-.glow-tile.is-zero{background:radial-gradient(150% 170% at 0% 0%,rgb(var(--g) / .16) 0%,rgb(var(--g) / .06) 45%,rgb(var(--g) / 0) 100%),var(--surface)}
-.glow-wide{background:radial-gradient(115% 160% at 0% 0%,rgb(var(--g) / .20) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%),var(--surface)}
-.glow-short{background:radial-gradient(80% 260% at 0% 0%,rgb(var(--g) / .22) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%),var(--surface)}
+.glow-tile{background-image:radial-gradient(150% 170% at 0% 0%,rgb(var(--g) / .30) 0%,rgb(var(--g) / .11) 45%,rgb(var(--g) / 0) 100%)}
+.glow-tile.is-zero{background-image:radial-gradient(150% 170% at 0% 0%,rgb(var(--g) / .16) 0%,rgb(var(--g) / .06) 45%,rgb(var(--g) / 0) 100%)}
+.glow-wide{background-image:radial-gradient(115% 160% at 0% 0%,rgb(var(--g) / .20) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%)}
+.glow-short{background-image:radial-gradient(80% 260% at 0% 0%,rgb(var(--g) / .22) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%)}
 @media (forced-colors:active){.gchip{border:1px solid CanvasText}}
 /* ---- the tiles ---- */
 .ht{container:ht / inline-size;min-width:0;background:var(--ht-surface);border:1px solid var(--ht-line);border-radius:var(--radius-4);color:var(--text-1);--focus-gap:var(--ht-surface)}
@@ -1585,7 +1586,7 @@ a{color:inherit}
    the first across the width, three and two from 600px, five across from
    1024px ---- */
 .ht-figs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
-.ht-figlink{display:flex;flex-direction:column;align-items:flex-start;min-width:0;min-height:44px;padding:16px;border:1px solid var(--border-subtle);border-radius:12px;color:var(--text-1);text-decoration:none;--focus-gap:var(--canvas);transition:border-color var(--dur) ease-out}
+.ht-figlink{display:flex;flex-direction:column;align-items:flex-start;min-width:0;min-height:44px;padding:16px;background-color:var(--surface);border:1px solid var(--border-subtle);border-radius:12px;color:var(--text-1);text-decoration:none;--focus-gap:var(--canvas);transition:border-color var(--dur) ease-out}
 .ht-figlink:hover{border-color:var(--border-strong)}
 .ht-figlink:hover .ht-figword{text-decoration:underline;text-decoration-color:var(--link-line);text-underline-offset:3px}
 .ht-figlink > .gchip{margin-bottom:16px}
@@ -1617,55 +1618,81 @@ a{color:inherit}
 .ht-health-foot{padding-top:4px}
 @container htw (min-width:600px){.ht-health-widgets{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @container htw (min-width:1100px){.ht-health{grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr)}.ht-health-widgets{display:contents}.ht-health-foot{grid-column:1 / -1}}
-/* ---- Needs you today: every item in full, one under another ---- */
-.ny{container:ny / inline-size;min-width:0;background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius-4)}
-.ny-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;min-height:56px;padding:12px 16px;border-bottom:1px solid var(--border-subtle)}
-.ny-title{font-size:16px;line-height:24px;font-weight:600;color:var(--text-1)}
-.ny-count{margin-left:8px;font-size:14px;font-weight:400;color:var(--text-3)}
-.ny-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-left:auto}
-.ny-group > .group-title{padding:12px 16px;background:var(--surface-sunken);border-bottom:1px solid var(--border-subtle)}
-.ny-item{display:flex;flex-direction:column;gap:16px;min-width:0;padding:20px 16px;border-bottom:1px solid var(--border-subtle);scroll-margin-top:8px}
-.ny-group:last-child > .ny-item:last-child{border-bottom:0}
+/* ---- a section's title, outside its card: the chip, the title, a count
+   pill, and a link or the tools at the right; 12px to the card ---- */
+.sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-width:0;margin-bottom:12px}
+.sec-title{display:flex;align-items:center;gap:10px;min-width:0;font-size:17px;line-height:24px;font-weight:600;color:var(--text-1)}
+.sec-count{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px solid #2a3238;border-radius:11px;background:#1a2025;font-size:12px;line-height:16px;font-weight:500;color:var(--text-2);font-variant-numeric:tabular-nums}
+.sec-link{margin-left:auto}
+.sec-head > .gchip{margin-right:2px}
+/* ---- Open actions: every item in full, each its own card in its group's
+   colour, one under another ---- */
+.ny{container:ny / inline-size;min-width:0}
+.ny-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:auto}
+.ny-tools .undo-last,.ny-tools .undo-last:disabled{border-color:transparent;font-size:13px}
+.ny-body,.ny-group{display:flex;flex-direction:column;gap:16px;min-width:0}
+.ny-body > .empty{padding:20px;background:var(--surface);border:1px solid var(--border-subtle);border-radius:14px;color:var(--text-2)}
+.ny-body > .pane-note{min-height:0;padding:0;border:0}
+.ny-item{position:relative;display:flex;flex-direction:column;gap:16px;min-width:0;padding:20px;background-color:var(--surface);border:1px solid var(--border-subtle);border-radius:14px;scroll-margin-top:16px;--focus-gap:var(--surface)}
 .ny-item:focus{outline:none}
-.ny-item:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
-.ny-item:target{box-shadow:inset 3px 0 0 var(--accent)}
-.ny-ih{display:flex;flex-direction:column;gap:6px}
+.ny-item:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.ny-item:target{border-color:var(--border-strong)}
+.ny-ih{display:flex;align-items:flex-start;gap:14px}
+.ny-ih-text{display:flex;flex-direction:column;gap:6px;min-width:0;padding-top:4px}
 .ny-it{max-width:80ch;font-size:18px;line-height:24px;font-weight:600;text-wrap:balance}
-.ny-im{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;font-size:12px;line-height:16px;color:var(--text-3)}
+.ny-im{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;font-size:12px;line-height:16px;color:var(--text-2)}
 .ny-ib{display:flex;flex-direction:column;gap:20px;min-width:0}
 .ny-para{max-width:80ch;text-wrap:pretty}
 .ny-para + .ny-para{margin-top:8px}
 .ny-fig{display:flex;align-items:baseline;gap:8px;margin-top:12px}
 .ny-basis{max-width:80ch;margin-top:2px;text-wrap:pretty}
 .ny-under{max-width:80ch;margin-top:8px;text-wrap:pretty}
+.ny-follow .text-meta,.ny-follow .c-meta,.ny-follow .c-seen,.ny-follow .group-count{color:var(--text-2)}
 .ny-context{display:flex;flex-direction:column;gap:12px}
 .ny-ctx-part .sec-h{font-size:12px;line-height:16px;color:var(--text-2)}
 .ny-ctx-part .ctx-row{max-width:80ch}
 .ny-onfile{align-self:flex-start}
 .ny-gone{color:var(--caution)}
-/* A role: the Jobs row, with Done beside it, or under it in a narrow block.
-   The row's own rules are jobs_page.ROW_CSS; it is a "queue" container, as
-   on Jobs, so the row's narrow rules reach it. */
-.ny-role{container:nyrole / inline-size;flex-direction:row;flex-wrap:wrap;align-items:center;gap:0;padding:0}
-.ny-role-row{container:queue / inline-size;flex:1 1 320px;min-width:0}
-.ny-role .row{border-bottom:0}
-.ny-role > .ny-acts{flex:none;margin:0;padding:8px 16px}
-@container nyrole (max-width:479.98px){.ny-role > .ny-acts{flex-basis:100%;justify-content:flex-end;padding-top:0}}
-/* An urgent signal, as Insights draws a story. */
-.ny-story{gap:8px}
-.ny-story .story-line{color:var(--text-3);font-size:13px;line-height:20px;overflow-wrap:anywhere}
-.ny-story .story-line .co{color:var(--text-2);font-weight:600}
-.ny-move{margin-top:4px}
-.ny-story .story-h{max-width:60ch;font:500 22px/28px var(--font-serif);letter-spacing:-.005em;overflow-wrap:anywhere}
+/* Every item's buttons: 44px, Done quiet. */
+.ny-acts{gap:12px}
+.ny-acts .btn{height:44px;padding:0 16px;border-radius:8px}
+.ny-acts .btn-secondary{background:var(--surface-sunken);border-color:#39424a;color:var(--text-1)}
+.ny-acts .btn-secondary:hover{background:var(--row-hover)}
+/* A role: one short card, its chip, the Jobs row, its tier's pill and Done;
+   Done goes under the row in a narrow card. The row's own rules are
+   jobs_page.ROW_CSS; it is a "queue" container, as on Jobs, so the row's
+   narrow rules reach it. */
+.ny-role{container:nyrole / inline-size;flex-direction:row;flex-wrap:wrap;align-items:center;gap:12px 16px;padding:16px 20px}
+.ny-role-row{container:queue / inline-size;flex:1 1 280px;min-width:0}
+.ny-role .row{min-height:0;padding:0;border-bottom:0;background:transparent}
+.ny-role .row:hover{background:transparent}
+.ny-role .r-title{font-size:16px;line-height:24px;font-weight:600}
+.ny-role .r-meta,.ny-role .r2{color:var(--text-2)}
+.ny-role .r-meta{font-size:13px;line-height:20px}
+.ny-role .r2{min-height:20px}
+.ny-role .r-bit ~ .r-bit::before{border-left-color:var(--text-3)}
+.ny-role > .ny-acts{flex:none;margin-left:auto}
+@container nyrole (max-width:479.98px){.ny-role > .ny-acts{flex-basis:100%;justify-content:flex-end}}
+/* An urgent story: its kind and source, the headline, the summary, its Next
+   move in an inset panel, then its links and Done. */
+.ny-story{gap:14px}
+.ny-story .story-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0;color:var(--text-2);font-size:13px;line-height:20px;overflow-wrap:anywhere}
+.ny-story .story-kind{font-weight:600;color:#ecc27a}
+.ny-story .story-src{min-width:0}
+.ny-story .story-src .co{color:var(--text-2)}
+.fact-rule{flex:none;display:inline-block;width:0;height:12px;border-left:1px solid var(--text-3)}
+.ny-story .story-h{max-width:60ch;margin-top:2px;font-size:21px;line-height:1.3;font-weight:600;overflow-wrap:anywhere;text-wrap:balance}
 .ny-story .story-h a{color:var(--text-1);text-decoration:none}
 .ny-story .story-h a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px}
-.ny-story .story-sum{max-width:72ch;color:var(--text-2);font-size:15px;line-height:22px;text-wrap:pretty}
-.ny-story .story-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;color:var(--text-3);font-size:13px;line-height:20px}
-.ny-story .story-meta a{color:var(--accent);white-space:nowrap}
-.ny-story .story-meta a:hover{color:var(--accent-hover)}
-.ny-story .story-meta a svg{vertical-align:-1px;margin-left:3px}
-.ny-story .ny-acts{margin-top:8px}
-@container ny (max-width:599.98px){.ny-tools{margin-left:0}.facts{grid-template-columns:112px minmax(0,1fr)}}
+.ny-story .story-sum{max-width:72ch;color:var(--text-2);font-size:15px;line-height:24px;text-wrap:pretty}
+.ny-move{padding:14px 16px;background:#101417;border:1px solid #1f262b;border-radius:10px}
+.ny-move .sec-h{margin-bottom:4px;font-size:14px;line-height:20px;font-weight:600;color:var(--text-1)}
+.ny-move .ny-para{color:var(--text-2);font-size:15px;line-height:24px}
+.ny-story .ny-acts{gap:12px 24px;margin-top:2px}
+.ny-story .ny-acts .link{display:inline-flex;align-items:center;min-height:44px;font-size:15px;line-height:24px}
+.ny-story .ny-acts .link svg{margin-left:4px}
+.ny-story .ny-acts .ny-onfile{align-self:auto}
+@container ny (max-width:599.98px){.ny-tools{margin-left:0;flex-basis:100%}.facts{grid-template-columns:112px minmax(0,1fr)}.ny-item{padding:16px}.ny-role{padding:14px 16px}}
 /* ---- the page: a dotted ground, then the welcome, the tiles and the rest ---- */
 .app{background-color:var(--canvas);background-image:radial-gradient(rgba(232,237,240,.06) 1px,transparent 1px);background-size:22px 22px}
 .hf{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-content:start;width:100%;max-width:1440px;margin:0 auto;padding:20px 16px 32px}
@@ -1679,8 +1706,6 @@ a{color:inherit}
   .undo-last{padding-inline:8px}
   .ht-step,.ht .link-block,.ht-figlink,.apm-link,.link-block,.ctx-row,.ht-health-btn{min-height:44px}
   .apm-wait li .link{display:inline-flex;align-items:center;min-height:44px}
-  .ny-story .story-meta a{display:inline-flex;align-items:center;min-height:44px}
-  .ny-story .story-h{font-size:20px;line-height:26px}
   .table th:first-child,.table td:first-child{width:112px}
   .table th:nth-child(2),.table td:nth-child(2){width:80px}
 }
@@ -1688,9 +1713,8 @@ a{color:inherit}
   .btn,.seg{height:44px}
   .ht-step,.ht .link-block,.ht-figlink,.apm-link,.link-block,.ht-health-btn{min-height:44px}
   .apm-wait li .link{display:inline-flex;align-items:center;min-height:44px}
-  .ny-story .story-meta a{display:inline-flex;align-items:center;min-height:44px}
 }
-@media (forced-colors:active){.ny-item:target{border-left:3px solid Highlight}.tag{border:1px solid CanvasText}}
+@media (forced-colors:active){.ny-item:target{outline:2px solid Highlight}.tag{border:1px solid CanvasText}}
 """
 
 
