@@ -1808,7 +1808,13 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .applied-note{margin-left:0}
   .facts{grid-template-columns:112px minmax(0,1fr)}
   .company .link,.with-icon{display:inline-flex;align-items:center;min-height:44px}
-  .evidence{position:relative;display:inline-block;padding:6px 0}
+  .evidence{position:relative;display:inline-block;padding:12px 0}
+  /* Every target 44px on a phone: the pane's links and the filtered line's,
+     the advert's fold, and the tier pill, whose hit area grows past its look. */
+  .role .link,.filtered .link{display:inline-flex;align-items:center;min-height:44px}
+  .advert-rest > summary{min-height:44px}
+  .group-title button.tier-pill{position:relative}
+  .group-title button.tier-pill::after{content:"";position:absolute;inset:-10px -4px}
   .show-list{left:0;right:auto}
   .chips{display:contents}
 }
