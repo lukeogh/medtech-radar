@@ -840,9 +840,11 @@ def page_checks(tmp: Path) -> None:
           and "<kbd" not in page,
           "the record beside the list has Close by its arrows, 36px and no key hint; its own page has Back")
     none_chosen = watchlist_page.render_page(wl.build_model(conn, CFG, NOW), None, "table")
-    check("No company chosen." in none_chosen and 'class="layout has-record"' in none_chosen
+    check("No company chosen." not in none_chosen and 'class="layout has-record"' not in none_chosen
+          and 'class="layout"' in none_chosen and "<aside" not in none_chosen
           and ".co-card.is-selected{box-shadow:inset 0 0 0 100vmax rgba(92,195,207,.14)}" in watchlist_page.WATCHLIST_CSS,
-          "with no company chosen the record column says so, and a chosen company's card has a soft teal wash")
+          "with no company chosen there is no record column and the list takes the full width; a "
+          "chosen company's card has a soft teal wash")
     fake = [{"id": 99, "name": "Okara Diagnostics", "place": "", "type_words": "Funding round",
              "dismissed_at": NOW, "dismissed_by": "you"}]
     folded = watchlist_page.render_page(dict(m, suggestions=[], dismissed=fake), None, "table")
