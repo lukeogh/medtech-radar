@@ -285,24 +285,6 @@ def render_jobs(selected: int | None, query: dict) -> tuple[int, bytes, str]:
     return status, page.encode("utf-8"), "text/html; charset=utf-8"
 
 
-def render_company(company_id: int):
-    """The dossier for one company, or None when there is no such id."""
-    config = radar_common.load_config()
-    dbp = Path(ARGS.db).resolve() if ARGS.db else radar_common.DB_PATH
-    conn = sqlite3.connect(f"file:{dbp.as_posix()}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    try:
-        try:
-            db_label = dbp.relative_to(REPO_ROOT).as_posix()
-        except ValueError:
-            db_label = str(dbp)
-        page = build_dashboard.render_company_page(conn, company_id, config,
-                                                   db_label)
-    finally:
-        conn.close()
-    return page.encode("utf-8") if page else None
-
-
 _MIGRATED = False
 FONT_DIR = REPO_ROOT / "static" / "fonts"
 

@@ -303,7 +303,7 @@ def build_db() -> dict:
     try:
         # Insights before the Watchlist: the Insights sample keeps a company's
         # people as plain names, the Watchlist sample (and enrichment) as
-        # {name, role}, and the company dossier reads only the second.
+        # {name, role}, and the record reads only the second.
         seed_insights_sample.seed(conn, FROZEN.replace(second=0, microsecond=0))
         companies = seed_watchlist_sample.seed(conn, FROZEN)
         conn.commit()

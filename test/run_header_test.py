@@ -171,6 +171,8 @@ def seed(tmp: Path) -> tuple[Path, Path, dict]:
     conn = rc.get_db(db)
     seed_insights_sample.seed(conn, NOW.replace(second=0, microsecond=0))
     ids["company"] = seed_watchlist_sample.seed(conn, NOW)["Hartwell Infusion Ltd"]
+    ids["unwatched"] = conn.execute("SELECT id FROM companies WHERE watched_at IS NULL ORDER BY id"
+                                    " LIMIT 1").fetchone()[0]
     conn.commit()
     conn.close()
     return db, profile, ids
@@ -206,7 +208,8 @@ def every_page(ids: dict) -> dict[str, tuple[str, str | None]]:
         "Watchlist": (text(serve_dashboard.render_watchlist(None, "table")), "Watchlist"),
         "a Watchlist company": (text(serve_dashboard.render_watchlist(ids["company"], "record")),
                                 "Watchlist"),
-        "a company dossier": (text(serve_dashboard.render_company(ids["company"])), None),
+        "an unwatched company's record": (text(serve_dashboard.render_watchlist(ids["unwatched"], "record")),
+                                          "Watchlist"),
         "CV": (text(serve_dashboard.render_cv_page()), "CV"),
         "Radar's health": (text(serve_dashboard.render("radar")), None),
         "the archive": (text(serve_dashboard.render("archive")), None),
@@ -223,7 +226,7 @@ def page_checks(tmp: Path) -> None:
     # One company page (owner, 17 Nov): no page links to the old company page,
     # apart from the older dashboard page (the archive), whose links follow the redirect.
     linking = [n for n, (page, _c) in running.items()
-               if n not in ("a company dossier", "the archive") and re.search(r'href="/company/\d', page)]
+               if n != "the archive" and re.search(r'href="/company/\d', page)]
     check(not linking, f"no page links to /company/<id> any more ({linking or 'none'})")
     for name, (page, current) in running.items():
         bar = bar_of(page)
