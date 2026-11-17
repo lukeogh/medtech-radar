@@ -958,43 +958,66 @@ def _spans_for(reasons: list, text: str, offset: int = 0) -> tuple[list, dict]:
 # row's marks are as they were.
 GATE_TONES = {radar_common.PASSES: "is-pos", radar_common.FAILS: "is-neg",
               radar_common.NOT_STATED: "is-cau"}
+# A gate's status chip (owner, 17 Nov): a tick on green, a question mark on
+# amber, a cross in the fail colour; a gate never judged has a dash.
+GATE_ICONS = {
+    radar_common.PASSES: '<polyline points="5,10.5 8.5,14 15,6.5"/>',
+    radar_common.NOT_STATED: ('<path d="M7.6 7.6a2.4 2.4 0 1 1 3.5 2.1c-.7.4-1.1.9-1.1 1.7"/>'
+                              '<circle cx="10" cy="14.8" r="0.7" fill="currentColor"/>'),
+    radar_common.FAILS: '<line x1="6" y1="6" x2="14" y2="14"/><line x1="14" y1="6" x2="6" y2="14"/>',
+    radar_common.NOT_JUDGED: '<line x1="6" y1="10" x2="14" y2="10"/>',
+}
+
+
+def pane_section(key: str, title: str, body: str, icon: str, group: str = "neutral",
+                 extra: str = "", cls: str = "") -> str:
+    """One section of the role pane (owner, 17 Nov): its title outside its card,
+    in Home's pattern, the chip, the title and an optional pill or note; then
+    the card."""
+    return (f'<section class="psec{" " + cls if cls else ""}" aria-labelledby="{key}-heading">'
+            f'<header class="sec-head">{page_frame.chip(icon, group)}'
+            f'<h3 class="sec-title" id="{key}-heading">{title}</h3>{extra}</header>'
+            f'<div class="pcard">{body}</div></section>')
 
 
 def score_html(o: dict) -> str:
-    """Score, its own section: the tier's pill, then the four gates, the CV
-    figure inside the CV match gate. How the score was made stays in the
+    """Score, its own section: the tier's pill beside the title, then the four
+    gates as tiles, each with its status chip, its name and word, the CV figure
+    inside the CV match gate, and its reason. A gate that is not stated or
+    fails glows in its status's colour. How the score was made stays in the
     database and is not said here (owner, 17 Nov)."""
     tier = o.get("tier")
-    if tier:
-        reason = (f'<span class="tier-reason">{esc(o["filter_reason"])}</span>'
-                  if tier == "filtered" and o.get("filter_reason") else "")
-        tier_line = (f'<p class="tier-line">{tiers.pill_html(tier, TIER_WORDS.get(tier), singular=True)}'
-                     f'{reason}</p>')
-    else:
-        tier_line = '<p class="tier-line">Not scored yet.</p>'
+    pill = tiers.pill_html(tier, TIER_WORDS.get(tier), singular=True) if tier else ""
+    reason = (f'<p class="tier-reason">{esc(o["filter_reason"])}</p>'
+              if tier == "filtered" and o.get("filter_reason") else "")
+    lead = reason if tier else '<p class="tier-reason">Not scored yet.</p>'
     gates = []
     for gate, name, _letter in GATES:
         state = radar_common.gate_state(o, gate)
-        _mk, symbol, word = STATE_MARKS[state]
+        _mk, _symbol, word = STATE_MARKS[state]
         cls = GATE_TONES.get(state, "is-neu")
         note = o.get(f"gate_{gate}_note") or ""
         if state == radar_common.NOT_STATED:
             # A note an older score wrote may pass or fail it. Code's is said
             # here whatever is stored.
             note = radar_common.RATE_NOT_STATED_NOTE
-        status = f'{_use(symbol)}{word}'
+        status = esc(word)
         if gate == "cv" and o.get("cv_match") is not None:
             # The figure shares the status's line, set apart by the drawn rule.
             status = (f'<span class="r-bit">{status}</span>'
                       '<span class="visually-hidden">, </span>'
                       f'<span class="r-bit gate-figure">{int(o["cv_match"])}%</span>')
-        gates.append(f'<div class="gate gate-{gate}"><span class="gate-name">{name}</span>'
+        glow = " gate-glow" if state in (radar_common.NOT_STATED, radar_common.FAILS) else ""
+        icon = (f'<span class="gate-chip {cls}" aria-hidden="true"><svg viewBox="0 0 20 20" '
+                'width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" '
+                'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" '
+                f'focusable="false">{GATE_ICONS[state]}</svg></span>')
+        gates.append(f'<div class="gate gate-{gate} {cls}{glow}">{icon}'
+                     f'<span class="gate-name">{name}</span>'
                      f'<span class="gate-status {cls}">{status}</span>'
                      f'<span class="gate-note">{esc(note)}</span></div>')
-    return ('<section class="sec score" aria-labelledby="score-heading">'
-            '<h3 class="sec-h" id="score-heading">Score</h3>'
-            f'{tier_line}<div class="gate-strip">{"".join(gates)}</div>'
-            '</section>')
+    return pane_section("score", "Score", f'{lead}<div class="gate-tiles">{"".join(gates)}</div>',
+                        "top", "jobs", extra=pill, cls="score")
 
 
 def reasons_section(o: dict, reasons: list, hits: dict, quotes: bool) -> str:
@@ -1020,9 +1043,8 @@ def reasons_section(o: dict, reasons: list, hits: dict, quotes: bool) -> str:
             radar_common.reasons_record(o.get("score_reasons"), o.get("scored_at")), o):
         notes.append('<p class="basis">The gates have been judged again in code '
                      'since these reasons were given.</p>')
-    return ('<section class="sec" aria-labelledby="reasons-heading">'
-            '<h3 class="sec-h" id="reasons-heading">Reasons</h3>'
-            f'<ul class="reasons">{"".join(items)}</ul>{"".join(notes)}</section>')
+    return pane_section("reasons", "Reasons", f'<ul class="reasons">{"".join(items)}</ul>'
+                        f'{"".join(notes)}', "quote")
 
 
 def asks_section(o: dict, view: str) -> str:
@@ -1048,8 +1070,7 @@ def asks_section(o: dict, view: str) -> str:
                 f'asks are not counted here. {link}</p>')
     else:
         return ""
-    return ('<section class="sec" aria-labelledby="asks-heading">'
-            f'<h3 class="sec-h" id="asks-heading">Asks</h3>{body}</section>')
+    return pane_section("asks", "Asks", body, "actions")
 
 
 def _state_words(o: dict, view: str, now: str) -> str:
@@ -1077,7 +1098,7 @@ def _state_words(o: dict, view: str, now: str) -> str:
     return words
 
 
-def details_section(data: dict, o: dict, view: str, now: str) -> str:
+def details_section(data: dict, o: dict, view: str, now: str, company: str = "") -> str:
     import prepare_application as prep
     facts = []
     # The rate as advertised only when the advert gives a figure; with none,
@@ -1105,7 +1126,7 @@ def details_section(data: dict, o: dict, view: str, now: str) -> str:
                 f"{_day(first)}. A verdict here covers the whole chain.")
         latest = (o.get("_chain") or {}).get("latest_tier")
         if latest:
-            text += f" Latest advert read lower, {latest}."
+            text += f" Latest advert read lower, {TIER_WORDS.get(latest, latest.capitalize())}."
         facts.append(("Repost chain", esc(text)))
     flags = []
     try:
@@ -1116,9 +1137,8 @@ def details_section(data: dict, o: dict, view: str, now: str) -> str:
     facts.append(("Type", esc(type_words(o))))
     facts.append(("Source", esc(board(o.get("source")))))
     rows = "".join(f"<dt>{label}</dt><dd>{value}</dd>" for label, value in facts)
-    return ('<section class="sec" aria-labelledby="details-heading">'
-            '<h3 class="sec-h" id="details-heading">Details</h3>'
-            f'<dl class="facts">{rows}</dl></section>')
+    # Then the way to everything on file for the company, in the same card.
+    return pane_section("details", "Details", f'<dl class="facts">{rows}</dl>{company}', "list")
 
 
 def company_section(data: dict, o: dict) -> str:
@@ -1139,9 +1159,9 @@ def company_section(data: dict, o: dict) -> str:
     text = ", ".join(bits)
     meta = (f'<p class="company-meta">{esc(text[:1].upper() + text[1:])}</p>'
             if bits else "")
-    return ('<section class="sec company" aria-label="Company">'
+    return ('<div class="company">'
             f'<p><a class="link" id="company-on-file" href="/company/{int(cid)}">'
-            f'Everything on file for {esc(name)}</a></p>{meta}</section>')
+            f'Everything on file for {esc(name)}</a></p>{meta}</div>')
 
 
 def advert_section(o: dict, reasons: list, quotes: bool, view: str,
@@ -1175,8 +1195,9 @@ def advert_section(o: dict, reasons: list, quotes: bool, view: str,
         head = ""
     return ('<section class="advert" aria-labelledby="advert-heading" tabindex="-1" '
             'id="advert">'
-            f'<div class="advert-head"><h3 class="sec-h" id="advert-heading">Advert</h3>'
-            f'{head}</div><div class="advert-body">{body}</div></section>'), hits
+            f'<header class="sec-head advert-head">{page_frame.chip("story", "neutral")}'
+            f'<h3 class="sec-title" id="advert-heading">Advert</h3>{head}</header>'
+            f'<div class="pcard advert-body">{body}</div></section>'), hits
 
 
 def _btn(kind: str, label: str, key: str, oid: int, primary: bool = False) -> str:
@@ -1271,20 +1292,22 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
 
     back = (f'<a class="link back" href="/jobs{view_query(view if view != "retired" else "open", model["loc"])}" '
             'data-back>Back to Jobs</a>')
+    lead = pane_lead(face)
+    lead_html = f'<p class="lead-line">{esc(lead)}</p>' if lead else ""
+    # The header card (owner, 17 Nov): the Jobs chip, the title and its facts,
+    # the advert and the arrows at the right, the buttons, then the summary.
     head = (f'<header class="detail-head">{back}<div class="dh-grid">'
+            f'<span class="dh-chip">{page_frame.chip("jobs", "jobs")}</span>'
             f'<h2 class="dh-title" id="role-title" tabindex="-1">{esc(title)}</h2>'
             f'<div class="dh-meta"><p class="dh-facts"><span class="dh-facts-in">'
             f'{meta_html(meta)}</span></p>{tags}</div>'
             f'<div class="dh-nav">{open_advert}'
             f'{step(prev_id, "Previous job", "prev", "ic-left")}{step(next_id, "Next job", "next", "ic-right")}'
-            f'</div></div>{actions_html(face, view)}</header>')
-    lead = pane_lead(face)
-    body = [f'<p class="lead-line">{esc(lead)}</p>' if lead else "",
-            score_html(face),
+            f'</div></div>{actions_html(face, view)}{lead_html}</header>')
+    body = [score_html(face),
             reasons_section(face, reasons, hits, quotes),
             asks_section(face, view),
-            details_section(data, face, view, now),
-            company_section(data, face)]
+            details_section(data, face, view, now, company_section(data, face))]
     return (f'{head}<div class="role-scroll"><div class="detail-body">'
             f'{"".join(body)}</div>{advert}</div>')
 
@@ -1614,12 +1637,18 @@ a{color:inherit}
 .view-link{display:flex;align-items:center;min-height:40px;padding:0 4px;font-weight:600}
 .view-link .group-count{margin-left:4px}
 .filtered{padding:4px;font-size:13px;line-height:20px;color:var(--text-2)}
-.detail-head{position:sticky;top:0;z-index:3;container:dhead / inline-size;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle)}
+/* Jobs 2 (owner, 17 Nov): the role pane is a stack of cards on the page's
+   ground, 24px apart, each section's title outside its card in Home's
+   pattern. The header card glows purple from its top left. */
+.role{background:var(--canvas)}
+:root{--pcard-pad:20px}
+.detail-head{container:dhead / inline-size;margin:16px 16px 0;padding:16px var(--pcard-pad);border:1px solid var(--border-subtle);border-radius:14px;background-color:var(--surface);background-image:radial-gradient(900px 300px at 0% 0%,rgb(var(--group-jobs-rgb) / .22) 0%,rgb(var(--group-jobs-rgb) / .08) 45%,rgb(var(--group-jobs-rgb) / 0) 100%)}
 .back{display:none}
-.dh-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title nav" "meta meta";column-gap:16px}
-.dh-title{grid-area:title;align-self:center;font-size:22px;line-height:28px;font-weight:600;text-wrap:balance}
+.dh-grid{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"chip title nav" ". meta meta";column-gap:14px}
+.dh-chip{grid-area:chip;align-self:start;padding-top:2px}
+.dh-title{grid-area:title;align-self:center;font-size:24px;line-height:32px;font-weight:600;text-wrap:balance}
 .dh-title:focus{outline:none}
-.dh-nav{grid-area:nav;display:flex;align-items:center;gap:8px}
+.dh-nav{grid-area:nav;display:flex;align-items:center;gap:8px;align-self:start}
 .dh-meta{grid-area:meta;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:20px;margin-top:4px}
 /* The row's facts beneath the title, set apart by the same drawn rule. They
    may wrap here: every fact carries the rule before it, and the line is
@@ -1628,10 +1657,13 @@ a{color:inherit}
 .dh-facts-in{position:relative;display:flex;flex-wrap:wrap;margin-left:-17px}
 .dh-facts .r-bit{min-width:0}
 .dh-facts .r-bit::before{content:"";display:inline-block;width:0;height:14px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-2px}
-.actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px}
+/* Prepare application in solid teal, the Applications colour; the rest outlined. */
+.actions .btn-primary{background:var(--group-apps);border-color:var(--group-apps);color:var(--on-accent)}
 .applied-note{flex:1 1 32ch;min-width:0;max-width:80ch;margin-left:4px;color:var(--text-2);text-wrap:pretty}
+.lead-line{max-width:80ch;margin-top:16px;font-size:15px;line-height:24px;color:var(--text-1);text-wrap:pretty}
 @container dhead (max-width:759.98px){
-  .dh-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"title" "meta" "nav"}
+  .dh-grid{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"chip title" "meta meta" "nav nav"}
   .dh-nav{margin-top:8px;flex-wrap:wrap}
   .dh-nav .open-advert{margin:0 auto 0 -12px}
 }
@@ -1639,42 +1671,48 @@ a{color:inherit}
   .actions-open{display:grid;grid-template-columns:repeat(4,max-content)}
   .actions-open .btn-primary{grid-column:1 / -1;justify-self:start}
 }
-.detail-body{display:flex;flex-direction:column;gap:24px;padding:16px 16px 24px}
-/* Sections set apart by a line inset from the pane's edges. */
-.sec ~ .sec{padding-top:24px;border-top:1px solid var(--border-subtle)}
-.sec-h{margin-bottom:8px;font-size:16px;line-height:24px;font-weight:600}
-.lead-line{max-width:80ch;text-wrap:pretty}
-.tier-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
-.tier-reason{color:var(--text-2)}
-.score{container-type:inline-size}
-.gate-strip{display:grid;grid-template-columns:88px 120px minmax(0,1fr);gap:8px 12px;align-items:start;max-width:960px;margin-top:8px}
-.gate{display:contents}
-.gate-name,.gate-status{font-size:12px;line-height:16px;font-weight:600}
-.gate-name{color:var(--text-2)}
-.gate-status{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
-.gate-status > .r-bit:first-child{display:inline-flex;align-items:center;gap:4px}
+.detail-body{display:flex;flex-direction:column;gap:24px;padding:24px 16px}
+.psec{min-width:0}
+.pcard{container:pcard / inline-size;min-width:0;padding:var(--pcard-pad);border:1px solid var(--border-subtle);border-radius:14px;background:var(--surface)}
+.psec .sec-head .tier-pill{margin-left:2px}
+.tier-reason{margin-bottom:12px;color:var(--text-2)}
+/* The four gates as tiles: one row, two by two under 900px of card, one a row
+   on a phone. A gate not stated or failing glows in its status's colour, as
+   Home's tiles do; its words stay, so status is never colour alone. */
+.gate-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@container pcard (max-width:899.98px){.gate-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container pcard (max-width:479.98px){.gate-tiles{grid-template-columns:minmax(0,1fr)}}
+.gate{--st:232 237 240;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-areas:"chip name" "chip status" "note note";column-gap:12px;align-content:start;min-width:0;padding:14px;border:1px solid var(--border-subtle);border-radius:12px;background-color:var(--surface)}
+.gate.is-pos{--st:116 211 155}
+.gate.is-cau{--st:240 196 106}
+.gate.is-neg{--st:255 155 143}
+.gate-glow{background-image:radial-gradient(150% 170% at 0% 0%,rgb(var(--st) / .28) 0%,rgb(var(--st) / .10) 45%,rgb(var(--st) / 0) 100%)}
+.gate-chip{grid-area:chip;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgb(var(--st) / .16)}
+.gate-chip.is-neu{color:var(--text-2)}
+.gate-chip svg{display:block}
+.gate-name{grid-area:name;font-size:15px;line-height:20px;font-weight:600;color:var(--text-1)}
+.gate-status{grid-area:status;display:inline-flex;align-items:center;flex-wrap:wrap;font-size:14px;line-height:20px;font-weight:500}
+.gate-status.is-neu{color:var(--text-2)}
+.gate-status > .r-bit:first-child{display:inline-flex;align-items:center}
+.gate-status .r-bit ~ .r-bit::before{content:"";display:inline-block;width:0;height:12px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-1px}
 .gate-figure{color:var(--text-1);font-variant-numeric:tabular-nums}
 .is-cau{color:var(--caution)}
-.gate-note{font-size:12px;line-height:16px;color:var(--text-3);text-wrap:pretty}
-@container (max-width:479.98px){.gate-strip{grid-template-columns:72px minmax(0,1fr);row-gap:2px}.gate-note{grid-column:2;margin-bottom:8px}}
-@container (min-width:720px){.gate-strip{grid-template-columns:repeat(4,minmax(0,1fr));gap:0 24px}.gate{display:flex;flex-direction:column;gap:2px}}
-.basis{margin-top:2px;font-size:12px;line-height:16px;color:var(--text-3)}
+.gate-note{grid-area:note;margin-top:10px;font-size:14px;line-height:20px;color:var(--text-2);text-wrap:pretty}
+@media (forced-colors:active){.gate-chip{border:1px solid CanvasText}}
+.basis{margin-top:12px;font-size:13px;line-height:20px;color:var(--text-2)}
 .reasons{display:flex;flex-direction:column;gap:12px}
 .reasons li{display:flex;flex-direction:column;align-items:flex-start;gap:2px;max-width:80ch}
-.evidence,.evidence-text{font-size:12px;line-height:16px;color:var(--text-2)}
+.evidence,.evidence-text{font-size:13px;line-height:20px;color:var(--text-2)}
 .evidence{text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
 .evidence:hover{text-decoration-thickness:2px}
 .facts{display:grid;grid-template-columns:160px minmax(0,1fr);gap:8px 16px;align-items:baseline}
-.facts dt{font-size:12px;line-height:16px;font-weight:600;color:var(--text-2)}
+.facts dt{font-size:14px;line-height:20px;font-weight:600;color:var(--text-2)}
 .facts dd{max-width:80ch}
-.company-meta{margin-top:2px;font-size:12px;line-height:16px;color:var(--text-3)}
-.advert{position:relative;background:var(--surface)}
-.advert::before{content:"";position:absolute;top:0;left:16px;right:16px;border-top:1px solid var(--border-subtle)}
+.company{margin-top:16px;padding-top:16px;border-top:1px solid var(--row-line)}
+.company-meta{margin-top:2px;font-size:13px;line-height:20px;color:var(--text-2)}
+.advert{position:relative;padding:0 16px 24px;background:var(--canvas)}
 .advert:focus{outline:none}
-.advert-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px;padding:24px 16px 0;background:var(--surface)}
-.advert-head .sec-h{margin-bottom:0}
-.advert-read{font-size:12px;line-height:16px;color:var(--text-3)}
-.advert-body{padding:12px 16px 32px}
+.advert-read{font-size:13px;line-height:20px;color:var(--text-2)}
 /* The advert's lines run to about 80 characters. A heading opens each of
    its sections, with clear space above it; lists and paragraphs keep 12px. */
 .advert-text{max-width:66ch;font-size:15px;line-height:24px;text-wrap:pretty}
@@ -1729,10 +1767,10 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .role,.role-scroll{display:contents}
   .detail-head{grid-column:2;grid-row:1;position:relative}
   .detail-body{grid-column:2;grid-row:2;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-padding-block:8px}
-  .advert{grid-column:3;grid-row:1 / span 2;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-padding-top:40px;scroll-padding-bottom:8px;border-left:1px solid var(--border-subtle)}
-  .advert::before{content:none}
-  .advert-head{position:sticky;top:0;z-index:2;align-items:center;height:40px;padding:0 16px;border-bottom:1px solid var(--border-subtle)}
-  .advert-body{padding-top:16px}
+  /* The Advert's title and card are the third column; the title stays at the
+     top of the column while the advert scrolls. */
+  .advert{grid-column:3;grid-row:1 / span 2;min-height:0;overflow:auto;overscroll-behavior:contain;scroll-padding-top:56px;scroll-padding-bottom:8px;padding-top:0}
+  .advert-head{position:sticky;top:0;z-index:2;margin:0 -16px 12px;padding:16px 16px 12px;background:var(--canvas)}
   .no-selection{grid-column:2 / span 2;grid-row:1 / span 2;overflow:auto}
   .app.list-off .content{grid-template-columns:0 minmax(0,1fr) 760px}
 }
@@ -1742,6 +1780,9 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .app[data-view="role"] .pagehead{display:none}
   .app[data-view="list"] .role{display:none}
   .back{display:inline-flex;align-items:center;min-height:44px;margin-bottom:8px}
+  /* The header card is 12px and 16px in here, so Previous and Next sit on
+     Back to Jobs' line. */
+  .detail-head{padding:12px 16px}
   /* Previous and Next stay, on Back to Jobs' line at the right, 44px square:
      the header is their positioning box, so the markup and its order are the
      desktop's. One with nowhere to go shows disabled. The header, sticky
@@ -1751,6 +1792,7 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .dh-nav .pn-next{right:16px}
 }
 @media (max-width:767.98px){
+  :root{--pcard-pad:16px}
   html{scroll-padding-top:44px}
   .app{grid-template-rows:var(--bar-h) auto auto;height:auto;min-height:100vh;overflow:visible}
   .queue,.role{overflow:visible;min-height:auto}

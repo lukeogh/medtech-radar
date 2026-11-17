@@ -349,6 +349,9 @@ ICONS = {
     "applications": '<path d="M17 3 3 9l5.5 2.5L11 17z"/><line x1="8.5" y1="11.5" x2="17" y2="3"/>',
     # Radar's own item, a job that needs a look: a clock, as the Late mark is.
     "radar": '<circle cx="10" cy="10" r="6.5"/><polyline points="10,6.5 10,10 12.5,11.5"/>',
+    # Reasons given for a score: a quote mark.
+    "quote": '<path d="M5.5 14.5c0-3.4 1.2-5.6 3.8-7"/><path d="M11.5 14.5c0-3.4 1.2-5.6 3.8-7"/>'
+             '<circle cx="6.5" cy="14" r="1.6"/><circle cx="12.5" cy="14" r="1.6"/>',
     # A section of details: a list.
     "list": '<line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="16" y2="10"/>'
             '<line x1="8" y1="14" x2="16" y2="14"/><line x1="4" y1="6" x2="4.5" y2="6"/>'
