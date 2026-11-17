@@ -1403,14 +1403,14 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title>
 <link rel="icon" href="{bd.FAVICON}">
-<style>{page_frame.FRAME_CSS}{JOBS_CSS}</style>
+<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{JOBS_CSS}</style>
 </head>
 <body>
 <div class="app" data-page="jobs" data-show="{view}" data-view="{"role" if face is not None else "list"}" data-state="{state_json}">
 {SYMBOLS}
 {page_frame.appbar_html("jobs", bd.job_verdicts(data), "Jobs")}
 <div class="pagehead">
-<div class="ph-title"><h1>Jobs</h1></div>
+<div class="ph-title">{page_frame.chip("jobs", "jobs")}<h1>Jobs</h1></div>
 <div class="ph-tools">
 <button type="button" class="btn btn-secondary list-toggle" id="list-toggle" aria-expanded="true" aria-controls="queue">Hide the list</button>
 <div class="arrivals" role="status"><button type="button" class="btn btn-secondary" id="arrivals" hidden></button></div>
@@ -1455,14 +1455,14 @@ def render_board(data: dict, config: dict, loc: tuple = ()) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Applications board, Jobs, MedTech Radar</title>
 <link rel="icon" href="{bd.FAVICON}">
-<style>{page_frame.FRAME_CSS}{JOBS_CSS}{board_page.BOARD_CSS}</style>
+<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{JOBS_CSS}{board_page.BOARD_CSS}</style>
 </head>
 <body>
 <div class="app" data-page="jobs" data-show="applied" data-layout="board" data-state="{state_json}">
 {SYMBOLS}{board_page.SYMBOLS}
 {page_frame.appbar_html("jobs", bd.job_verdicts(data), "Jobs")}
 <div class="pagehead">
-<div class="ph-title"><h1>Jobs</h1></div>
+<div class="ph-title">{page_frame.chip("jobs", "jobs")}<h1>Jobs</h1></div>
 <div class="ph-tools">
 {chips_html(loc)}
 {show_menu_html(model, "applied")}
@@ -1543,14 +1543,14 @@ a{color:inherit}
 .link{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px;transition:color var(--dur) ease-out}
 .link:hover{color:var(--accent-hover);text-decoration-thickness:2px}
 .with-icon{display:inline-flex;align-items:center;gap:8px}
-.chip{display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 12px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:transparent;color:var(--text-2);font-size:12px;line-height:16px;font-weight:600;white-space:nowrap;cursor:pointer}
+.chip{display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 12px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:transparent;color:var(--text-2);font-size:13px;line-height:16px;font-weight:600;white-space:nowrap;cursor:pointer}
 .chip:hover{color:var(--text-1)}
 .chip-count{color:var(--text-3);font-weight:400;font-variant-numeric:tabular-nums}
 .chip.is-selected{background:var(--accent-tint);border-color:var(--accent);color:var(--accent)}
 .chip-facet{padding-right:8px}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip.is-selected:hover{color:var(--accent-hover)}
-.tag{display:inline-flex;align-items:center;gap:4px;flex:none;height:20px;padding:0 8px;border-radius:var(--radius-2);font-size:12px;line-height:16px;font-weight:600;white-space:nowrap}
+.tag{display:inline-flex;align-items:center;gap:4px;flex:none;height:20px;padding:0 8px;border-radius:var(--radius-2);font-size:13px;line-height:16px;font-weight:600;white-space:nowrap}
 .tag-neutral{background:var(--neutral-tint);color:var(--neutral)}
 .tag-caution{background:var(--caution-tint);color:var(--caution)}
 .tag-positive{background:var(--positive-tint);color:var(--positive)}
@@ -1561,7 +1561,7 @@ a{color:inherit}
    in the shared content box (page_frame's --frame-max and --frame-pad). The
    rows carry 16px of their own, so the list's text meets the same edge. */
 .pagehead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;min-height:56px;padding:12px max(var(--frame-pad),calc((100% - var(--frame-max)) / 2 + var(--frame-pad)));background:var(--canvas);border-bottom:1px solid var(--border-subtle)}
-.ph-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 12px;min-width:0}
+.ph-title{display:flex;flex-wrap:wrap;align-items:center;gap:0 12px;min-width:0}
 .ph-title h1{font-size:20px;line-height:28px;font-weight:600}
 .ph-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:auto}
 .arrivals:has(#arrivals[hidden]){display:none}
@@ -1574,26 +1574,46 @@ a{color:inherit}
 .content{display:grid;grid-template-columns:minmax(0,1fr);min-width:0;min-height:0;padding-inline:max(0px,calc((100% - var(--frame-max)) / 2 + var(--frame-pad) - 16px));background:var(--surface)}
 .queue,.role{min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;background:var(--surface)}
 .queue{container:queue / inline-size;scroll-padding-top:48px}
+/* Jobs 2 (owner, 17 Nov): the list and the role sit on the page's ground,
+   each tier a card on it, 12px apart; the board keeps its own ground. */
+.app:not([data-layout="board"]) .content{background:var(--canvas)}
+.queue{display:flex;flex-direction:column;gap:12px;padding:16px;background:var(--canvas)}
 .queue .link,.queue .fold,.role .link,.role .evidence,.role .btn{scroll-margin-block:8px}
-.empty-note{padding:12px 16px;color:var(--text-2);border-bottom:1px solid var(--border-subtle)}
-/* A tier's band: full width, lightly filled, pinned while its rows scroll
-   under it; the name in its pill, the count and new count, the chevron last. */
-.group-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;height:48px;padding:0 16px;background:var(--surface-sunken);border-bottom:1px solid var(--border-subtle)}
+.empty-note{padding:12px 16px;color:var(--text-2)}
+/* A tier is a card: the site's ground and border, 14px corners, and for Top
+   prospects and One question away a purple glow from its top left. Its band
+   sits at the top, pinned while its rows scroll under it, and carries the
+   same glow over an opaque ground, so the band reads the same at rest and
+   with rows passing under it. A folded tier is its band alone. */
+.group{flex:none;min-width:0;border:1px solid var(--border-subtle);border-radius:14px;background-color:var(--surface);background-image:var(--tier-glow,none);overflow:clip}
+.group[data-tier="top"]{--tier-glow:radial-gradient(130% 240px at 0% 0%,rgb(var(--group-jobs-rgb) / .28) 0%,rgb(var(--group-jobs-rgb) / .10) 45%,rgb(var(--group-jobs-rgb) / 0) 100%)}
+.group[data-tier="question"]{--tier-glow:radial-gradient(130% 200px at 0% 0%,rgb(var(--group-jobs-rgb) / .15) 0%,rgb(var(--group-jobs-rgb) / .05) 45%,rgb(var(--group-jobs-rgb) / 0) 100%)}
+.group-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;height:48px;padding:0 16px;background-color:var(--surface);background-image:var(--tier-glow,none);border-bottom:1px solid var(--row-line)}
+.group:has(> .group-rows[hidden]):not(:has(> .group-means:not([hidden]))) .group-head{border-bottom-color:transparent}
 .group-title{display:flex;align-items:center;gap:12px;min-width:0;font-size:14px;line-height:20px;font-weight:400;white-space:nowrap}
 .group-count{font-size:14px;line-height:20px;color:var(--text-2);font-variant-numeric:tabular-nums}
 .group-new{font-size:14px;line-height:20px;color:var(--text-2)}
 .group-new:empty{display:none}
 .group-new::before{content:"";display:inline-block;width:0;height:12px;margin:0 12px 0 0;border-left:1px solid var(--text-3);vertical-align:-1px}
-.group-means{padding:8px 16px 8px 32px;max-width:72ch;color:var(--text-2);border-bottom:1px solid var(--border-subtle)}
-.group-rows .row{padding-left:32px}
+.group-means{padding:8px 16px;max-width:72ch;color:var(--text-2);border-bottom:1px solid var(--row-line)}
+/* Rows on the card: a hairline between them, the open role in a purple wash
+   and nothing else. */
+:root{--row-line:rgba(232,237,240,.08)}
+.group .row{padding-inline:16px;grid-template-rows:auto 20px;background:transparent;border-bottom:1px solid var(--row-line)}
+.group .row:last-child{border-bottom:0}
+.group .row:hover{background:rgba(232,237,240,.04)}
+.group .row.is-current{background:rgba(167,156,240,.16)}
+.group .r-meta{font-size:13px;line-height:20px;color:var(--text-2)}
+.group .r-new{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:10px;background:rgba(167,156,240,.18);color:#c9c2f8;font-size:13px;line-height:16px;font-weight:600}
+.group .empty-note{padding:12px 16px}
 .fold{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;margin:0 -8px 0 auto;border:0;border-radius:var(--radius-2);background:transparent;color:var(--text-2);cursor:pointer}
 .fold:hover{background:var(--row-hover);color:var(--text-1)}
 .fold svg{transition:transform var(--dur) ease-out}
 .fold[aria-expanded="true"] svg{transform:rotate(90deg)}
 """ + ROW_CSS + tiers.PILL_CSS + """
-.view-link{display:flex;align-items:center;min-height:40px;padding:0 16px;border-bottom:1px solid var(--border-subtle);font-weight:600}
+.view-link{display:flex;align-items:center;min-height:40px;padding:0 4px;font-weight:600}
 .view-link .group-count{margin-left:4px}
-.filtered{padding:12px 16px 12px;font-size:12px;line-height:16px;color:var(--text-3)}
+.filtered{padding:4px;font-size:13px;line-height:20px;color:var(--text-2)}
 .detail-head{position:sticky;top:0;z-index:3;container:dhead / inline-size;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle)}
 .back{display:none}
 .dh-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title nav" "meta meta";column-gap:16px}
@@ -1737,6 +1757,7 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .detail-head{position:relative}
   .undo-last{margin-left:0;padding-inline:0}
   .ph-title h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+  .ph-title .gchip{display:none}
   .btn,.chip{height:44px}
   .fold{width:44px;height:44px;margin-right:-12px}
   .view-link,.back{min-height:44px}

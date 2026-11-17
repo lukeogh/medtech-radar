@@ -327,11 +327,31 @@ def queue_checks(tmp: Path) -> None:
           and (".tier-pill.t-question{background:var(--tier-question);color:var(--tier-question-ink);"
                "border-color:var(--tier-question-rule)}") in html
           and ".group-head{position:sticky;top:0" in html
-          and "background:var(--surface-sunken)" in html.split(".group-head{", 1)[1].split("}", 1)[0]
-          and ".group-rows .row{padding-left:32px}" in html,
+          and "background-color:var(--surface);background-image:var(--tier-glow,none)"
+              in html.split(".group-head{", 1)[1].split("}", 1)[0],
           "colour is in the pill only, in the Jobs group's purple (Top prospects filled, One "
           "question away a tint with a rule, Reading grey) and none in green, red, amber or "
-          "teal; the band is lightly filled and pinned, and its rows are indented")
+          "teal; the band is pinned, on an opaque ground")
+    # Jobs 2 (owner, 17 Nov): each tier a card, glowing purple from its top left.
+    check(".group{flex:none;min-width:0;border:1px solid var(--border-subtle);border-radius:14px;"
+          "background-color:var(--surface);background-image:var(--tier-glow,none);overflow:clip}" in html
+          and ".queue{display:flex;flex-direction:column;gap:12px;" in html
+          and ('.group[data-tier="top"]{--tier-glow:radial-gradient(130% 240px at 0% 0%,'
+               'rgb(var(--group-jobs-rgb) / .28) 0%,rgb(var(--group-jobs-rgb) / .10) 45%,'
+               'rgb(var(--group-jobs-rgb) / 0) 100%)}') in html
+          and ('.group[data-tier="question"]{--tier-glow:radial-gradient(130% 200px at 0% 0%,'
+               'rgb(var(--group-jobs-rgb) / .15) 0%,rgb(var(--group-jobs-rgb) / .05) 45%,'
+               'rgb(var(--group-jobs-rgb) / 0) 100%)}') in html
+          and '.group[data-tier="reading"]' not in html,
+          "each tier is a card 12px apart, Top prospects and One question away glowing purple "
+          "from the top left and Reading not at all")
+    check(":root{--row-line:rgba(232,237,240,.08)}" in html
+          and ".group .row.is-current{background:rgba(167,156,240,.16)}" in html
+          and ".group .r-new{display:inline-flex;align-items:center;height:20px;padding:0 8px;"
+              "border-radius:10px;background:rgba(167,156,240,.18);color:#c9c2f8;font-size:13px;" in html
+          and '<span class="gchip g-jobs" aria-hidden="true">' in html.split('<div class="ph-title">', 1)[1][:400],
+          "rows are set apart by a hairline, the open role is a purple wash, New is a purple "
+          "pill, and the title has the Jobs chip")
     check("FOLD_KEY" in html and "localStorage.setItem(FOLD_KEY[tier]" in html
           and "applyFolds();" in html,
           "every tier opens and closes with its chevron, and the browser remembers the choice")
@@ -965,7 +985,7 @@ def page_checks(tmp: Path) -> None:
           "the page has its language, a main landmark and a live region")
     # The header's own checks (its skip link, its light, the page it marks on
     # every page) are in test/run_header_test.py; this is the Jobs page's one.
-    check('<a href="/jobs" aria-current="page">Jobs</a>' in html,
+    check('<a href="/jobs" data-group="jobs" aria-current="page">Jobs</a>' in html,
           "the top bar marks Jobs as the page it is on")
     with pointed_at(db):
         pages = {name: serve_dashboard.render(name).decode("utf-8")
