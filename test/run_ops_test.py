@@ -797,48 +797,6 @@ def home_checks(tmp: Path) -> None:
           "a watcher armed to push says nothing about dry run")
 
 
-def company_checks(tmp: Path) -> None:
-    print("\nThe company page. The CV match and the outcome as stored.")
-    dbp = tmp / "company.sqlite"
-    conn = rc.get_db(dbp)
-    cid = rc.resolve_company(conn, "Timeline Diagnostics")
-    seen = "2026-11-10T09:00:00Z"
-    for key, title, cv, combined in (
-            ("a", "Software Lead (new scorer)", 62, None),
-            ("b", "QA Manager (old scorer)", 40, 25),
-            ("c", "Unscored Role", None, None)):
-        conn.execute(
-            "INSERT INTO opportunities (url_hash, first_seen, company, title,"
-            " cv_match, combined, company_id, source, thread_type)"
-            " VALUES (?,?,?,?,?,?,?,'linkedin-alert','inbound')",
-            (rc.url_hash(f"radar://ops/{key}"), seen, "Timeline Diagnostics",
-             title, cv, combined, cid))
-    conn.execute("INSERT INTO touches (company, touched_at, channel, note,"
-                 " outcome, company_id) VALUES (?,?,?,?,?,?)",
-                 ("Timeline Diagnostics", "2026-11-11T10:00:00Z", "comment",
-                  "Replied to their post.", "reply", cid))
-    conn.execute("INSERT INTO touches (company, touched_at, channel, note,"
-                 " outcome, company_id) VALUES (?,?,?,?,?,?)",
-                 ("Timeline Diagnostics", "2026-11-12T10:00:00Z", "other",
-                  "Sent the article.", None, cid))
-    conn.commit()
-    reply_id = conn.execute("SELECT id FROM touches WHERE outcome = 'reply'"
-                            ).fetchone()["id"]
-    page = build_dashboard.render_company_page(conn, cid, rc.load_config(), "t")
-    conn.close()
-    check("CV match 62%." in page,
-          "a role scored since 3 August shows its CV match")
-    check("CV match 40%." in page and "Score 25" not in page,
-          "a role from the old scorer shows its CV match, not the retired score")
-    check("CV match unscored." in page and "Score unscored" not in page,
-          "only a role with no CV match reads unscored")
-    check("Outcome, reply." in page
-          and f'data-outcome="reply" data-touch-id="{reply_id}" disabled' in page,
-          "a contact's stored outcome is shown and its button marked")
-    check("Outcome, none." in page,
-          "a contact with no outcome reads none")
-
-
 def main() -> int:
     ap = argparse.ArgumentParser(description="operational fault checks")
     ap.add_argument("--db", help="accepted for suite symmetry, unused")
@@ -854,7 +812,6 @@ def main() -> int:
             checker_checks(tmp_path)
             health_checks(tmp_path)
             home_checks(tmp_path)
-            company_checks(tmp_path)
     finally:
         server.shutdown()
         server.server_close()

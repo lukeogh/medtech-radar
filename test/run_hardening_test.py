@@ -1173,8 +1173,8 @@ def main() -> int:
             try:
                 pages = {name: serve_dashboard.render(name).decode("utf-8")
                          for name in ("home", "jobs", "insights", "archive")}
-                pages["company"] = serve_dashboard.render_company(
-                    cid).decode("utf-8")
+                rec = serve_dashboard.render_watchlist(cid, "record")
+                pages["company record"] = rec.decode("utf-8") if isinstance(rec, bytes) else rec
                 pages["cv"] = serve_dashboard.render_cv_page().decode("utf-8")
             finally:
                 cv_store.PROFILE_DIR = saved_profile
