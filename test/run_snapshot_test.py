@@ -308,6 +308,13 @@ def build_db() -> dict:
         companies = seed_watchlist_sample.seed(conn, FROZEN)
         conn.commit()
         ids["company"] = companies["Hartwell Infusion Ltd"]
+        # A company not on the Watchlist, reached from a role on Jobs: the Top
+        # prospect's company where it is unwatched, else the first unwatched.
+        row = conn.execute(
+            "SELECT c.id FROM companies c JOIN opportunities o ON o.company_id = c.id"
+            " WHERE o.id = ? AND c.watched_at IS NULL", (ids["T1"],)).fetchone() or conn.execute(
+            "SELECT id FROM companies WHERE watched_at IS NULL ORDER BY id LIMIT 1").fetchone()
+        ids["unwatched"] = row[0]
     finally:
         conn.close()
     return ids
@@ -336,7 +343,7 @@ def views(ids: dict) -> list[tuple[str, str]]:
         ("insights", "/insights"),
         ("watchlist", "/watchlist"),
         ("watchlist-company", f"/watchlist/{ids['company']}"),
-        ("company-dossier", f"/company/{ids['company']}"),
+        ("company-unwatched", f"/watchlist/{ids['unwatched']}"),
         ("cv", "/cv"),
         ("radar-health", "/radar"),
         ("archive", "/archive"),

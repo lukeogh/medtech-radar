@@ -620,7 +620,9 @@ def record_head(rec: dict, model: dict, view: str) -> str:
         oname = rows.get(other, {}).get("name", "")
         return (f'<a class="btn btn-secondary prevnext" data-focus-record href="{href(other)}" '
                 f'aria-label="{label}, {esc(oname)}" title="{label}">{icon}</a>')
-    nav = step("prev", "Previous company", ICON_LEFT) + step("next", "Next company", ICON_RIGHT)
+    # Previous and Next walk the Watchlist, so a company not on it has none.
+    nav = (step("prev", "Previous company", ICON_LEFT) + step("next", "Next company", ICON_RIGHT)
+           if rec.get("watched") else "")
     if view != "record":
         # Close, where the list sits beside the record; elsewhere Back to
         # Watchlist does the job.
@@ -1293,7 +1295,7 @@ WATCHLIST_SCRIPT = r"""
         var meta = document.createElement('span');
         meta.className = 'meta';
         meta.textContent = [m.place, m.seen, m.watched ? 'on your Watchlist since ' + m.since : 'not on your Watchlist']
-          .filter(Boolean).join(' · ');
+          .filter(Boolean).join(', ');
         li.appendChild(nm);
         li.appendChild(meta);
         li.addEventListener('mousedown', function (ev) { ev.preventDefault(); });
@@ -1347,7 +1349,7 @@ WATCHLIST_SCRIPT = r"""
           go(null, { name: r.name, tone: 'ok',
                      text: r.unknown ? 'is on your Watchlist, added by hand. Radar has not seen it, so its facts read '
                                        + 'Not known until a story or an advert names it.'
-                                     : 'is on your Watchlist, added by hand. Its row is in the table.',
+                                     : 'is on your Watchlist, added by hand. Its card is in your companies.',
                      undo: { url: '/watchlist/remove', body: { company_id: r.id, undo_add: true, since: r.since },
                              done: 'is off your Watchlist again.' } });
           return;
@@ -1585,7 +1587,7 @@ WATCHLIST_SCRIPT = r"""
     clearBtn.disabled = true;
     post('/watchlist/thread', { company_id: cid, next_step: '', due: '' }).then(function (r) {
       if (!r.ok) { clearBtn.disabled = false; refusal(r.note, recErr); return; }
-      go(null, recNote('The next step is cleared, so the thread is closed.', { undo: threadUndo(r) }));
+      go(null, recNote('The next step is cleared, so the follow-up is closed.', { undo: threadUndo(r) }));
     });
   });
 
@@ -1640,7 +1642,7 @@ WATCHLIST_SCRIPT = r"""
     }
   });
 
-  // Log a contact: a next step needs a due date; empty closes the thread.
+  // Log a contact: a next step needs a due date; empty closes the follow-up.
   var logForm = document.getElementById('log-form');
   if (logForm) logForm.addEventListener('submit', function (e) {
     e.preventDefault();
@@ -1652,7 +1654,7 @@ WATCHLIST_SCRIPT = r"""
                  next_step: f('log-next').value.trim(), due: f('log-due').value };
     if (!body.channel) { fieldError(f('log-channel'), f('log-channel-err'), 'Choose how the contact was made from the list.'); return; }
     if (body.next_step && !body.due) {
-      fieldError(f('log-due'), f('log-due-err'), 'Give the next step a due date, or leave the next step empty to close the thread.');
+      fieldError(f('log-due'), f('log-due-err'), 'Give the next step a due date, or leave the next step empty to close the follow-up.');
       return;
     }
     if (body.due && !body.next_step) { fieldError(f('log-next'), f('log-next-err'), 'Give a next step for that date, or clear the date.'); return; }
@@ -1673,8 +1675,8 @@ WATCHLIST_SCRIPT = r"""
         + (body.next_step ? 'The next step is now ' + body.next_step.replace(/\.$/, '') + ', due '
                               + dayWords(body.due) + '.'
            : (r.thread && (r.thread.state === 'closed' || r.thread.state === 'none'))
-             ? 'No next step, so the thread is closed.'
-             : 'It was before the newest contact, so the thread still follows that one.');
+             ? 'No next step, so the follow-up is closed.'
+             : 'It was before the newest contact, so the follow-up still follows that one.');
       if (r.added) text += ' ' + (r.name || state.name) + ' joined your Watchlist.';
       go(null, recNote(text), 'record');
     });

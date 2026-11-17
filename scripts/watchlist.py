@@ -903,6 +903,11 @@ def facts(c: dict) -> list:
     if c.get("region"):
         rows.append({"label": "Region", "value": c["region"],
                      "source": "Worked out by Radar from Where, using your local places list", "at": None})
+    # Ecosystem, as the old company page showed it, only when known.
+    if c.get("ecosystem"):
+        src = fact_source(c, "ecosystem")
+        rows.append({"label": "Ecosystem", "value": c["ecosystem"],
+                     "source": (src or {}).get("label", ""), "at": (src or {}).get("at")})
     return rows
 
 

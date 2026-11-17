@@ -665,7 +665,7 @@ def thread_checks(tmp: Path) -> None:
           "a thread item: the company, its next step, Due, Last contact and an Overdue tag with its mark")
     check("Due today" in second["tag"] and second["meta"].endswith(", connection note"),
           "one due today says Due today")
-    check(first["open"] == (f"/watchlist?company={lum}", "Open it on the Watchlist", False)
+    check(first["open"] == (f"/watchlist/{lum}", "Open it on the Watchlist", False)
           and first["key"] == f"thread:{lum}:{uk_day(-1)}" and hp.clean_key(first["key"]) == first["key"],
           "it opens on the Watchlist and is keyed on the company and its due date")
     check([g for g, _w in hp.GROUPS].index("threads") == [g for g, _w in hp.GROUPS].index("question") + 1
@@ -687,7 +687,7 @@ def thread_checks(tmp: Path) -> None:
     check(f'id="thread-{lum}" data-item="thread-{lum}" data-key="thread:{lum}:{uk_day(-1)}"' in html,
           "each follow-up has its own address and Done key")
     sel = page_of(db, item=f"thread-{lum}")
-    check(f'href="/watchlist?company={lum}" data-open' in sel and '"target": "thread-' in sel.replace("&quot;", '"'),
+    check(f'href="/watchlist/{lum}" data-open' in sel and '"target": "thread-' in sel.replace("&quot;", '"'),
           "it opens on the Watchlist, and its own address brings it into view")
     # Done holds until the date moves.
     conn = rc.get_db(db)
@@ -1071,10 +1071,10 @@ def page_checks(tmp: Path) -> None:
                      r'</span><span class="visually-hidden">, </span><span class="story-src">'
                      r'<span class="co">Hartwell Infusion Ltd</span>, via a job advert</span></p>', card)
     check(card and line and '<h3 class="story-h"' in card and 'class="story-sum"' in card
-          and ">Read the advert" in card and "Everything on file" in card
-          and f'href="/company/' in card and "data-done=" in card,
+          and ">Read the advert" in card and ">Company record<" in card and "/company/" not in card
+          and 'href="/watchlist/' in card and "data-done=" in card,
           "the urgent story is an amber card: its chip, Urgent story, a drawn rule and the source, "
-          "then the headline, the summary, the announcement and everything on file")
+          "then the headline, the summary, the announcement and the company record")
     check(card and "Relevance" not in card and "Found" not in card and "Details" not in card,
           "without relevance, the found date or the Details table")
     move = re.search(r'<p class="story-sum">.*?</p><section class="ny-move"[^>]*><h4 class="sec-h"[^>]*>'

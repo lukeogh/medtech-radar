@@ -14,7 +14,7 @@
    four), Most relevant 1 to 10, the four sections, More stories under 40 and
    the Hidden fold; the story page with every report, Not the same story,
    the drafts, a link to log a contact on the Watchlist (no form of its own)
-   and the company; On your Watchlist leads to /watchlist?company=<id>; Add
+   and the company; On your Watchlist leads to /watchlist/<id>; Add
    to Watchlist sends via insights and the story's signal id, and its Undo
    undo_add; a section page; a quiet week and a stopped watcher. No
    suggestions and no I did it anywhere.
@@ -302,10 +302,10 @@ def page_checks(tmp: Path) -> None:
     check("Drafts to copy" in story and "Copy the comment" in story,
           "the story page holds the drafts with Copy")
     check("logform" not in story and "<form" not in story and "<textarea" not in story
-          and f'href="/watchlist?company={lead_cid}">Log a contact on the Watchlist' in story,
+          and f'href="/watchlist/{lead_cid}">Log a contact on the Watchlist' in story,
           "the story page has no Log a contact form of its own and links to the Watchlist to log one")
     check("About Selwick Photonics" in story and "Enschede" in story
-          and f'class="rec" href="/watchlist?company={lead_cid}"' in story and "/company/" not in story,
+          and f'class="rec" href="/watchlist/{lead_cid}"' in story and "/company/" not in story,
           "the story page shows the company's facts and links its record on the Watchlist")
     off_story = next(s for s in model["stories"] if s["company_id"] and not s["watched"])
     check(f'data-act="watch" data-cid="{off_story["company_id"]}" data-signal="{off_story["id"]}"' in html,
@@ -314,7 +314,7 @@ def page_checks(tmp: Path) -> None:
           and "'/watchlist/remove',{company_id:cid2,undo_add:true,since:since[cid2]||''}" in html
           and "since[cid]=res.already?null:res.watched_at;" in html,
           "the script sends via insights and the signal id, and its Undo sends undo_add with the add's own stamp")
-    check('class="on-list" href="/watchlist?company=' in html and "a.href='/watchlist?company='+cid" in html
+    check('class="on-list" href="/watchlist/' in html and "a.href='/watchlist/'+cid" in html
           and "/company/" not in html,
           "On your Watchlist leads to the company on the Watchlist, drawn or added, never /company/")
     any_report = model["top"][0]["reports"][-1]["id"]

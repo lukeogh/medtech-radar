@@ -497,6 +497,21 @@ def arrival_checks(tmp: Path) -> None:
 
 # ================================================================ 7. Read again
 
+def joined_message_checks(_tmp=None) -> None:
+    import watchlist_page
+    script = watchlist_page.WATCHLIST_SCRIPT
+    check("if (r.added) text += ' ' + (r.name || state.name) + ' joined your Watchlist.';" in script
+          and "the thread" not in script,
+          "logging a contact for a company not on the Watchlist says it joined, in the message after")
+
+
+def ecosystem_checks(_tmp=None) -> None:
+    rows = wl.facts({"ecosystem": "KU Leuven"})
+    check([r["value"] for r in rows if r["label"] == "Ecosystem"] == ["KU Leuven"]
+          and not [r for r in wl.facts({"ecosystem": ""}) if r["label"] == "Ecosystem"],
+          "Facts shows Ecosystem when it is known, and nothing when it is not")
+
+
 def reread_checks(tmp: Path) -> None:
     import enrich_company
     path, conn = fresh(tmp, "reread")
@@ -667,6 +682,31 @@ def route_checks(tmp: Path) -> None:
              "next_step": "Follow up.", "due": day(7)}), w)
         check(s == 200 and json.loads(b)["thread"]["due_date"] == day(7), "a contact with its next step is a 200")
         ok = ids["Okara Diagnostics"]
+        # One company page (owner, 17 Nov): the old page redirects to the record.
+        conn_ = http.client.HTTPConnection("127.0.0.1", port, timeout=60)
+        conn_.request("GET", f"/company/{h}", headers=get)
+        r_ = conn_.getresponse(); r_.read(); conn_.close()
+        check(r_.status == 302 and r_.getheader("Location") == f"/watchlist/{h}"
+              and call(port, "GET", "/company/abc", headers=get)[0] == 404,
+              "GET /company/<id> redirects to the company's record on its own page; an odd id is a 404")
+        s, _c, b = call(port, "POST", "/company/state", json.dumps({"id": h, "state": "client", "confirm": True}), w)
+        back = rc.get_db(db)
+        set_to = back.execute("SELECT state FROM companies WHERE id = ?", (h,)).fetchone()[0]
+        back.execute("UPDATE companies SET state = NULL WHERE id = ?", (h,))
+        back.execute("DELETE FROM touches WHERE company_id = ? AND kind = 'state'", (h,))
+        back.commit()
+        back.close()
+        check(s == 200 and json.loads(b)["ok"] and set_to == "client", "POST /company/state works as before")
+        # A company not on the Watchlist: Add to Watchlist, the pill, no arrows,
+        # no Remove, and every section.
+        s, _c, page = call(port, "GET", f"/watchlist/{ok}", headers=get)
+        page = page.decode()
+        check(s == 200 and 'class="btn btn-teal" id="watch-btn">Add to Watchlist' in page
+              and ">Not on your Watchlist</span>" in page and "Previous company" not in page
+              and "Next company" not in page and 'id="remove-btn"' not in page
+              and all(f'>{t}</h2>' in page for t in ("Follow-up", "Contacts", "Stories", "Roles on Jobs", "Facts")),
+              "an unwatched company's record: Add to Watchlist in teal, Not on your Watchlist, no arrows, "
+              "no Remove, and Follow-up, Contacts, Stories, Roles on Jobs and Facts")
         s, _c, b = call(port, "POST", "/touch/log", json.dumps({"company_id": ok, "channel": "comment"}), w)
         check(s == 200 and json.loads(b)["added"], "a contact for a company not on the Watchlist adds it")
         sug = rc.get_db(db).execute("SELECT id FROM watch_suggestions WHERE accepted_at IS NULL AND"
@@ -975,7 +1015,7 @@ def main() -> int:
         tmp_path = Path(tmp)
         for section in (schema_checks, thread_checks, log_checks, suggestion_checks, name_checks,
                         arrival_checks, reread_checks, route_checks, watcher_checks, page_checks,
-                        box_doc_checks):
+                        box_doc_checks, joined_message_checks, ecosystem_checks):
             try:
                 section(tmp_path)
             except Exception as err:  # noqa: BLE001  one section stopping is a failure
