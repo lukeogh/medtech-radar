@@ -382,10 +382,10 @@ def radar_html(db) -> str:
 
 
 def home_funnel(html: str) -> dict:
-    """Home's Open roles tile, {step: count}: top, question, reading, and
-    "shown", the three added up (Home has no All open row since 17 Nov)."""
+    """Home's Jobs card (Open roles until 17 Nov), {tier: total}: top,
+    question, reading, and "shown", the three added up."""
     out = {k: int(n) for k, n in re.findall(
-        r'id="funnel-(\w+)".*?<span class="ht-step-fig">(\d+)<', html)}
+        r'id="funnel-(\w+)".*?<span class="hj-fig">(\d+)<', html)}
     out["shown"] = sum(out.get(k, 0) for k in ("top", "question", "reading"))
     return out
 

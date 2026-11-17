@@ -856,9 +856,11 @@ def review_checks(tmp: Path) -> None:
     m2 = model_of(db)
     check(m2["counts"]["question"] == 1 and all(i["key"] != q["key"] for i in m2["todo"]),
           "Done on a One question away role takes it off Home")
-    funnel = hp.funnel_tile(m2)
-    check('id="funnel-question"' in funnel and "1 new" in funnel.split('id="funnel-question"')[1].split("</li>")[0],
-          "and Open roles says 1 new, agreeing with the figure")
+    jobs = hp.jobs_tile(m2)
+    row = jobs.split('id="funnel-question"')[1].split("</li>")[0] if 'id="funnel-question"' in jobs else ""
+    check(row and f'<span class="hj-fig">{m2["jmodel"]["totals"]["question"]}</span>' in row
+          and " new" not in jobs and hp.figure_counts(m2)["question"] == m2["jmodel"]["totals"]["question"],
+          "and the Jobs card and the tile still count it, every open role in the tier, with no new count")
     conn = rc.get_db(db)
     conn.execute("UPDATE opportunities SET tier = 'top' WHERE id = ?", (q["role"]["id"],))
     conn.commit()
@@ -1086,12 +1088,41 @@ def page_checks(tmp: Path) -> None:
     check("font-size:21px;line-height:1.3;font-weight:600" in hp.HOME_CSS
           and "var(--font-serif)" not in hp.HOME_CSS.split(".ny-story .story-h{", 1)[1].split("}", 1)[0],
           "its headline in the site's sans, 21px, weight 600")
-    # Open roles: three rows, Top prospects first, no footnote.
-    funnel = body.split('id="tile-open-roles"', 1)[1].split("</section>", 1)[0]
-    check(re.findall(r'id="funnel-(\w+)"', funnel) == ["top", "question", "reading"]
-          and "All open" not in funnel and 'class="ht-note"' not in funnel
-          and 'href="/jobs">Open Jobs</a>' in funnel,
-          "Open roles shows three rows, Top prospects first, no footnote, and keeps Open Jobs")
+    # Jobs: its title over the card with See all, then three rows, each its
+    # tier's pill and total, no "roles" and no "new".
+    section = body.split('<section class="ht-side ht-jobs-tile" aria-labelledby="tile-jobs">', 1)
+    jobs = section[1].split("</section>", 1)[0] if len(section) == 2 else ""
+    rows = re.findall(r'<li><a class="hj-row" id="funnel-(\w+)" href="([^"]+)"><span class="tier-pill t-(\w+)">'
+                      r'([^<]+)</span><span class="visually-hidden">, </span><span class="hj-fig">(\d+)</span></a></li>', jobs)
+    check([r[0] for r in rows] == ["top", "question", "reading"] and all(r[0] == r[2] for r in rows)
+          and [r[1] for r in rows] == ["/jobs#group-top", "/jobs#group-question", "/jobs?reading=1#group-reading"]
+          and re.search(r'<header class="sec-head"><span class="gchip g-jobs".*?<h2 class="sec-title" id="tile-jobs">'
+                        r'Jobs</h2><a class="link sec-link" href="/jobs">See all', jobs)
+          and "Open roles" not in body and " roles" not in re.sub(r"<[^>]+>", " ", jobs)
+          and " new" not in jobs and 'class="ht-note"' not in jobs,
+          f"Jobs: its chip and title over the card, See all to Jobs, then Top prospects, One question away "
+          f"and Reading, each its pill and total linking to its tier, no roles word and no new ({rows})")
+    check(dict((r[0], int(r[4])) for r in rows) == jp.tier_totals(model_of(db)["jmodel"]),
+          "the Jobs card's totals are jobs_page.tier_totals, the Jobs page's bands")
+    apps = body.split('<section class="ht-side ht-apps-tile" aria-labelledby="tile-applications">', 1)
+    check(len(apps) == 2 and apps[1].startswith('<header class="sec-head"><span class="gchip g-apps"')
+          and '<h2 class="sec-title" id="tile-applications">Applications</h2></header>'
+              '<div class="side-card glow-wide g-apps">' in apps[1]
+          and body.index('id="ny"') < body.index('id="tile-jobs"') < body.index('id="tile-applications"'),
+          "Applications: its teal chip and title over its card, under Jobs; Open actions comes first")
+    check(".hf-cols{grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:20px}" in hp.HOME_CSS
+          and ".hf-side{display:flex;flex-direction:column;gap:24px}" in hp.HOME_CSS
+          and "align-items:start" in hp.HOME_CSS.split(".hf-cols{", 1)[1].split("}", 1)[0],
+          "two columns, 2fr and 1fr, 20px apart and aligned at the top, Applications 24px under Jobs")
+    # Links on Home: the text colour, underlined in grey, never teal.
+    link = re.search(r"\.link\{([^}]*)\}", hp.HOME_CSS).group(1)
+    hover = re.search(r"\.link:hover\{([^}]*)\}", hp.HOME_CSS).group(1)
+    check("color:var(--text-1)" in link and "text-decoration-color:var(--link-line)" in link
+          and "text-underline-offset:3px" in link and "--link-line:#5b6770" in hp.HOME_CSS
+          and "text-decoration-color:var(--text-1)" in hover and "accent" not in link + hover
+          and "btn-primary" not in body,
+          "links on Home are the text colour, underlined in #5b6770, the text colour on hover; no teal "
+          "link or button")
     check('class="ht-q"' not in body and "Where do my applications stand" not in body
           and "Where do the open roles narrow" not in body, "no question under a widget's title")
     check("\u00b7" not in html,
@@ -1121,7 +1152,8 @@ def page_checks(tmp: Path) -> None:
     check("<script>" not in junk.split("</head>", 1)[1].split("<script>", 1)[0],
           "an address with markup in it selects nothing and prints nothing")
     for width_rule in ("@container app (min-width:1024px)", "@container htw (min-width:1100px)",
-                       "@container app (max-width:599.98px)", "@media (max-width:767.98px)"):
+                       "@container app (max-width:599.98px)", "@media (max-width:767.98px)",
+                       "@container nyrole (max-width:479.98px)"):
         check(width_rule in hp.HOME_CSS, f"the layout has its rule {width_rule}")
     check("@media (pointer:coarse)" in hp.HOME_CSS and "min-height:44px" in hp.HOME_CSS,
           "44px targets on a phone and on touch")
