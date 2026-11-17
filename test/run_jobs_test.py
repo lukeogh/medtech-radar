@@ -631,7 +631,8 @@ def advert_checks(tmp: Path) -> None:
           f"the stored description is plain text, one line per block, with no blank "
           f"line and no typed bullet ({len(stored)} saved pages)")
     every = {**stored, "seed": seed_jobs_sample.ADVERT, "stored": samples.STORED,
-             "typed": samples.TYPED}
+             "typed": samples.TYPED, "list tail": samples.LIST_TAIL,
+             "all tail": samples.ALL_TAIL}
     for name, text in every.items():
         main, rest = jobs_page.advert_layout(text, "Corvane Medical")
         laid = _blocks_words(text, main) + _blocks_words(text, rest)
@@ -686,6 +687,38 @@ def advert_checks(tmp: Path) -> None:
           "steps as a numbered list with their own numbers; its equal opportunities "
           "section is folded")
 
+    # Boilerplate read as items of a list folds line by line (role 1760's shape).
+    text = samples.LIST_TAIL
+    main, rest = jobs_page.advert_layout(text, samples.LIST_TAIL_COMPANY)
+    folded_lines = [text[s:e] for kind, items in rest for s, e, *_n in items]
+    check([k for k, _i in rest] == ["p"] * 7
+          and [ln.split()[0] for ln in folded_lines]
+          == ["Who", "How", "To", "As", "Data", "Beware", "To"],
+          "the labelled company lines, the company page pointer, the equal opportunity, "
+          "privacy and scam lines and the agency notice fold, each a paragraph of its own, "
+          "in the advert's order")
+    tail = main[main.index(("h", [next(it for k, it in main if k == "h"
+                                       and text[it[0][0]:it[0][1]] == "Why join us?")[0]])):]
+    check([k for k, _i in tail] == ["h", "p"]
+          and text[tail[1][1][0][0]:tail[1][1][0][1]].startswith("If you are a quality lead")
+          and "<li>Who we are" not in jobs_page.advert_text_html(text, [], samples.LIST_TAIL_COMPANY),
+          "the ordinary lines under Why join us? stay, a list left with one line is a "
+          "paragraph, and no labelled line is drawn as a list item")
+    out = jobs_page.advert_text_html(text, [], samples.LIST_TAIL_COMPANY)
+    shown, _sep, folded = out.partition('<details class="advert-rest">')
+    check('<h4 class="adv-h">Why join us?</h4>' in shown and "<details open" not in out
+          and folded.startswith("<summary>Rest of the advert</summary><p>Who we are :")
+          and "Own the IEC 62304" in shown,
+          "Why join us? stays, judged line by line and not by its name, and the fold is "
+          "closed")
+    text = samples.ALL_TAIL
+    main, rest = jobs_page.advert_layout(text, samples.LIST_TAIL_COMPANY)
+    check(rest and rest[0][0] == "h" and text[rest[0][1][0][0]:rest[0][1][0][1]] == "Why work with us?"
+          and all(text[it[0][0]:it[0][1]] != "Why work with us?" for k, it in main if k == "h")
+          and len(rest) == 4,
+          "a heading whose lines all fold goes into the fold with them, and a list left "
+          "with nothing is not drawn")
+
     # The saved pages: role lines that mention data stay where they are.
     veeva = stored.get("4472532393", "")
     main, rest = jobs_page.advert_layout(veeva, "Veeva Systems")
@@ -735,9 +768,31 @@ def advert_checks(tmp: Path) -> None:
               gate_cv_note="78% clears the 70% pass mark", score_basis="spec",
               scored_at=ago(1), description_text=samples.STORED,
               description_fetched_at=ago(1),
-              description_hash=rc.description_version(samples.STORED))
+              description_hash=rc.description_version(samples.STORED),
+              engagement_type="permanent", engagement_note="criteria Full-time")
+    paid = put(conn, "Software Quality Lead, pumps", samples.STORED_COMPANY,
+               engagement_note="day rate, from the page", ir35="outside")
     conn.close()
     html = pane(db, oid).get("html", "")
+    paid_html = pane(db, paid).get("html", "")
+    check("Rate as advertised" not in html
+          and "<dt>Rate as advertised</dt><dd>£720/day, outside IR35</dd>" in paid_html,
+          "Details shows Rate as advertised only when the advert states a figure")
+    check("<dt>Type</dt><dd>Permanent, full-time</dd>" in html
+          and "<dt>Type</dt><dd>Contract, day rate</dd>" in paid_html
+          and "criteria Full" not in html and "from the page" not in paid_html
+          and jobs_page.type_words({"engagement_type": "contract",
+                                    "engagement_note": "contract, from the page"}) == "Contract",
+          "Details' Type shows the values only, and once when both say the same")
+    check('class="btn btn-secondary prevnext pn-prev is-disabled"' in html
+          or 'class="btn btn-secondary prevnext pn-prev"' in html,
+          "each arrow carries its own place, enabled or disabled")
+    check(".prevnext{display:none}" not in jobs_page.JOBS_CSS
+          and ".dh-nav .prevnext{position:absolute;top:12px;width:44px;height:44px}" in jobs_page.JOBS_CSS
+          and ".dh-nav .pn-prev{right:68px}" in jobs_page.JOBS_CSS
+          and ".dh-nav .pn-next{right:16px}" in jobs_page.JOBS_CSS
+          and ".back{display:inline-flex;align-items:center;min-height:44px;" in jobs_page.JOBS_CSS,
+          "under 1024 wide Previous and Next show at 44px on Back to Jobs' line, at the right")
     rate = re.search(r'gate-rate"><span class="gate-name">Rate</span><span class="gate-status '
                      r'(is-[a-z]+)">(.*?)</span>', html)
     cv = re.search(r'gate-cv"><span class="gate-name">CV match</span>(.*?)'

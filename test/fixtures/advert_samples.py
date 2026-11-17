@@ -63,3 +63,40 @@ How we hire
 Equal opportunities
 
 Halberd Diagnostics values a diverse team and an inclusive workplace. Tell us if you need any reasonable adjustments for the interview."""
+
+
+# Boilerplate inside what reads as a list (owner, 17 Nov): a heading, then
+# one-line blocks that mix an ordinary closing line with the company's labelled
+# lines, an equal opportunity line, a privacy line, a scam warning and an agency
+# notice, as role 1760's advert on the box ends. Invented; the labels keep the
+# stored text's space before the colon.
+LIST_TAIL_COMPANY = "Brackenfield Imaging"
+
+LIST_TAIL = """About the job
+Brackenfield Imaging is hiring a Software Quality Lead for its ultrasound probes.
+Responsibilities
+Own the IEC 62304 software lifecycle for probe firmware.
+Run ISO 14971 risk management for software hazards.
+Lead verification for each release.
+Why join us?
+If you are a quality lead who likes building things properly, we would love to hear from you.
+Who we are : We are a team of 640 people across three sites, making imaging for clinics.
+How we work : We come from different backgrounds, cultures, religions and points of view, and work as one team.
+To find out more about our imaging businesses, please visit our company page here.
+As an equal opportunity employer, we welcome applications from individuals with disabilities.
+Data Privacy : We care about your data privacy and handle your personal data under GDPR.
+Beware of Job Scams: Please beware of fraudulent job postings from people posing as our recruiters.
+To all recruitment agencies : Brackenfield Imaging does not accept unsolicited agency CVs."""
+
+# The same tail under a heading with nothing else in it: the heading goes with
+# what it held.
+ALL_TAIL = """About the job
+Brackenfield Imaging is hiring a Software Quality Lead for its ultrasound probes.
+Responsibilities
+Own the IEC 62304 software lifecycle for probe firmware.
+Run ISO 14971 risk management for software hazards.
+Lead verification for each release.
+Why work with us?
+Who we are : We are a team of 640 people across three sites, making imaging for clinics.
+As an equal opportunity employer, we welcome applications from individuals with disabilities.
+Beware of Job Scams: Please beware of fraudulent job postings from people posing as our recruiters."""
