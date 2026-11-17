@@ -2027,11 +2027,12 @@ def history_checks() -> None:
                                                       host="127.0.0.1", port=0)
             try:
                 jobs = serve_dashboard.render("jobs").decode("utf-8")
+                _s, pane, _t = serve_dashboard.render_jobs(jobs_oid, {})
+                pane = pane.decode("utf-8")
             finally:
                 serve_dashboard.ARGS = saved_args
-            # The row carries no CV figure; its band heading is the master's.
-            check('<div class="band">CV match 80–89</div>' in jobs
-                  and "CV match 90–100" not in jobs and "90%" not in jobs,
+            # The row carries no CV figure; the role pane says the master's.
+            check("90%" not in jobs and "80%" in pane and "90%" not in pane,
                   "the Jobs page files the role by the master CV's score, 80, and not the tailored 90")
 
 
