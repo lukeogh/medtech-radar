@@ -32,10 +32,7 @@ no As of time, no question under a widget's title, no footnotes, no keys):
   the lights, a panel, closed until asked for: Week by week, the flow of the
   last fourteen days and board freshness (as /radar draws them, without their
   captions), and a link to /radar.
-- Applications: the board's six stages and what waits on the owner, read from
-  the applications table (applications.load, board_page.board_model).
-- Open roles: Top prospects, One question away and Reading, as the Jobs tabs
-  count them, with today's new.
+- Under the tiles, two columns (stacked on a phone, in this order):
 - Open actions (until 17 Nov, Needs you today): Radar's jobs that need a
   look, urgent stories, new Top prospects, new One question away roles,
   company follow-ups due and application follow-ups due, in that order, every
@@ -45,6 +42,13 @@ no As of time, no question under a widget's title, no footnotes, no keys):
   the Jobs row (jobs_page.row_html, with Jobs' own row rules), its tier's
   pill and Done, nothing else. A follow-up is a teal card; a job of Radar's
   that needs a look takes a neutral chip and no glow.
+- Jobs (until 17 Nov, Open roles): Top prospects, One question away and
+  Reading, each its tier's pill and its total (jobs_page.tier_totals), each a
+  link to its tier on Jobs, and See all.
+- Applications: the board's six stages and what waits on the owner, read from
+  the applications table (applications.load, board_page.board_model).
+Every section's title sits over its card. Links are the text colour,
+underlined in grey; teal on Home means Applications, never a link.
 
 Done takes an item off Home and only off Home, in the home_done table; Undo
 last puts it back. It never changes the item where it lives. Everything else
@@ -57,7 +61,6 @@ Check now, which the server already had).
 from __future__ import annotations
 
 import json
-import math
 import re
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
@@ -806,12 +809,13 @@ def apps_tile(model: dict) -> str:
     b = model["bmodel"]
     now = model["now"]
     total = sum(b["totals"].values())
-    head = ('<header class="ht-head"><h2 class="ht-title" id="tile-applications">Applications</h2>'
-            '</header>')
+    # The title sits over the card, as every section title on Home does.
+    head = (f'<header class="sec-head">{chip("applications", "apps")}'
+            '<h2 class="sec-title" id="tile-applications">Applications</h2></header>')
     if not total:
         body = '<div class="apm"><div class="empty"><p>No applications yet.</p></div></div>'
-        return (f'<section class="ht ht-apps-tile" aria-labelledby="tile-applications"><div class="ht-in">'
-                f'{head}<div class="ht-body">{body}</div></div></section>')
+        return (f'<section class="ht-side ht-apps-tile" aria-labelledby="tile-applications">{head}'
+                f'<div class="side-card glow-wide g-apps"><div class="ht-body">{body}</div></div></section>')
     cols = []
     said = []
     for stage in ap.STAGES:
@@ -869,43 +873,29 @@ def apps_tile(model: dict) -> str:
     else:
         parts.append('<p class="apm-split">Nothing is waiting on you. A next step you set, or '
                      'Radar\'s Follow up, shows here.</p>')
-    return (f'<section class="ht ht-apps-tile" aria-labelledby="tile-applications"><div class="ht-in">'
-            f'{head}<div class="ht-body"><div class="apm">{"".join(parts)}</div></div>'
+    return (f'<section class="ht-side ht-apps-tile" aria-labelledby="tile-applications">{head}'
+            f'<div class="side-card glow-wide g-apps"><div class="ht-body"><div class="apm">{"".join(parts)}</div></div>'
             '<p class="ht-foot"><a class="link link-block" href="/jobs?show=applied">Open the board</a>'
             '</p></div></section>')
 
 
-def funnel_tile(model: dict) -> str:
-    """Top prospects, One question away and Reading, as the Jobs tabs count
-    them, each a link to its tab, with today's new beside it."""
-    j = model["jmodel"]
-    t = j["totals"]
-    # New Top and One question away are the figures' counts, so a role Done
-    # on Home is not new here either; Reading's new are Jobs' own.
-    new = {"reading": sum(1 for o in j["tiers"]["reading"] if o.get("_unread")),
-           "question": model["counts"]["question"], "top": model["counts"]["top"]}
-    steps = (("top", tiers.NAMES["top"], t["top"], new["top"], "/jobs#group-top"),
-             ("question", tiers.NAMES["question"], t["question"], new["question"], "/jobs#group-question"),
-             ("reading", tiers.NAMES["reading"], t["reading"], new["reading"], "/jobs?reading=1#group-reading"))
-    # Bar lengths on a square-root scale, the longest of the three full.
-    top = math.sqrt(max([1] + [n for _k, _w, n, _f, _h in steps]))
-    lis = []
-    for key, name, n, fresh, href in steps:
-        width = 100.0 * math.sqrt(n) / top if n else 0.0
-        fresh_html = (f'<span class="ht-step-new"><span class="visually-hidden">, </span>{fresh} new</span>'
-                      if fresh else '<span class="ht-step-new" aria-hidden="true"></span>')
-        lis.append(f'<li><a class="ht-step" id="funnel-{key}" href="{esc(href)}">'
-                   f'<span class="ht-step-name">{esc(name)}<span class="visually-hidden">:</span></span>'
-                   f'<span class="ht-step-track" aria-hidden="true"><span class="ht-step-bar'
-                   f'{" is-zero" if not n else ""}" style="--w:{width:.1f}%"></span></span>'
-                   f'<span class="ht-step-fig">{n}<span class="visually-hidden"> '
-                   f'{"role" if n == 1 else "roles"}</span></span>{fresh_html}'
-                   f'<span class="ht-step-go">{_use("ic-right", 16)}</span></a></li>')
-    return ('<section class="ht ht-funnel-tile" aria-labelledby="tile-open-roles"><div class="ht-in">'
-            '<header class="ht-head"><h2 class="ht-title" id="tile-open-roles">Open roles</h2>'
-            '</header><div class="ht-body">'
-            f'<ol class="ht-funnel" aria-label="Open roles by tier, each a link to Jobs">{"".join(lis)}</ol>'
-            '</div><p class="ht-foot"><a class="link link-block" href="/jobs">Open Jobs</a></p>'
+def jobs_tile(model: dict) -> str:
+    """Jobs (until 17 Nov, Open roles): Top prospects, One question away and
+    Reading, each its tier's pill and its total, jobs_page.tier_totals, the
+    number on the Jobs page's tier bands. Each row links to its tier on Jobs,
+    and See all to the Jobs page."""
+    totals = jp.tier_totals(model["jmodel"])
+    hrefs = {"top": "/jobs#group-top", "question": "/jobs#group-question",
+             "reading": "/jobs?reading=1#group-reading"}
+    lis = "".join(
+        f'<li><a class="hj-row" id="funnel-{key}" href="{esc(hrefs[key])}">{tiers.pill_html(key)}'
+        f'<span class="visually-hidden">, </span><span class="hj-fig">{totals[key]}</span></a></li>'
+        for key in tiers.OPEN_TIERS)
+    return ('<section class="ht-side ht-jobs-tile" aria-labelledby="tile-jobs">'
+            f'<header class="sec-head">{chip("jobs", "jobs")}<h2 class="sec-title" id="tile-jobs">Jobs</h2>'
+            '<a class="link sec-link" href="/jobs">See all<span class="visually-hidden"> on Jobs</span></a>'
+            '</header><div class="side-card glow-wide g-jobs">'
+            f'<ol class="hj-list" aria-label="Every open role by tier, each a link to its tier on Jobs">{lis}</ol>'
             '</div></section>')
 
 
@@ -1173,7 +1163,9 @@ def _actions(i: dict, model: dict, lead: str = "") -> str:
         href, label, external = open_
         ext = (' target="_blank" rel="noopener noreferrer"' if external else "")
         tail = '<span class="visually-hidden"> (opens in a new tab)</span>' if external else ""
-        acts.append(f'<a class="btn btn-primary" href="{esc(href)}" data-open{ext}>{esc(label)}{tail}</a>')
+        # An underlined link, as a story's Read the announcement is: teal
+        # means Applications on Home now, never a link (owner, 17 Nov).
+        acts.append(f'<a class="link" href="{esc(href)}" data-open{ext}>{esc(label)}{tail}</a>')
     if done_view:
         acts.append(f'<button type="button" class="btn btn-secondary" data-back="{esc(i["key"])}" '
                     f'data-title="{esc(i["title"])}">Put back on Home</button>')
@@ -1319,8 +1311,10 @@ def needs_html(model: dict) -> str:
 
 
 def main_html(model: dict) -> str:
-    return (f'{welcome_html(model)}<div class="hf-bento">{apps_tile(model)}{funnel_tile(model)}'
-            f'</div>{needs_html(model)}')
+    # Two columns under the tiles, Open actions and then Jobs and
+    # Applications; on a phone they stack in that order.
+    return (f'{welcome_html(model)}<div class="hf-cols"><div class="hf-main">{needs_html(model)}</div>'
+            f'<div class="hf-side">{jobs_tile(model)}{apps_tile(model)}</div></div>')
 
 
 def page_title(model: dict) -> str:
@@ -1417,16 +1411,17 @@ a{color:inherit}
 .app{container:app / inline-size;display:grid;grid-template-rows:48px auto;min-height:100vh;align-content:start;background:var(--canvas)}
 .content{grid-row:2;min-width:0}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:var(--radius-2);font-size:14px;line-height:20px;font-weight:500;white-space:nowrap;text-decoration:none;cursor:pointer;transition:background-color var(--dur) ease-out,color var(--dur) ease-out,border-color var(--dur) ease-out}
-.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-.btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
 .btn-secondary{background:var(--surface);border-color:var(--border-strong);color:var(--text-1)}
 .btn-secondary:hover{background:var(--row-hover)}
 .btn-ghost{background:transparent;color:var(--text-2)}
 .btn-ghost:hover{color:var(--text-1);text-decoration:underline;text-underline-offset:2px}
 .btn.is-disabled,.btn:disabled{color:var(--text-3);border-color:var(--border-subtle);cursor:default;text-decoration:none}
 .btn[aria-busy="true"]{cursor:progress}
-.link{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px;transition:color var(--dur) ease-out}
-.link:hover{color:var(--accent-hover);text-decoration-thickness:2px}
+/* Links on Home (owner, 17 Nov): the main text colour, underlined in a
+   quiet grey that turns to the text colour on hover. Never teal, which
+   means Applications here. */
+.link{color:var(--text-1);text-decoration:underline;text-decoration-color:var(--link-line);text-decoration-thickness:1px;text-underline-offset:3px;transition:text-decoration-color var(--dur) ease-out}
+.link:hover{color:var(--text-1);text-decoration-color:var(--text-1)}
 .link-block{display:inline-flex;align-items:center;min-height:24px}
 .tag{display:inline-flex;align-items:center;gap:4px;flex:none;height:20px;padding:0 8px;border-radius:var(--radius-2);font-size:12px;line-height:16px;font-weight:600;white-space:nowrap}
 .tag-neutral{background:var(--neutral-tint);color:var(--neutral)}
@@ -1491,28 +1486,22 @@ a{color:inherit}
 .glow-short{background-image:radial-gradient(80% 260% at 0% 0%,rgb(var(--g) / .22) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%)}
 @media (forced-colors:active){.gchip{border:1px solid CanvasText}}
 /* ---- the tiles ---- */
-.ht{container:ht / inline-size;min-width:0;background:var(--ht-surface);border:1px solid var(--ht-line);border-radius:var(--radius-4);color:var(--text-1);--focus-gap:var(--ht-surface)}
-.ht-in{display:flex;flex-direction:column;gap:16px;height:100%;padding:16px}
-.ht-head{display:flex;flex-direction:column;gap:2px}
+/* The right column: Jobs, then Applications, each a card under its title. */
+.ht-side{min-width:0}
+.side-card{container:side / inline-size;display:flex;flex-direction:column;gap:16px;min-width:0;padding:20px;background-color:var(--surface);border:1px solid var(--border-subtle);border-radius:14px;color:var(--text-1);--focus-gap:var(--surface)}
 .ht-title{font-size:16px;line-height:24px;font-weight:600;color:var(--text-1)}
 .ht-body{display:flex;flex-direction:column;gap:12px;min-width:0}
 .ht-say{font-size:14px;line-height:20px;color:var(--text-1);text-wrap:pretty;max-width:64ch}
 .ht-foot{padding-top:4px;margin-top:auto}
 .ht-links{display:flex;flex-wrap:wrap;gap:4px 24px}
-.ht .empty{padding:0}
-@container ht (min-width:480px){.ht-in{gap:20px;padding:20px 24px 20px}}
-.ht-funnel{display:flex;flex-direction:column;gap:4px;margin:0 -8px}
-.ht-step{display:grid;grid-template-columns:minmax(0,1fr) auto auto 16px;grid-template-areas:"name fig new go" "bar bar bar bar";align-items:center;column-gap:8px;row-gap:6px;min-height:24px;padding:6px 8px 8px;border-radius:var(--radius-2);color:var(--text-1);text-decoration:none}
-.ht-step:hover{background:var(--row-hover)}
-.ht-step:hover .ht-step-name{text-decoration:underline;text-underline-offset:2px}
-.ht-step-name{grid-area:name;min-width:0;font-size:14px;line-height:20px;font-weight:500}
-.ht-step-fig{grid-area:fig;font-size:14px;line-height:20px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
-.ht-step-new{grid-area:new;min-width:5ch;font-size:12px;line-height:16px;color:var(--text-2);white-space:nowrap}
-.ht-step-go{grid-area:go;display:inline-flex;color:var(--text-3)}
-.ht-step-track{grid-area:bar;display:block;height:10px;background:var(--ht-track);border-radius:2px}
-.ht-step-bar{display:block;width:var(--w);min-width:4px;height:100%;background:var(--ht-series-1);border-radius:2px}
-.ht-step-bar.is-zero{min-width:0}
-@container ht (min-width:480px){.ht-step{grid-template-columns:10rem minmax(0,1fr) 4ch 6ch 16px;grid-template-areas:"name bar fig new go";row-gap:0;padding-block:8px}.ht-step-track{height:14px}}
+.side-card .empty{padding:0;color:var(--text-2)}
+.hj-list{display:flex;flex-direction:column;margin:-8px 0}
+.hj-list li + li{border-top:1px solid var(--border-subtle)}
+.hj-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:8px 0;color:var(--text-1);text-decoration:none}
+.hj-row .tier-pill{cursor:inherit}
+.hj-fig{font-size:18px;line-height:24px;font-weight:600;font-variant-numeric:tabular-nums}
+.hj-row:hover .hj-fig{text-decoration:underline;text-decoration-color:var(--link-line);text-underline-offset:3px}
+.sec-link{display:inline-flex;align-items:center;min-height:32px;font-size:14px;line-height:20px}
 .ht-trend{--ht-plot-h:44px;display:flex;flex-direction:column;gap:12px}
 .ht-series{display:grid;grid-template-columns:minmax(0,1fr);row-gap:6px}
 .ht-series-name{display:flex;align-items:center;gap:8px;font-size:12px;line-height:16px;font-weight:600;color:var(--text-2)}
@@ -1539,20 +1528,20 @@ a{color:inherit}
 .apm-col{min-width:0}
 .apm-link{display:grid;grid-template-columns:minmax(0,1fr) auto 3ch;align-items:center;gap:8px;min-height:28px;padding:2px 0;border-bottom:1px solid var(--border-subtle);color:var(--text-2);text-decoration:none;font-size:12px;line-height:16px}
 .apm-name{min-width:0}
-.apm-label{color:var(--text-1);text-decoration:underline;text-decoration-color:var(--border-strong);text-underline-offset:3px}
-.apm-link:hover .apm-label{text-decoration-color:currentColor}
+.apm-label{color:var(--text-1);text-decoration:underline;text-decoration-color:var(--link-line);text-underline-offset:3px}
+.apm-link:hover .apm-label{text-decoration-color:var(--text-1)}
 .apm-count{text-align:right;font-size:14px;line-height:20px;font-weight:600;color:var(--text-1);font-variant-numeric:tabular-nums}
 .apm-pips{display:flex;flex-wrap:wrap;gap:2px;justify-content:flex-end}
 .apm-pip{width:8px;height:12px;background:var(--text-3)}
 .apm-pip.is-closed{background:transparent;box-shadow:inset 0 0 0 1px var(--text-3)}
 .apm > .empty{padding:0}
-.apm-split{font-size:12px;line-height:16px;color:var(--text-3)}
+.apm-split{font-size:12px;line-height:16px;color:var(--text-2)}
 .apm-wait-head{font-size:12px;line-height:16px;font-weight:600;color:var(--text-1)}
-.apm-wait-head .apm-wn{font-weight:400;color:var(--text-3)}
+.apm-wait-head .apm-wn{font-weight:400;color:var(--text-2)}
 .apm-wait{display:flex;flex-direction:column;gap:2px;margin-top:4px}
 .apm-wait li{display:flex;flex-wrap:wrap;align-items:center;gap:0 8px;min-width:0;font-size:12px;line-height:16px}
 .apm-wait .link{font-size:14px;line-height:20px}
-.apm-wait .apm-more{color:var(--text-3)}
+.apm-wait .apm-more{color:var(--text-2)}
 @container apm (min-width:520px){
   .apm-cols{grid-template-columns:repeat(6,minmax(0,1fr))}
   .apm-link{grid-template-columns:minmax(0,1fr);grid-template-rows:28px 32px auto;align-content:start;align-items:start;gap:4px;min-height:84px;height:100%;padding:0 8px 4px;border-bottom:0;border-left:1px solid var(--border-subtle)}
@@ -1663,7 +1652,7 @@ a{color:inherit}
    jobs_page.ROW_CSS; it is a "queue" container, as on Jobs, so the row's
    narrow rules reach it. */
 .ny-role{container:nyrole / inline-size;flex-direction:row;flex-wrap:wrap;align-items:center;gap:12px 16px;padding:16px 20px}
-.ny-role-row{container:queue / inline-size;flex:1 1 280px;min-width:0}
+.ny-role-row{container:queue / inline-size;flex:1 1 0;min-width:0}
 .ny-role .row{min-height:0;padding:0;border-bottom:0;background:transparent}
 .ny-role .row:hover{background:transparent}
 .ny-role .r-title{font-size:16px;line-height:24px;font-weight:600}
@@ -1676,9 +1665,10 @@ a{color:inherit}
 /* An urgent story: its kind and source, the headline, the summary, its Next
    move in an inset panel, then its links and Done. */
 .ny-story{gap:14px}
-.ny-story .story-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0;color:var(--text-2);font-size:13px;line-height:20px;overflow-wrap:anywhere}
+.ny-story .story-line{display:flex;align-items:center;gap:12px;min-width:0;color:var(--text-2);font-size:13px;line-height:20px;overflow-wrap:anywhere}
 .ny-story .story-kind{font-weight:600;color:#ecc27a}
-.ny-story .story-src{min-width:0}
+.ny-story .story-kind{flex:none}
+.ny-story .story-src{flex:0 1 auto;min-width:0}
 .ny-story .story-src .co{color:var(--text-2)}
 .fact-rule{flex:none;display:inline-block;width:0;height:12px;border-left:1px solid var(--text-3)}
 .ny-story .story-h{max-width:60ch;margin-top:2px;font-size:21px;line-height:1.3;font-weight:600;overflow-wrap:anywhere;text-wrap:balance}
@@ -1696,22 +1686,26 @@ a{color:inherit}
 /* ---- the page: a dotted ground, then the welcome, the tiles and the rest ---- */
 .app{background-color:var(--canvas);background-image:radial-gradient(rgba(232,237,240,.06) 1px,transparent 1px);background-size:22px 22px}
 .hf{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-content:start;width:100%;max-width:1440px;margin:0 auto;padding:20px 16px 32px}
-.hf-bento{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:stretch}
+/* Under the tiles, two columns, 2fr and 1fr, 20px apart and aligned at the
+   top; under 1024px they stack: Open actions, then Jobs, then Applications. */
+.hf-cols{display:grid;grid-template-columns:minmax(0,1fr);gap:24px;align-items:start;min-width:0}
+.hf-main,.hf-side{min-width:0}
+.hf-side{display:flex;flex-direction:column;gap:24px}
 @container app (min-width:768px){.hf{gap:24px;padding:32px 24px 48px}}
-@container app (min-width:1024px){.hf{padding-inline:32px}.hf-bento{grid-template-columns:minmax(0,3fr) minmax(0,2fr)}}
+@container app (min-width:1024px){.hf{padding-inline:32px}.hf-cols{grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:20px}}
 /* Under 768 every target is 44px. */
 @media (max-width:767.98px){
   html{scroll-padding-top:8px}
   .btn,.seg{height:44px}
   .undo-last{padding-inline:8px}
-  .ht-step,.ht .link-block,.ht-figlink,.apm-link,.link-block,.ctx-row,.ht-health-btn{min-height:44px}
+  .ht-figlink,.apm-link,.link-block,.ctx-row,.ht-health-btn,.sec-link,.ny-acts .link{min-height:44px}
   .apm-wait li .link{display:inline-flex;align-items:center;min-height:44px}
   .table th:first-child,.table td:first-child{width:112px}
   .table th:nth-child(2),.table td:nth-child(2){width:80px}
 }
 @media (pointer:coarse){
   .btn,.seg{height:44px}
-  .ht-step,.ht .link-block,.ht-figlink,.apm-link,.link-block,.ht-health-btn{min-height:44px}
+  .ht-figlink,.apm-link,.link-block,.ht-health-btn,.sec-link,.ny-acts .link{min-height:44px}
   .apm-wait li .link{display:inline-flex;align-items:center;min-height:44px}
 }
 @media (forced-colors:active){.ny-item:target{outline:2px solid Highlight}.tag{border:1px solid CanvasText}}

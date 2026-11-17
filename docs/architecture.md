@@ -553,7 +553,11 @@ is the deploy.
 
 ## Home
 
-Built from design/home/final and the owner's decisions of 15 Nov 2026.
+Built from design/home/final and the owner's decisions of 15 Nov 2026, restyled
+17 Nov ("Option B"): colour groups things, stories amber, jobs purple,
+applications and follow-ups teal (`page_frame`'s `--group-*` colours), each
+with an icon chip and a glow from the top left of its cards. On Home a signal
+is a story and the signal watcher is the News watcher.
 `scripts/home_page.py` draws `/` from one `build_dashboard.collect()` and a few
 reads of its own on the same read-only connection (the `home_done` table, the
 last runs of a job, company records, Top scores kept in `score_history`). Every
@@ -563,21 +567,27 @@ script.
 
 - The welcome greets by the optional `first_name` line of the owner's
   preferences file (`radar_common.read_first_name`), never a name in the code,
-  and "Good morning." without one. Four figures, each a link and each equal to
-  a group of Needs you today: urgent signals (a story at the fast bar or over,
-  found in the last seven days, hiring stories included), new Top prospects
-  and new One question away roles (unread, the Jobs page's New), and
-  application follow-ups due today or overdue (the board's next steps), and
-  threads due (`watchlist.threads_due`, Watchlist companies only).
-- Five lights from `job_health`: On time, Late, Stale, Off or Dry run, each with
-  its own mark. The phone push has no run of its own, so its light comes from
-  the signal watcher's runs and the ntfy address in radar.yaml.
-- The applications tile reads the board; the funnel counts each tier as the
-  Jobs tabs do; Week by week counts new Top prospects (each role once, in the
-  week it was first scored Top, from `score_history` and each advert's own
-  score date, an applied role left out) and stories that scored 40 or more,
-  over four Monday weeks, from the week Radar's first row arrived.
-- Done (key E) is a row in `home_done`, keyed on the item's address on Home
+  and "Good morning." without one, with Radar's five lights beside it.
+- Five tiles, each a link: urgent stories (a story at the fast bar or over,
+  found in the last seven days, hiring stories included), Top prospects and
+  One question away (every open role in the tier, `jobs_page.tier_totals`,
+  the number on the Jobs page's tier bands), company follow-ups due
+  (`watchlist.threads_due`, Watchlist companies only) and application
+  follow-ups due today or overdue (the board's next steps).
+- Five lights from `job_health`: On time, Late, Stale, Off, Not sending or,
+  for the inbox, Quiet, each a dot, the job's name and the word. The phone
+  push has no run of its own, so its light comes from the news watcher's runs
+  and the ntfy address in radar.yaml.
+- Open actions lists Radar's jobs that need a look, urgent stories, new Top
+  prospects and new One question away roles (unread, the Jobs page's New),
+  and the two kinds of follow-up due, each its own card. Beside it, Jobs
+  counts each tier as the Jobs page's bands do and Applications reads the
+  board. Week by week, in Radar's health panel, counts new Top prospects (each
+  role once, in the week it was first scored Top, from `score_history` and
+  each advert's own score date, an applied role left out) and stories that
+  scored 40 or more, over four Monday weeks, from the week Radar's first row
+  arrived.
+- Done is a row in `home_done`, keyed on the item's address on Home
   (`signal:`, `role:`, `app:<id>:<due date>`, `radar:<job>:<state>`), through
   POST `/home/done` and `/home/undone` behind the write guard. It changes
   nothing where the item lives; a new due date or a change in a job's state
