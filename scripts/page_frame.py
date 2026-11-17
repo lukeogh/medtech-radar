@@ -381,6 +381,8 @@ GROUPS_CSS = """/* ---- the groups (owner, 17 Nov): each has one colour, page_fr
 .glow-tile.is-zero{background-image:radial-gradient(150% 170% at 0% 0%,rgb(var(--g) / .16) 0%,rgb(var(--g) / .06) 45%,rgb(var(--g) / 0) 100%)}
 .glow-wide{background-image:radial-gradient(115% 160% at 0% 0%,rgb(var(--g) / .20) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%)}
 .glow-short{background-image:radial-gradient(80% 260% at 0% 0%,rgb(var(--g) / .22) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%)}
+/* A section's card: a faint glow of its chip's colour (owner, 17 Nov). */
+.glow-faint{background-image:radial-gradient(700px 220px at 0% 0%,rgb(var(--g) / .10) 0%,rgb(var(--g) / .04) 45%,rgb(var(--g) / 0) 100%)}
 @media (forced-colors:active){.gchip{border:1px solid CanvasText}}
 """
 

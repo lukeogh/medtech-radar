@@ -52,7 +52,8 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.path.insert(0, str(TEST_DIR))
 
 import build_dashboard  # noqa: E402
-import jobs_page  # noqa: E402
+import jobs_page
+import page_frame  # noqa: E402
 
 # Between two of a row's facts: a comma for a screen reader, space on screen.
 BIT = '<span class="visually-hidden">, </span><span class="r-bit">'
@@ -347,8 +348,8 @@ def queue_checks(tmp: Path) -> None:
           "from the top left and Reading not at all")
     check(":root{--row-line:rgba(232,237,240,.08)}" in html
           and ".group .row.is-current{background:rgba(167,156,240,.16)}" in html
-          and ".group .r-new{display:inline-flex;align-items:center;height:20px;padding:0 8px;"
-              "border-radius:10px;background:rgba(167,156,240,.18);color:#c9c2f8;font-size:13px;" in html
+          and ".r-new{display:inline-flex;align-items:center;flex:none;height:20px;padding:0 8px;"
+              "border-radius:10px;background:rgba(167,156,240,.18);color:#c9c2f8;font-size:13px;" in jobs_page.ROW_CSS
           and '<span class="gchip g-jobs" aria-hidden="true">' in html.split('<div class="ph-title">', 1)[1][:400],
           "rows are set apart by a hairline, the open role is a purple wash, New is a purple "
           "pill, and the title has the Jobs chip")
@@ -609,7 +610,7 @@ def pane_checks(tmp: Path) -> None:
     card_html = pane(db, card)["html"]
     check("/company/" not in card_html and "Everything on file" not in card_html,
           "a company with no page is not linked")
-    unread = re.search(r'<div class="pcard advert-body">(.*?)</div></section>', card_html, re.S)
+    unread = re.search(r'<div class="pcard g-jobs glow-faint advert-body">(.*?)</div></section>', card_html, re.S)
     check(unread is not None
           and unread.group(1) == (f'<div class="advert-unread"><a class="btn btn-secondary" '
                                   f'data-prepare="{card}" href="/prepare/{card}">Prepare '
@@ -868,12 +869,20 @@ def advert_checks(tmp: Path) -> None:
           "15px, the word and the reason 14px")
     heads = re.findall(r'<header class="sec-head"><span class="gchip g-([a-z]+)" aria-hidden="true">'
                        r'.*?</span><h3 class="sec-title" id="([a-z]+)-heading">', html, re.S)
-    check(heads[:2] == [("jobs", "score"), ("neutral", "details")]
-          and ('neutral', 'advert') in [(g, k) for g, k in re.findall(
+    check(heads[:2] == [("jobs", "score"), ("jobs", "details")]
+          and ('jobs', 'advert') in [(g, k) for g, k in re.findall(
               r'<header class="sec-head advert-head"><span class="gchip g-([a-z]+)".*?id="([a-z]+)-heading"',
               html, re.S)],
-          "each section's title sits outside its card with a chip, Score's purple and the "
-          "rest neutral")
+          "each section's title sits outside its card with a purple chip, as every chip on "
+          "Jobs is")
+    check(re.search(r'<section class="psec score"[^>]*><header class="sec-head">.*?</header>'
+                    r'<div class="pbare">', html, re.S) is not None
+          and '<div class="pcard g-jobs glow-faint"><dl class="facts">' in html
+          and "neutral" not in "".join(re.findall(r'<span class="gchip g-([a-z]+)"', html))
+          and ".glow-faint{background-image:radial-gradient(700px 220px at 0% 0%,rgb(var(--g) / .10) "
+              "0%,rgb(var(--g) / .04) 45%,rgb(var(--g) / 0) 100%)}" in page_frame.GROUPS_CSS,
+          "Score's tiles sit under its title with no card round them, and the other cards "
+          "glow faintly purple from the top left")
     check('<header class="detail-head">' in html and '<span class="dh-chip"><span class="gchip g-jobs"' in html
           and "radial-gradient(900px 300px at 0% 0%,rgb(var(--group-jobs-rgb) / .22) 0%,"
               "rgb(var(--group-jobs-rgb) / .08) 45%,rgb(var(--group-jobs-rgb) / 0) 100%)" in css
