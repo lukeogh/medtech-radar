@@ -449,6 +449,14 @@ def first_seen(o: dict) -> str:
     return o.get("_first") or chain.get("first") or o.get("first_seen") or ""
 
 
+def meta_html(bits: list) -> str:
+    """The row's facts (each already escaped), set apart by space, not by a
+    separator mark (owner, 17 Nov), with a comma between them for a screen
+    reader."""
+    comma = '<span class="visually-hidden">, </span>'
+    return comma.join(f'<span class="r-bit">{b}</span>' for b in bits)
+
+
 def row_html(o: dict, view: str, current_key: str | None, now: str,
              loc: tuple = ()) -> str:
     """One role in the queue. The title is the link that opens it; the rest
@@ -484,7 +492,7 @@ def row_html(o: dict, view: str, current_key: str | None, now: str,
         meta_bits = [when, o.get("company") or "Unknown company",
                      where if stage != "applied" else None,
                      o.get("salary_rate"), board(o.get("source"))]
-        meta = " · ".join(esc(b) for b in meta_bits if b)
+        meta = meta_html([esc(b) for b in meta_bits if b])
         return (f'<div class="{" ".join(classes)} row-applied" data-id="{oid}" '
                 f'data-key="{esc(key)}">'
                 f'<span class="r1"><a class="r-link" id="rt-{oid}" '
@@ -528,7 +536,7 @@ def row_html(o: dict, view: str, current_key: str | None, now: str,
         f'aria-describedby="rm-{oid} rl-{oid}">{new}'
         f'<span class="r-title">{esc(title)}</span></a>'
         f'<span class="r-first">{"First seen " + esc(seen) if seen else ""}</span></span>'
-        f'<span class="r2"><span class="r-meta" id="rm-{oid}">{" · ".join(meta_bits)}</span>{tags}</span>'
+        f'<span class="r2"><span class="r-meta" id="rm-{oid}">{meta_html(meta_bits)}</span>{tags}</span>'
         f'<span class="r3"><span class="r-lead" id="rl-{oid}">{esc(lead)}</span>'
         f'{marks_html(o, current)}</span>'
         '</div>')
@@ -1421,6 +1429,7 @@ ROW_CSS = """.row{position:relative;display:grid;grid-template-rows:auto 16px 20
 .r-first{flex:none;width:100px;padding-top:2px;text-align:right;font-size:12px;line-height:16px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .r2{align-items:center;gap:8px}
 .r-meta{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;line-height:16px;color:var(--text-3)}
+.r-bit ~ .r-bit{margin-left:12px}
 .r2 .tag{margin:-2px 0}
 .r3{align-items:center;gap:12px}
 .r-lead{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text-2)}

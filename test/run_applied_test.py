@@ -2379,11 +2379,12 @@ def page_checks() -> None:
         check("Kordis Medical" in applied and "Mentis &amp; Co" in applied
               and QD[1] in applied,
               "with the company on each row, escaped")
-        check(all(f"Applied {build_dashboard.fmt_day(at(n))} · " in applied
+        check(all(f'<span class="r-bit">Applied {build_dashboard.fmt_day(at(n))}</span>' in applied
                   for n in (10, 1, 0)),
               "each row leads with the day it was applied")
-        check(" · Reed</span>" in applied and " · LinkedIn</span>" in applied
-              and " · Email alert</span>" in applied,
+        bit = '<span class="visually-hidden">, </span><span class="r-bit">'
+        check(bit + "Reed</span>" in applied and bit + "LinkedIn</span>" in applied
+              and bit + "Email alert</span>" in applied,
               "the source each advert came through, by its name")
         panes = {i: role_pane(db, i, "applied") for i in (a1, a2, a3)}
         check('href="https://www.reed.co.uk/jobs/qd/1"' in panes[a1]
@@ -2452,7 +2453,7 @@ def page_checks() -> None:
         _t, a_two = split_applied(jobs_html_now(two))
         check(a_two.count('<div class="row ') == 1
               and f'data-id="{s1}"' in a_two
-              and f"Applied {build_dashboard.fmt_day(at(9))} · " in a_two,
+              and f'<span class="r-bit">Applied {build_dashboard.fmt_day(at(9))}</span>' in a_two,
               "a chain with two stamps is one entry, on the earlier one")
         with pointed_at(two):
             check(serve_dashboard.set_applied(s2, False)["ok"], "Undo on it works")
