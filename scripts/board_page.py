@@ -21,22 +21,12 @@ import jobs_page as jp
 
 esc = bd.esc
 
-COLUMN_NOTES = {
-    "preparing": "A tailored CV is saved and the role is not applied yet.",
-    "applied": ("You marked the role applied. After 21 days with no movement, "
-                "Radar closes it as no reply."),
-    "conversation": "The company or its recruiter replied. You move items here.",
-    "interviewing": "An interview is booked or under way.",
-    "offer": "The company made you an offer.",
-    "closed": "Each item says why: no reply, turned down or withdrawn.",
-}
 EMPTY = {
-    "preparing": "Nothing in preparation. Save a tailored CV on Prepare application and the role lands here.",
-    "applied": "No applications waiting. Mark a role applied on Jobs or Prepare application and it lands here.",
-    "conversation": "No conversations yet. Move an item here when the company or its recruiter replies.",
-    "interviewing": "No interviews yet. Move an item here when one is booked.",
-    "offer": ("No offers yet. An item lands here when you move it after an offer. "
-              "Radar never moves one here."),
+    "preparing": "Nothing in preparation.",
+    "applied": "No applications waiting.",
+    "conversation": "No conversations yet.",
+    "interviewing": "No interviews yet.",
+    "offer": "No offers yet.",
     "closed": "Nothing closed.",
 }
 # The column keys of the Move to menu, and the close keys with their reason.
@@ -49,12 +39,6 @@ SYMBOLS = """<svg width="0" height="0" style="position:absolute" aria-hidden="tr
 <symbol id="ic-back" viewBox="0 0 16 16"><path d="M6 4L2.8 7.2 6 10.4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3.2 7.2h6.3a3.3 3.3 0 0 1 0 6.6H8" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
 <symbol id="ic-warn" viewBox="0 0 16 16"><path d="M8 2.2l6.2 11H1.8z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 6.4v3.2M8 11.2v.4" stroke="currentColor" stroke-width="1.6"/></symbol>
 </svg>"""
-DOT = " · "
-BOARD_KEYMAP = (("← ↑ → ↓", "Move between items"),
-                ("Enter", "Open the role"), ("M", "Open Move to for the item"),
-                ("2 to 5", "In Move to, move to that column"),
-                ("N T W", "In Move to, close as no reply, turned down or withdrawn"),
-                ("Z", "Undo the last move"), ("?", "Show this list"))
 
 
 # ------------------------------------------------------------------ words
@@ -181,8 +165,8 @@ def _meta_line(a: dict) -> str:
     company = esc(a.get("company") or "Unknown company")
     if a["stage"] == "preparing":
         when = jp._day(a.get("saved_at") or a.get("stage_at"))
-        return f"CV saved {esc(when)} · {company}"
-    return f"Applied {esc(jp._day(a.get('applied_on') or a.get('stage_at')))} · {company}"
+        return jp.meta_html([f"CV saved {esc(when)}", company])
+    return jp.meta_html([f"Applied {esc(jp._day(a.get('applied_on') or a.get('stage_at')))}", company])
 
 
 def item_html(a: dict, model: dict) -> str:
@@ -233,7 +217,7 @@ def item_html(a: dict, model: dict) -> str:
         if a.get("next_step"):
             bits.append(f'<span class="item-next">{esc(a["next_step"])}, '
                         f'{esc(due_words(a.get("next_step_due"), now))}</span>')
-        parts.append('<p class="item-days">' + DOT.join(bits) + '</p>')
+        parts.append('<p class="item-days">' + jp.meta_html(bits) + '</p>')
         if ap.warned(a, now):
             on = ap.close_on(a)
             when = ("today" if on and on.date() <= now.date() else
@@ -277,13 +261,10 @@ def column_html(stage: str, model: dict) -> str:
     count = f"{shown} of {total}" if model["loc"] and shown != total else str(total)
     head = [f'<h2 class="col-title" id="colh-{stage}">{ap.STAGE_WORDS[stage]} '
             f'<span class="col-count">{count}</span></h2>']
-    if stage in ("preparing", "applied"):
-        head.append('<p class="col-by">Filled by Radar</p>')
     if stage == "closed" and total:
-        roll = " · ".join(f"{n} {ap.REASON_WORDS[r].lower()}"
+        roll = ", ".join(f"{n} {ap.REASON_WORDS[r].lower()}"
                                for r, n in model["reasons"].items() if n)
         head.append(f'<p class="col-roll">{esc(roll)}</p>')
-    head.append(f'<p class="col-note">{esc(COLUMN_NOTES[stage])}</p>')
     body = ("".join(item_html(a, model) for a in items) if items else
             f'<li class="col-empty">{esc(EMPTY[stage] if not model["loc"] else "Nothing here matches the location chips.")}</li>')
     return (f'<section class="col" id="col-{stage}" data-stage="{stage}" '
@@ -327,13 +308,8 @@ def board_inner_html(model: dict) -> str:
             '<p class="board-note">Some applications are not on file yet. Radar files '
             'them the next time it writes to the database, within two hours; until then '
             'they are shown in Applied and cannot be moved.</p>')
-    keys = ('<p class="board-keys">Keys: arrows move between items, Enter opens the role, '
-            '<kbd class="kbd">M</kbd> opens Move to; in it <kbd class="kbd">2</kbd> to '
-            '<kbd class="kbd">5</kbd> picks a column and <kbd class="kbd">N</kbd>, '
-            '<kbd class="kbd">T</kbd> or <kbd class="kbd">W</kbd> closes as no reply, '
-            'turned down or withdrawn; <kbd class="kbd">Z</kbd> undoes the last move.</p>')
     cols = "".join(column_html(s, model) for s in ap.STAGES)
-    return (f'{note}{waiting_html(model)}{keys}{picker_html(model)}'
+    return (f'{note}{waiting_html(model)}{picker_html(model)}'
             f'<div class="cols">{cols}</div>')
 
 
@@ -351,12 +327,6 @@ def layout_switch_html(layout: str, loc: tuple) -> str:
         for key, word, href in links) + '</nav>')
 
 
-def keymap_html() -> str:
-    return ('<dl class="keymap">' + "".join(
-        f'<div><dt><kbd class="kbd">{esc(k)}</kbd></dt><dd>{esc(v)}</dd></div>'
-        for k, v in BOARD_KEYMAP) + '</dl>')
-
-
 # ------------------------------------------------------------------ styles
 
 BOARD_CSS = """
@@ -371,17 +341,13 @@ BOARD_CSS = """
 .wait-list{display:flex;flex-wrap:wrap;gap:4px 24px;margin-top:4px;padding-left:0;list-style:none}
 .wait-list li{min-height:24px;display:flex;align-items:center}
 .wait-empty{margin-top:4px;color:var(--text-2)}
-.board-keys{padding:8px 16px;font-size:12px;line-height:20px;color:var(--text-2);border-bottom:1px solid var(--border-subtle)}
-.board-keys .kbd{margin:0 2px}
 .picker{display:none}
 .cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:start}
 .col{min-width:0;border-right:1px solid var(--border-subtle);border-bottom:1px solid var(--border-subtle)}
 .col-head{padding:12px 16px 8px;border-bottom:1px solid var(--border-subtle)}
 .col-title{display:flex;align-items:baseline;gap:8px;font-size:16px;line-height:24px;font-weight:600}
 .col-count{font-size:12px;line-height:16px;font-weight:400;color:var(--text-3);font-variant-numeric:tabular-nums}
-.col-by{margin-top:2px;font-size:12px;line-height:16px;font-weight:600;color:var(--accent)}
 .col-roll{margin-top:2px;font-size:12px;line-height:16px;color:var(--text-2)}
-.col-note{margin-top:4px;font-size:12px;line-height:16px;color:var(--text-2)}
 .col-items{padding:0;list-style:none}
 .col-empty{padding:12px 16px;color:var(--text-2)}
 .item{display:flex;flex-direction:column;gap:4px;padding:12px 16px;border-bottom:1px solid var(--border-subtle);scroll-margin-block:56px}
@@ -415,7 +381,6 @@ BOARD_CSS = """
 .move-menu .menu-label{display:inline-flex;align-items:center;gap:8px}
 @media (min-width:1800px){.cols{grid-template-columns:repeat(6,minmax(0,1fr))}}
 @media (max-width:1023.98px){
-  .board-keys{display:none}
   .cols{grid-template-columns:minmax(0,1fr)}
   .board.is-picking .picker{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-subtle)}
   .board.is-picking .picker .chip{justify-content:center;height:44px;white-space:normal;text-align:center;line-height:16px}
@@ -442,7 +407,6 @@ BOARD_SCRIPT = """
   var LOCS = ['local', 'uk', 'europe', 'elsewhere', 'remote'];
   var toast = document.getElementById('toast');
   var undoBtn = document.getElementById('undo-last');
-  var keys = document.getElementById('keys');
   var menu = document.getElementById('move-menu');
   var WORDS = { preparing: 'Preparing', applied: 'Applied', conversation: 'In conversation',
                 interviewing: 'Interviewing', offer: 'Offer', closed: 'Closed' };
@@ -598,12 +562,7 @@ BOARD_SCRIPT = """
     var l = document.createElement('span');
     l.className = 'menu-label';
     l.textContent = label;
-    var k = document.createElement('kbd');
-    k.className = 'kbd';
-    k.textContent = key.toUpperCase();
     b.appendChild(l);
-    b.appendChild(k);
-    b.setAttribute('aria-keyshortcuts', key.toUpperCase());
     return b;
   }
   function openMenu(button) {
@@ -651,7 +610,6 @@ BOARD_SCRIPT = """
   menu.addEventListener('keydown', function (e) {
     var items = Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]'));
     var i = items.indexOf(document.activeElement);
-    var k = (e.key || '').toLowerCase();
     if (e.key === 'Escape') { e.preventDefault(); closeMenu(true); return; }
     if (e.key === 'Tab') { e.preventDefault(); closeMenu(true); return; }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -661,9 +619,6 @@ BOARD_SCRIPT = """
       return;
     }
     if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); items[e.key === 'Home' ? 0 : items.length - 1].focus(); return; }
-    // The menu's own keys, as it shows them, work while it is open.
-    var hit = items.filter(function (b) { return b.getAttribute('aria-keyshortcuts').toLowerCase() === k; })[0];
-    if (hit && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); pick(hit); }
   });
   document.addEventListener('click', function (e) {
     if (!menu.hidden && !e.target.closest('#move-menu') && !e.target.closest('.item-move')) closeMenu(false);
@@ -818,22 +773,6 @@ BOARD_SCRIPT = """
   function typing(t) {
     return t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
   }
-  function keysOn() {
-    try { return localStorage.getItem('radar-jobs-keys') !== 'off'; } catch (e) { return true; }
-  }
-  var keysToggle = document.getElementById('keys-on');
-  if (keysToggle) {
-    keysToggle.checked = keysOn();
-    keysToggle.addEventListener('change', function () {
-      try { localStorage.setItem('radar-jobs-keys', keysToggle.checked ? 'on' : 'off'); } catch (e) {}
-    });
-  }
-  function openKeys() {
-    if (keys.open) return;
-    if (keys.showModal) keys.showModal(); else keys.setAttribute('open', '');
-  }
-  var keysBtn = document.getElementById('keys-open');
-  if (keysBtn) keysBtn.addEventListener('click', openKeys);
   function visibleItems(col) {
     return Array.prototype.slice.call(col.querySelectorAll('.item')).filter(function (li) {
       return li.offsetParent !== null;
@@ -871,7 +810,7 @@ BOARD_SCRIPT = """
   document.addEventListener('keydown', function (e) {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
     if (!menu.hidden) return;
-    if (typing(e.target) || keys.open) return;
+    if (typing(e.target)) return;
     if (e.key === 'Escape' && !showList.hidden) { setShow(false); showBtn.focus(); return; }
     var inItem = e.target.closest && e.target.closest('.item');
     var onItemTitle = inItem && e.target.classList.contains('item-title');
@@ -879,15 +818,6 @@ BOARD_SCRIPT = """
       e.preventDefault();
       arrow(e.key, e.target);
       return;
-    }
-    if (!keysOn()) return;
-    if (e.key === '?') { e.preventDefault(); openKeys(); return; }
-    if (e.shiftKey) return;
-    var k = (e.key || '').toLowerCase();
-    if (k === 'z') { e.preventDefault(); undoLast(); return; }
-    if (k === 'm' && inItem) {
-      var btn = inItem.querySelector('.item-move');
-      if (btn) { e.preventDefault(); openMenu(btn); }
     }
   });
   if (location.hash) {

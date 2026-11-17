@@ -13,8 +13,8 @@ a throwaway under a temporary folder, seeded from the invented samples.
    (page_frame.job_light, the one rule Home's lights use too), in words as
    well as colour, linking to Radar's health.
 3. Every page draws the bar, once, with every page in it, marks the page it is
-   on (or none, for the pages outside the menu), has the shortcuts button only
-   on Jobs, and turns its light with the scheduled jobs: All running with
+   on (or none, for the pages outside the menu), has no shortcuts button on
+   any page, and turns its light with the scheduled jobs: All running with
    every job on time, the digest and the push in dry run; Check Radar, in two
    words and no job names, with the signal watcher stalled.
 """
@@ -229,8 +229,8 @@ def page_checks(tmp: Path) -> None:
         marked = re.findall(r'aria-current="page">([A-Za-z]+)</a>', bar)
         check(marked == ([current, current] if current else []),
               f"{name} marks {current or 'no page'} as the page it is on")
-        check(('id="keys-open"' in bar) == (current == "Jobs" and name != "Prepare application"),
-              f"{name} has the shortcuts button only if it is the Jobs page")
+        check('id="keys-open"' not in bar and "Keyboard shortcuts" not in bar,
+              f"{name} has no shortcuts button (Jobs dropped its own, owner, 17 Nov)")
         check('data-state="ok"' in bar and "All running" in bar and 'href="/radar"' in bar,
               f"{name}: with every job on time and the digest and the push in dry run, "
               "the light says All running")

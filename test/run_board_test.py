@@ -34,9 +34,9 @@ given no sources, and every database is a throwaway under a temporary folder.
    guard, their 400s, 409s and 200s, and a forged request refused with the
    database left as it was.
 9. The scripts parse (node --check), and the board's own script is driven in
-   node by test/board_script_harness.js: M, the menu and its keys, Tab and
-   Escape, a move joining Undo last, Z, the shortcut switch, typing in a
-   field. The List's undo of a board move is read from its script. Undo on
+   node by test/board_script_harness.js: Move to from its button, Tab and
+   Escape, a move joining Undo last, Undo last, and M, Z and ? doing
+   nothing. The List's undo of a board move is read from its script. Undo on
    the store restores the item as it was, the applied stamp included.
 10. The box checks: no command block is empty, every query in them runs on a
     seeded database, every python -c compiles, and the rollback never
@@ -729,9 +729,8 @@ def page_checks(tmp: Path) -> None:
           "a role's address always opens the List beside its role pane")
     heads = re.findall(r'<h2 class="col-title" id="colh-([a-z]+)"', board_html)
     check(heads == list(ap.STAGES), "six columns, Preparing to Closed, in order")
-    check(board_html.count("Filled by Radar") == 2
-          and board_html.index("Filled by Radar") < board_html.index('id="col-conversation"'),
-          "Preparing and Applied say Radar fills them, and no other column does")
+    check("Filled by Radar" not in board_html and 'class="col-note"' not in board_html,
+          "no column carries a line explaining itself (owner, 17 Nov)")
     check('data-applied-count>6</span>' in board_html and 'data-applied-count>6</span>' in open_html,
           "the Applied count covers Preparing to Offer (6 here), not Closed (1)")
     check("No movement for 16 days. Radar closes it as no reply" in board_html,
@@ -743,8 +742,10 @@ def page_checks(tmp: Path) -> None:
           "nothing is dragged")
     check(board_html.count('aria-haspopup="menu"') == 7 and 'id="move-menu" role="menu"' in board_html,
           "every item on file has its Move to button, a menu button")
-    check("Keys: arrows move between items" in board_html and "Single-key shortcuts on" in board_html,
-          "the keys are shown, and can be turned off")
+    check("Keys:" not in board_html and "Single-key" not in board_html and "<kbd" not in board_html
+          and 'id="keys-open"' not in board_html and "<dialog" not in board_html
+          and "·" not in re.sub(r"<(style|script)[^>]*>.*?</>", "", board_html, flags=re.S),
+          "no list of keys, no key hints and no middle dot on the board")
     check('class="picker"' in board_html and board_html.count("data-pick=") == 6,
           "the phone picker has six columns with their counts")
     check("Undo last" in board_html and "Waiting on you" in board_html,

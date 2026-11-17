@@ -171,33 +171,38 @@ async function flush() { for (let i = 0; i < 6; i++) await settle(); }
 function key(target, k, extra) { return dispatch(target, 'keydown', Object.assign({ key: k }, extra || {})); }
 function posts() { return calls.filter((c) => c.body); }
 
+function click(target) { return dispatch(target, 'click'); }
+function entry(to, reason) {
+  return menu.querySelectorAll('[role="menuitem"]').filter((b) => b.dataset.to === to
+    && (b.dataset.reason || null) === (reason || null))[0];
+}
+
 (async () => {
-  // M opens Move to on the item that has focus, with focus inside it.
-  title.focus();
-  key(title, 'm');
+  // Move to opens on its button, with focus inside the menu.
+  click(moveBtn);
   const items = menu.querySelectorAll('[role="menuitem"]');
   say(!menu.hidden && moveBtn.getAttribute('aria-expanded') === 'true'
       && items.length === 6 && doc.activeElement === items[0]
       && items.every((b) => b.dataset.to !== 'applied' || b.dataset.reason),
-      'M opens Move to for the item in focus, focus on its first entry, every column but its own');
-  say(items.map((b) => b.getAttribute('aria-keyshortcuts')).join(' ') === '3 4 5 N T W',
-      'the menu shows its keys, 3 to 5 here and N, T and W');
+      'Move to opens from its button, focus on its first entry, every column but its own');
+  say(items.every((b) => !b.hasAttribute('aria-keyshortcuts') && !b.querySelector('kbd')),
+      'the menu shows no key hints and takes no letter or digit keys');
   // Tab closes it and puts focus back on its button.
   const tab = key(doc.activeElement, 'Tab');
   say(menu.hidden && tab.defaultPrevented && doc.activeElement === moveBtn,
       'Tab closes Move to and puts focus back on its button');
-  key(title, 'm');
+  click(moveBtn);
   key(doc.activeElement, 'Escape');
   say(menu.hidden && doc.activeElement === moveBtn, 'Escape closes Move to and puts focus back');
-  // 3 in the menu moves the item, and the move joins Undo last.
-  key(title, 'm');
+  // In conversation, chosen in the menu, moves the item, and the move joins Undo last.
+  click(moveBtn);
   calls.length = 0;
-  key(doc.activeElement, '3');
+  click(entry('conversation'));
   await flush();
   const sent = posts()[0];
   say(sent && sent.url === '/application/move' && sent.body.id === 7 && sent.body.to === 'conversation'
       && sent.body.from === 'applied' && sent.body.reason === null && sent.body.undo === false,
-      '3 in Move to posts the move to In conversation, from the column the page drew');
+      'In conversation in Move to posts the move, from the column the page drew');
   const stack = JSON.parse(session['radar-jobs-undo'] || '[]');
   say(stack.length === 1 && stack[0].kind === 'move' && stack[0].from === 'applied'
       && stack[0].to === 'conversation' && !undoBtn.disabled,
@@ -205,44 +210,40 @@ function posts() { return calls.filter((c) => c.body); }
   say(/Moved .Software Lead. to In conversation\./.test(doc.getElementById('toast').textContent)
       && doc.getElementById('toast').querySelector('button') !== null,
       'and shows an Undo notice with its own Undo button');
-  // Z undoes it: the move back, marked as an undo.
+  // Undo last undoes it: the move back, marked as an undo.
   buildBoard();
   calls.length = 0;
-  key(body, 'z');
+  click(undoBtn);
   await flush();
   const back = posts()[0];
   say(back && back.body.to === 'applied' && back.body.from === 'conversation' && back.body.undo === true,
-      'Z undoes the last move: back to Applied, sent as an undo');
+      'Undo last undoes the last move: back to Applied, sent as an undo');
   say(JSON.parse(session['radar-jobs-undo'] || '[]').length === 0, 'and the entry leaves the stack');
-  // N closes with its reason.
+  // Closed, no reply closes with its reason.
   buildBoard();
   calls.length = 0;
-  key(title, 'm');
-  key(doc.activeElement, 'n');
+  click(moveBtn);
+  click(entry('closed', 'no-reply'));
   await flush();
   const close = posts()[0];
   say(close && close.body.to === 'closed' && close.body.reason === 'no-reply',
-      'N in Move to closes it as no reply');
-  // Keys off, and typing in a field, do nothing.
+      'Closed, no reply in Move to closes it as no reply');
+  // The single-key shortcuts are gone: M, Z and ? do nothing, anywhere.
   buildBoard();
+  session['radar-jobs-undo'] = JSON.stringify([{ kind: 'move', id: 7, title: 'x', from: 'applied', to: 'conversation' }]);
   calls.length = 0;
-  local['radar-jobs-keys'] = 'off';
+  title.focus();
   key(title, 'm');
   key(body, 'z');
+  key(body, '?');
   await flush();
-  say(menu.hidden && posts().length === 0, 'with single-key shortcuts off, M and Z do nothing');
-  delete local['radar-jobs-keys'];
-  input.focus();
-  key(input, 'm');
-  key(input, 'z');
-  await flush();
-  say(menu.hidden && posts().length === 0, 'and while typing in a field they do nothing either');
+  say(menu.hidden && posts().length === 0, 'M, Z and ? do nothing: the board has no single-key shortcuts');
+  session['radar-jobs-undo'] = '[]';
   // A refused move says why and is not stacked.
   buildBoard();
   reply = { ok: false, note: 'That application has moved to Offer since the page was drawn.' };
-  session['radar-jobs-undo'] = '[]';
-  key(title, 'm');
-  key(doc.activeElement, '4');
+  click(moveBtn);
+  click(entry('interviewing'));
   await flush();
   say(/moved to Offer/.test(doc.getElementById('toast').textContent)
       && JSON.parse(session['radar-jobs-undo']).length === 0,

@@ -1100,15 +1100,14 @@ def role_row_checks(tmp: Path) -> None:
     for gone in ("Why it is here", "The four gates", "Scored on the",
                  "Would they go remote", "Would they move on the rate"):
         check(gone not in body, f"{gone!r} appears nowhere on Home")
-    check(re.search(r"First seen \d+ \w+ \d\d:\d\d", body) is None,
-          "no first-seen time of day: the row's date is all")
+    check("First seen" not in body,
+          "no first-seen date on a role row, as on Jobs")
     q = rows.get(ids["question_new"][0], "")
-    check('class="r-lead"' in q and "Edinburgh, five days on site." in q,
-          "a One question away row leads with its failing gate's stored reason, as on Jobs")
-    shown = re.sub(r'<span class="mk-tip"[^>]*>.*?</span>', "", body)
-    shown = re.sub(r'aria-label="[^"]*"', "", shown)
-    check(long_reason in body and long_reason not in shown,
-          "a long gate reason is in the mark's tooltip and its name only, not across the page")
+    check(q and 'class="r-lead"' not in q and "Edinburgh, five days on site." not in q
+          and 'class="mk ' not in q,
+          "a One question away row is its title and facts, as on Jobs: no reason and no marks")
+    check(long_reason not in body,
+          "a long gate reason appears nowhere on Home")
     css = hp.HOME_CSS
     status = re.search(r"\.status\{[^}]*\}", css).group(0)
     check("white-space:normal" in status and "nowrap" not in status and "overflow-wrap:anywhere" in status,

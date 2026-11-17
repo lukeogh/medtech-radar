@@ -8,12 +8,12 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<title>Applications board · Jobs · MedTech Radar</title>
+<title>Applications board, Jobs, MedTech Radar</title>
 
 <link rel="icon" href="data:image/svg+xml,
 <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2314161a'/><circle cx='16' cy='21' r='7' fill='%23f2efe8'/><rect x='0' y='21' width='32' height='11' fill='%2314161a'/><rect x='4' y='21' width='24' height='1.6' rx='0.8' fill='%237db4e8'/></svg>">
 
-<style>/* style db1657ba82a5, 33527 chars */</style>
+<style>/* style 99f0a9c74915, 30705 chars */</style>
 </head>
 
 <body>
@@ -30,6 +30,7 @@
 <symbol id="ic-launch" viewBox="0 0 16 16"><path d="M7 3H3.6A1.6 1.6 0 0 0 2 4.6v7.8A1.6 1.6 0 0 0 3.6 14h7.8a1.6 1.6 0 0 0 1.6-1.6V9" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 2H14v4.5M14 2 7.5 8.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
 <symbol id="ic-down" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
 <symbol id="ic-right" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+<symbol id="ic-left" viewBox="0 0 16 16"><path d="M10 4l-4 4 4 4" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
 </svg>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
 <symbol id="ic-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.6V8l2.4 1.6" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
@@ -40,9 +41,7 @@
 <header class="appbar"><a class="brand" href="/" aria-label="MedTech Radar, Home">
 <svg class="brand-mark" viewBox="0 0 36 17" width="51" height="24" fill="none" aria-hidden="true" focusable="false"><path d="M4 15a14 14 0 0 1 28 0" stroke="var(--text-3)" stroke-width="1.2"/><path d="M8.5 15a9.5 9.5 0 0 1 19 0" stroke="var(--text-2)" stroke-width="1.2"/><path d="M13 15a5 5 0 0 1 10 0Z" fill="var(--text-1)"/><path d="M0 15h36" stroke="var(--text-1)" stroke-width="1.5"/></svg><span class="brand-name">MedTech Radar</span><span class="appbar-page" aria-hidden="true">Jobs</span></a>
 <nav class="nav" aria-label="Pages"><a href="/">Home</a><a href="/jobs" aria-current="page">Jobs</a><a href="/watchlist">Watchlist</a><a href="/insights">Insights</a><a href="/cv">CV</a><a href="/cv#settings">Settings</a></nav>
-<div class="appbar-tools"><a class="radar-status is-check" href="/radar" data-state="check"><span class="radar-dot" aria-hidden="true"></span>Check Radar<span class="visually-hidden">, open Radar&#39;s health</span></a>
-<button type="button" class="bar-btn help" id="keys-open" aria-label="Keyboard shortcuts" aria-keyshortcuts="Shift+?" aria-haspopup="dialog">
-<svg viewBox="0 0 20 20" width="20" height="20" fill="none" aria-hidden="true" focusable="false"><circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="1.4"/><path d="M7.9 7.9a2.1 2.1 0 1 1 3 1.9c-.6.3-.9.8-.9 1.4v.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="10" cy="13.9" r=".9" fill="currentColor"/></svg></button></div>
+<div class="appbar-tools"><a class="radar-status is-check" href="/radar" data-state="check"><span class="radar-dot" aria-hidden="true"></span>Check Radar<span class="visually-hidden">, open Radar&#39;s health</span></a></div>
 <button type="button" class="bar-btn menu-btn" aria-expanded="false" aria-controls="menu-panel">Menu</button>
 <div class="menu-panel" id="menu-panel">
 <nav aria-label="Pages, menu">
@@ -57,8 +56,7 @@
 <div class="pagehead">
 
 <div class="ph-title">
-<h1>Jobs</h1>
-<p class="counts" id="counts"><span data-count="open">33 open</span> · <span data-count="top">11 Top prospects</span> · <span data-count="question">12 one question away</span> · <span data-count="reading">6 reading</span> · <span data-count="filtered">4 filtered</span> · <span data-count="new" data-n="11">11 new</span></p></div>
+<h1>Jobs</h1></div>
 
 <div class="ph-tools">
 
@@ -91,7 +89,6 @@
 <section class="wait" aria-labelledby="wait-title">
 <h2 class="wait-title" id="wait-title">Waiting on you <span class="col-count">0</span></h2>
 <p class="wait-empty">Nothing is waiting on you. A next step you set, or Radar's Follow up, shows here.</p></section>
-<p class="board-keys">Keys: arrows move between items, Enter opens the role, <kbd class="kbd">M</kbd> opens Move to; in it <kbd class="kbd">2</kbd> to <kbd class="kbd">5</kbd> picks a column and <kbd class="kbd">N</kbd>, <kbd class="kbd">T</kbd> or <kbd class="kbd">W</kbd> closes as no reply, turned down or withdrawn; <kbd class="kbd">Z</kbd> undoes the last move.</p>
 <div class="picker" role="group" aria-label="Column shown">
 <button type="button" class="chip" data-pick="preparing" aria-pressed="false" aria-controls="col-preparing">Preparing <span class="chip-count">0</span></button>
 <button type="button" class="chip" data-pick="applied" aria-pressed="false" aria-controls="col-applied">Applied <span class="chip-count">7</span></button>
@@ -102,87 +99,79 @@
 <div class="cols">
 <section class="col" id="col-preparing" data-stage="preparing" aria-labelledby="colh-preparing">
 <div class="col-head">
-<h2 class="col-title" id="colh-preparing">Preparing <span class="col-count">0</span></h2>
-<p class="col-by">Filled by Radar</p>
-<p class="col-note">A tailored CV is saved and the role is not applied yet.</p></div>
+<h2 class="col-title" id="colh-preparing">Preparing <span class="col-count">0</span></h2></div>
 <ul class="col-items">
-<li class="col-empty">Nothing in preparation. Save a tailored CV on Prepare application and the role lands here.</li></ul></section>
+<li class="col-empty">Nothing in preparation.</li></ul></section>
 <section class="col" id="col-applied" data-stage="applied" aria-labelledby="colh-applied">
 <div class="col-head">
-<h2 class="col-title" id="colh-applied">Applied <span class="col-count">7</span></h2>
-<p class="col-by">Filled by Radar</p>
-<p class="col-note">You marked the role applied. After 21 days with no movement, Radar closes it as no reply.</p></div>
+<h2 class="col-title" id="colh-applied">Applied <span class="col-count">7</span></h2></div>
 <ul class="col-items">
 <li class="item" id="app-r27" data-virtual="1">
 <div class="item-top">
 <h3 class="item-h"><a class="item-title link" id="app-r27-t" href="/jobs/27?show=applied&amp;layout=list">Software Lead, surgical staplers</a></h3></div>
-<p class="item-meta">Applied 9 Nov · Tamesis Surgical</p>
+<p class="item-meta"><span class="r-bit">Applied 9 Nov</span><span class="visually-hidden">, </span><span class="r-bit">Tamesis Surgical</span></p>
 <p class="item-cv">No tailored CV was saved for this application.</p>
-<p class="item-days">4 days in Applied</p></li>
+<p class="item-days"><span class="r-bit">4 days in Applied</span></p></li>
 <li class="item" id="app-r28" data-virtual="1">
 <div class="item-top">
 <h3 class="item-h"><a class="item-title link" id="app-r28-t" href="/jobs/28?show=applied&amp;layout=list">Fractional QA/RA Lead, SaMD</a></h3></div>
-<p class="item-meta">Applied 6 Nov · Wrenfield Digital Health</p>
+<p class="item-meta"><span class="r-bit">Applied 6 Nov</span><span class="visually-hidden">, </span><span class="r-bit">Wrenfield Digital Health</span></p>
 <p class="item-cv">No tailored CV was saved for this application.</p>
-<p class="item-days">7 days in Applied</p></li>
+<p class="item-days"><span class="r-bit">7 days in Applied</span></p></li>
 <li class="item" id="app-r29" data-virtual="1">
 <div class="item-top">
 <h3 class="item-h"><a class="item-title link" id="app-r29-t" href="/jobs/29?show=applied&amp;layout=list">Software Quality Lead, respiratory devices</a></h3></div>
-<p class="item-meta">Applied 4 Nov · Fenwick Respiratory</p>
+<p class="item-meta"><span class="r-bit">Applied 4 Nov</span><span class="visually-hidden">, </span><span class="r-bit">Fenwick Respiratory</span></p>
 <p class="item-cv">No tailored CV was saved for this application.</p>
-<p class="item-days">9 days in Applied</p></li>
+<p class="item-days"><span class="r-bit">9 days in Applied</span></p></li>
 <li class="item" id="app-r30" data-virtual="1">
 <div class="item-top">
 <h3 class="item-h"><a class="item-title link" id="app-r30-t" href="/jobs/30?show=applied&amp;layout=list">IEC 62304 Consultant</a></h3></div>
-<p class="item-meta">Applied 31 Oct · Clearwater Ophthalmic</p>
+<p class="item-meta"><span class="r-bit">Applied 31 Oct</span><span class="visually-hidden">, </span><span class="r-bit">Clearwater Ophthalmic</span></p>
 <p class="item-cv">No tailored CV was saved for this application.</p>
-<p class="item-days">13 days in Applied</p></li>
+<p class="item-days"><span class="r-bit">13 days in Applied</span></p></li>
 <li class="item" id="app-r31" data-virtual="1">
 <div class="item-top">
 <h3 class="item-h"><a class="item-title link" id="app-r31-t" href="/jobs/31?show=applied&amp;layout=list">Interim Head of Software, enteral feeding pumps</a></h3></div>
-<p class="item-meta">Applied 28 Oct · Marlow Medical</p>
+<p class="item-meta"><span class="r-bit">Applied 28 Oct</span><span class="visually-hidden">, </span><span class="r-bit">Marlow Medical</span></p>
 <p class="item-cv">No tailored CV was saved for this application.</p>
-<p class="item-days">16 days in Applied</p>
+<p class="item-days"><span class="r-bit">16 days in Applied</span></p>
 <p class="item-warn">
 <svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#ic-warn"></use></svg><span>No movement for 16 days. Radar closes it as no reply on 18 Nov unless it moves.</span></p></li>
 <li class="item" id="app-r32" data-virtual="1">
 <div class="item-top">
 <h3 class="item-h"><a class="item-title link" id="app-r32-t" href="/jobs/32?show=applied&amp;layout=list">Software Verification Manager, IVD</a></h3></div>
-<p class="item-meta">Applied 22 Oct · Ashdown Diagnostics</p>
+<p class="item-meta"><span class="r-bit">Applied 22 Oct</span><span class="visually-hidden">, </span><span class="r-bit">Ashdown Diagnostics</span></p>
 <p class="item-cv">No tailored CV was saved for this application.</p>
-<p class="item-days">22 days in Applied</p>
+<p class="item-days"><span class="r-bit">22 days in Applied</span></p>
 <p class="item-warn">
 <svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#ic-warn"></use></svg><span>No movement for 22 days. Radar closes it as no reply today unless it moves.</span></p></li>
 <li class="item" id="app-r33" data-virtual="1">
 <div class="item-top">
 <h3 class="item-h"><a class="item-title link" id="app-r33-t" href="/jobs/33?show=applied&amp;layout=list">Head of Software, neuromodulation</a></h3></div>
-<p class="item-meta">Applied 15 Oct · Calder Neurotech</p>
+<p class="item-meta"><span class="r-bit">Applied 15 Oct</span><span class="visually-hidden">, </span><span class="r-bit">Calder Neurotech</span></p>
 <p class="item-cv">No tailored CV was saved for this application.</p>
-<p class="item-days">29 days in Applied</p>
+<p class="item-days"><span class="r-bit">29 days in Applied</span></p>
 <p class="item-warn">
 <svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#ic-warn"></use></svg><span>No movement for 29 days. Radar closes it as no reply today unless it moves.</span></p></li></ul></section>
 <section class="col" id="col-conversation" data-stage="conversation" aria-labelledby="colh-conversation">
 <div class="col-head">
-<h2 class="col-title" id="colh-conversation">In conversation <span class="col-count">0</span></h2>
-<p class="col-note">The company or its recruiter replied. You move items here.</p></div>
+<h2 class="col-title" id="colh-conversation">In conversation <span class="col-count">0</span></h2></div>
 <ul class="col-items">
-<li class="col-empty">No conversations yet. Move an item here when the company or its recruiter replies.</li></ul></section>
+<li class="col-empty">No conversations yet.</li></ul></section>
 <section class="col" id="col-interviewing" data-stage="interviewing" aria-labelledby="colh-interviewing">
 <div class="col-head">
-<h2 class="col-title" id="colh-interviewing">Interviewing <span class="col-count">0</span></h2>
-<p class="col-note">An interview is booked or under way.</p></div>
+<h2 class="col-title" id="colh-interviewing">Interviewing <span class="col-count">0</span></h2></div>
 <ul class="col-items">
-<li class="col-empty">No interviews yet. Move an item here when one is booked.</li></ul></section>
+<li class="col-empty">No interviews yet.</li></ul></section>
 <section class="col" id="col-offer" data-stage="offer" aria-labelledby="colh-offer">
 <div class="col-head">
-<h2 class="col-title" id="colh-offer">Offer <span class="col-count">0</span></h2>
-<p class="col-note">The company made you an offer.</p></div>
+<h2 class="col-title" id="colh-offer">Offer <span class="col-count">0</span></h2></div>
 <ul class="col-items">
-<li class="col-empty">No offers yet. An item lands here when you move it after an offer. Radar never moves one here.</li></ul></section>
+<li class="col-empty">No offers yet.</li></ul></section>
 <section class="col" id="col-closed" data-stage="closed" aria-labelledby="colh-closed">
 <div class="col-head">
-<h2 class="col-title" id="colh-closed">Closed <span class="col-count">0</span></h2>
-<p class="col-note">Each item says why: no reply, turned down or withdrawn.</p></div>
+<h2 class="col-title" id="colh-closed">Closed <span class="col-count">0</span></h2></div>
 <ul class="col-items">
 <li class="col-empty">Nothing closed.</li></ul></section></div></section>
 </main>
@@ -190,45 +179,8 @@
 <div class="move-menu" id="move-menu" role="menu" hidden></div>
 
 <p class="toast" id="toast" role="status" aria-live="polite"></p>
-
-<dialog class="keys" id="keys" aria-labelledby="keys-title">
-
-<h2 id="keys-title">Keyboard shortcuts</h2>
-
-<p class="keys-note">The keys work anywhere on the board except while you type in a field. Inside Move to, its own keys work while it is open.</p>
-
-<p class="keys-toggle">
-<label>
-<input type="checkbox" id="keys-on" checked> Single-key shortcuts on</label></p>
-
-<dl class="keymap">
-<div>
-<dt><kbd class="kbd">← ↑ → ↓</kbd></dt>
-<dd>Move between items</dd></div>
-<div>
-<dt><kbd class="kbd">Enter</kbd></dt>
-<dd>Open the role</dd></div>
-<div>
-<dt><kbd class="kbd">M</kbd></dt>
-<dd>Open Move to for the item</dd></div>
-<div>
-<dt><kbd class="kbd">2 to 5</kbd></dt>
-<dd>In Move to, move to that column</dd></div>
-<div>
-<dt><kbd class="kbd">N T W</kbd></dt>
-<dd>In Move to, close as no reply, turned down or withdrawn</dd></div>
-<div>
-<dt><kbd class="kbd">Z</kbd></dt>
-<dd>Undo the last move</dd></div>
-<div>
-<dt><kbd class="kbd">?</kbd></dt>
-<dd>Show this list</dd></div></dl>
-
-<form method="dialog">
-<button type="submit" class="btn btn-secondary">Close</button></form>
-</dialog>
 </div>
 
-<script>/* script ab8dcb766550, 22456 chars */</script>
+<script>/* script 916ce4e43194, 20855 chars */</script>
 </body>
 </html>

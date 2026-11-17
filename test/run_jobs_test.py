@@ -7,11 +7,12 @@
    of a read role arrives read. POST /read stamps the chain, and so do the
    verdicts; their undos do not make a role new again.
 2. The queue: Top prospects, One question away, Reading, each sorted by CV
-   match and then freshness, with ten-point CV bands; the row's parts, the
-   gate marks with their names and tooltips, the New word and its counts, the
-   Full job spec tag and the lifecycle chip. Filtered and acknowledged roles
-   are hidden and reachable; Applied has its own view.
-3. The role pane: the actions with their keys, Score with the four gates,
+   match and then freshness, each under its band with its pill, count and
+   chevron (owner, 17 Nov); the row is a title and one line of facts, with
+   the New word, the Full job spec tag and the Closed tag. Filtered and
+   acknowledged roles are hidden and reachable; Applied has its own view.
+   No single-key shortcut, key hint or list of keys anywhere on the page.
+3. The role pane: the actions, Score with the four gates,
    the provenance line, the reasons with their quotes marked in the advert or
    the card, the asks summary, the details, and the company only when its
    page exists. The advert, or its not-read state with Prepare application.
@@ -292,11 +293,37 @@ def queue_checks(tmp: Path) -> None:
     check(order[:4] == [t_high, revived, t_low_new, t_low_old],
           "Top prospects run CV match high to low, then the freshest sign of life first "
           f"({order})")
-    top_part = html.split('id="group-top"')[1].split('id="group-question"')[0]
-    check('<div class="band">CV match 90–100</div>' in top_part
-          and '<div class="band">CV match 70–79</div>' in top_part
-          and top_part.index("CV match 90–100") < top_part.index("CV match 70–79"),
-          "a divider opens each ten-point CV band inside a tier")
+    check('class="band"' not in html and "CV match 90–100" not in html
+          and "CV match 70–79" not in html,
+          "no CV match band headings inside a tier; the order is the same")
+    import tiers
+    closed_reading = page(db, reading=False)
+    for tier, opened in (("top", True), ("question", True), ("reading", False)):
+        head = re.search(rf'<div class="group-head"><h2 class="group-title" id="group-{tier}">'
+                         rf'<button type="button" class="tier-pill t-{tier}" data-pill '
+                         rf'aria-expanded="false" aria-controls="group-{tier}-means">'
+                         rf'{re.escape(tiers.NAMES[tier])}</button><span class="group-count">\d+</span>'
+                         rf'<span class="group-new" data-new="\d+">(\d+ new)?</span></h2>'
+                         rf'<button type="button" class="fold" aria-expanded="{str(opened).lower()}" '
+                         rf'aria-controls="group-{tier}-rows" data-fold="{tier}"', closed_reading)
+        means = (f'<p class="group-means" id="group-{tier}-means" hidden>'
+                 f'{tiers.MEANINGS[tier]}</p>')
+        check(head is not None and means in html,
+              f"{tiers.NAMES[tier]} has its band: the name in a pill that shows its one line "
+              f"when tapped (hidden until then), the count, the new count and a chevron, "
+              f"{'open' if opened else 'closed'} to start")
+    check("--tier-top:var(--accent)" in tiers.PILL_CSS
+          and all(tiers.COLOURS[t] not in ("var(--positive)", "var(--negative)", "var(--caution)")
+                  for t in tiers.COLOURS)
+          and ".tier-pill.t-question{background:var(--tier-question)}" in html
+          and ".group-head{position:sticky;top:0" in html
+          and "background:var(--surface-sunken)" in html.split(".group-head{", 1)[1].split("}", 1)[0]
+          and ".group-rows .row{padding-left:32px}" in html,
+          "colour is in the pill only, Top prospects in Radar's teal and none in green, red or "
+          "amber; the band is lightly filled and pinned, and its rows are indented")
+    check("FOLD_KEY" in html and "localStorage.setItem(FOLD_KEY[tier]" in html
+          and "applyFolds();" in html,
+          "every tier opens and closes with its chevron, and the browser remembers the choice")
     check(html.index('id="group-top"') < html.index('id="group-question"')
           < html.index('id="group-reading"'),
           "the tiers run Top prospects, One question away, Reading")
@@ -319,18 +346,19 @@ def queue_checks(tmp: Path) -> None:
           "but a role opened from Reading has Reading open around it")
 
     row = row_html(html, t_low_old)
-    check(">Top Low Old</span></a>" in row
+    check(">Top Low Old</span></a></span>" in row
           and 'class="r-cv"' not in row and "72%" not in row
-          and "First seen " in row
-          and '<span class="r-bit">C Co</span>' + BIT + 'Guildford</span>' + BIT in row
-          and '<span class="r-rate">£720/day</span>' in row
-          and row.endswith("</div>") and BIT + "Contract</span>" in row
+          and "First seen" not in row and "r-first" not in row
+          and '<span class="r-bit">C Co</span>' + BIT + 'Guildford</span>' + BIT
+              + 'Contract</span>' + BIT + '<span class="r-rate">£720/day</span></span>' in row
+          and row.endswith("</div>") and 'class="r3"' not in row and "r-lead" not in row
+          and 'class="mk ' not in row and "r-marks" not in row
           and "·" not in row and "|" not in re.sub(r"<[^>]+>", "", row)
-          and "LinkedIn" not in row and "A fit." in row,
-          "a row carries the title, the first-seen date, the company, place, pay "
-          "as stated, contract or permanent and the reason, and no CV figure and "
-          "no LinkedIn; no middle dot and no typed bar between its facts, and a "
-          "comma between them for a screen reader")
+          and "LinkedIn" not in row and "A fit." not in row,
+          "a row is the title, then one line of facts: company, place, contract or "
+          "permanent, pay as stated, and no CV figure, no LinkedIn, no marks, no date and "
+          "no lead line; no middle dot and no typed bar between its facts, and a comma "
+          "between them for a screen reader")
     rule = re.search(r"\.r-bit ~ \.r-bit::before\{([^}]*)\}", jobs_page.ROW_CSS)
     rule = rule.group(1) if rule else ""
     check('content:""' in rule and "border-left:1px solid var(--text-3)" in rule
@@ -366,10 +394,9 @@ def queue_checks(tmp: Path) -> None:
     check("Full job spec</span>" in row and "Full job spec</span>" not in row_html(html, t_high),
           "only a score made on the full job spec carries the Full job spec tag")
     qrow = row_html(html, q)
-    check('id="rl-' in qrow and ">£650/day is under the £700 floor.</span>" in qrow
-          and "Would they" not in qrow and "A fit." not in qrow and "row-question" in qrow,
-          "a One question away row leads with the failing gate's stored reason, "
-          "not the question")
+    check('id="rl-' not in qrow and "under the £700 floor" not in qrow
+          and "Would they" not in qrow and "A fit." not in qrow and "£650/day" in qrow,
+          "a One question away row is its title and facts too, with no reason and no question")
     qface = {"tier": "question", "gate_sector": 1, "gate_cv": 1, "gate_location": 0,
              "gate_rate": None, "rate_stated": 0, "one_line_why": "A fit.",
              "gate_location_note": "Location fails, Karlsruhe is on site.",
@@ -378,55 +405,33 @@ def queue_checks(tmp: Path) -> None:
                  "pay_currency": "GBP", "pay_period": "year", "pay_max": 53474,
                  "gate_rate_note": "Stated salary £53,474 against the £100,000 floor,"
                                    " below, judged in code."}
-    check(jobs_page.row_lead(qface) == "Karlsruhe is on site."
-          and jobs_page.row_lead(rate_face)
-          == "Stated salary £53,474 against the £100,000 floor, below."
-          and jobs_page.row_lead({**qface, "gate_location_note": None}) == "",
-          "the reason loses its verdict words and judged in code, and no stored "
-          "reason shows nothing")
     check(jobs_page.pane_lead(qface) == ""
           and jobs_page.pane_lead({**qface, "question_text": "Is German fluency a "
                                    "hard requirement?"}) == "Is German fluency a hard requirement?"
           and jobs_page.lead_line(qface) == "Would they go remote.",
           "the pane drops code's own question and keeps one the model wrote; Home's "
           "lead line is unchanged")
-    marks = re.findall(r'<span class="mk (mk-[a-z]+)" role="img" aria-label="([^"]+)" '
-                       r'tabindex="(-?\d)">.*?<span class="mk-tip" aria-hidden="true">([^<]+)</span>',
-                       qrow, re.S)
-    check([m[0] for m in marks] == ["mk-pass", "mk-pass", "mk-pass", "mk-fail"]
-          and marks[3][1] == "Rate fails, £650/day is under the £700 floor"
-          and all(m[1] == m[3] for m in marks),
-          "the four gate marks are named in words, and each tooltip is the same words")
-    rrow = row_html(html, r)
-    check("Location not judged, Bristol, no pattern given" in rrow
-          and 'class="mk mk-nj"' in rrow,
-          "a gate not judged is named so, with its own mark")
-    check(all(m[2] == "-1" for m in marks)
-          and html.count('<abbr class="gh-key" title="Sector">S</abbr>') == 3,
-          "an unselected row's marks wait out of the tab order, and each open group "
-          "names the marks' gates in its header")
-    opened = page(db, selected=q)
-    check(all(t == "0" for t in re.findall(r'tabindex="(-?\d)"', row_html(opened, q))
-              if t != "-1") and 'tabindex="0"' in row_html(opened, q),
-          "the selected row's marks are in the tab order, so each tooltip shows on focus")
-    check(".mk:hover .mk-tip,.mk:focus-visible .mk-tip{display:block}" in html
-          and ".row:focus-visible .r-tips" not in html and "r-tips" not in html,
-          "a mark's tooltip shows on hover or focus of that mark alone")
+    check('class="mk ' not in html and "gh-key" not in html and "mk-tip" not in html
+          and ".mk{" not in html,
+          "no gate marks on any row and no S C L R legend in any band")
+    check(".row.is-current{background:var(--row-selected)}" in html
+          and "border-left:3px" not in html and "inset 3px 0 0" not in html,
+          "the open row is marked by its fill, and nothing on the page has a coloured bar "
+          "down its left edge")
 
     new_row = row_html(html, t_low_new)
     check('<span class="r-new">New</span>' in new_row and "is-unread" in new_row
           and '<span class="r-new">' not in row_html(html, t_high),
           "a role nobody has opened says New, and a read one does not")
     model = jobs_page.build_model(collect(db))
-    check(f'<span data-count="new" data-n="{model["new"]}">{model["new"]} new</span>' in html
-          and re.search(r'id="group-top">Top prospects<span class="group-count">\d+ '
-                        r'<span class="group-new" data-new="\d+">· \d+ new</span>', html),
-          "the header and each group count the new roles")
-    check(re.search(r'<span data-count="open">\d+ open</span> · <span data-count="top">\d+ '
-                    r'Top prospects</span> · <span data-count="question">1 one question away'
-                    r'</span> · <span data-count="reading">1 reading</span> · '
-                    r'<span data-count="filtered">1 filtered</span>', html),
-          "the header counts the open roles and each tier")
+    top_new = sum(1 for o in model["tiers"]["top"] if o["_unread"])
+    check(re.search(r'Top prospects</button><span class="group-count">\d+</span>'
+                    rf'<span class="group-new" data-new="{top_new}">{top_new} new</span>', html)
+          and ".group-new::before{" in html,
+          "each band counts its new roles beside its count, set apart by the drawn divider")
+    check('id="counts"' not in html and "data-count=" not in html
+          and "Scores are from the advert card" not in html,
+          "no line of counts under the page title, and no line on what the scores are from")
 
     quiet = row_html(html, old_unknown)
     old_days = row_html(html, ageing)
@@ -442,9 +447,10 @@ def queue_checks(tmp: Path) -> None:
           and jobs_page.state_tag({"closed_at": ago(1), "closed_source": "hand"}) == ""
           and jobs_page.state_tag({}) == "",
           "a row's only state tag is Closed, for an advert the checker confirmed closed")
-    first = datetime.strptime(ago(90)[:10], "%Y-%m-%d")
-    check(f"First seen {first.day} {first:%b}" in row_html(html, revived),
-          "the first-seen date is the chain's first sighting, an expired advert's included")
+    rface = next(o for o in jobs_page.build_model(collect(db))["lists"]["open"] if o["id"] == revived)
+    check(jobs_page.first_seen(rface)[:10] == ago(90)[:10] and "First seen" not in row_html(html, revived),
+          "the first sighting is the chain's, an expired advert's included, and the row "
+          "does not show it")
 
     applied_db = tmp / "applied.sqlite"
     conn = rc.get_db(applied_db)
@@ -505,19 +511,15 @@ def pane_checks(tmp: Path) -> None:
     check(p.get("id") == spec and p.get("view") == "open"
           and '<h2 class="dh-title" id="role-title" tabindex="-1">Spec Role</h2>' in html,
           "the role pane is drawn for the role the address names")
-    for kind, label, key in (("ack", "Acknowledge", "A"), ("dismiss", "Dismiss", "D"),
-                             ("close", "Close role", "C"), ("apply", "Mark applied", "M")):
-        check(f'data-act="{kind}" data-id="{spec}" data-shortcut="{key.lower()}" '
-              f'aria-keyshortcuts="{key}">{label}<kbd class="kbd" aria-hidden="true">{key}</kbd>'
-              in html, f"the {label} action carries its key, {key}")
-    check(f'href="/prepare/{spec}" data-prepare="{spec}" data-shortcut="p" '
-          'aria-keyshortcuts="P">Prepare application<kbd' in html
-          and 'data-shortcut="o" data-open=' in html and "Open the advert" in html
-          and ('aria-keyshortcuts="K">Previous' in html
-               or 'aria-disabled="true">Previous<kbd class="kbd" aria-hidden="true">K' in html)
-          and ('aria-keyshortcuts="J">Next' in html
-               or 'aria-disabled="true">Next<kbd class="kbd" aria-hidden="true">J' in html),
-          "Prepare application P, Open the advert O, Previous K and Next J carry theirs")
+    for kind, label in (("ack", "Acknowledge"), ("dismiss", "Dismiss"),
+                        ("close", "Close role"), ("apply", "Mark applied")):
+        check(f'data-act="{kind}" data-id="{spec}">{label}</button>' in html,
+              f"the {label} action is there, with no key hint")
+    check(f'href="/prepare/{spec}" data-prepare="{spec}">Prepare application</a>' in html
+          and "Open the advert" in html and "<kbd" not in html
+          and 'aria-label="Previous job"' in html and 'aria-label="Next job"' in html
+          and "data-shortcut" not in html and "aria-keyshortcuts" not in html,
+          "Prepare application and Open the advert are there, and no button carries a key")
     gates = re.findall(r'<span class="gate-name">([^<]+)</span><span class="gate-status '
                        r'(is-[a-z]+)">.*?(Passes|Fails|Not judged)</span>'
                        r'<span class="gate-note">([^<]*)</span>', html)
@@ -641,9 +643,9 @@ def route_checks(tmp: Path) -> None:
           and "role-title" in frag.get("html", ""),
           "the role fragment is the pane as JSON, with the address to keep")
     q = json.loads(b_q) if s_q == 200 else {}
-    check("is-current" in q.get("html", "") and "data-count" in q.get("counts", "")
+    check("is-current" in q.get("html", "") and "counts" not in q
           and isinstance(q.get("stamp"), int),
-          "the queue fragment has the rows, the selected one marked, the counts and the stamp")
+          "the queue fragment has the rows, the selected one marked, and the stamp")
     check(s_r == 200 and "Second Role" in json.loads(b_r)["html"],
           "the Reading fragment has the Reading rows")
     check(s_st == 200 and json.loads(b_st)["new"] == 2,
@@ -689,25 +691,26 @@ def page_checks(tmp: Path) -> None:
     check(not re.search(r'<script[^>]+src=|<link[^>]+stylesheet|@import|fonts\.googleapis|'
                         r'cdn\.tailwindcss|iconify|https://[^"\s]*\.(js|css|woff2?)', html),
           "no external script, stylesheet, font or icon set: plain HTML, CSS and script")
-    check("function typing(t)" in html
-          and "if (typing(e.target) || keys.open) return;" in html
-          and "e.ctrlKey || e.metaKey || e.altKey" in html,
-          "the shortcuts stand down while a field has the keys, and with a modifier")
-    check('<dialog class="keys" id="keys" aria-labelledby="keys-title">' in html
-          and "if (e.key === '?')" in html
-          and all(f'<kbd class="kbd">{k}</kbd>' in html for k in "JKPADCMO?"),
-          "? opens the list of shortcuts, which names every key")
-    check('<input type="checkbox" id="keys-on" checked> Single-key shortcuts on' in html
-          and "if (!keysOn()) return;" in html,
-          "the list of keys can turn the single-key shortcuts off (WCAG 2.1.4)")
+    keydowns = re.findall(r"addEventListener\('keydown', function \(e\) \{(.*?)\n  \}\);", html, re.S)
+    check('id="keys-open"' not in html and "<dialog" not in html and "<kbd" not in html
+          and "keysOn" not in html and "Single-key" not in html
+          and keydowns and all(not re.search(r"'[jkpadcmo?]'", k) for k in keydowns),
+          "no shortcuts button, no list of keys and no key hints; the page listens for "
+          "Escape alone, so J, K, P and ? do nothing")
+    check("No role chosen." in html and "Choose a role" not in html
+          and "if (!current) {\n      var first" not in html,
+          "with no role chosen the pane says so and no more, and no role opens by itself")
+    check('<button type="button" class="btn btn-secondary list-toggle" id="list-toggle" '
+          'aria-expanded="true" aria-controls="queue">Hide the list</button>' in html
+          and ".app.list-off .queue{display:none}" in html and "'Show the list'" in html,
+          "a control hides the list so the role pane takes the full width, and brings it back")
     state = re.search(r'<div class="app" data-page="jobs"[^>]* data-state="([^"]+)"', html)
     import html as htmllib
     check(state is not None and json.loads(htmllib.unescape(state.group(1)))["view"] == "open"
           and '<script type="application/json"' not in html,
           "the page's state is a data attribute, so every script block on the page is script")
-    check("if (current && current.id === Number(m[1])) return;" in html
-          and ".mk.tip-off .mk-tip{display:none}" in html,
-          "a quote's link moves only the hash and redraws nothing, and Escape hides a tooltip")
+    check("if (current && current.id === Number(m[1])) return;" in html,
+          "a quote's link moves only the hash and redraws nothing")
     check('<html lang="en-GB">' in html
           and '<main class="content" id="main">' in html
           and 'role="status" aria-live="polite"' in html,
@@ -760,10 +763,8 @@ def location_checks(tmp: Path) -> None:
           "UK shows the UK role alone, the chip is pressed, and a role's link keeps it")
     two, html = shown(("europe", "remote"))
     check(two == {europe, remote}
-          and re.search(r'id="group-top">Top prospects<span class="group-count">2 of 3', html)
-          and '<span data-count="top">3 Top prospects</span>' in html,
-          "two chips show either, a group counts what it shows of its whole, and the "
-          "header still counts every role")
+          and re.search(r'Top prospects</button><span class="group-count">2 of 3</span>', html),
+          "two chips show either, and a group counts what it shows of its whole")
     check(jobs_page.parse_loc("remote, UK,bogus") == ("uk", "remote")
           and jobs_page.view_query("applied", ("uk",)) == "?show=applied&loc=uk",
           "the address takes the chips in any order, drops unknown ones, and the views keep them")
