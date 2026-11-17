@@ -337,6 +337,24 @@ def engagement_word(o: dict) -> str:
     return word.capitalize() if word in ("contract", "permanent") else ""
 
 
+# What the page checker writes around the words it read (check_jobs.
+# map_engagement): "criteria Full-time", "day rate, from the page".
+_NOTE_CRITERIA = re.compile(r"^\s*criteria\s+", re.IGNORECASE)
+_NOTE_FROM_PAGE = re.compile(r",?\s*from the page\.?\s*$", re.IGNORECASE)
+
+
+def type_words(o: dict) -> str:
+    """Details' Type: contract or permanent and what the advert said of it,
+    values only ("Permanent, full-time"), said once when both say the same."""
+    word = engagement_word(o) or "Not stated"
+    note = _NOTE_FROM_PAGE.sub("", _NOTE_CRITERIA.sub("", str(o.get("engagement_note") or ""))).strip()
+    if note[:1].isupper() and note[1:2].islower():
+        note = note[0].lower() + note[1:]
+    if not note or note.rstrip(".").lower() == word.lower():
+        return word
+    return f"{word}, {note}"
+
+
 def location_text(o: dict) -> str:
     chain = o.get("_chain") or {}
     locations = [str(x) for x in (chain.get("locations") or []) if x]
@@ -701,7 +719,20 @@ _REST_TEXT = re.compile("|".join((
     # agency notices
     r"recruitment agenc", r"employment (?:agency|business)", r"unsolicited",
     r"speculative (?:cvs?|applications?)",
-    r"agency (?:cvs|submissions|candidates|fees)")), re.IGNORECASE)
+    r"agency (?:cvs|submissions|candidates|fees)",
+    # the company's own pointers and its make-up, said of every role it posts
+    r"\bvisit our (?:company|careers?|corporate) (?:page|site|website)",
+    r"\bbackgrounds?\b.{0,40}\bcultures?\b.{0,40}\breligions?\b")), re.IGNORECASE)
+
+
+def _rest_line(line: str) -> bool:
+    """Whether one line is boilerplate, wherever it sits: its words say it, or
+    it opens with a label that names it ("Who we are : ...", "Beware of Job
+    Scams: ...")."""
+    if _REST_TEXT.search(line):
+        return True
+    label = _LABELLED.match(line)
+    return bool(label) and bool(_REST_HEADING.match(line[:label.end()].rstrip(": \t")))
 
 
 def _about_company(head: str, company: str) -> bool:
@@ -817,6 +848,26 @@ def advert_layout(text: str, company: str = "") -> tuple[list, list]:
                     k += 1
         return out
 
+    def split(block: tuple) -> tuple[list, list]:
+        """A block's (kept, folded) blocks. A paragraph folds whole when its
+        words say it is boilerplate. A list folds line by line: each item
+        that is boilerplate becomes a paragraph of its own in the fold (a
+        labelled line is a paragraph with a label, not an item), and what
+        is left is a list again, a paragraph if one item is left, or
+        nothing."""
+        kind, items = block
+        if kind == "p":
+            said = _REST_TEXT.search(" ".join(text[s:e] for s, e in items))
+            return ([], [block]) if said else ([block], [])
+        keep = [it for it in items if not _rest_line(text[it[0]:it[1]])]
+        gone = [("p", [(it[0], it[1])]) for it in items
+                if _rest_line(text[it[0]:it[1]])]
+        if len(keep) == len(items):
+            return [block], []
+        if len(keep) == 1:
+            return [("p", [(keep[0][0], keep[0][1])])], gone
+        return ([(kind, keep)] if keep else []), gone
+
     main, rest = [], []
     for head, body in sections:
         blocks = blocks_of(body)
@@ -824,13 +875,17 @@ def advert_layout(text: str, company: str = "") -> tuple[list, list]:
         if head and (_REST_HEADING.match(head[2]) or _about_company(head[2], company)):
             rest += heading + blocks
             continue
-        folded = [b[0] == "p" and bool(_REST_TEXT.search(
-            " ".join(text[s:e] for s, e in b[1]))) for b in blocks]
-        if head and blocks and all(folded):
-            rest += heading + blocks
+        kept, folded = [], []
+        for b in blocks:
+            k, f = split(b)
+            kept += k
+            folded += f
+        if head and blocks and not kept:
+            # A heading whose whole content folded goes with it.
+            rest += heading + folded
             continue
-        main += heading + [b for b, f in zip(blocks, folded) if not f]
-        rest += [b for b, f in zip(blocks, folded) if f]
+        main += heading + kept
+        rest += folded
     return main, rest
 
 
@@ -1013,11 +1068,14 @@ def _state_words(o: dict, view: str, now: str) -> str:
 def details_section(data: dict, o: dict, view: str, now: str) -> str:
     import prepare_application as prep
     facts = []
-    rate = o.get("salary_rate") or "Not stated"
-    ir35 = str(o.get("ir35") or "").strip().lower()
-    if ir35 in ("inside", "outside") and o.get("salary_rate"):
-        rate += f", {ir35} IR35"
-    facts.append(("Rate as advertised", esc(rate)))
+    # The rate as advertised only when the advert gives a figure; with none,
+    # the Rate gate in Score already says Not stated.
+    rate = pay_shown(o)
+    if rate:
+        ir35 = str(o.get("ir35") or "").strip().lower()
+        if ir35 in ("inside", "outside"):
+            rate += f", {ir35} IR35"
+        facts.append(("Rate as advertised", esc(rate)))
     working = prep.load_working(o)
     if working is not None and prep.scored_on_description(o):
         quote = working.get("rate_quote")
@@ -1043,10 +1101,7 @@ def details_section(data: dict, o: dict, view: str, now: str) -> str:
     except (TypeError, ValueError):
         flags = []
     facts.append(("Red flags", esc("; ".join(flags)) if flags else "None"))
-    word = engagement_word(o) or "Not stated"
-    if o.get("engagement_note"):
-        word += f", {o['engagement_note']}"
-    facts.append(("Type", esc(word)))
+    facts.append(("Type", esc(type_words(o))))
     facts.append(("Source", esc(board(o.get("source")))))
     rows = "".join(f"<dt>{label}</dt><dd>{value}</dd>" for label, value in facts)
     return ('<section class="sec" aria-labelledby="details-heading">'
@@ -1195,10 +1250,10 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
     def step(target, label, rel, arrow):
         # An arrow, named in words for a screen reader and on hover.
         if target is None:
-            return (f'<span class="btn btn-secondary prevnext is-disabled" role="link" '
+            return (f'<span class="btn btn-secondary prevnext pn-{rel} is-disabled" role="link" '
                     f'aria-disabled="true" aria-label="{label}" title="{label}">'
                     f'{_use(arrow, 16)}</span>')
-        return (f'<a class="btn btn-secondary prevnext" href="{role_url(target, view, model["loc"])}" '
+        return (f'<a class="btn btn-secondary prevnext pn-{rel}" href="{role_url(target, view, model["loc"])}" '
                 f'rel="{rel}" data-step="{rel}" data-id="{target}" aria-label="{label}" '
                 f'title="{label}">{_use(arrow, 16)}</a>')
 
@@ -1647,14 +1702,20 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .app[data-view="role"] .queue{display:none}
   .app[data-view="role"] .pagehead{display:none}
   .app[data-view="list"] .role{display:none}
-  .back{display:inline-flex;align-items:center;margin-bottom:8px}
-  .prevnext{display:none}
+  .back{display:inline-flex;align-items:center;min-height:44px;margin-bottom:8px}
+  /* Previous and Next stay, on Back to Jobs' line at the right, 44px square:
+     the header is their positioning box, so the markup and its order are the
+     desktop's. One with nowhere to go shows disabled. The header, sticky
+     or relative, is positioned at every width. */
+  .dh-nav .prevnext{position:absolute;top:12px;width:44px;height:44px}
+  .dh-nav .pn-prev{right:68px}
+  .dh-nav .pn-next{right:16px}
 }
 @media (max-width:767.98px){
   html{scroll-padding-top:44px}
   .app{grid-template-rows:48px auto auto;height:auto;min-height:100vh;overflow:visible}
   .queue,.role{overflow:visible;min-height:auto}
-  .detail-head{position:static}
+  .detail-head{position:relative}
   .undo-last{margin-left:0;padding-inline:0}
   .ph-title h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
   .btn,.chip{height:44px}
@@ -1675,7 +1736,7 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .queue{scroll-padding-top:48px}
 }
 @media (max-width:767.98px),(pointer:coarse){.fold:focus-visible{outline-offset:-4px;box-shadow:none}}
-@media (max-height:499px){.group-head,.detail-head,.advert-head{position:static}}
+@media (max-height:499px){.group-head,.advert-head{position:static}.detail-head{position:relative}}
 @media (forced-colors:active){.row.is-current{outline:2px solid Highlight;outline-offset:-2px}.tag{border:1px solid CanvasText}}
 """
 
