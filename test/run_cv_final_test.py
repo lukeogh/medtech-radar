@@ -627,8 +627,9 @@ def page_checks() -> None:
         check('<div class="tabpanel" role="tabpanel" id="settings"' in page
               and 'id="pref-first_name"' in page and 'data-pref-save="target_title"' in page,
               "the Preferences tab is the panel /cv#settings names, with Home's lines in it")
-        home = (REPO_ROOT / "scripts" / "home_page.py").read_text(encoding="utf-8")
-        check('href="/cv#settings"' in home, "and Home still links there")
+        frame = (REPO_ROOT / "scripts" / "page_frame.py").read_text(encoding="utf-8")
+        check('("settings", "/cv#settings", "Settings")' in frame,
+              "and the top bar's Settings links there, on every page")
         check('id="keys-on"' not in page and "Single" not in page
               and set(re.findall(r'aria-keyshortcuts="([^"]+)"', page))
               == {"Control+S", "Control+Z", "Control+Shift+Z"}
