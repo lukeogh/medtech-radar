@@ -28,6 +28,8 @@ from datetime import datetime
 NAV = (("home", "/", "Home"), ("jobs", "/jobs", "Jobs"),
        ("watchlist", "/watchlist", "Watchlist"), ("insights", "/insights", "Insights"),
        ("cv", "/cv", "CV"), ("settings", "/cv#settings", "Settings"))
+# Each page's group, for its menu underline (owner, 17 Nov). Set here once.
+NAV_GROUP = {"jobs": "jobs", "watchlist": "apps", "insights": "story"}
 
 FRAME_CSS = """
 :root{
@@ -127,7 +129,11 @@ html{scrollbar-gutter:stable}
 .appbar .nav{display:flex;align-self:stretch;gap:24px;margin:0 0 0 -4px;padding:0;list-style:none}
 .appbar .nav a{display:flex;align-items:center;height:100%;min-height:44px;padding:3px 4px 0;border-bottom:3px solid transparent;color:var(--text-2);font-size:18px;line-height:24px;font-weight:500;text-decoration:none;white-space:nowrap;transition:color var(--dur) ease-out}
 .appbar .nav a:hover{color:var(--text-1)}
-.appbar .nav a[aria-current="page"]{color:var(--text-1);font-weight:600;border-bottom-color:var(--accent)}
+.appbar .nav a[aria-current="page"]{color:var(--text-1);font-weight:600;border-bottom-color:var(--nav-line,var(--accent))}
+/* The page you are on is underlined in its group's colour: Jobs purple, the
+   Watchlist teal, Insights amber (NAV_GROUP); Home, CV and Settings keep the
+   accent. */
+""" + "".join(f'.appbar a[data-group="{k}"]{{--nav-line:var(--group-{g})}}' for k, g in NAV_GROUP.items()) + """
 .appbar .nav a:focus-visible{outline-offset:-4px;box-shadow:none}
 .appbar .appbar-tools{display:flex;align-items:center;gap:16px;min-width:0;margin-left:auto}
 .appbar .radar-status{display:inline-flex;align-items:center;gap:8px;min-height:32px;margin:0;font-size:12px;line-height:16px;font-weight:500;color:var(--text-2);text-decoration:none;white-space:nowrap}
@@ -153,7 +159,7 @@ html{scrollbar-gutter:stable}
   .appbar.menu-open .menu-panel{display:block;position:absolute;top:var(--bar-h);left:0;right:0;padding:8px 16px 16px;background:var(--surface);border-bottom:1px solid var(--border-subtle);box-shadow:var(--shadow-overlay)}
   .appbar .menu-panel ul{margin:0;padding:0;list-style:none}
   .appbar .menu-panel a{display:flex;align-items:center;min-height:44px;color:var(--text-1);text-decoration:none;font-size:16px;line-height:24px}
-  .appbar .menu-panel a[aria-current="page"]{font-weight:600;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:6px}
+  .appbar .menu-panel a[aria-current="page"]{font-weight:600;text-decoration:underline;text-decoration-color:var(--nav-line,var(--accent));text-decoration-thickness:2px;text-underline-offset:6px}
   .appbar .menu-panel .radar-status{display:flex;min-height:44px;margin-top:8px;font-size:16px;line-height:24px}
   .appbar .menu-panel .radar-dot{width:10px;height:10px}
 }
@@ -288,12 +294,12 @@ def appbar_html(current: str, jobs: dict | None = None, page_name: str = "",
     """The top bar: the mark and name, the pages, the status light and, on
     the Jobs page, the shortcuts button. Under 768px the bar is the mark, the
     page's name and a Menu button that opens the pages and the light."""
-    links = "".join(
-        f'<a href="{href}"{" aria-current=" + chr(34) + "page" + chr(34) if key == current else ""}>'
-        f'{label}</a>' for key, href, label in NAV)
-    items = "".join(
-        f'<li><a href="{href}"{" aria-current=" + chr(34) + "page" + chr(34) if key == current else ""}>'
-        f'{label}</a></li>' for key, href, label in NAV)
+    def attrs(key: str) -> str:
+        group = f' data-group="{key}"' if key in NAV_GROUP else ""
+        return group + (' aria-current="page"' if key == current else "")
+    links = "".join(f'<a href="{href}"{attrs(key)}>{label}</a>' for key, href, label in NAV)
+    items = "".join(f'<li><a href="{href}"{attrs(key)}>{label}</a></li>'
+                    for key, href, label in NAV)
     status = radar_status_html(jobs)
     name = page_name or dict((k, label) for k, _h, label in NAV).get(current, "")
     help_html = ('<button type="button" class="bar-btn help" id="keys-open" '
@@ -313,3 +319,73 @@ def appbar_html(current: str, jobs: dict | None = None, page_name: str = "",
         f'<div class="menu-panel" id="menu-panel"><nav aria-label="Pages, menu">'
         f'<ul>{items}</ul></nav>{status}</div>'
         '</div></header>')
+
+
+# ---------------------------------------------------- the groups, shared
+# Home's group chips, glows and section titles, shared with Jobs (owner,
+# 17 Nov). Not in FRAME_CSS: Insights and the Watchlist have a .sec-head
+# of their own, and these rules would reach it. A page that draws the
+# groups includes GROUPS_CSS and TITLES_CSS.
+
+# The groups' line icons (owner, 17 Nov): drawn on a 20 by 20 grid, no fill,
+# in the colour of their chip. Each group has one colour, page_frame's
+# --group-story, --group-jobs and --group-apps; Radar's own items and the
+# Open actions title take a neutral chip.
+ICONS = {
+    "story": '<rect x="3.5" y="3.5" width="13" height="13" rx="2"/><line x1="6.5" y1="7.5" x2="13.5" y2="7.5"/>'
+             '<line x1="6.5" y1="10.5" x2="13.5" y2="10.5"/><line x1="6.5" y1="13.5" x2="10.5" y2="13.5"/>',
+    "top": '<circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="2.5"/>',
+    "question": '<circle cx="10" cy="10" r="6.5"/><path d="M8 8.3a2 2 0 1 1 2.9 1.8c-.6.3-.9.7-.9 1.3"/>'
+                '<circle cx="10" cy="13.7" r="0.5" fill="currentColor"/>',
+    # A company: a building, so it never reads as the story's page. Two rows
+    # of windows; three ran together at 18px.
+    "threads": '<path d="M4.5 16.5V5.5A1.5 1.5 0 0 1 6 4h5a1.5 1.5 0 0 1 1.5 1.5v11"/>'
+               '<path d="M12.5 9H14a1.5 1.5 0 0 1 1.5 1.5v6"/><line x1="3" y1="16.5" x2="17" y2="16.5"/>'
+               '<line x1="7.2" y1="8" x2="9.8" y2="8"/><line x1="7.2" y1="12" x2="9.8" y2="12"/>',
+    "apps": '<rect x="3" y="5" width="14" height="10" rx="2"/><polyline points="3.5,6.5 10,11 16.5,6.5"/>',
+    "actions": '<rect x="3.5" y="3.5" width="13" height="13" rx="3"/><polyline points="6.8,10.2 9,12.4 13.4,7.8"/>',
+    "jobs": '<rect x="3" y="6.5" width="14" height="9.5" rx="2"/>'
+            '<path d="M7.5 6.5V5A1.5 1.5 0 0 1 9 3.5h2A1.5 1.5 0 0 1 12.5 5v1.5"/>',
+    "applications": '<path d="M17 3 3 9l5.5 2.5L11 17z"/><line x1="8.5" y1="11.5" x2="17" y2="3"/>',
+    # Radar's own item, a job that needs a look: a clock, as the Late mark is.
+    "radar": '<circle cx="10" cy="10" r="6.5"/><polyline points="10,6.5 10,10 12.5,11.5"/>',
+    # A section of details: a list.
+    "list": '<line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="16" y2="10"/>'
+            '<line x1="8" y1="14" x2="16" y2="14"/><line x1="4" y1="6" x2="4.5" y2="6"/>'
+            '<line x1="4" y1="10" x2="4.5" y2="10"/><line x1="4" y1="14" x2="4.5" y2="14"/>',
+}
+
+
+def chip(icon: str, group: str) -> str:
+    """A group's icon chip: 32px square, the icon in the group's colour on a
+    tint of it. group is story, jobs, apps or neutral."""
+    return (f'<span class="gchip g-{group}" aria-hidden="true"><svg viewBox="0 0 20 20" '
+            'width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" '
+            'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
+            f'{ICONS[icon]}</svg></span>')
+
+GROUPS_CSS = """/* ---- the groups (owner, 17 Nov): each has one colour, page_frame's
+   --group-*, for its icon chip and a soft glow from the top left of its
+   cards. The glow is background only, over the card's own ground. ---- */
+.g-story{--g:var(--group-story-rgb);--gc:var(--group-story)}
+.g-jobs{--g:var(--group-jobs-rgb);--gc:var(--group-jobs)}
+.g-apps{--g:var(--group-apps-rgb);--gc:var(--group-apps)}
+.g-neutral{--g:232 237 240;--gc:var(--text-1)}
+.gchip{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;border-radius:8px;background:rgb(var(--g) / .16);color:var(--gc)}
+.gchip.g-neutral{background:rgb(var(--g) / .10)}
+.gchip svg{display:block}
+.glow-tile{background-image:radial-gradient(150% 170% at 0% 0%,rgb(var(--g) / .30) 0%,rgb(var(--g) / .11) 45%,rgb(var(--g) / 0) 100%)}
+.glow-tile.is-zero{background-image:radial-gradient(150% 170% at 0% 0%,rgb(var(--g) / .16) 0%,rgb(var(--g) / .06) 45%,rgb(var(--g) / 0) 100%)}
+.glow-wide{background-image:radial-gradient(115% 160% at 0% 0%,rgb(var(--g) / .20) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%)}
+.glow-short{background-image:radial-gradient(80% 260% at 0% 0%,rgb(var(--g) / .22) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%)}
+@media (forced-colors:active){.gchip{border:1px solid CanvasText}}
+"""
+
+TITLES_CSS = """/* ---- a section's title, outside its card: the chip, the title, a count
+   pill, and a link or the tools at the right; 12px to the card ---- */
+.sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-width:0;margin-bottom:12px}
+.sec-title{display:flex;align-items:center;gap:10px;min-width:0;font-size:17px;line-height:24px;font-weight:600;color:var(--text-1)}
+.sec-count{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px solid #2a3238;border-radius:11px;background:#1a2025;font-size:12px;line-height:16px;font-weight:500;color:var(--text-2);font-variant-numeric:tabular-nums}
+.sec-link{margin-left:auto}
+.sec-head > .gchip{margin-right:2px}
+"""

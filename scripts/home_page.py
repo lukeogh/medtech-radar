@@ -116,38 +116,9 @@ SYMBOLS = """<svg width="0" height="0" style="position:absolute" aria-hidden="tr
 <symbol id="st-paused" viewBox="0 0 16 16"><path d="M6 4.5v7M10 4.5v7" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
 <symbol id="ic-down" viewBox="0 0 16 16"><path d="M3.5 6l4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
 </svg>"""
-# The groups' line icons (owner, 17 Nov): drawn on a 20 by 20 grid, no fill,
-# in the colour of their chip. Each group has one colour, page_frame's
-# --group-story, --group-jobs and --group-apps; Radar's own items and the
-# Open actions title take a neutral chip.
-ICONS = {
-    "story": '<rect x="3.5" y="3.5" width="13" height="13" rx="2"/><line x1="6.5" y1="7.5" x2="13.5" y2="7.5"/>'
-             '<line x1="6.5" y1="10.5" x2="13.5" y2="10.5"/><line x1="6.5" y1="13.5" x2="10.5" y2="13.5"/>',
-    "top": '<circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="2.5"/>',
-    "question": '<circle cx="10" cy="10" r="6.5"/><path d="M8 8.3a2 2 0 1 1 2.9 1.8c-.6.3-.9.7-.9 1.3"/>'
-                '<circle cx="10" cy="13.7" r="0.5" fill="currentColor"/>',
-    # A company: a building, so it never reads as the story's page. Two rows
-    # of windows; three ran together at 18px.
-    "threads": '<path d="M4.5 16.5V5.5A1.5 1.5 0 0 1 6 4h5a1.5 1.5 0 0 1 1.5 1.5v11"/>'
-               '<path d="M12.5 9H14a1.5 1.5 0 0 1 1.5 1.5v6"/><line x1="3" y1="16.5" x2="17" y2="16.5"/>'
-               '<line x1="7.2" y1="8" x2="9.8" y2="8"/><line x1="7.2" y1="12" x2="9.8" y2="12"/>',
-    "apps": '<rect x="3" y="5" width="14" height="10" rx="2"/><polyline points="3.5,6.5 10,11 16.5,6.5"/>',
-    "actions": '<rect x="3.5" y="3.5" width="13" height="13" rx="3"/><polyline points="6.8,10.2 9,12.4 13.4,7.8"/>',
-    "jobs": '<rect x="3" y="6.5" width="14" height="9.5" rx="2"/>'
-            '<path d="M7.5 6.5V5A1.5 1.5 0 0 1 9 3.5h2A1.5 1.5 0 0 1 12.5 5v1.5"/>',
-    "applications": '<path d="M17 3 3 9l5.5 2.5L11 17z"/><line x1="8.5" y1="11.5" x2="17" y2="3"/>',
-    # Radar's own item, a job that needs a look: a clock, as the Late mark is.
-    "radar": '<circle cx="10" cy="10" r="6.5"/><polyline points="10,6.5 10,10 12.5,11.5"/>',
-}
-
-
-def chip(icon: str, group: str) -> str:
-    """A group's icon chip: 32px square, the icon in the group's colour on a
-    tint of it. group is story, jobs, apps or neutral."""
-    return (f'<span class="gchip g-{group}" aria-hidden="true"><svg viewBox="0 0 20 20" '
-            'width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" '
-            'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
-            f'{ICONS[icon]}</svg></span>')
+# The groups' line icons and their chip live in page_frame, shared with Jobs.
+ICONS = page_frame.ICONS
+chip = page_frame.chip
 
 
 SCHEDULE = {"inbox": "Each alert email, as n8n finds it in the inbox",
@@ -1490,22 +1461,7 @@ a{color:inherit}
 .toast:empty{display:none}
 .toast.is-bad{border-color:var(--negative)}
 .toast.is-bad::before{content:"!";display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;height:16px;border-radius:50%;background:var(--negative);color:var(--on-accent);font-weight:700;font-size:12px}
-/* ---- the groups (owner, 17 Nov): each has one colour, page_frame's
-   --group-*, for its icon chip and a soft glow from the top left of its
-   cards. The glow is background only, over the card's own ground. ---- */
-.g-story{--g:var(--group-story-rgb);--gc:var(--group-story)}
-.g-jobs{--g:var(--group-jobs-rgb);--gc:var(--group-jobs)}
-.g-apps{--g:var(--group-apps-rgb);--gc:var(--group-apps)}
-.g-neutral{--g:232 237 240;--gc:var(--text-1)}
-.gchip{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;border-radius:8px;background:rgb(var(--g) / .16);color:var(--gc)}
-.gchip.g-neutral{background:rgb(var(--g) / .10)}
-.gchip svg{display:block}
-.glow-tile{background-image:radial-gradient(150% 170% at 0% 0%,rgb(var(--g) / .30) 0%,rgb(var(--g) / .11) 45%,rgb(var(--g) / 0) 100%)}
-.glow-tile.is-zero{background-image:radial-gradient(150% 170% at 0% 0%,rgb(var(--g) / .16) 0%,rgb(var(--g) / .06) 45%,rgb(var(--g) / 0) 100%)}
-.glow-wide{background-image:radial-gradient(115% 160% at 0% 0%,rgb(var(--g) / .20) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%)}
-.glow-short{background-image:radial-gradient(80% 260% at 0% 0%,rgb(var(--g) / .22) 0%,rgb(var(--g) / .08) 45%,rgb(var(--g) / 0) 100%)}
-@media (forced-colors:active){.gchip{border:1px solid CanvasText}}
-/* ---- the tiles ---- */
+""" + page_frame.GROUPS_CSS + """/* ---- the tiles ---- */
 /* The right column: Jobs, then Applications, each a card under its title. */
 .ht-side{min-width:0}
 .side-card{container:side / inline-size;display:flex;flex-direction:column;gap:16px;min-width:0;padding:20px;background-color:var(--surface);border:1px solid var(--border-subtle);border-radius:14px;color:var(--text-1);--focus-gap:var(--surface)}
@@ -1629,14 +1585,7 @@ a{color:inherit}
 .ht-health-foot{padding-top:4px}
 @container htw (min-width:600px){.ht-health-widgets{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @container htw (min-width:1100px){.ht-health{grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr)}.ht-health-widgets{display:contents}.ht-health-foot{grid-column:1 / -1}}
-/* ---- a section's title, outside its card: the chip, the title, a count
-   pill, and a link or the tools at the right; 12px to the card ---- */
-.sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-width:0;margin-bottom:12px}
-.sec-title{display:flex;align-items:center;gap:10px;min-width:0;font-size:17px;line-height:24px;font-weight:600;color:var(--text-1)}
-.sec-count{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px solid #2a3238;border-radius:11px;background:#1a2025;font-size:12px;line-height:16px;font-weight:500;color:var(--text-2);font-variant-numeric:tabular-nums}
-.sec-link{margin-left:auto}
-.sec-head > .gchip{margin-right:2px}
-/* ---- Open actions: every item in full, each its own card in its group's
+""" + page_frame.TITLES_CSS + """/* ---- Open actions: every item in full, each its own card in its group's
    colour, one under another ---- */
 .ny{container:ny / inline-size;min-width:0}
 .ny-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:auto}

@@ -89,7 +89,7 @@ def frame_checks() -> None:
     check(bar.startswith('<a class="skip-link" href="#main">Skip to the page</a><header class="appbar">'),
           "a skip link to the page's main comes before the bar")
     check(bar.count('aria-current="page"') == 2
-          and '<a href="/jobs" aria-current="page">Jobs</a>' in bar
+          and '<a href="/jobs" data-group="jobs" aria-current="page">Jobs</a>' in bar
           and 'aria-current="page">Settings' not in bar,
           "the page it is on is marked in the bar and in the narrow menu, and nothing else")
     check('id="keys-open"' not in bar and "Keyboard shortcuts" not in bar,
@@ -292,10 +292,20 @@ def edge_checks() -> None:
           and ".appbar .nav{display:flex;align-self:stretch;gap:24px;" in css
           and "padding:3px 4px 0;border-bottom:3px solid transparent;" in css
           and '.appbar .nav a[aria-current="page"]{color:var(--text-1);font-weight:600;'
-              'border-bottom-color:var(--accent)}' in css
+              'border-bottom-color:var(--nav-line,var(--accent))}' in css
           and "height:100%;min-height:44px;" in css,
-          "the menu is 18px at 500, 32px apart, the page you are on 600 with a 3px rule in "
-          "the accent, and each link the bar's full height")
+          "the menu is 18px at 500, 32px apart, the page you are on 600 with a 3px rule, "
+          "and each link the bar's full height")
+    check(page_frame.NAV_GROUP == {"jobs": "jobs", "watchlist": "apps", "insights": "story"}
+          and '.appbar a[data-group="jobs"]{--nav-line:var(--group-jobs)}' in css
+          and '.appbar a[data-group="watchlist"]{--nav-line:var(--group-apps)}' in css
+          and '.appbar a[data-group="insights"]{--nav-line:var(--group-story)}' in css
+          and "text-decoration-color:var(--nav-line,var(--accent));" in css
+          and 'data-group="home"' not in page_frame.appbar_html("home")
+          and 'data-group="cv"' not in page_frame.appbar_html("cv"),
+          "the page you are on is underlined in its group's colour, Jobs purple, the Watchlist "
+          "teal and Insights amber, in the bar and the narrow menu; Home, CV and Settings keep "
+          "the accent")
     check(".appbar .brand-mark{width:68px;height:32px}" in css
           and ".appbar .brand-name{font-size:17px;line-height:24px}" in css,
           "the mark and the wordmark grow with the bar, the wordmark 17px")
