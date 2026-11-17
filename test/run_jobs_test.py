@@ -12,10 +12,15 @@
    the New word, the Full job spec tag and the Closed tag. Filtered and
    acknowledged roles are hidden and reachable; Applied has its own view.
    No single-key shortcut, key hint or list of keys anywhere on the page.
-3. The role pane: the actions, Score with the four gates,
-   the provenance line, the reasons with their quotes marked in the advert or
-   the card, the asks summary, the details, and the company only when its
-   page exists. The advert, or its not-read state with Prepare application.
+3. The role pane (owner, 17 Nov): a larger title over the row's facts, the
+   actions, Score with the tier's pill and the four gates (Not stated amber,
+   the CV figure inside its gate, no record line), the reasons with their
+   quotes marked in the advert, the asks summary only once there are asks,
+   the details, and the company only when its page exists. The advert, or
+   "Advert not read yet." beside Prepare application, and no middle dot.
+   The advert's layout: headings, lists and paragraphs worked out from the
+   stored plain text, its words unchanged, its boilerplate under a closed
+   "Rest of the advert", quotes still marked across the blocks.
 4. The fragments the page script uses, read only, and the routes through
    the real server and its write guard. Rendering writes nothing and never
    fetches or scores.
@@ -589,6 +594,167 @@ def pane_checks(tmp: Path) -> None:
     check(dump(db) == before, "drawing the panes wrote nothing")
 
 
+# ------------------------------------------------------------------ the advert
+
+def _shown_words(fragment: str) -> list:
+    """The words a reader sees in a piece of the page, in order."""
+    import html as html_mod
+    return html_mod.unescape(re.sub(r"<[^>]+>", " ", fragment)).split()
+
+
+def _typed_words(text: str) -> list:
+    """The advert's words, its typed bullet and number marks aside."""
+    return " ".join(jobs_page._BULLET.sub("", line) for line in text.split("\n")).split()
+
+
+def _blocks_words(text: str, blocks: list) -> list:
+    return [w for _kind, items in blocks for item in items
+            for w in text[item[0]:item[1]].split()]
+
+
+def _blocks_text(text: str, blocks: list) -> str:
+    return " ".join(text[item[0]:item[1]] for _kind, items in blocks for item in items)
+
+
+def advert_checks(tmp: Path) -> None:
+    import check_jobs
+    import seed_jobs_sample
+    from fixtures import advert_samples as samples
+
+    # The page checker's own output, one line per block, from the saved pages.
+    pages = sorted((TEST_DIR / "fixtures" / "linkedin" / "pages").glob("*.html"))
+    stored = {p.stem: check_jobs.read_page(p.read_text(encoding="utf-8"))["description"]
+              for p in pages}
+    stored = {k: v for k, v in stored.items() if v}
+    check(len(stored) >= 5 and all("\n\n" not in v for v in stored.values())
+          and not any(re.search(r"^[-*•]\s", v, re.M) for v in stored.values()),
+          f"the stored description is plain text, one line per block, with no blank "
+          f"line and no typed bullet ({len(stored)} saved pages)")
+    every = {**stored, "seed": seed_jobs_sample.ADVERT, "stored": samples.STORED,
+             "typed": samples.TYPED}
+    for name, text in every.items():
+        main, rest = jobs_page.advert_layout(text, "Corvane Medical")
+        laid = _blocks_words(text, main) + _blocks_words(text, rest)
+        drawn = _shown_words(jobs_page.advert_text_html(text, [], "Corvane Medical"))
+        if rest:
+            for word in ("Rest", "of", "the", "advert"):
+                drawn.remove(word)
+        check(sorted(laid) == sorted(_typed_words(text))
+              and sorted(drawn) == sorted(_typed_words(text)),
+              f"{name}: every word of the advert is shown once, none changed, added or "
+              "dropped, its typed bullet and number marks aside")
+
+    # An advert as the page checker stores it, like role 1760 on the box.
+    out = jobs_page.advert_text_html(samples.STORED, [], samples.STORED_COMPANY)
+    shown, _sep, folded = out.partition('<details class="advert-rest">')
+    heads = re.findall(r'<h4 class="adv-h">([^<]+)</h4>', shown)
+    check(heads == ["About the job", "Responsibilities", "What you will bring", "Benefits"],
+          f"short lines that open a section are headings ({heads})")
+    lists = re.findall(r"<ul>(.*?)</ul>", shown)
+    check(len(lists) == 3 and lists[0].count("<li>") == 5 and lists[1].count("<li>") == 4
+          and lists[2].count("<li>") == 3
+          and "<li>Run ISO 14971 risk management for software hazards.</li>" in lists[0]
+          and "<li>Pension Scheme</li>" in lists[2],
+          "the lines under a heading that read as items are a list, unmarked as they are "
+          "stored")
+    check(shown.count("<p>") == 2 and shown.index("<p>Corvane Medical is hiring")
+          < shown.index('<h4 class="adv-h">Responsibilities'),
+          "two sentences on lines of their own under a heading stay paragraphs")
+    check(folded.startswith("<summary>Rest of the advert</summary>")
+          and out.endswith("</details>") and "<details open" not in out
+          and '<h4 class="adv-h">About Corvane Medical</h4>' in folded
+          and all(words in folded and words not in shown for words in (
+              "equal opportunity employer", "candidate privacy policy",
+              "Beware of recruitment scams", "unsolicited CVs from recruitment agencies",
+              "210 people across two sites")),
+          "the company's own section, the equal opportunity line, the privacy notice, the "
+          "scam warning and the agency notice are folded, closed, under Rest of the "
+          "advert at the end")
+
+    # Typed by hand: blank lines, typed bullets, numbered steps.
+    out = jobs_page.advert_text_html(samples.TYPED, [], samples.TYPED_COMPANY)
+    shown, _sep, folded = out.partition('<details class="advert-rest">')
+    check(re.findall(r'<h4 class="adv-h">([^<]+)</h4>', shown)
+          == ["The role", "What you will do:", "How we hire"]
+          and "<ul><li>Review the software development plan" in shown
+          and '<ol><li value="1">A thirty-minute call' in shown
+          and '<li value="3">An offer within a week.</li></ol>' in shown
+          and "- Review" not in out and "1. A thirty" not in out
+          and '<h4 class="adv-h">Equal opportunities</h4>' in folded
+          and "reasonable adjustments" in folded,
+          "a typed advert keeps its headings, its bullets as a list and its numbered "
+          "steps as a numbered list with their own numbers; its equal opportunities "
+          "section is folded")
+
+    # The saved pages: role lines that mention data stay where they are.
+    veeva = stored.get("4472532393", "")
+    main, rest = jobs_page.advert_layout(veeva, "Veeva Systems")
+    check("equal opportunity employer" in _blocks_text(veeva, rest)
+          and "GDPR" in _blocks_text(veeva, main)
+          and "data privacy requirements" in _blocks_text(veeva, main),
+          "a saved page's equal opportunity paragraph is folded, while its role lines on "
+          "GDPR and data privacy stay in the advert")
+    advert = seed_jobs_sample.ADVERT
+    seed_main, seed_rest = jobs_page.advert_layout(advert, "Hartwell Infusion Ltd")
+    check(_blocks_text(advert, seed_rest).startswith("About us Hartwell Infusion makes")
+          and "No agencies, please." in _blocks_text(advert, seed_main),
+          "the sample advert's About us is folded; How to apply, with its no agencies "
+          "line, stays")
+
+    # The quotes are marked wherever their words now sit.
+    reasons = [{"reason": "Risk", "quote": "Run ISO 14971 risk management"},
+               {"reason": "Size", "quote": "we are 210 people across two sites"},
+               {"reason": "Across a heading", "quote": "Benefits Pension Scheme"},
+               {"reason": "Lifecycle", "quote": "own the IEC 62304 software lifecycle"}]
+    spans, hits = jobs_page._spans_for(reasons, samples.STORED)
+    out = jobs_page.advert_text_html(samples.STORED, spans, samples.STORED_COMPANY)
+    shown, _sep, folded = out.partition('<details class="advert-rest">')
+    check(sorted(hits) == [1, 2, 3, 4]
+          and '<li><mark id="q-1">Run ISO 14971 risk management</mark> for' in shown
+          and '<mark id="q-2">we are 210 people across two sites</mark>' in folded
+          and ('<h4 class="adv-h"><mark id="q-3">Benefits</mark></h4><ul><li><mark>Pension '
+               'Scheme</mark></li>') in shown
+          and all(out.count(f'id="q-{i}"') == 1 for i in range(1, 5)),
+          "each quote is marked where its words sit, in a list item, a paragraph, across "
+          "a heading and its first item, and in the folded part, each id once")
+    check("t.closest('details:not([open])')" in jobs_page.JOBS_SCRIPT
+          and "if (a && a.matches('.evidence'))" in jobs_page.JOBS_SCRIPT,
+          "a quote's link into Rest of the advert opens it first, so the link lands")
+    check(".advert-text{max-width:66ch;" in jobs_page.JOBS_CSS
+          and ".adv-h{margin:28px 0 8px;" in jobs_page.JOBS_CSS,
+          "the advert's lines run to about 80 characters, and each heading has clear "
+          "space above it")
+
+    # Role 1760's case through the pane: no rate figure, 78% CV, a stored advert.
+    db = tmp / "advert.sqlite"
+    conn = rc.get_db(db)
+    oid = put(conn, "Software Quality Lead, ventilator firmware", samples.STORED_COMPANY,
+              salary_rate=None, gate_rate=None, rate_stated=0, cv_match=78,
+              gate_rate_note=None, pay_currency=None, pay_period=None, pay_min=None,
+              pay_max=None,
+              gate_cv_note="78% clears the 70% pass mark", score_basis="spec",
+              scored_at=ago(1), description_text=samples.STORED,
+              description_fetched_at=ago(1),
+              description_hash=rc.description_version(samples.STORED))
+    conn.close()
+    html = pane(db, oid).get("html", "")
+    rate = re.search(r'gate-rate"><span class="gate-name">Rate</span><span class="gate-status '
+                     r'(is-[a-z]+)">(.*?)</span>', html)
+    cv = re.search(r'gate-cv"><span class="gate-name">CV match</span>(.*?)'
+                   r'<span class="gate-note">', html)
+    check(rate is not None and rate.group(1) == "is-cau"
+          and rate.group(2).endswith("Not stated")
+          and cv is not None and _shown_words(cv.group(1)) == ["Passes", ",", "78%"],
+          "the 1760 case: Rate reads Not stated in amber, and 78% sits inside the CV "
+          "match gate")
+    check('<h4 class="adv-h">Responsibilities</h4><ul>' in html
+          and '<details class="advert-rest"><summary>Rest of the advert</summary>' in html
+          and html.index("Rest of the advert") < html.index("candidate privacy policy")
+          and html.index("Rest of the advert") < html.index("Beware of recruitment scams"),
+          "and its advert has headings and bullets, its privacy and scam notices under "
+          "Rest of the advert")
+
+
 # ------------------------------------------------------------------ fragments and routes
 
 @contextlib.contextmanager
@@ -807,7 +973,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         tmp_path = Path(tmp)
         for section in (migration_checks, read_checks, queue_checks, pane_checks,
-                        route_checks, page_checks, location_checks):
+                        advert_checks, route_checks, page_checks, location_checks):
             try:
                 section(tmp_path)
             except Exception as err:  # noqa: BLE001  one section stopping is a failure

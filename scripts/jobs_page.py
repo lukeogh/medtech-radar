@@ -638,52 +638,232 @@ def _marked(text: str, start: int, end: int, spans: list, used: set) -> str:
     return "".join(out)
 
 
-_BULLET = re.compile(r"^[ \t]*(?:[-*•·▪◦‣–]|\d{1,2}[.)])[ \t]+")
+_BULLET = re.compile(r"^[ \t]*(?:[-*•·▪◦‣–●■➢➤✓✔]|(\d{1,2})[.)])[ \t]+")
+
+# How an advert is laid out (owner, 17 Nov). description_text is plain text:
+# the page checker (check_jobs._text) keeps one line per block of the page,
+# with no blank lines and no marks for a heading or a list item, while an
+# advert seeded or pasted by hand may have blank lines and typed bullets. The
+# structure is worked out from the lines alone, in code; no word is changed,
+# added or dropped, only where each line sits.
+#
+# A heading is a short line (eight words at most) that starts with a capital
+# and does not end like a sentence or a clause, with something after it. It
+# is a heading when it ends with a colon or a question mark, when it starts
+# with a word headings start with (_HEAD_WORDS) and is five words at most, or
+# when it opens the text, follows a blank line or follows a long paragraph.
+# Any other short line is an item of the list it sits in.
+_HEAD_SHAPE = re.compile(r"^[A-Z][^:]{0,68}[:?]?$")
+_HEAD_WORDS = re.compile(
+    r"^(?:about|who|what|why|how|where|when|key|essential|desirable|required|"
+    r"requirements?|responsibilities|benefits|perks|package|rewards?|salary|"
+    r"compensation|remuneration|bonus|skills|qualifications|experience|"
+    r"interview\w*|location|job|role|position|additional|important|summary|"
+    r"overview|duties|nice to have|preferred|ideal|equal|diversity|privacy|"
+    r"data|recruitment|disclaimer|apply|application|next steps|our|the (?:role|"
+    r"job|team|company|opportunity|position|package|candidate|person)|"
+    r"working (?:pattern|hours|arrangements?)|hours|contract)\b", re.IGNORECASE)
+# A list: lines in a row that each read as an item: one sentence or a
+# fragment of up to 240 characters, or a line that opens with a short label
+# and a colon ("Leadership: 8+ years ..."). Three or more such lines are a list;
+# two are a list unless both end like a sentence, when they are paragraphs.
+_ITEM_MAX = 240
+_SECOND_SENTENCE = re.compile(r"[.!?][\"')’”]?\s+[A-Z]")
+_LABELLED = re.compile(r"^[A-Z][^:.]{1,50}:\s")
+
+# Boilerplate, folded under "Rest of the advert" at the end, nothing deleted:
+# a section whose heading names it, or a paragraph that says it. The company's
+# own "who we are" goes by its heading only; an untitled opening paragraph
+# about the company stays where it is.
+_REST_HEADING = re.compile(
+    r"^(?:about (?:us|the company|the business|the organi[sz]ation|our client|"
+    r"the client|the employer)|who we are|our (?:company|story|mission|values|"
+    r"culture|purpose)|company (?:overview|description|profile|information)|"
+    r"life at\b|equal (?:opportunit|employment)|diversity|eeo\b|privacy|"
+    r"data protection|gdpr|disclaimer|recruitment (?:fraud|scam)|fraud|scam|"
+    r"beware|agenc|notice to (?:agencies|recruiters)|important notice)",
+    re.IGNORECASE)
+_REST_TEXT = re.compile("|".join((
+    # equal opportunity and inclusion
+    r"equal[- ]opportunit", r"equal employment", r"protected characteristic",
+    r"regardless of (?:their )?(?:age|race|gender|sex|religion|disability|"
+    r"background|ethnicity|sexual)", r"disability confident", r"without regard to",
+    r"reasonable adjustments?", r"\bdivers(?:e|ity)\b.{0,60}\binclusi",
+    r"\binclusi\w*\b.{0,60}\bdivers(?:e|ity)\b",
+    r"accommodation\w* due to a disabilit",
+    # data privacy
+    r"privacy (?:notice|policy|statement)", r"personal (?:data|information)",
+    r"your (?:personal )?data\b", r"data protection (?:act|law|legislation|policy)",
+    # scam warnings
+    r"\bscam", r"\bfraud", r"phishing", r"impersonat",
+    r"never (?:ask|request|charge)\w* (?:you |candidates |applicants )?(?:for |to )?"
+    r"(?:any )?(?:payment|money|fees?|bank)",
+    # agency notices
+    r"recruitment agenc", r"employment (?:agency|business)", r"unsolicited",
+    r"speculative (?:cvs?|applications?)",
+    r"agency (?:cvs|submissions|candidates|fees)")), re.IGNORECASE)
 
 
-def advert_text_html(text: str, spans: list) -> str:
-    """The stored description as paragraphs and lists, quotes marked.
+def _about_company(head: str, company: str) -> bool:
+    """A heading "About Hartwell" or "Why Hartwell" for the role's company."""
+    found = re.match(r"(?:about|why)\s+(.+)", head.rstrip(":?").strip(), re.IGNORECASE)
+    if not found or not company.strip():
+        return False
+    name, said = company.strip().lower(), found.group(1).lower()
+    first = name.split()[0]
+    return (name.startswith(said)
+            or (first not in ("the", "a", "an") and said.split()[0] == first))
 
-    The description is stored as plain lines. A blank line ends a paragraph,
-    a line that starts with a bullet or a number is a list item, and every
-    other line keeps its own line inside its paragraph. Nothing is invented:
-    no headings are guessed.
-    """
-    used: set = set()
-    blocks: list = []
-    offset = 0
-    for line in text.split("\n"):
-        start, end = offset, offset + len(line)
-        offset = end + 1
-        if line.endswith("\r"):
-            end -= 1
-            line = line[:-1]
+
+def _is_heading(line: str, after: str, has_next: bool) -> bool:
+    """Whether a line (stripped) is a heading. after says what came before
+    it: "start", "blank", "long" (a paragraph), "heading" or "line"."""
+    words = line.split()
+    if not has_next or not 0 < len(words) <= 8 or not _HEAD_SHAPE.match(line):
+        return False
+    if line[-1] in ".;,!" or re.search(r"https?://|@", line):
+        return False
+    if line[-1] in ":?":
+        return True
+    if re.search(r"\d", line):
+        return False
+    if _HEAD_WORDS.match(line) and len(words) <= 5:
+        return True
+    return after in ("start", "blank", "long")
+
+
+def advert_layout(text: str, company: str = "") -> tuple[list, list]:
+    """The advert as blocks, (main, rest). Each block is ("h", [(s, e)]),
+    ("p", [(s, e), ...]), ("ul", [(s, e), ...]) or ("ol", [(s, e, n), ...]),
+    each (s, e) a stretch of text, so a quote's span can be marked in it. rest
+    is the boilerplate, in the order the advert gives it."""
+    # (start, end, words, number or None, bulleted, blank line before)
+    lines = []
+    offset, blank = 0, False
+    for raw in text.split("\n"):
+        start = offset
+        offset += len(raw) + 1
+        line = raw.rstrip("\r \t")
         if not line.strip():
-            blocks.append(("gap", None))
+            blank = True
             continue
         bullet = _BULLET.match(line)
-        if bullet:
-            item = (start + bullet.end(), end)
-            if blocks and blocks[-1][0] == "ul":
-                blocks[-1][1].append(item)
+        lead = bullet.end() if bullet else len(line) - len(line.lstrip())
+        lines.append((start + lead, start + len(line), line[lead:],
+                      bullet.group(1) if bullet else None, bool(bullet), blank))
+        blank = False
+    blank_mode = any(ln[5] for ln in lines)
+
+    # The headings, and the lines under each.
+    sections, after = [[None, []]], "start"
+    for i, ln in enumerate(lines):
+        if ln[5]:
+            after = "blank"
+        if not ln[4] and _is_heading(ln[2], after, i + 1 < len(lines)):
+            sections.append([ln, []])
+            after = "heading"
+            continue
+        sections[-1][1].append(ln)
+        after = "long" if len(ln[2]) > _ITEM_MAX else "line"
+
+    def blocks_of(body: list) -> list:
+        """A section's lines as paragraphs and lists."""
+        out, i = [], 0
+        while i < len(body):
+            if body[i][4]:
+                numbered = bool(body[i][3])
+                items = []
+                while (i < len(body) and body[i][4] and bool(body[i][3]) == numbered
+                       and not (items and body[i][5])):
+                    s, e, _w, n = body[i][:4]
+                    items.append((s, e, n) if numbered else (s, e))
+                    i += 1
+                out.append(("ol" if numbered else "ul", items))
+                continue
+            # A run of unmarked lines with no blank line inside it.
+            j = i + 1
+            while j < len(body) and not body[j][4] and not body[j][5]:
+                j += 1
+            run = body[i:j]
+            i = j
+            labelled = len(run) >= 2 and all(_LABELLED.match(r[2]) for r in run)
+            if blank_mode and not labelled:
+                # Lines typed between blank lines are one paragraph.
+                out.append(("p", [(r[0], r[1]) for r in run]))
+                continue
+            # A line that leads into a list ("the process is as follows:")
+            # is a paragraph; a long one-sentence line between two items is
+            # an item too.
+            lead_in = [r[2].endswith(":") for r in run]
+            item = [not lead_in[n] and (labelled or bool(_LABELLED.match(r[2]))
+                                        or (len(r[2]) <= _ITEM_MAX
+                                            and not _SECOND_SENTENCE.search(r[2])))
+                    for n, r in enumerate(run)]
+            for n in range(1, len(run) - 1):
+                if (not item[n] and not lead_in[n] and item[n - 1] and item[n + 1]
+                        and not _SECOND_SENTENCE.search(run[n][2])):
+                    item[n] = True
+            k = 0
+            while k < len(run):
+                m = k
+                while m < len(run) and item[m]:
+                    m += 1
+                ends = [re.search(r"[.!?]\W*$", r[2]) for r in run[k:m]]
+                if m - k >= 3 or (m - k == 2 and not all(ends)):
+                    out.append(("ul", [(r[0], r[1]) for r in run[k:m]]))
+                    k = m
+                else:
+                    out.append(("p", [(run[k][0], run[k][1])]))
+                    k += 1
+        return out
+
+    main, rest = [], []
+    for head, body in sections:
+        blocks = blocks_of(body)
+        heading = [("h", [(head[0], head[1])])] if head else []
+        if head and (_REST_HEADING.match(head[2]) or _about_company(head[2], company)):
+            rest += heading + blocks
+            continue
+        folded = [b[0] == "p" and bool(_REST_TEXT.search(
+            " ".join(text[s:e] for s, e in b[1]))) for b in blocks]
+        if head and blocks and all(folded):
+            rest += heading + blocks
+            continue
+        main += heading + [b for b, f in zip(blocks, folded) if not f]
+        rest += [b for b, f in zip(blocks, folded) if f]
+    return main, rest
+
+
+def advert_text_html(text: str, spans: list, company: str = "") -> str:
+    """The stored description laid out as headings, paragraphs and lists,
+    quotes marked, its boilerplate folded under a closed "Rest of the advert"
+    at the end (advert_layout)."""
+    used: set = set()
+    main, rest = advert_layout(text, company)
+
+    def draw(blocks: list) -> str:
+        out = []
+        for kind, items in blocks:
+            if kind == "h":
+                s, e = items[0]
+                out.append(f'<h4 class="adv-h">{_marked(text, s, e, spans, used)}</h4>')
+            elif kind == "p":
+                out.append("<p>" + "<br>".join(_marked(text, s, e, spans, used)
+                                               for s, e in items) + "</p>")
+            elif kind == "ul":
+                out.append("<ul>" + "".join(f"<li>{_marked(text, s, e, spans, used)}</li>"
+                                            for s, e in items) + "</ul>")
             else:
-                blocks.append(("ul", [item]))
-        else:
-            lead = len(line) - len(line.lstrip())
-            item = (start + lead, end)
-            if blocks and blocks[-1][0] == "p":
-                blocks[-1][1].append(item)
-            else:
-                blocks.append(("p", [item]))
-    out = []
-    for kind, items in blocks:
-        if kind == "p":
-            out.append("<p>" + "<br>".join(_marked(text, s, e, spans, used)
-                                           for s, e in items) + "</p>")
-        elif kind == "ul":
-            out.append("<ul>" + "".join(f"<li>{_marked(text, s, e, spans, used)}</li>"
-                                        for s, e in items) + "</ul>")
-    return "".join(out)
+                out.append("<ol>" + "".join(f'<li value="{int(n)}">'
+                                            f"{_marked(text, s, e, spans, used)}</li>"
+                                            for s, e, n in items) + "</ol>")
+        return "".join(out)
+
+    shown = draw(main)
+    if not rest:
+        return shown
+    return (f'{shown}<details class="advert-rest"><summary>Rest of the advert'
+            f'</summary>{draw(rest)}</details>')
 
 
 def _spans_for(reasons: list, text: str, offset: int = 0) -> tuple[list, dict]:
@@ -913,7 +1093,8 @@ def advert_section(o: dict, reasons: list, quotes: bool, view: str,
         fetched = o.get("description_fetched_at")
         read = (f"Read from {board(o.get('source'))} on {_day(fetched)}" if fetched
                 else "Stored by the page checker, date not recorded")
-        body = f'<div class="advert-text">{advert_text_html(text, spans)}</div>'
+        body = (f'<div class="advert-text">'
+                f'{advert_text_html(text, spans, o.get("company") or "")}</div>')
         head = f'<span class="advert-read">{esc(read)}</span>'
     else:
         # Not read yet: those words beside the way to read it, and no more
@@ -1404,11 +1585,24 @@ a{color:inherit}
 .advert-head .sec-h{margin-bottom:0}
 .advert-read{font-size:12px;line-height:16px;color:var(--text-3)}
 .advert-body{padding:12px 16px 32px}
-.advert-text{max-width:72ch;font-size:15px;line-height:24px}
-.advert-text p,.advert-text ul{margin-bottom:12px}
+/* The advert's lines run to about 80 characters. A heading opens each of
+   its sections, with clear space above it; lists and paragraphs keep 12px. */
+.advert-text{max-width:66ch;font-size:15px;line-height:24px;text-wrap:pretty}
+.advert-text p,.advert-text ul,.advert-text ol{margin-bottom:12px}
 .advert-text ul{padding-left:20px;list-style:disc}
-.advert-text li{margin-bottom:4px}
+.advert-text ol{padding-left:28px;list-style:decimal}
+.advert-text li{margin-bottom:4px;padding-left:2px}
 .advert-text li::marker{color:var(--text-3)}
+.adv-h{margin:28px 0 8px;font-size:15px;line-height:24px;font-weight:600;color:var(--text-1)}
+.advert-text > .adv-h:first-child{margin-top:0}
+.advert-rest{margin-top:28px;padding-top:16px;border-top:1px solid var(--border-subtle)}
+.advert-rest > summary{display:inline-flex;align-items:center;gap:8px;min-height:32px;color:var(--text-2);font-weight:600;cursor:pointer;list-style:none}
+.advert-rest > summary::-webkit-details-marker{display:none}
+.advert-rest > summary::before{content:"";width:6px;height:6px;margin:0 2px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform var(--dur) ease-out}
+.advert-rest[open] > summary::before{transform:rotate(45deg)}
+.advert-rest > summary:hover{color:var(--text-1)}
+.advert-rest[open] > summary{margin-bottom:12px}
+.advert-rest > .adv-h:first-of-type{margin-top:12px}
 mark{background:transparent;color:inherit;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:1px;text-underline-offset:3px}
 mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
 .advert-unread{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
@@ -1900,6 +2094,12 @@ JOBS_SCRIPT = """
       e.preventDefault();
       showList(true);
       return;
+    }
+    if (a && a.matches('.evidence')) {
+      // A quote folded under Rest of the advert opens the fold, so the link lands.
+      var t = document.getElementById(a.getAttribute('href').slice(1));
+      var shut = t && t.closest('details:not([open])');
+      if (shut) shut.open = true;
     }
     if (a && (a.matches('[data-prepare]') || a.matches('[data-open]')) && current) {
       markRead(current);
