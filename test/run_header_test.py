@@ -220,6 +220,11 @@ def page_checks(tmp: Path) -> None:
         running = every_page(ids)
         set_runs(db, signals_hours=22.6)
         stalled = every_page(ids)
+    # One company page (owner, 17 Nov): no page links to the old company page,
+    # apart from the older dashboard page (the archive), whose links follow the redirect.
+    linking = [n for n, (page, _c) in running.items()
+               if n not in ("a company dossier", "the archive") and re.search(r'href="/company/\d', page)]
+    check(not linking, f"no page links to /company/<id> any more ({linking or 'none'})")
     for name, (page, current) in running.items():
         bar = bar_of(page)
         check(page.count('<header class="appbar">') == 1

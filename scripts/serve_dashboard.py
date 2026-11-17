@@ -1628,16 +1628,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, b"Company ids are numbers.",
                            "text/plain; charset=utf-8")
                 return
-            try:
-                page = render_company(int(raw))
-            except Exception as err:  # noqa: BLE001
-                self._send(500, f"Render failed. {type(err).__name__}: {err}"
-                           .encode(), "text/plain; charset=utf-8")
-                return
-            if page is None:
-                self._send(404, b"No company with that id.",
-                           "text/plain; charset=utf-8")
-                return
+            # One company page (owner, 17 Nov): the old page is the
+            # company's record on the Watchlist now, on its own page.
+            self.send_response(302)
+            self.send_header("Location", f"/watchlist/{int(raw)}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
             self._send(200, page, "text/html; charset=utf-8")
             return
         if path.startswith("/prepare/") and path.endswith("/cv.docx"):

@@ -1145,29 +1145,6 @@ def details_section(data: dict, o: dict, view: str, now: str, company: str = "")
     return pane_section("details", "Details", f'<dl class="facts">{rows}</dl>{company}', "list")
 
 
-def company_section(data: dict, o: dict) -> str:
-    """The way to everything on file for the company, only when the company
-    page exists."""
-    cid = o.get("company_id")
-    if not cid or int(cid) not in (data.get("company_ids") or set()):
-        return ""
-    name = o.get("company") or "this company"
-    bits = []
-    insights = sum(1 for s in (data.get("signals") or []) + (data.get("dismissed_signals") or [])
-                   if s.get("company_id") == cid)
-    if insights:
-        bits.append(f"{insights} {'insight' if insights == 1 else 'insights'}")
-    touch = (data.get("touch_map") or {}).get(str(o.get("company") or "").lower())
-    if touch:
-        bits.append(f"last touch {_day(touch.get('touched_at'))}")
-    text = ", ".join(bits)
-    meta = (f'<p class="company-meta">{esc(text[:1].upper() + text[1:])}</p>'
-            if bits else "")
-    return ('<div class="company">'
-            f'<p><a class="link" id="company-on-file" href="/company/{int(cid)}">'
-            f'Everything on file for {esc(name)}</a></p>{meta}</div>')
-
-
 def advert_section(o: dict, reasons: list, quotes: bool, view: str,
                    can_prepare: bool) -> tuple[str, dict]:
     """The advert: the stored full description where there is one, marked
@@ -1264,12 +1241,13 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
     open_view = view in ("open", "filtered")
     advert, hits = advert_section(face, reasons, quotes, view,
                                   can_prepare=open_view)
-    # The row's facts, said the same way, the company a link to its page
-    # where there is one.
+    # The row's facts, said the same way, the company a link to its record on
+    # the Watchlist, on its own page, where the company is on file; plain
+    # text where it is not.
     meta = facts_bits(face)
     cid = face.get("company_id")
     if cid and int(cid) in (data.get("company_ids") or set()):
-        meta[0] = (f'<a class="link" id="detail-company" href="/company/{int(cid)}">'
+        meta[0] = (f'<a class="link" id="detail-company" href="/watchlist/{int(cid)}">'
                    f'{meta[0]}</a>')
     tags = spec_tag(face)
     if view == "applied":
@@ -1311,7 +1289,7 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
     body = [score_html(face),
             reasons_section(face, reasons, hits, quotes),
             asks_section(face, view),
-            details_section(data, face, view, now, company_section(data, face))]
+            details_section(data, face, view, now)]
     return (f'{head}<div class="role-scroll"><div class="detail-body">'
             f'{"".join(body)}</div>{advert}</div>')
 
@@ -1713,8 +1691,6 @@ a{color:inherit}
 .facts{display:grid;grid-template-columns:160px minmax(0,1fr);gap:8px 16px;align-items:baseline}
 .facts dt{font-size:14px;line-height:20px;font-weight:600;color:var(--text-2)}
 .facts dd{max-width:80ch}
-.company{margin-top:16px;padding-top:16px;border-top:1px solid var(--row-line)}
-.company-meta{margin-top:2px;font-size:13px;line-height:20px;color:var(--text-2)}
 .advert{position:relative;padding:0 16px 24px;background:var(--canvas)}
 .advert:focus{outline:none}
 .advert-read{font-size:13px;line-height:20px;color:var(--text-2)}
@@ -1812,7 +1788,7 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
   .actions .btn-primary,.applied-note{grid-column:1 / -1;justify-self:stretch}
   .applied-note{margin-left:0}
   .facts{grid-template-columns:112px minmax(0,1fr)}
-  .company .link,.with-icon{display:inline-flex;align-items:center;min-height:44px}
+  .with-icon{display:inline-flex;align-items:center;min-height:44px}
   .evidence{position:relative;display:inline-block;padding:12px 0}
   /* Every target 44px on a phone: the pane's links and the filtered line's,
      the advert's fold, and the tier pill, whose hit area grows past its look. */

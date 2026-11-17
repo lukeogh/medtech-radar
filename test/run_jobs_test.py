@@ -577,12 +577,12 @@ def pane_checks(tmp: Path) -> None:
     meta = re.search(r'<p class="dh-facts"><span class="dh-facts-in">(.*?)</span></p>', html)
     face = next(o for o in jobs_page.build_model(collect(db))["lists"]["open"] if o["id"] == spec)
     bits = jobs_page.facts_bits(face)
-    bits[0] = f'<a class="link" id="detail-company" href="/company/{company}">{bits[0]}</a>'
+    bits[0] = f'<a class="link" id="detail-company" href="/watchlist/{company}">{bits[0]}</a>'
     check(meta is not None and meta.group(1) == jobs_page.meta_html(bits)
           and " · " not in meta.group(1) and ".dh-title{grid-area:title;align-self:center;"
           "font-size:24px" in jobs_page.JOBS_CSS,
           "under a larger title the pane says the row's facts the row's way, set apart by "
-          "the drawn rule, the company linked to its page")
+          "the drawn rule, the company linked to its record")
     check("·" not in re.sub(r"<style.*?</style>", "", html, flags=re.S),
           "and no middle dot anywhere in the role pane")
     check('<a class="evidence" id="reason-1-evidence" href="#q-1">' in html
@@ -604,9 +604,10 @@ def pane_checks(tmp: Path) -> None:
           "the details give the rate as advertised, the rate line, the state, the repost "
           "chain, the red flags and the source")
     details = re.search(r'<section class="psec" aria-labelledby="details-heading">.*?</section>', html, re.S)
-    check(f'href="/company/{company}"' in html and "Everything on file for Spec Co" in html
-          and details is not None and "Everything on file for Spec Co" in details.group(0),
-          "a company with a page is linked, at the foot of the Details card")
+    check(f'id="detail-company" href="/watchlist/{company}"' in html and "/company/" not in html
+          and "Everything on file" not in html and details is not None,
+          "the company's name in the header goes to its record on the Watchlist, and Details no "
+          "longer ends with Everything on file")
     card_html = pane(db, card)["html"]
     check("/company/" not in card_html and "Everything on file" not in card_html,
           "a company with no page is not linked")

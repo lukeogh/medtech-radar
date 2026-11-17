@@ -26,7 +26,7 @@ adds for it: /story/hide, /story/show, /story/split, /watchlist/add (with
 via insights and the story's signal id, so the Watchlist can say where the
 company came from) and /watchlist/remove (Undo, with undo_add, which puts the
 company back as it was). Contacts are logged on the Watchlist, at
-/watchlist?company=<id>, which is also where On your Watchlist leads. Nothing
+/watchlist/<id>, which is also where On your Watchlist leads. Nothing
 here fetches, scores or writes.
 """
 
@@ -462,7 +462,7 @@ def watch_html(s: dict) -> str:
     if not s["company_id"]:
         return ""
     if s["watched"]:
-        return (f'<a class="on-list" href="/watchlist?company={esc(s["company_id"])}">{ICON_CHECK}'
+        return (f'<a class="on-list" href="/watchlist/{esc(s["company_id"])}">{ICON_CHECK}'
                 f'On your Watchlist<span class="visually-hidden">: {esc(s["company"])}, open it on the Watchlist'
                 '</span></a>')
     return (f'<button type="button" class="btn" data-act="watch" data-cid="{esc(s["company_id"])}" '
@@ -714,7 +714,7 @@ def company_html(conn, s: dict, others: list | None = None) -> str:
     cid = esc(c["id"])
     watch_line = (f'On your Watchlist since {_day(c["watched_at"])}.' if s["watched"]
                   else "Not on your Watchlist.")
-    parts.append(f'<a class="rec" href="/watchlist?company={cid}">{esc(c["display_name"])}’s record</a>'
+    parts.append(f'<a class="rec" href="/watchlist/{cid}">{esc(c["display_name"])}’s record</a>'
                  f'<span class="meta"><span data-watch-line="{cid}">{esc(watch_line)}</span> '
                  f'<span data-contact-line="{cid}">{esc(contact)}</span></span>')
     roles = conn.execute(
@@ -757,7 +757,7 @@ def log_html(s: dict) -> str:
     if not s["company_id"]:
         return ""
     return (f'<p class="log-line">Contacts with {esc(s["company"])} are logged on the Watchlist, with '
-            f'the next step and its due date. <a href="/watchlist?company={esc(s["company_id"])}">'
+            f'the next step and its due date. <a href="/watchlist/{esc(s["company_id"])}">'
             f'Log a contact on the Watchlist<span class="visually-hidden">: {esc(s["company"])}</span></a></p>')
 
 
@@ -859,7 +859,7 @@ PAGE_SCRIPT = r"""
   function setLine(sel, text){ document.querySelectorAll(sel).forEach(function(n){ n.textContent=text; }); }
 
   function watched(cid, name){
-    var wrap=el('span','watch-done'), a=el('a','on-list'); a.href='/watchlist?company='+cid; a.innerHTML=CHECK;
+    var wrap=el('span','watch-done'), a=el('a','on-list'); a.href='/watchlist/'+cid; a.innerHTML=CHECK;
     a.appendChild(document.createTextNode('On your Watchlist')); a.appendChild(vh(': '+name+', open it on the Watchlist'));
     var u=el('button','btn quiet','Undo'); u.type='button'; u.dataset.act='unwatch'; u.dataset.cid=cid; u.dataset.company=name;
     u.appendChild(vh(': take '+name+' off your Watchlist'));

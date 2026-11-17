@@ -580,7 +580,7 @@ def _signal_item(s: dict, arrivals: dict, now: datetime) -> dict:
         open_ = (f"/jobs/{int(role['id'])}", "Open the role on Jobs", False)
         stays = "The role stays as it is on Jobs, and hiring stories are not on Insights."
     elif lead.get("company_id"):
-        open_ = (f"/company/{int(lead['company_id'])}", "Open the company's record", False)
+        open_ = (f"/watchlist/{int(lead['company_id'])}", "Company record", False)
         stays = "The company's record stays as it is."
     else:
         url = bd.safe_url(lead.get("source_url"))
@@ -635,7 +635,7 @@ def _thread_item(t: dict, now: datetime) -> dict:
             "tag": (f'<span class="tag tag-{cls}">{_use("st-cau" if cls == "caution" else "st-neu")}'
                     f'{esc(words)}</span>') if words else "",
             "lead": th.get("next_step") or "", "thread": th, "place": t.get("place") or "",
-            "open": (f"/watchlist?company={cid}", "Open it on the Watchlist", False),
+            "open": (f"/watchlist/{cid}", "Open it on the Watchlist", False),
             "company_id": cid, "company": t["name"]}
 
 
@@ -1134,8 +1134,8 @@ def _on_file_link(i: dict, model: dict) -> str:
     c = model["companies"].get(cid) if cid else None
     if not c:
         return ""
-    return (f'<a class="link link-block ny-onfile" href="/company/{int(cid)}">'
-            f'Everything on file<span class="visually-hidden"> for {esc(c["display_name"])}</span></a>')
+    return (f'<a class="link link-block ny-onfile" href="/watchlist/{int(cid)}">'
+            f'Company record<span class="visually-hidden">: {esc(c["display_name"])}</span></a>')
 
 
 def _actions(i: dict, model: dict, lead: str = "") -> str:
