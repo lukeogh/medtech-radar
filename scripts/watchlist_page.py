@@ -727,13 +727,10 @@ def render_page(model: dict, jobs: dict | None, view: str = "table") -> str:
     if model.get("missing"):
         missing = ('<div class="status is-warn wl-missing"><span class="what">That company is not on file. '
                    'It may have been merged with another or removed. Your companies are below.</span></div>')
-    rows = model.get("rows") or []
-    # Beside the list there is always a record column on a wide screen; with
-    # no company chosen it says so.
-    layout_cls = "layout has-record" if (rec or rows) else "layout"
-    record = (record_html(rec, model, "table") if rec else
-              '<aside class="record no-record" aria-label="Record"><div class="card rcard">'
-              '<p class="rnone">No company chosen.</p></div></aside>' if rows else "")
+    # The record column only when a company is chosen; otherwise the list
+    # takes the full width.
+    layout_cls = "layout has-record" if rec else "layout"
+    record = record_html(rec, model, "table") if rec else ""
     # Dismissed suggestions stay reachable when none wait: one closed fold at
     # the foot of the page.
     foot = ""
@@ -928,8 +925,6 @@ main:focus{outline:none}
 .prevnext.is-disabled{color:var(--text-3);border-color:var(--border-subtle);cursor:default}
 .rh-close{display:none;min-height:36px}
 @media (min-width:1024px){.rh-close{display:inline-flex}}
-.no-record .rcard{padding:20px}
-@media (max-width:1023.98px){.no-record{display:none}}
 .dis-foot{margin-top:-8px}
 .rh-meta{grid-area:meta;display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-top:4px}
 .rh-facts{display:flex;flex-wrap:wrap;color:var(--text-2);font-size:14px;line-height:20px}
