@@ -397,8 +397,10 @@ def home_figures(html: str) -> dict:
 
 
 def home_rows(html: str) -> list[str]:
-    """The titles in Home's Needs you today, every item shown in full."""
-    return re.findall(r'<h4 class="ny-it" id="[\w-]+-t">(.*?)</h4>', html)
+    """The titles in Home's Needs you today: a role's from its Jobs row, any
+    other item's from its heading."""
+    return (re.findall(r'<span class="r-title">(.*?)</span>', html)
+            + re.findall(r'<h4 class="ny-it" id="[\w-]+-t">(.*?)</h4>', html))
 
 
 def split_applied(html: str) -> tuple[str, str]:

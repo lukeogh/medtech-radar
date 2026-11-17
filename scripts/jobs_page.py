@@ -1400,6 +1400,55 @@ def render_board(data: dict, config: dict, loc: tuple = ()) -> str:
 
 # --------------------------------------------------------------- the styles
 
+# The queue row's own rules, shared with Home, whose role items are this row
+# (owner, 17 Nov): ROW_CSS is the row, ROW_NARROW_CSS its narrow queue. Home
+# names a container "queue" around each row so the narrow rules reach it.
+ROW_CSS = """.row{position:relative;display:grid;grid-template-rows:auto 16px 20px;row-gap:2px;min-height:76px;padding:8px 16px 7px;border-bottom:1px solid var(--border-subtle);background:var(--surface);color:var(--text-1);transition:background-color var(--dur) ease-out}
+.row:hover{background:var(--row-hover)}
+.row.is-current{background:var(--row-selected);border-left:3px solid var(--accent);padding-left:13px}
+.r1,.r2,.r3{display:flex;min-width:0}
+.r1{align-items:flex-start;gap:8px}
+.r-link{display:flex;align-items:baseline;gap:8px;flex:1 1 auto;min-width:0;color:var(--text-1);text-decoration:none}
+.r-link::after{content:"";position:absolute;inset:0;z-index:0}
+.r-link:focus-visible{outline:none;box-shadow:none}
+.r-link:focus-visible::after{outline:2px solid var(--focus);outline-offset:-5px}
+.r-link:hover .r-title{text-decoration:underline;text-underline-offset:2px}
+.r-new{flex:none;font-size:12px;line-height:16px;font-weight:600;color:var(--text-1)}
+/* The title takes the row's width and a second line before it is cut. */
+.r-title{flex:1 1 auto;min-width:0;overflow:hidden;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow-wrap:anywhere;font-weight:500}
+.is-unread .r-title{font-weight:600}
+.r-cv{flex:none;width:40px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
+.r-first{flex:none;width:100px;padding-top:2px;text-align:right;font-size:12px;line-height:16px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.r2{align-items:center;gap:8px}
+.r-meta{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;line-height:16px;color:var(--text-3)}
+.r2 .tag{margin:-2px 0}
+.r3{align-items:center;gap:12px}
+.r-lead{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text-2)}
+.r-marks{position:relative;z-index:1;display:inline-flex;align-items:center;gap:4px;flex:none}
+.mk{position:relative;display:inline-flex;flex:none;border-radius:var(--radius-2)}
+.mk-pass{color:var(--text-3)}
+.mk-fail{color:var(--negative)}
+.mk-nj{color:var(--neutral)}
+.mk-ns{color:var(--neutral)}
+.mk-tip{display:none;position:absolute;right:-4px;bottom:calc(100% + 4px);z-index:6;width:max-content;max-width:min(400px,calc(100cqi - 32px));padding:1px 8px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface);box-shadow:var(--shadow-overlay);color:var(--text-1);font-size:12px;line-height:16px;font-weight:400;text-align:left;white-space:normal}
+.mk:hover .mk-tip,.mk:focus-visible .mk-tip{display:block}
+.mk.tip-off .mk-tip{display:none}
+.mk:focus-visible{outline-offset:1px}
+.row-applied{grid-template-rows:auto 16px;row-gap:4px;min-height:56px}
+"""
+
+ROW_NARROW_CSS = """@container queue (max-width:611.98px){
+  .row-question{grid-template-rows:auto 16px 40px;min-height:96px}
+  .row-question .r3{align-items:flex-start}
+  .row-question .r-lead{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal}
+  .row-question .r-marks{height:20px}
+}
+@container queue (max-width:375.98px){
+  .row-question{grid-template-rows:auto 16px 60px;min-height:116px}
+  .row-question .r-lead{-webkit-line-clamp:3;line-clamp:3}
+}
+"""
+
 JOBS_CSS = """
 *,*::before,*::after{box-sizing:border-box}
 html{background:var(--surface)}
@@ -1467,39 +1516,7 @@ a{color:inherit}
 .fold svg{transition:transform var(--dur) ease-out}
 .fold[aria-expanded="true"] svg{transform:rotate(90deg)}
 .band{display:flex;align-items:center;height:24px;padding:0 16px;font-size:12px;line-height:16px;color:var(--text-3);border-bottom:1px solid var(--border-subtle);font-variant-numeric:tabular-nums}
-.row{position:relative;display:grid;grid-template-rows:auto 16px 20px;row-gap:2px;min-height:76px;padding:8px 16px 7px;border-bottom:1px solid var(--border-subtle);background:var(--surface);color:var(--text-1);transition:background-color var(--dur) ease-out}
-.row:hover{background:var(--row-hover)}
-.row.is-current{background:var(--row-selected);border-left:3px solid var(--accent);padding-left:13px}
-.r1,.r2,.r3{display:flex;min-width:0}
-.r1{align-items:flex-start;gap:8px}
-.r-link{display:flex;align-items:baseline;gap:8px;flex:1 1 auto;min-width:0;color:var(--text-1);text-decoration:none}
-.r-link::after{content:"";position:absolute;inset:0;z-index:0}
-.r-link:focus-visible{outline:none;box-shadow:none}
-.r-link:focus-visible::after{outline:2px solid var(--focus);outline-offset:-5px}
-.r-link:hover .r-title{text-decoration:underline;text-underline-offset:2px}
-.r-new{flex:none;font-size:12px;line-height:16px;font-weight:600;color:var(--text-1)}
-/* The title takes the row's width and a second line before it is cut. */
-.r-title{flex:1 1 auto;min-width:0;overflow:hidden;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow-wrap:anywhere;font-weight:500}
-.is-unread .r-title{font-weight:600}
-.r-cv{flex:none;width:40px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
-.r-first{flex:none;width:100px;padding-top:2px;text-align:right;font-size:12px;line-height:16px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
-.r2{align-items:center;gap:8px}
-.r-meta{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;line-height:16px;color:var(--text-3)}
-.r2 .tag{margin:-2px 0}
-.r3{align-items:center;gap:12px}
-.r-lead{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text-2)}
-.r-marks{position:relative;z-index:1;display:inline-flex;align-items:center;gap:4px;flex:none}
-.mk{position:relative;display:inline-flex;flex:none;border-radius:var(--radius-2)}
-.mk-pass{color:var(--text-3)}
-.mk-fail{color:var(--negative)}
-.mk-nj{color:var(--neutral)}
-.mk-ns{color:var(--neutral)}
-.mk-tip{display:none;position:absolute;right:-4px;bottom:calc(100% + 4px);z-index:6;width:max-content;max-width:min(400px,calc(100cqi - 32px));padding:1px 8px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface);box-shadow:var(--shadow-overlay);color:var(--text-1);font-size:12px;line-height:16px;font-weight:400;text-align:left;white-space:normal}
-.mk:hover .mk-tip,.mk:focus-visible .mk-tip{display:block}
-.mk.tip-off .mk-tip{display:none}
-.mk:focus-visible{outline-offset:1px}
-.row-applied{grid-template-rows:auto 16px;row-gap:4px;min-height:56px}
-.gates-head{display:flex;flex:none;margin-left:auto}
+""" + ROW_CSS + """.gates-head{display:flex;flex:none;margin-left:auto}
 .fold + .gates-head{margin-left:8px}
 .gh-keys{display:flex;gap:4px}
 .gh-key{width:12px;font-size:12px;line-height:16px;font-weight:600;color:var(--text-3);text-align:center;text-decoration:none;cursor:help}
@@ -1585,17 +1602,7 @@ mark:target{background:var(--accent-tint);text-decoration-thickness:2px}
 .keys-toggle input{width:18px;height:18px;accent-color:var(--accent)}
 .keys form{margin-top:16px}
 @media (max-width:1799.98px){.ph-tools{flex-basis:100%;margin-left:0}}
-@container queue (max-width:611.98px){
-  .row-question{grid-template-rows:auto 16px 40px;min-height:96px}
-  .row-question .r3{align-items:flex-start}
-  .row-question .r-lead{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;white-space:normal}
-  .row-question .r-marks{height:20px}
-}
-@container queue (max-width:375.98px){
-  .row-question{grid-template-rows:auto 16px 60px;min-height:116px}
-  .row-question .r-lead{-webkit-line-clamp:3;line-clamp:3}
-}
-@media (min-width:1024px){
+""" + ROW_NARROW_CSS + """@media (min-width:1024px){
   .content{grid-template-columns:400px minmax(0,1fr)}
   .queue{border-right:1px solid var(--border-subtle)}
 }

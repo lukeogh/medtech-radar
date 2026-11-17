@@ -32,7 +32,8 @@ no As of time, no question under a widget's title, no footnotes, no keys):
 - Needs you today: Radar's jobs that need a look, urgent signals, new Top
   prospects, new One question away roles, company follow-ups due and
   application follow-ups due, every item shown in full, one under another. An
-  urgent signal is drawn as Insights draws a story.
+  urgent signal is drawn as Insights draws a story; a role is the Jobs row
+  (jobs_page.row_html, with Jobs' own row rules) and Done, nothing else.
 
 Done takes an item off Home and only off Home, in the home_done table; Undo
 last puts it back. It never changes the item where it lives. Everything else
@@ -400,17 +401,6 @@ def _source_name(source_id) -> str:
     return words[:1].upper() + words[1:] if words else "A source"
 
 
-def _gate_marks(o: dict) -> str:
-    marks, words = [], []
-    for gate, name, _letter in jp.GATES:
-        cls, symbol, said = jp.gate_words(o, gate, name)
-        marks.append(f'<svg class="{cls}" width="12" height="12" aria-hidden="true" '
-                     f'focusable="false"><use href="#{symbol}"></use></svg>')
-        words.append(said.split(",")[0])
-    return (f'<span class="r-marks" aria-hidden="true">{"".join(marks)}</span>'
-            f'<span class="visually-hidden">{esc(", ".join(words))}.</span>')
-
-
 def _role_meta(o: dict) -> str:
     bits = [o.get("company") or "Unknown company"]
     place = jp.location_text(o)
@@ -579,7 +569,7 @@ def _role_item(o: dict, group: str, now: datetime) -> dict:
             "fig": f"{int(cv)}%" if cv is not None else "–", "fig_label": "CV match ",
             "seen": seen_words(jp.first_seen(o), now), "seen_label": "First seen ",
             "meta": _role_meta(o), "tag": jp.spec_tag(o) + jp.lifecycle_tag(o, rc.now_iso()),
-            "lead": jp.lead_line(o), "marks": _gate_marks(o), "role": o,
+            "lead": jp.lead_line(o), "role": o,
             "open": (f"/jobs/{int(o['id'])}", "Open the role on Jobs", False),
             "company_id": o.get("company_id"), "company": o.get("company")}
 
@@ -988,29 +978,15 @@ def _context_radar(i: dict, uid: str) -> str:
     return _sec(f"{uid}-schedule", "Schedule", _facts(rows))
 
 
-def _body_role(i: dict, uid: str) -> str:
-    o = i["role"]
-    tier = jp.TIER_WORDS.get(o.get("tier") or "", "Not scored")
-    gates = []
-    for gate, name, _l in jp.GATES:
-        cls, symbol, said = jp.gate_words(o, gate, name)
-        gates.append((name, f'<span class="status {"is-neg" if cls == "mk-fail" else "is-pos" if cls == "mk-pass" else "is-neu"}">'
-                            f'{_use(symbol)}{esc(said[len(name) + 1:])}</span>'))
-    cv = o.get("cv_match")
-    score = (f'<p class="ny-para">{esc(i["lead"])}</p>' if i.get("lead") else "")
-    score += (f'<p class="ny-fig"><span class="text-label ink-2">CV match</span>'
-              f'<span class="text-figure-large">{int(cv)}%</span></p>' if cv is not None else "")
-    basis = ("Scored on the full job spec." if jp.spec_tag(o) else
-             "Scored on the advert card the alert email carried.")
-    score += f'<p class="text-meta ny-basis">{esc(tier)}. {esc(basis)}</p>'
-    out = [_sec(f"{uid}-why", "Why it is here", score),
-           _sec(f"{uid}-gates", "The four gates", _facts(gates))]
-    rows = [("Company", esc(o.get("company") or "Unknown company")),
-            ("Where", esc(jp.location_text(o))), ("Pay", esc(o.get("salary_rate") or "Not stated")),
-            ("Engagement", esc(jp.engagement_word(o))), ("Source", esc(jp.board(o.get("source")))),
-            ("First seen", esc(day_time(jp.first_seen(o))))]
-    out.append(_sec(f"{uid}-details", "Details", _facts(rows)))
-    return "".join(out)
+def role_row(i: dict, model: dict) -> str:
+    """A role on Home is the Jobs row (jobs_page.row_html, the same function
+    the Jobs queue draws with), its title the link to the role on Jobs, with
+    Done beside it and nothing else (owner, 17 Nov)."""
+    uid = esc(i["id"])
+    row = jp.row_html(i["role"], "open", None, ap.iso(model["now"]))
+    return (f'<article class="ny-item ny-role" id="{uid}" data-item="{uid}" data-key="{esc(i["key"])}" '
+            f'aria-labelledby="rt-{int(i["role"]["id"])}" tabindex="-1">'
+            f'<div class="ny-role-row">{row}</div>{_actions(i, model)}</article>')
 
 
 def _body_app(i: dict, uid: str, now: datetime) -> str:
@@ -1091,14 +1067,14 @@ def _context_company(i: dict, model: dict, uid: str) -> str:
         for s in stories[:3]:
             lead = s["lead"]
             words = TYPE_WORDS.get(s["type"], "Other news")
-            inner = (f'<span class="r1"><span class="r-title">{esc(rc.clean_headline(lead.get("headline") or ""))}</span>'
-                     f'<span class="r-cv"><span class="visually-hidden">Relevance </span>{s["relevance"]}</span>'
-                     f'<span class="r-seen"><span class="visually-hidden">Found </span>{esc(day(s["found"]))}</span></span>'
-                     f'<span class="r2"><span class="r-meta">{esc(words)}</span></span>')
+            inner = (f'<span class="c1"><span class="c-title">{esc(rc.clean_headline(lead.get("headline") or ""))}</span>'
+                     f'<span class="c-fig"><span class="visually-hidden">Relevance </span>{s["relevance"]}</span>'
+                     f'<span class="c-seen"><span class="visually-hidden">Found </span>{esc(day(s["found"]))}</span></span>'
+                     f'<span class="c2"><span class="c-meta">{esc(words)}</span></span>')
             if s["type"] in HIRING:
-                rows.append(f'<div class="row row-2 is-static">{inner}</div>')
+                rows.append(f'<div class="ctx-row is-static">{inner}</div>')
             else:
-                rows.append(f'<a class="row row-2" href="/insights/story/{int(lead["id"])}">{inner}</a>')
+                rows.append(f'<a class="ctx-row" href="/insights/story/{int(lead["id"])}">{inner}</a>')
         parts.append(f'<div class="ny-ctx-part"><h6 class="sec-h">Signals on file'
                      f'<span class="group-count"> {len(stories)}</span></h6>{"".join(rows)}</div>')
     roles = [o for o in (model["jmodel"]["all_lists"]["open"] + model["jmodel"]["all_lists"]["acknowledged"])
@@ -1112,11 +1088,11 @@ def _context_company(i: dict, model: dict, uid: str) -> str:
                 bits.append(jp.location_text(o))
             if o.get("salary_rate"):
                 bits.append(o["salary_rate"])
-            rows.append(f'<a class="row row-2" href="/jobs/{int(o["id"])}"><span class="r1">'
-                        f'<span class="r-title">{esc(o.get("title") or "Untitled role")}</span>'
-                        f'<span class="r-cv"><span class="visually-hidden">CV match </span>'
+            rows.append(f'<a class="ctx-row" href="/jobs/{int(o["id"])}"><span class="c1">'
+                        f'<span class="c-title">{esc(o.get("title") or "Untitled role")}</span>'
+                        f'<span class="c-fig"><span class="visually-hidden">CV match </span>'
                         f'{f"{int(cv)}%" if cv is not None else "–"}</span></span>'
-                        f'<span class="r2"><span class="r-meta">{esc(", ".join(bits))}</span></span></a>')
+                        f'<span class="c2"><span class="c-meta">{esc(", ".join(bits))}</span></span></a>')
         parts.append(f'<div class="ny-ctx-part"><h6 class="sec-h">Roles on Jobs'
                      f'<span class="group-count"> {len(roles)}</span></h6>{"".join(rows)}</div>')
     if not parts:
@@ -1135,16 +1111,16 @@ def _on_file_link(i: dict, model: dict) -> str:
 
 
 def _actions(i: dict, model: dict) -> str:
-    """Open where the item lives (a signal's card has its headline for that),
-    Done or Put back, and Check now for the signal watcher. No Next: every
-    item is on screen."""
+    """Open where the item lives (a signal's card has its headline for that,
+    a role's row its title), Done or Put back, and Check now for the signal
+    watcher. No Next: every item is on screen."""
     done_view = model["show"] == "done"
     acts = []
     if i["kind"] == "radar":
         n8n = bd.safe_url(model["config"].get("n8n_url"))
         open_ = ((n8n, "Open the workflow scheduler", True) if n8n
                  else ("/radar", "Open Radar's health", False))
-    elif i["kind"] == "signal":
+    elif i["kind"] in ("signal", "role"):
         open_ = None
     else:
         open_ = i.get("open")
@@ -1214,6 +1190,8 @@ def item_html(i: dict, model: dict) -> str:
     is on file, and its controls."""
     if i["kind"] == "signal":
         return signal_card(i, model)
+    if i["kind"] == "role":
+        return role_row(i, model)
     uid = esc(i["id"])
     meta_bits = {"radar": ["Radar", SCHEDULE[i["light"]["name"]] if i["kind"] == "radar" else ""],
                  "role": [i.get("company") or "",
@@ -1225,8 +1203,6 @@ def item_html(i: dict, model: dict) -> str:
     tags = i.get("tag") or ""
     if i["kind"] == "radar":
         body = _body_radar(i, uid) + _context_radar(i, uid)
-    elif i["kind"] == "role":
-        body = _body_role(i, uid) + _context_company(i, model, uid)
     elif i["kind"] == "thread":
         body = _body_thread(i, uid, model["now"]) + _context_company(i, model, uid)
     else:
@@ -1302,7 +1278,7 @@ def render(conn, data: dict, config: dict, item: str | None = None, show: str = 
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(page_title(model))}</title>
 <link rel="icon" href="{bd.FAVICON}">
-<style>{ip.FONT_CSS}{page_frame.FRAME_CSS}{HOME_CSS}</style>
+<style>{ip.FONT_CSS}{page_frame.FRAME_CSS}{jp.ROW_CSS}{jp.ROW_NARROW_CSS}{HOME_CSS}</style>
 </head>
 <body>
 <div class="app" data-page="home" data-state="{esc(json.dumps(state))}">
@@ -1374,7 +1350,7 @@ ul,ol{list-style:none;padding:0}
 button,input{font:inherit;color:inherit;letter-spacing:0}
 a{color:inherit}
 :root{--font-serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;--ht-surface:#1a1d1f;--ht-line:#2b3135;--ht-track:#252a2d;--ht-sunk:#15181a;--ht-series-1:#2aa1b3;--ht-series-2:#9a80ea;--hf-hero-a:#221e19;--hf-hero-b:#1a1d1f;--hf-hero-line:#3b342b}
-.row:focus-visible{outline-offset:-7px;box-shadow:none}
+.ctx-row:focus-visible{outline-offset:-7px;box-shadow:none}
 /* The page scrolls as one document at every width: Needs you today shows every item in full. */
 .app{container:app / inline-size;display:grid;grid-template-rows:48px auto;min-height:100vh;align-content:start;background:var(--canvas)}
 .content{grid-row:2;min-width:0}
@@ -1396,7 +1372,8 @@ a{color:inherit}
 .tag-negative{background:var(--negative-tint);color:var(--negative)}
 .tag-positive{background:var(--positive-tint);color:var(--positive)}
 .is-pos{color:var(--positive)}.is-neg{color:var(--negative)}.is-neu{color:var(--neutral)}.is-cau{color:var(--caution)}
-.status{display:inline-flex;align-items:center;gap:4px;font-size:12px;line-height:16px;font-weight:600;white-space:nowrap}
+.status{display:inline-flex;align-items:flex-start;gap:4px;max-width:100%;font-size:12px;line-height:16px;font-weight:600;white-space:normal;overflow-wrap:anywhere}
+.status > svg{flex:none;margin-top:2px}
 .text-label{font-size:12px;line-height:16px;font-weight:600}
 .text-meta{font-size:12px;line-height:16px;font-weight:400;color:var(--text-3)}
 .text-figure-large{font-size:20px;line-height:28px;font-weight:600;font-variant-numeric:tabular-nums}
@@ -1413,17 +1390,16 @@ a{color:inherit}
 .pane-note{display:flex;align-items:center;min-height:32px;padding:8px 16px 7px;font-size:12px;line-height:16px;color:var(--text-2);border-bottom:1px solid var(--border-subtle)}
 .group-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;min-width:0;font-size:16px;line-height:24px;font-weight:600}
 .group-count{font-size:12px;line-height:16px;font-weight:400;color:var(--text-3);font-variant-numeric:tabular-nums}
-.row{position:relative;display:grid;grid-template-rows:20px 16px;row-gap:4px;height:56px;padding:8px 0 7px;border-bottom:1px solid var(--border-subtle);color:var(--text-1);text-decoration:none;transition:background-color var(--dur) ease-out}
-.row:hover{background:var(--row-hover)}
-.row.is-static:hover{background:transparent}
-.r1,.r2{display:flex;min-width:0}
-.r1{align-items:baseline;gap:8px}
-.r-title{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-weight:500}
-.r-cv{flex:none;width:40px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
-.r-seen{flex:none;min-width:44px;text-align:right;font-size:12px;line-height:16px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
-.r2{align-items:center;gap:8px}
-.r-meta{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;line-height:16px;color:var(--text-3)}
-.mk-pass{color:var(--text-3)}.mk-fail{color:var(--negative)}.mk-nj{color:var(--neutral)}.mk-ns{color:var(--neutral)}
+.ctx-row{position:relative;display:grid;grid-template-rows:20px 16px;row-gap:4px;height:56px;padding:8px 0 7px;border-bottom:1px solid var(--border-subtle);color:var(--text-1);text-decoration:none;transition:background-color var(--dur) ease-out}
+.ctx-row:hover{background:var(--row-hover)}
+.ctx-row.is-static:hover{background:transparent}
+.c1,.c2{display:flex;min-width:0}
+.c1{align-items:baseline;gap:8px}
+.c-title{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-weight:500}
+.c-fig{flex:none;width:40px;text-align:right;font-weight:500;font-variant-numeric:tabular-nums}
+.c-seen{flex:none;min-width:44px;text-align:right;font-size:12px;line-height:16px;color:var(--text-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.c2{align-items:center;gap:8px}
+.c-meta{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px;line-height:16px;color:var(--text-3)}
 .sec-h{margin-bottom:8px;font-size:14px;line-height:20px;font-weight:600;color:var(--text-1)}
 .sec-h .group-count{margin-left:4px}
 .facts{display:grid;grid-template-columns:160px minmax(0,1fr);gap:8px 16px;align-items:baseline}
@@ -1583,9 +1559,17 @@ a{color:inherit}
 .ny-under{max-width:80ch;margin-top:8px;text-wrap:pretty}
 .ny-context{display:flex;flex-direction:column;gap:12px}
 .ny-ctx-part .sec-h{font-size:12px;line-height:16px;color:var(--text-2)}
-.ny-ctx-part .row{max-width:80ch}
+.ny-ctx-part .ctx-row{max-width:80ch}
 .ny-onfile{align-self:flex-start}
 .ny-gone{color:var(--caution)}
+/* A role: the Jobs row, with Done beside it, or under it in a narrow block.
+   The row's own rules are jobs_page.ROW_CSS; it is a "queue" container, as
+   on Jobs, so the row's narrow rules reach it. */
+.ny-role{container:nyrole / inline-size;flex-direction:row;flex-wrap:wrap;align-items:center;gap:0;padding:0}
+.ny-role-row{container:queue / inline-size;flex:1 1 320px;min-width:0}
+.ny-role .row{border-bottom:0}
+.ny-role > .ny-acts{flex:none;margin:0;padding:8px 16px}
+@container nyrole (max-width:479.98px){.ny-role > .ny-acts{flex-basis:100%;justify-content:flex-end;padding-top:0}}
 /* An urgent signal, as Insights draws a story. */
 .ny-story{gap:8px}
 .ny-story .story-line{color:var(--text-3);font-size:13px;line-height:20px;overflow-wrap:anywhere}
@@ -1642,7 +1626,7 @@ a{color:inherit}
   html{scroll-padding-top:8px}
   .btn,.seg{height:44px}
   .undo-last{padding-inline:8px}
-  .ht-step,.ht .link-block,.ht-figlink,.apm-link,.link-block,.row{min-height:44px}
+  .ht-step,.ht .link-block,.ht-figlink,.apm-link,.link-block,.ctx-row{min-height:44px}
   .apm-wait li .link{display:inline-flex;align-items:center;min-height:44px}
   .ny-story .story-meta a{display:inline-flex;align-items:center;min-height:44px}
   .ny-story .story-h{font-size:20px;line-height:26px}

@@ -33,6 +33,9 @@ invented, as the design's are.
 7. The routes: POST /home/done and /home/undone through the guard, their 400s,
    409s and 200s, a forged request refused with nothing written, GET /radar
    (Radar's health, the old Home) and the CV page's Settings.
+5b. A role item is the Jobs row, character for character, linking to the role
+   on Jobs, with Done and nothing else; no question line and no gate reason
+   across the page; the .status rule wraps.
 8. The script parses (node --check) and listens for no keys.
 9. The box checks: no command block is empty, every query in them runs on a
    seeded database, every python -c compiles, and the rollback never
@@ -72,6 +75,7 @@ sys.path.insert(0, str(TEST_DIR))
 import applications as ap  # noqa: E402
 import build_dashboard as bd  # noqa: E402
 import home_page as hp  # noqa: E402
+import jobs_page as jp  # noqa: E402
 import page_frame  # noqa: E402
 import radar_common as rc  # noqa: E402
 import serve_dashboard  # noqa: E402
@@ -323,6 +327,24 @@ def model_of(db: Path, cfg=None, **kw) -> dict:
         return hp.build_model(conn, data, cfg or CFG, **kw)
     finally:
         conn.close()
+
+
+def role_rows(html: str) -> dict:
+    """{role id: its Jobs row} for every role item on Home."""
+    return {int(m.group(1)): m.group(0) for m in re.finditer(
+        r'<div class="row row-queue[^"]*" data-id="(\d+)".*?</span></span></div>', html, re.S)}
+
+
+def esc_attr(text: str) -> str:
+    import html as _h
+    return _h.escape(text, quote=True)
+
+
+def outside_rows(html: str) -> str:
+    """The page without its Jobs rows, which are Jobs' own and keep its look."""
+    for row in role_rows(html).values():
+        html = html.replace(row, "")
+    return html
 
 
 def page_of(db: Path, cfg=None, **kw) -> str:
@@ -1028,7 +1050,8 @@ def page_checks(tmp: Path) -> None:
           "Open roles shows three rows, Top prospects first, no footnote, and keeps Open Jobs")
     check('class="ht-q"' not in body and "Where do my applications stand" not in body
           and "Where do the open roles narrow" not in body, "no question under a widget's title")
-    check("\u00b7" not in html, "no middle dot anywhere on Home, its title, script and styles included")
+    check("\u00b7" not in outside_rows(html),
+          "no middle dot anywhere on Home outside the Jobs rows, its title, script and styles included")
     # Every control is a link or a button, so the keyboard reaches it.
     clickable = re.findall(r"<(div|span|li|p)[^>]*\sonclick=", body)
     check(not clickable, "every control is a link or a button")
@@ -1058,6 +1081,70 @@ def page_checks(tmp: Path) -> None:
         check(width_rule in hp.HOME_CSS, f"the layout has its rule {width_rule}")
     check("@media (pointer:coarse)" in hp.HOME_CSS and "min-height:44px" in hp.HOME_CSS,
           "44px targets on a phone and on touch")
+
+
+# ================================================================ 5b. role items are the Jobs row
+
+def role_row_checks(tmp: Path) -> None:
+    """A role on Home is the Jobs row, drawn by jobs_page.row_html, with Done
+    and nothing else; a long gate reason never widens the page."""
+    db = tmp / "rows.sqlite"
+    ids = seed_home(db)
+    long_reason = ("Strong IEC 62304 and ISO 13485 background, product ownership in IVD, and "
+                   "regulatory submissions across the EU and the US over twelve years")
+    conn = rc.get_db(db)
+    conn.execute("UPDATE opportunities SET gate_cv_note = ? WHERE id = ?", (long_reason, ids["top_new"][0]))
+    conn.execute("UPDATE opportunities SET gate_location = 0, gate_rate = 1, question_text = ?,"
+                 " gate_location_note = ? WHERE id = ?",
+                 ("Would they go remote.", "Location fails, Edinburgh, five days on site",
+                  ids["question_new"][0]))
+    conn.commit()
+    conn.close()
+    html = page_of(db)
+    body = html.split("<body>", 1)[1]
+    roles = [i for i in model_of(db)["todo"] if i["kind"] == "role"]
+    rows = role_rows(body)
+    check(len(roles) == 5 and sorted(rows) == sorted(i["role"]["id"] for i in roles),
+          f"each role in Needs you today is one row ({len(rows)} rows, {len(roles)} roles)")
+    with pointed_at(db):
+        jobs = serve_dashboard.render_jobs(None, {})[1].decode("utf-8")
+    on_jobs = role_rows(jobs)
+    same = [oid for oid, row in rows.items() if on_jobs.get(oid) == row]
+    current = [oid for oid in rows if 'is-current' in on_jobs.get(oid, "")]
+    check(set(same) | set(current) == set(rows) and len(same) >= len(rows) - 1,
+          f"and each row is the row Jobs draws for that role, character for character "
+          f"(the same {len(same)}, the one selected on Jobs apart: {current})")
+    for i in roles:
+        oid = i["role"]["id"]
+        art = re.search(rf'<article class="ny-item ny-role" id="{i["id"]}".*?</article>', body, re.S)
+        art = art.group(0) if art else ""
+        rest = art.replace(rows.get(oid, "\0"), "")
+        check(art and f'<a class="r-link" id="rt-{oid}" href="/jobs/{oid}"' in art
+              and f'data-done="{esc_attr(i["key"])}"' in rest
+              and re.sub(r"<[^>]+>", "", rest).strip() == "Done",
+              f"role {oid}: the row links to the role on Jobs, and Done is all else")
+    for gone in ("Why it is here", "The four gates", "Scored on the",
+                 "Would they go remote", "Would they move on the rate"):
+        check(gone not in body, f"{gone!r} appears nowhere on Home")
+    check(re.search(r"First seen \d+ \w+ \d\d:\d\d", body) is None,
+          "no first-seen time of day: the row's date is all")
+    q = rows.get(ids["question_new"][0], "")
+    check('class="r-lead"' in q and "Edinburgh, five days on site." in q,
+          "a One question away row leads with its failing gate's stored reason, as on Jobs")
+    shown = re.sub(r'<span class="mk-tip"[^>]*>.*?</span>', "", body)
+    shown = re.sub(r'aria-label="[^"]*"', "", shown)
+    check(long_reason in body and long_reason not in shown,
+          "a long gate reason is in the mark's tooltip and its name only, not across the page")
+    css = hp.HOME_CSS
+    status = re.search(r"\.status\{[^}]*\}", css).group(0)
+    check("white-space:normal" in status and "nowrap" not in status and "overflow-wrap:anywhere" in status,
+          "the .status rule wraps a long reason instead of pushing the page wide")
+    check(jp.ROW_CSS in jp.JOBS_CSS and jp.ROW_NARROW_CSS in jp.JOBS_CSS
+          and jp.ROW_CSS in html and jp.ROW_NARROW_CSS in html
+          and "container:queue / inline-size" in css,
+          "Home draws the row with Jobs' own row rules, shared, not copied, inside a queue container")
+    check("jp.row_html(" in Path(hp.__file__).read_text(encoding="utf-8"),
+          "the row comes from jobs_page.row_html")
 
 
 # ================================================================ 6. the states
@@ -1111,7 +1198,8 @@ def state_checks(tmp: Path) -> None:
     check("Signal watcher is stale, 22 hours since its last run" in html
           and "3 of 5 jobs need a look" in html and "Stale after 6 hours" in html,
           "the stale watcher is named with its age and its limit")
-    check("Stale, 22 hours" in html and "\u00b7" not in html, "its tag says Stale, 22 hours, with a comma")
+    check("Stale, 22 hours" in html and "\u00b7" not in outside_rows(html),
+          "its tag says Stale, 22 hours, with a comma")
     check("data-check>Check now</button>" in html and "Signals as of" not in html and "As of" not in html,
           "the watcher's item offers Check now, and no As of time is on the page")
     bar = html.split('<header class="appbar">', 1)[1].split("</header>", 1)[0]
@@ -1311,6 +1399,7 @@ def main() -> int:
         tmp_path = Path(tmp)
         for section in (name_checks, light_checks, model_checks, done_checks, episode_checks,
                         review_checks, greeting_page_checks, week_exact_checks, page_checks,
+                        role_row_checks,
                         state_checks, thread_checks, route_checks, script_checks, harness_checks,
                         box_doc_checks):
             try:
