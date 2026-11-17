@@ -799,6 +799,39 @@ def page_checks(tmp: Path) -> None:
     check("Just added from Insights" in page and "Selwick Photonics" in page, "the arrival from Insights is said")
     rec = watchlist_page.render_page(m, None, "record")
     check(rec.count("<h1") == 1 and "Back to Watchlist" in rec, "the record on its own view: its own h1 and Back")
+    # The record as cards (owner, 17 Nov).
+    head = rec.split('<header class="rec-head card g-apps glow-head">', 1)[1].split("</header>", 1)[0] \
+        if '<header class="rec-head card g-apps glow-head">' in rec else ""
+    check(head and '<span class="rh-chip"><span class="gchip g-apps"' in head
+          and 'aria-label="Previous company' in head and 'aria-label="Next company' in head
+          and 'class="btn btn-teal" id="log-open"' in head and 'id="state-btn"' in head
+          and ('id="remove-btn"' in head or 'id="watch-btn"' in head)
+          and ("On your Watchlist since" in head or "Not on your Watchlist" in head),
+          "the header card glows teal with the building chip, the name, since when it is watched, "
+          "Previous and Next company, Log a contact in teal, Set state and Remove")
+    chips = re.findall(r'<header class="sec-head"><span class="gchip g-([a-z]+)"[^>]*>.*?<h2 class="sec-title" '
+                       r'id="[a-z0-9-]+">([^<]+)</h2>', rec, re.S)
+    named = dict((t, g) for g, t in chips)
+    check(named.get("Follow-up") == "apps" and named.get("Contacts") == "apps"
+          and named.get("Stories") == "story" and named.get("Roles on Jobs") == "jobs"
+          and named.get("Facts") == "apps" and "neutral" not in named.values()
+          and all(f'class="card rcard g-{g} glow-faint"' in rec for g in set(named.values())),
+          f"each section's title is outside its card, every chip coloured by its group ({named})")
+    check('<div class="log-wrap" id="log" hidden>' in rec and 'id="log-date"' in rec
+          and "Today unless you say otherwise" not in rec and "Leave it empty" not in rec
+          and "Needed with a next step" not in rec and "You can change" not in rec
+          and "One contact with" not in rec and "becomes the thread" not in rec,
+          "the contact form lives in Follow-up, closed, with its fields and checks and no sentences on them")
+    text = re.sub(r"<[^>]+>", " ", re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", rec))
+    check("Relevance" not in text and " found " not in text and "report" not in text.lower()
+          and "Prepare application" not in text and "first seen" not in text.lower()
+          and "thread" not in text.lower() and "signal" not in text.lower() and "·" not in text
+          and "Radar has not read the facts" not in text and "Read by Radar on" not in text
+          and "A fact no source stated" not in text,
+          "Stories, Roles on Jobs and Facts carry no relevance, found, report lines, Prepare buttons, "
+          "first-seen dates or explanations; no thread, signal or middle dot")
+    check('class="tier-pill' in rec.split('id="rl-h"', 1)[1] if 'id="rl-h"' in rec else True,
+          "each role on Jobs carries its tier's pill")
     empty_path, empty = fresh(tmp, "page_empty")
     e = watchlist_page.render_page(wl.build_model(empty, CFG, NOW), None, "table")
     check("No companies on your Watchlist yet." in e and "<ol" not in e,

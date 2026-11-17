@@ -1030,6 +1030,7 @@ def record(conn, company_id, config: dict | None = None, now=None) -> dict | Non
             " AND expired_at IS NULL AND acknowledged_at IS NULL ORDER BY first_seen DESC, id DESC LIMIT 12",
             (company_id,)):
         roles.append({"id": r["id"], "title": r["title"] or "A role",
+                      "tier": "applied" if r["applied_at"] else (r["tier"] or ""),
                       "tier_words": "Applied" if r["applied_at"] else TIER_WORDS.get(r["tier"] or "", "Not scored"),
                       "score": r["cv_match"], "basis": r["score_basis"], "location": r["location"] or "",
                       "pay": r["salary_rate"] or "", "engagement": r["engagement_type"] or "",

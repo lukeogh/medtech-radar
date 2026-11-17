@@ -23,6 +23,7 @@ import json
 
 import build_dashboard as bd
 import page_frame
+import tiers
 import radar_common
 import watchlist as wl
 
@@ -320,88 +321,105 @@ def table_html(model: dict) -> str:
 
 # ================================================================ the record
 
-def _h(level: int, ident: str, text: str, count: str = "") -> str:
-    tail = f' <span class="count">{esc(count)}</span>' if count else ""
-    return f'<h{level} class="rb-h" id="{ident}">{esc(text)}{tail}</h{level}>'
+ICON_LEFT = (f'<svg viewBox="0 0 16 16" width="16" height="16" {_SVG}>'
+             '<path d="M10 3.5L5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.8"/></svg>')
+ICON_RIGHT = (f'<svg viewBox="0 0 16 16" width="16" height="16" {_SVG}>'
+              '<path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" stroke-width="1.8"/></svg>')
 
 
-def _watched_line(rec: dict) -> str:
-    if not rec.get("watched"):
-        return ("Not on your Watchlist. Add it here, or log a contact below and it joins your Watchlist.")
-    since = wl.day_words(rec.get("watched_at"))
-    via = rec.get("via_words") or ""
-    line = f"On your Watchlist since {since}" + (f", added {via}" if via else "")
-    return line + "."
+def rsec(lv: int, ident: str, title: str, body: str, icon: str, group: str = "apps",
+         count: str = "", cls: str = "", sec_id: str = "") -> str:
+    """One section of the record (owner, 17 Nov): its title outside its card, in
+    Home's pattern, the chip in the section's group colour (the colour rule),
+    then the card with a faint glow of that colour."""
+    pill = f'<span class="sec-count">{esc(count)}</span>' if count else ""
+    sid = f' id="{sec_id}"' if sec_id else ""
+    return (f'<section class="rsec{" " + cls if cls else ""}"{sid} aria-labelledby="{ident}">'
+            f'<header class="sec-head">{page_frame.chip(icon, group)}'
+            f'<h{lv} class="sec-title" id="{ident}">{esc(title)}</h{lv}>{pill}</header>'
+            f'<div class="card rcard g-{group} glow-faint">{body}</div></section>')
 
 
-def _thread_from(rec: dict, th: dict) -> str:
-    state = th["state"]
-    name = rec["name"]
-    set_day = wl.day_words(th.get("set_at") or th.get("last_at"))
-    noun = CHANNEL_NOUN.get(str(th.get("last_channel") or ""), "the contact")
-    counts = rec.get("watched")
-    if state == "none":
-        return (f"Nothing is logged with {name} yet. Log a contact below when you first reach out, "
-                "with a next step and its date.")
-    if state == "closed":
-        what = noun.replace('the ', '', 1)
-        lead = (f"The last contact, on {set_day}," if what == "contact"
-                else f"The last contact, {what} on {set_day},")
-        return (f"{lead} was logged without a next step, "
-                "so the thread closed. Log a contact with a next step to open it again.")
-    base = f"The next step you set on {set_day}, when you logged {noun}."
-    off = "" if counts else " It does not count on Home while the company is off your Watchlist."
-    if state == "nodate":
-        return (base + " It was set before a next step needed a date, so it never falls due. "
-                "Set a date to have it count." + off)
-    if state == "upcoming":
-        when = wl.day_words(th.get("due_date"), weekday=True)
-        return (base + f" Nothing is due today: it joins threads due on Home on {when}." if counts
-                else base + off)
-    if state == "today":
-        return (base + " It counts in threads due on Home today, until you log a contact, move the date "
-                "or clear the step." if counts else base + off)
-    return (base + " It counts in threads due on Home until you log a contact, move the date or clear the "
-            "step." if counts else base + off)
+def _rows(pairs: list) -> str:
+    return '<dl class="rrows">' + "".join(f'<div class="rrow"><dt>{esc(k)}</dt><dd>{v}</dd></div>'
+                                          for k, v in pairs) + '</dl>'
 
 
-def thread_block(rec: dict, lv: int) -> str:
+def log_form(rec: dict, model: dict, lv: int) -> str:
+    """The contact form, inside Follow-up, closed until Log a contact is
+    pressed. Every field, choice and check as before; no sentences on how to
+    fill it in."""
+    today = rec.get("today") or _today(model).isoformat()
+    channels = "".join(f'<option value="{esc(k)}">{esc(v)}</option>' for k, v in model.get("channels") or wl.CHANNELS)
+    outcomes = model.get("outcomes") or wl.OUTCOME_WORDS
+    radios = "".join(
+        f'<label><input type="radio" name="outcome" id="log-out-{esc(k)}" value="{esc(k)}"'
+        f'{" checked" if k == "none" else ""}>{esc(v)}</label>' for k, v in outcomes.items())
+    return (
+        f'<div class="log-wrap" id="log" hidden><h{lv + 1} class="log-h" id="log-h">Log a contact</h{lv + 1}>'
+        '<form class="logform" id="log-form" aria-labelledby="log-h" novalidate>'
+        + _fld("log-date", "Date",
+               f'<input class="field" type="date" id="log-date" name="date" value="{esc(today)}" max="{esc(today)}">')
+        + _fld("log-channel", "How",
+               f'<select class="field" id="log-channel" name="channel"><option value="">Choose one</option>'
+               f'{channels}</select>')
+        + _fld("log-note", "Note, optional",
+               f'<textarea class="field" id="log-note" name="note" maxlength="{wl.NOTE_MAX}"></textarea>',
+               full=True)
+        + '<fieldset class="full" id="log-outcome"><legend>What came back</legend>'
+          f'<div class="radios">{radios}</div>'
+          f'<p class="err" id="log-outcome-err" hidden>{ICON_ERR}<span></span></p></fieldset>'
+        + _fld("log-next", "Next step",
+               f'<input class="field" type="text" id="log-next" name="next_step" maxlength="{wl.STEP_MAX}" '
+               'placeholder="Follow up in a week">')
+        + _fld("log-due", "Due date", '<input class="field" type="date" id="log-due" name="due">')
+        + '<div class="full submit"><button type="submit" class="btn btn-teal">Log the contact</button>'
+          '<button type="button" class="btn btn-ghost" id="log-cancel">Cancel</button>'
+          f'<p class="err" id="log-err" hidden>{ICON_ERR}<span></span></p></div>'
+        '</form></div>')
+
+
+def followup_block(rec: dict, model: dict, lv: int) -> str:
+    """Follow-up: the last contact, the next step and its due date as rows, or
+    No contact yet; Move the date and Clear the next step while one is open;
+    then the contact form, closed."""
     th = rec["thread"]
     state = th["state"]
     open_ = state in ("overdue", "today", "upcoming", "nodate")
-    box_cls = {"overdue": "is-overdue", "today": "", "upcoming": "is-later"}.get(state, "is-quiet")
-    if state in ("closed", "none"):
-        step = '<p class="step" style="font-weight:500;color:var(--text-2)">Nothing waits on you.</p>'
+    if state == "none":
+        body = '<p class="rnone">No contact yet.</p>'
     else:
-        step = f'<p class="step">{esc(th["next_step"])}</p>'
-    primary = "btn-primary" if th.get("due") else "btn-secondary"
-    acts = [f'<a class="btn {primary}" href="#log" data-log-focus>Log a contact</a>']
+        pairs = []
+        if th.get("last_at"):
+            pairs.append(("Last contact", esc(f"{wl.day_words(th['last_at'])}, "
+                                              f"{channel_words(th.get('last_channel')).lower()}")))
+        pairs.append(("Next step", esc(th["next_step"]) if th.get("next_step") else "None"))
+        if th.get("due_date") and open_:
+            pill = ""
+            if state == "today":
+                pill = f' <span class="ttag is-today">{ICON_TODAY}<span>Due today</span></span>'
+            elif state == "overdue":
+                pill = f' <span class="ttag is-overdue">{ICON_OVERDUE}<span>Overdue</span></span>'
+            pairs.append(("Due", esc(wl.day_words(th["due_date"])) + pill))
+        elif state == "nodate":
+            pairs.append(("Due", "No date set"))
+        body = _rows(pairs)
+    acts, move = [], ""
     if open_:
         move_words = "Set a date" if state == "nodate" else "Move the date"
         acts.append(f'<button type="button" class="btn btn-secondary" id="move-btn" aria-expanded="false" '
                     f'aria-controls="move-form">{move_words}</button>')
         acts.append('<button type="button" class="btn btn-ghost" id="clear-btn">Clear the next step</button>')
-    d = rec.get("drafts")
-    if d and open_:
-        which = "connection note" if d.get("note") else "comment"
-        acts.append(f'<a class="btn btn-ghost" href="#drafts">The {which} draft is below</a>')
-    move = ""
-    if open_:
         move = (
             '<form class="inline-form" id="move-form" hidden novalidate>'
             '<div class="fld"><label for="move-due">New due date</label>'
-            f'<input class="field" type="date" id="move-due" name="due" value="{esc(th.get("due_date") or "")}" '
-            'aria-describedby="move-hint" data-hint="move-hint">'
-            '<span class="hint" id="move-hint">The same next step, on a new date.</span>'
+            f'<input class="field" type="date" id="move-due" name="due" value="{esc(th.get("due_date") or "")}">'
             f'<p class="err" id="move-err" hidden>{ICON_ERR}<span></span></p></div>'
             '<div class="acts"><button type="submit" class="btn btn-secondary">Save the date</button>'
             '<button type="button" class="btn btn-ghost" id="move-cancel">Cancel</button></div></form>')
-    return (
-        f'<section class="rblock" aria-labelledby="th-h">{_h(lv, "th-h", "Thread")}'
-        '<p class="lede">Your next step with the company and when it is due, from the newest contact.</p>'
-        f'<div class="thread-box {box_cls}">{tag_html(th, long=True)}{step}'
-        f'<p class="meta from">{esc(_thread_from(rec, th))}</p>'
-        f'<div class="acts">{"".join(acts)}</div>{move}</div></section>')
+    acts_html = f'<div class="acts">{"".join(acts)}</div>' if acts else ""
+    return rsec(lv, "th-h", "Follow-up", body + acts_html + move + log_form(rec, model, lv), "apps",
+                sec_id="followup")
 
 
 def drafts_block(rec: dict, lv: int) -> str:
@@ -418,70 +436,26 @@ def drafts_block(rec: dict, lv: int) -> str:
             continue
         parts.append(
             f'<div class="draft"><h{lv + 1} class="dh" id="d-{ident}">{label}</h{lv + 1}>'
-            f'<p class="meta">Written {esc(written)}, for the story {story}.</p>'
+            f'<p class="rmeta">Written {esc(written)}, for the story {story}.</p>'
             f'<p class="text" id="t-{ident}">{esc(text)}</p>'
             f'<div class="draft-foot"><button type="button" class="btn btn-secondary" data-copy="t-{ident}">'
             f'{ICON_COPY}{ICON_TICK}<span class="lbl">Copy the {label.lower()}</span></button>'
-            f'<span class="meta">{len(text)} characters</span>'
+            f'<span class="rmeta">{len(text)} characters</span>'
             f'<span class="err copy-err" hidden>{ICON_ERR}<span>The browser would not copy. Select the text '
             'and copy it by hand.</span></span></div></div>')
-    return (f'<section class="rblock drafts" id="drafts" aria-labelledby="dr-h">{_h(lv, "dr-h", "Drafts to copy")}'
-            '<p class="lede">Copy one and make it yours where you post it. Nothing is ever posted or sent by '
-            f'Radar. The drafts stay on the story on Insights too.</p>{"".join(parts)}</section>')
+    return rsec(lv, "dr-h", "Drafts to copy", "".join(parts), "story", "story", cls="drafts",
+                sec_id="drafts")
 
 
-def _fld(ident: str, label: str, control: str, hint: str = "", full: bool = False) -> str:
-    hint_html = f'<span class="hint" id="{ident}-h">{esc(hint)}</span>' if hint else ""
+def _fld(ident: str, label: str, control: str, full: bool = False) -> str:
     return (f'<div class="fld{" full" if full else ""}"><label for="{ident}">{esc(label)}</label>{control}'
-            f'{hint_html}<p class="err" id="{ident}-err" hidden>{ICON_ERR}<span></span></p></div>')
-
-
-def log_block(rec: dict, model: dict, lv: int) -> str:
-    today = rec.get("today") or _today(model).isoformat()
-    name = rec["name"]
-    channels = "".join(f'<option value="{esc(k)}">{esc(v)}</option>' for k, v in model.get("channels") or wl.CHANNELS)
-    outcomes = model.get("outcomes") or wl.OUTCOME_WORDS
-    radios = "".join(
-        f'<label><input type="radio" name="outcome" id="log-out-{esc(k)}" value="{esc(k)}"'
-        f'{" checked" if k == "none" else ""}>{esc(v)}</label>' for k, v in outcomes.items())
-    lede = f"One contact with {name}, by you. It joins the contacts below, and its next step becomes the thread."
-    if not rec.get("watched"):
-        lede += f" Logging it adds {name} to your Watchlist."
-    return (
-        f'<section class="rblock" id="log" aria-labelledby="log-h">{_h(lv, "log-h", "Log a contact")}'
-        f'<p class="lede">{esc(lede)}</p>'
-        '<form class="logform" id="log-form" aria-labelledby="log-h" novalidate>'
-        + _fld("log-date", "Date",
-               f'<input class="field" type="date" id="log-date" name="date" value="{esc(today)}" max="{esc(today)}" '
-               'aria-describedby="log-date-h" data-hint="log-date-h">', "Today unless you say otherwise.")
-        + _fld("log-channel", "How",
-               f'<select class="field" id="log-channel" name="channel"><option value="">Choose one</option>'
-               f'{channels}</select>')
-        + _fld("log-note", "Note, optional",
-               f'<textarea class="field" id="log-note" name="note" maxlength="{wl.NOTE_MAX}"></textarea>',
-               full=True)
-        + '<fieldset class="full" id="log-outcome"><legend>What came back</legend>'
-          f'<div class="radios">{radios}</div>'
-          '<p class="hint">You can change it later, when a reply arrives.</p>'
-          f'<p class="err" id="log-outcome-err" hidden>{ICON_ERR}<span></span></p></fieldset>'
-        + _fld("log-next", "Next step",
-               f'<input class="field" type="text" id="log-next" name="next_step" maxlength="{wl.STEP_MAX}" '
-               'placeholder="Follow up in a week" aria-describedby="log-next-h" data-hint="log-next-h">',
-               "Leave it empty and the thread closes.")
-        + _fld("log-due", "Due date",
-               '<input class="field" type="date" id="log-due" name="due" aria-describedby="log-due-h" '
-               'data-hint="log-due-h">', "Needed with a next step. Today and earlier count as due on Home.")
-        + '<div class="full submit"><button type="submit" class="btn btn-primary">Log the contact</button>'
-          '<span class="meta">You can change what came back later, from the contact\'s row.</span>'
-          f'<p class="err" id="log-err" hidden>{ICON_ERR}<span></span></p></div>'
-        '</form></section>')
+            f'<p class="err" id="{ident}-err" hidden>{ICON_ERR}<span></span></p></div>')
 
 
 def contacts_block(rec: dict, lv: int) -> str:
     contacts = rec.get("contacts") or []
     if not contacts:
-        return (f'<section class="rblock" aria-labelledby="ct-h">{_h(lv, "ct-h", "Contacts", "None logged yet")}'
-                '<p class="lede">Each contact you log appears here, newest first, with what came back.</p></section>')
+        return rsec(lv, "ct-h", "Contacts", '<p class="rnone">None logged yet.</p>', "applications")
     items = []
     outcomes = wl.OUTCOME_WORDS
     for i, t in enumerate(contacts):
@@ -505,9 +479,8 @@ def contacts_block(rec: dict, lv: int) -> str:
                        for k, v in outcomes.items())
         items.append(
             f'<li><span class="when">{esc(day)}</span><div><span class="how">{esc(how)}</span>{note}{set_line}'
-            f'<p class="out">Outcome: <b style="color:var(--text-1);font-weight:600">'
-            f'{esc(outcomes.get(out, out.capitalize()))}</b>'
-            f'<button type="button" class="btn btn-ghost" style="padding:0 8px" data-out-open="{tid}" '
+            f'<p class="out">Outcome: <b>{esc(outcomes.get(out, out.capitalize()))}</b>'
+            f'<button type="button" class="btn btn-ghost" data-out-open="{tid}" '
             f'aria-expanded="false" aria-controls="out-{tid}">Change<span class="visually-hidden"> what came back '
             f'from the {esc(what)}</span></button></p>'
             f'<form class="inline-form outform" id="out-{tid}" data-touch="{tid}" data-what="{esc(what)}" hidden>'
@@ -516,73 +489,39 @@ def contacts_block(rec: dict, lv: int) -> str:
             '<div class="acts"><button type="submit" class="btn btn-secondary">Save</button>'
             f'<button type="button" class="btn btn-ghost" data-out-cancel="{tid}">Cancel</button></div>'
             f'<p class="err" id="out-err-{tid}" hidden>{ICON_ERR}<span></span></p></form></div></li>')
-    return (f'<section class="rblock" aria-labelledby="ct-h">'
-            f'{_h(lv, "ct-h", "Contacts", plural(len(contacts), "logged", "logged") + ", newest first")}'
-            f'<ul class="contacts" style="margin-top:4px">{"".join(items)}</ul></section>')
+    return rsec(lv, "ct-h", "Contacts", f'<ul class="contacts">{"".join(items)}</ul>', "applications",
+                count=str(len(contacts)))
 
 
-def _report_words(n: int) -> str:
-    names = {1: "One report", 2: "Two reports", 3: "Three reports", 4: "Four reports", 5: "Five reports"}
-    return names.get(n, f"{n} reports")
-
-
-def signals_block(rec: dict, lv: int) -> str:
+def stories_block(rec: dict, lv: int) -> str:
+    """Stories: each one's type in amber, a drawn rule, its date, then its
+    headline as a link to where it goes, then why it matters."""
     sigs = rec.get("signals") or []
     if not sigs:
-        return (f'<section class="rblock" aria-labelledby="sg2-h">{_h(lv, "sg2-h", "Signals and stories")}'
-                f'<p class="lede">None yet. Stories and signals that name {esc(rec["name"])} gather here.</p>'
-                '</section>')
-    drafts_from = (rec.get("drafts") or {}).get("signal_id")
+        return rsec(lv, "sg2-h", "Stories", '<p class="rnone">None yet.</p>', "story", "story")
     items = []
     for s in sigs:
-        why = []
-        if s.get("why"):
-            why.append(sentence(s["why"]))
-        if s.get("is_advert"):
-            why.append("It came from a job advert, so it opens on Jobs: hiring is not shown on Insights.")
-        else:
-            why.append(f"{_report_words(int(s.get('reports') or 1))}, on Insights.")
-        if s.get("from_here"):
-            why.append("You added the company from this story.")
-        if drafts_from and s["id"] == drafts_from:
-            why.append("The drafts above are from it.")
-        items.append(
-            f'<li><p class="kick"><b>{esc(s["type_words"])}</b><span>Relevance {int(s["relevance"] or 0)}</span>'
-            f'<span>found {esc(wl.day_words(s["found"]))}</span></p>'
-            f'<span class="ttl"><a href="{esc(s["href"])}">{esc(s["headline"])}</a></span>'
-            f'<p class="why">{esc(" ".join(why))}</p></li>')
-    return (f'<section class="rblock" aria-labelledby="sg2-h">'
-            f'{_h(lv, "sg2-h", "Signals and stories", str(len(sigs)) + ", newest first")}'
-            f'<ul class="items" style="margin-top:4px">{"".join(items)}</ul></section>')
+        why = f'<p class="why">{esc(sentence(s["why"]))}</p>' if s.get("why") else ""
+        items.append(f'<li>{story_kick(s)}<p class="ttl"><a href="{esc(s["href"])}">{esc(s["headline"])}</a></p>'
+                     f'{why}</li>')
+    return rsec(lv, "sg2-h", "Stories", f'<ul class="items">{"".join(items)}</ul>', "story", "story",
+                count=str(len(sigs)))
 
 
 def roles_block(rec: dict, lv: int) -> str:
+    """Roles on Jobs: each a row, its title linked to the role on Jobs, its
+    place and its tier's pill."""
     roles = rec.get("roles") or []
     if not roles:
-        return (f'<section class="rblock" aria-labelledby="rl-h">{_h(lv, "rl-h", "Roles on Jobs")}'
-                '<p class="lede">No open roles on Jobs.</p></section>')
+        return rsec(lv, "rl-h", "Roles on Jobs", '<p class="rnone">No open roles on Jobs.</p>', "jobs", "jobs")
     items = []
     for r in roles:
-        kick = f'<b>{esc(r["tier_words"])}</b>'
-        if r.get("score") is not None:
-            basis = ("full spec" if str(r.get("basis") or "").lower() == radar_common.SCORE_BASIS_SPEC
-                     else "from the advert card")
-            kick += f'<span>{int(r["score"])}, {basis}</span>'
-        bits = [x for x in (str(r.get("engagement") or "").replace("-", " ").capitalize(), r.get("location"),
-                            r.get("pay")) if x]
-        if r.get("first_seen"):
-            bits.append(f"first seen {wl.day_words(r['first_seen'])}")
-        line = " · ".join(bits)
-        if r.get("window"):
-            line += (". " if line else "") + "A buying window."
-        items.append(
-            f'<li><p class="kick">{kick}</p><span class="ttl"><a href="{esc(r["href"])}">{esc(r["title"])}</a></span>'
-            + (f'<p class="why">{esc(line)}</p>' if line else "")
-            + f'<p class="meta"><a href="{esc(r["prepare"])}">Prepare application'
-              f'<span class="visually-hidden">: {esc(r["title"])}</span></a></p></li>')
-    return (f'<section class="rblock" aria-labelledby="rl-h">'
-            f'{_h(lv, "rl-h", "Roles on Jobs", str(len(roles)) + " open")}'
-            f'<ul class="items" style="margin-top:4px">{"".join(items)}</ul></section>')
+        place = f'<span class="rl-where">{esc(r["location"])}</span>' if r.get("location") else ""
+        items.append(f'<li class="rl"><span class="rl-main"><a class="rl-title" href="{esc(r["href"])}">'
+                     f'{esc(r["title"])}</a>{place}</span>'
+                     f'{tiers.pill_html(r.get("tier") or "", r["tier_words"])}</li>')
+    return rsec(lv, "rl-h", "Roles on Jobs", f'<ul class="roles">{"".join(items)}</ul>', "jobs", "jobs",
+                count=str(len(roles)))
 
 
 def _source_words(source: str, at) -> str:
@@ -607,37 +546,35 @@ def people_html(rec: dict) -> str:
         rows.append(
             f'<li class="hand"><span class="v">{esc(p["name"])}{", " + esc(p["title"]) if p.get("title") else ""}'
             f'</span><span class="s">Added by you, {esc(wl.day_words(p.get("at")))}</span>'
-            f'<button type="button" class="btn btn-ghost" style="padding:0 8px" data-person-remove="{pid}" '
+            f'<button type="button" class="btn btn-ghost" data-person-remove="{pid}" '
             f'data-name="{esc(p["name"])}">Remove<span class="visually-hidden"> {esc(p["name"])}</span></button></li>')
-    if not rows:
-        rows.append('<li><span class="v nk">Not known</span></li>')
-    return f'<ul class="people">{"".join(rows)}</ul>'
+    return f'<ul class="people">{"".join(rows)}</ul>' if rows else ""
 
 
 def facts_block(rec: dict, lv: int) -> str:
-    rows = []
+    """Facts: only those known, as rows, each with its source; one line names
+    what is not known yet. Add a person and Read again, its cost and its
+    confirmation as before."""
+    rows, unknown = [], []
     for f in rec.get("facts") or []:
         if f.get("value"):
-            v = f'<span class="v">{esc(f["value"])}</span>'
             src = _source_words(f.get("source") or "", f.get("at"))
             s = f'<span class="s">{esc(src)}</span>' if src else ""
+            rows.append((f["label"], f'<span class="v">{esc(f["value"])}</span>{s}'))
         else:
-            v, s = '<span class="v nk">Not known</span>', ""
-        rows.append(f'<div class="fact"><dt>{esc(f["label"])}</dt><dd>{v}{s}</dd></div>')
-    rows.append(f'<div class="fact"><dt>People</dt><dd>{people_html(rec)}</dd></div>')
-    name = rec["name"]
-    site = bd.safe_url(rec.get("site_url"))
-    site_html = ""
-    if site:
-        site_html = (f' The company\'s own site: <a href="{esc(site)}" rel="noopener noreferrer">'
-                     f'{esc(site.split("//", 1)[-1].rstrip("/"))}</a>.')
-    if rec.get("enriched_at"):
-        foot = (f"Read by Radar on {esc(wl.day_words(rec['enriched_at']))}.{site_html} A fact no source stated "
-                "reads Not known. Only a published chief executive and chief technology officer are kept from "
-                "what Radar reads; add anyone else by hand.")
+            unknown.append(f["label"])
+    people = people_html(rec)
+    if people:
+        rows.append(("People", people))
     else:
-        foot = (f"Radar has not read the facts for {esc(name)} yet. It reads them once a story or an advert "
-                f"names the company, or when you press Read again.{site_html}")
+        unknown.append("People")
+    site = bd.safe_url(rec.get("site_url"))
+    if site:
+        rows.append(("Website", f'<a href="{esc(site)}" rel="noopener noreferrer">'
+                                f'{esc(site.split("//", 1)[-1].rstrip("/"))}</a>'))
+    known = _rows(rows) if rows else ""
+    missing = (f'<p class="rnone">Not known yet: {esc(", ".join(u.lower() if i else u for i, u in enumerate(unknown)))}.</p>'
+               if unknown else "")
     words = ((rec.get("reread") or {}).get("words") or "")
     cost = esc(words) if words else '<span id="reread-words">working out the cost</span>'
     person_form = (
@@ -649,61 +586,52 @@ def facts_block(rec: dict, lv: int) -> str:
           '<button type="button" class="btn btn-ghost" id="person-cancel">Cancel</button></div>'
           f'<p class="err" id="person-err" hidden>{ICON_ERR}<span></span></p></form>')
     reread = (
-        '<div class="reread">'
-        '<button type="button" class="btn btn-secondary" id="reread-btn" aria-expanded="false" '
-        'aria-controls="reread-confirm">Read again</button>'
         '<div class="reread-confirm" id="reread-confirm" hidden>'
         f'<p>Read again fetches the company\'s own site once, politely and as its robots file allows, and makes '
         f'one model call: {cost}. What it finds replaces the facts above, each with its source and date.</p>'
         '<div class="acts"><button type="button" class="btn btn-primary" id="reread-go"'
         f'{"" if words else " disabled"}>Read again now<span class="visually-hidden">, {esc(words)}</span></button>'
         '<button type="button" class="btn btn-ghost" id="reread-cancel">Cancel</button></div>'
-        '<p class="meta" id="reread-status" hidden></p></div></div>')
-    return (
-        f'<section class="rblock" aria-labelledby="fa-h">{_h(lv, "fa-h", "Facts as published")}'
-        f'<dl class="facts">{"".join(rows)}</dl>'
-        '<div class="acts person-acts"><button type="button" class="btn btn-ghost" id="person-btn" '
-        'aria-expanded="false" aria-controls="person-form">Add a person by hand</button></div>'
-        f'{person_form}<p class="meta facts-foot">{foot}</p>{reread}</section>')
+        '<p class="rmeta" id="reread-status" hidden></p></div>')
+    acts = ('<div class="acts"><button type="button" class="btn btn-secondary" id="person-btn" '
+            'aria-expanded="false" aria-controls="person-form">Add a person</button>'
+            '<button type="button" class="btn btn-secondary" id="reread-btn" aria-expanded="false" '
+            'aria-controls="reread-confirm">Read again</button></div>')
+    return rsec(lv, "fa-h", "Facts", known + missing + acts + person_form + reread, "list")
 
 
 def record_head(rec: dict, model: dict, view: str) -> str:
-    rid = int(rec["id"])
+    """The header card (owner, 17 Nov): the teal glow, the building chip, the
+    name, the place and since when it is watched, the state; Previous and Next
+    company at the right, in the list's order; Log a contact, Set state and
+    Remove from Watchlist."""
     name = esc(rec["name"])
     rows = {r["id"]: r for r in model.get("rows") or []}
+    pos = model.get("position") or {}
+
+    def href(other: int) -> str:
+        return f"/watchlist/{int(other)}" if view == "record" else f"/watchlist?company={int(other)}"
+
+    def step(key: str, label: str, icon: str) -> str:
+        other = pos.get(key) if pos else None
+        if other is None:
+            return (f'<span class="btn btn-secondary prevnext is-disabled" role="link" aria-disabled="true" '
+                    f'aria-label="{label}" title="{label}">{icon}</span>')
+        oname = rows.get(other, {}).get("name", "")
+        return (f'<a class="btn btn-secondary prevnext" data-focus-record href="{href(other)}" '
+                f'aria-label="{label}, {esc(oname)}" title="{label}">{icon}</a>')
+    nav = step("prev", "Previous company", ICON_LEFT) + step("next", "Next company", ICON_RIGHT)
     if view == "record":
-        top = (f'<div class="rec-top"><a class="back" href="/watchlist">{ICON_BACK}Back to Watchlist</a></div>'
-               f'<h1 class="rec-h" id="rec-h" tabindex="-1">{name}</h1>')
+        back = f'<a class="back" href="/watchlist">{ICON_BACK}Back to Watchlist</a>'
+        title = f'<h1 class="rec-h" id="rec-h" tabindex="-1">{name}</h1>'
     else:
-        pos = model.get("position")
-        if pos:
-            where = f'Record {pos["index"]} of {pos["total"]}'
-            walk = []
-            for key, label, k in (("prev", "Previous", "K"), ("next", "Next", "J")):
-                other = pos.get(key)
-                if other is not None:
-                    oname = rows.get(other, {}).get("name", "")
-                    walk.append(f'<a class="btn btn-secondary" data-focus-record href="/watchlist?company={int(other)}" '
-                                f'aria-label="{label} company, {esc(oname)}">{label}</a>')
-                else:
-                    walk.append(f'<button type="button" class="btn btn-secondary" disabled>{label}</button>')
-        else:
-            where = "Not on your Watchlist"
-            walk = []
-        walk.append('<a class="btn btn-ghost" data-close-record href="/watchlist" aria-label="Close the record">'
-                    'Close</a>')
-        top = (f'<div class="rec-top"><p class="meta">{esc(where)}</p><div class="rec-walk">{"".join(walk)}</div></div>'
-               f'<h2 class="rec-h" id="rec-h" tabindex="-1">{name}</h2>')
-    stage = ""
-    for f in rec.get("facts") or []:
-        if f["label"] == "Stage" and f.get("value"):
-            stage = f["value"]
-    line = " · ".join(x for x in (stage, rec.get("place") or "Place not known") if x)
-    story = rec.get("from_story")
-    watched = esc(_watched_line(rec))
-    if rec.get("watched") and story and rec.get("via") in ("insights", "suggestion"):
-        watched = watched[:-1] + (f', from the story <a href="/insights/story/{int(story["id"])}">'
-                                  f'{esc(story["headline"])}</a>.')
+        back = ('<a class="back back-narrow" data-close-record href="/watchlist">'
+                f'{ICON_BACK}Back to Watchlist</a>')
+        title = f'<h2 class="rec-h" id="rec-h" tabindex="-1">{name}</h2>'
+    watched = (f"On your Watchlist since {wl.day_words(rec.get('watched_at'))}" if rec.get("watched")
+               else "Not on your Watchlist")
+    facts = [x for x in (rec.get("place"), watched) if x]
+    line = ('<span class="visually-hidden">, </span>').join(f'<span class="r-bit">{esc(x)}</span>' for x in facts)
     current = rec.get("stored_state") or ""
     items = "".join(
         f'<li role="none"><button type="button" role="menuitemradio" tabindex="-1" data-state="{esc(k)}" '
@@ -713,26 +641,28 @@ def record_head(rec: dict, model: dict, view: str) -> str:
             'aria-haspopup="menu" aria-expanded="false" aria-controls="state-menu">Set state</button>'
             f'<ul class="menu" id="state-menu" role="menu" aria-labelledby="state-btn" hidden>{items}</ul></div>')
     if rec.get("watched"):
-        watch_btn = '<button type="button" class="btn btn-ghost" id="remove-btn">Remove from Watchlist</button>'
+        watch_btn = '<button type="button" class="btn btn-quiet" id="remove-btn">Remove from Watchlist</button>'
     else:
         watch_btn = '<button type="button" class="btn btn-secondary" id="watch-btn">Add to Watchlist</button>'
-    return (f'{top}<p class="rec-line"><span>{esc(line)}</span><span class="stag">{esc(rec["state_words"])}</span></p>'
-            f'<p class="rec-line"><span>{watched}</span></p>'
-            f'<div class="rec-acts">{menu}{watch_btn}</div>'
+    log_btn = ('<button type="button" class="btn btn-teal" id="log-open" aria-expanded="false" '
+               'aria-controls="log">Log a contact</button>')
+    return (f'<header class="rec-head card g-apps glow-head">{back}<div class="rh-grid">'
+            f'<span class="rh-chip">{page_frame.chip("threads", "apps")}</span>{title}'
+            f'<div class="rh-nav">{nav}</div>'
+            f'<div class="rh-meta"><p class="rh-facts">{line}</p><span class="stag">{esc(rec["state_words"])}</span></div>'
+            f'</div><div class="rec-acts">{log_btn}{menu}{watch_btn}</div>'
             f'<div class="status rec-flash" id="rec-flash" tabindex="-1" hidden></div>'
-            f'<p class="err" id="rec-err" hidden>{ICON_ERR}<span></span></p>')
+            f'<p class="err" id="rec-err" hidden>{ICON_ERR}<span></span></p></header>')
 
 
 def record_html(rec: dict, model: dict, view: str) -> str:
+    """The record: a stack of cards, 24px apart, each section's title outside
+    its card."""
     lv = 2 if view == "record" else 3
-    work = (thread_block(rec, lv) + drafts_block(rec, lv) + log_block(rec, model, lv) + contacts_block(rec, lv))
-    ref = signals_block(rec, lv) + roles_block(rec, lv) + facts_block(rec, lv)
-    head = record_head(rec, model, view)
-    if view == "record":
-        return (f'<article class="record" aria-labelledby="rec-h">{head}'
-                f'<div class="rec-cols"><div class="col">{work}</div><div class="col">{ref}</div></div></article>')
-    return (f'<aside class="record" aria-labelledby="rec-h">{head}'
-            f'<div class="rec-cols"><div class="col">{work}</div><div class="col">{ref}</div></div></aside>')
+    cards = (record_head(rec, model, view) + followup_block(rec, model, lv) + contacts_block(rec, lv)
+             + drafts_block(rec, lv) + stories_block(rec, lv) + roles_block(rec, lv) + facts_block(rec, lv))
+    tag = "article" if view == "record" else "aside"
+    return f'<{tag} class="record" aria-labelledby="rec-h">{cards}</{tag}>'
 
 
 # ================================================================ the page
@@ -763,7 +693,7 @@ def _document(title: str, jobs, body: str, state: dict) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title>
 <link rel="icon" href="{bd.FAVICON}">
-<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{WATCHLIST_CSS}</style>
+<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{tiers.PILL_CSS}{WATCHLIST_CSS}</style>
 </head>
 <body>
 {page_frame.appbar_html("watchlist", jobs, "Watchlist")}
@@ -959,30 +889,42 @@ main:focus{outline:none}
 .ntag{color:var(--accent);border-color:var(--accent);background:var(--accent-tint)}
 .stag{color:var(--text-2);border-color:var(--border-subtle);background:var(--surface-sunken);font-weight:500}
 
-/* the record */
-.record{min-width:0;padding:20px 24px 24px;border:1px solid var(--border-subtle);border-top:3px solid var(--accent);
-  border-radius:var(--radius-2);background:var(--surface);align-self:start}
-.rec-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px}
-.rec-walk{display:flex;gap:8px;flex-wrap:wrap}
-.record .rec-h{margin-top:12px;font:600 24px/32px var(--font-sans);overflow-wrap:anywhere}
-.rec-line{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin-top:4px;color:var(--text-2);font-size:14px;line-height:20px}
-.rec-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-.rblock{margin-top:24px;padding-top:16px;border-top:1px solid var(--border-subtle)}
-.rblock .rb-h{font:600 16px/24px var(--font-sans)}
-.rblock .rb-h .count{font-weight:400;color:var(--text-3);font-size:14px}
-.rblock .lede{margin-top:2px;color:var(--text-3);font-size:13px;line-height:20px}
-.rec-cols{display:block}
-@media (min-width:1800px){
-  .layout .rec-cols{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:0 32px}
-}
-.thread-box{margin-top:12px;padding:12px;border:1px solid var(--caution);border-left-width:4px;border-radius:var(--radius-2);background:var(--canvas)}
-.thread-box.is-overdue{border-color:var(--negative)}
-.thread-box.is-later,.thread-box.is-quiet{border-color:var(--border-strong)}
-.thread-box .step{margin-top:8px;font:600 16px/24px var(--font-sans);overflow-wrap:anywhere}
-.thread-box .from{margin-top:4px}
-.thread-box .acts,.acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.thread-box .acts{margin-top:12px}
-.drafts .draft{margin-top:12px}
+/* the record (owner, 17 Nov): a stack of cards 24px apart, each section's
+   title outside its card; the header card glows teal. */
+.record{display:flex;flex-direction:column;gap:24px;min-width:0;align-self:start}
+.rec-head{container:rhead / inline-size;padding:16px 20px}
+.rh-grid{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"chip title nav" ". meta meta";column-gap:14px}
+.rh-chip{grid-area:chip;padding-top:2px}
+.rec-h{grid-area:title;align-self:center;font:600 24px/32px var(--font-sans);overflow-wrap:anywhere;text-wrap:balance}
+.rec-h:focus{outline:none}
+.rh-nav{grid-area:nav;display:flex;gap:8px;align-self:start}
+.prevnext{width:32px;padding:0;justify-content:center}
+.prevnext.is-disabled{color:var(--text-3);border-color:var(--border-subtle);cursor:default}
+.rh-meta{grid-area:meta;display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-top:4px}
+.rh-facts{display:flex;flex-wrap:wrap;color:var(--text-2);font-size:14px;line-height:20px}
+.rh-facts .r-bit ~ .r-bit::before{content:"";display:inline-block;width:0;height:14px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-2px}
+.rec-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.btn-quiet{background:transparent;border-color:var(--border-subtle);color:var(--text-2)}
+.btn-quiet:hover{color:var(--text-1);border-color:var(--border-strong)}
+.back{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin:-8px 0 4px;color:var(--accent);font-size:15px}
+.back-narrow{display:none}
+@media (max-width:1023.98px){.back-narrow{display:inline-flex}}
+@container rhead (max-width:559.98px){.rh-grid{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"chip title" "meta meta" "nav nav"}.rh-nav{margin-top:8px}}
+.rsec{min-width:0}
+.rcard{padding:16px 20px;font-size:14px;line-height:20px}
+.rnone{color:var(--text-2)}
+.rmeta{color:var(--text-2);font-size:13px;line-height:20px}
+.rrows{display:grid;gap:0}
+.rrow{display:grid;grid-template-columns:120px minmax(0,1fr);gap:2px 12px;padding:8px 0;border-top:1px solid rgba(232,237,240,.08)}
+.rrow:first-child{border-top:0;padding-top:0}
+.rrow dt{color:var(--text-2);font-weight:600}
+.rrow dd{color:var(--text-1);overflow-wrap:anywhere}
+.rrow dd .s{display:block;color:var(--text-2);font-size:13px}
+.rcard .acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+.acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.log-wrap{margin-top:16px;padding-top:16px;border-top:1px solid rgba(232,237,240,.08)}
+.log-h{font:600 15px/24px var(--font-sans)}
+.drafts .draft + .draft{margin-top:16px}
 .drafts .dh{font:600 14px/20px var(--font-sans)}
 .drafts .text{margin-top:4px;padding:12px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);
   background:var(--canvas);color:var(--text-1);white-space:pre-wrap;overflow-wrap:anywhere}
@@ -996,7 +938,6 @@ main:focus{outline:none}
 .fld{min-width:0}
 .fld>label,.logform legend{display:block;color:var(--text-2);font-size:14px;line-height:20px;font-weight:500}
 .fld>.field{display:block;margin-top:4px}
-.fld>.hint{display:block;margin-top:4px}
 textarea.field{min-height:72px;resize:vertical}
 select.field{padding-right:6px}
 input[type=date].field{color-scheme:dark}
@@ -1004,7 +945,6 @@ input[type=date].field{color-scheme:dark}
 .logform .radios{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:6px}
 .logform .radios label{display:inline-flex;align-items:center;gap:6px;min-height:32px;color:var(--text-1);font-weight:400;font-size:14px}
 .logform input[type=radio]{width:16px;height:16px;margin:0;accent-color:var(--accent)}
-.logform .hint{margin-top:4px}
 .err{display:flex;gap:6px;align-items:flex-start;margin-top:4px;color:var(--negative);font-size:13px;line-height:20px}
 .err svg{flex:none;margin-top:3px}
 .logform .submit{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
@@ -1014,36 +954,30 @@ input[type=date].field{color-scheme:dark}
   border:1px solid var(--border-subtle);border-radius:var(--radius-2);background:var(--canvas)}
 .inline-form .fld{flex:1 1 180px}
 .inline-form>.err{flex-basis:100%}
-.contacts li{display:grid;grid-template-columns:72px minmax(0,1fr);gap:2px 12px;padding:12px 0;border-top:1px solid var(--border-subtle);font-size:14px;line-height:20px}
-.contacts li:first-child{border-top:0}
+.contacts li{display:grid;grid-template-columns:72px minmax(0,1fr);gap:2px 12px;padding:12px 0;border-top:1px solid rgba(232,237,240,.08)}
+.contacts li:first-child{border-top:0;padding-top:0}
 .contacts .when{color:var(--text-1);font-weight:600}
 .contacts .how{color:var(--text-2);font-weight:600}
 .contacts .note{color:var(--text-1);overflow-wrap:anywhere}
-.contacts .set{color:var(--text-3)}
-.contacts .out{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;color:var(--text-3)}
-.items li{padding:12px 0;border-top:1px solid var(--border-subtle);font-size:14px;line-height:20px}
-.items li:first-child{border-top:0}
-.items .kick{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;color:var(--text-3);font-size:12px;line-height:16px}
-.items .kick b{color:var(--text-2);font-weight:600}
-.items .ttl{display:block;margin-top:2px;font-weight:600;overflow-wrap:anywhere}
+.contacts .set{color:var(--text-2)}
+.contacts .out{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;color:var(--text-2)}
+.contacts .out b{color:var(--text-1);font-weight:600}
+.items li{padding:12px 0;border-top:1px solid rgba(232,237,240,.08)}
+.items li:first-child{border-top:0;padding-top:0}
+.items .ttl{margin-top:2px;font-weight:600;overflow-wrap:anywhere}
 .items .ttl a{color:var(--text-1)}
-.items .why{margin-top:2px;color:var(--text-2)}
-.facts{margin-top:8px}
-.facts .fact{display:grid;grid-template-columns:88px minmax(0,1fr);gap:2px 12px;padding:8px 0;border-top:1px solid var(--border-subtle);font-size:14px;line-height:20px}
-.facts .fact:first-child{border-top:0}
-.facts dt{color:var(--text-3)}
-.facts dd .v{color:var(--text-1);overflow-wrap:anywhere}
-.facts dd .v.nk{color:var(--text-3)}
-.facts dd .s{display:block;color:var(--text-3);font-size:13px}
+.items .why{margin-top:2px;color:var(--text-2);max-width:80ch}
+.roles li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;padding:10px 0;border-top:1px solid rgba(232,237,240,.08)}
+.roles li:first-child{border-top:0;padding-top:0}
+.rl-main{display:flex;flex-direction:column;min-width:0;flex:1 1 240px}
+.rl-title{color:var(--text-1);font-weight:600;overflow-wrap:anywhere}
+.rl-where{color:var(--text-2)}
 .people li+li{margin-top:6px}
 .people li.hand{display:flex;flex-wrap:wrap;gap:0 8px;align-items:baseline}
 .people li.hand .s{flex-basis:100%;order:2}
-.person-acts{margin-top:4px}
-.person-acts .btn{padding-left:0}
-.facts-foot{margin-top:8px}
-.reread{margin-top:12px}
-.reread-confirm{margin-top:8px;padding:12px;border:1px solid var(--border-strong);border-radius:var(--radius-2);
-  background:var(--canvas);font-size:14px;line-height:20px;color:var(--text-1)}
+.people .s{display:block;color:var(--text-2);font-size:13px}
+.reread-confirm{margin-top:12px;padding:12px;border:1px solid var(--border-strong);border-radius:var(--radius-2);
+  background:var(--canvas);color:var(--text-1)}
 .reread-confirm .acts{margin-top:8px}
 .reread-confirm #reread-status{margin-top:8px}
 
@@ -1059,10 +993,9 @@ input[type=date].field{color-scheme:dark}
 .menu [aria-checked="false"] .chk svg{visibility:hidden}
 
 /* the record as its own view */
-.back{display:inline-flex;align-items:center;gap:6px;min-height:44px;color:var(--accent);font-size:15px}
 .recpage{max-width:960px;padding-top:8px}
 .recpage .wl-flash{margin:8px 0}
-@media (max-width:767.98px){.recpage .record{padding:16px;border-left:0;border-right:0;border-radius:0;margin:0 calc(-1 * var(--gutter))}}
+
 /* touch: 44 pixels */
 @media (pointer:coarse){.btn,.menu button,.logform .radios label{min-height:44px}}
 """
@@ -1223,6 +1156,28 @@ WATCHLIST_SCRIPT = r"""
     return String(+m[3]) + ' ' + months[+m[2] - 1];
   }
 
+  // ---- the contact form, inside Follow-up: closed until Log a contact
+  function openLog(focus) {
+    var wrap = document.getElementById('log'), btn = document.getElementById('log-open');
+    if (!wrap) return;
+    wrap.hidden = false;
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+    if (focus) { var d = document.getElementById('log-date'); if (d) d.focus(); }
+  }
+  function closeLog() {
+    var wrap = document.getElementById('log'), btn = document.getElementById('log-open');
+    if (!wrap) return;
+    wrap.hidden = true;
+    if (btn) { btn.setAttribute('aria-expanded', 'false'); btn.focus(); }
+  }
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('#log-open')) {
+      var wrap = document.getElementById('log');
+      if (wrap && wrap.hidden) openLog(true); else closeLog();
+    } else if (e.target.closest('#log-cancel')) closeLog();
+  });
+  if (location.hash === '#log') openLog(false);
+
   // ---- on load: the note, focus, and the arrival from Insights
   (function () {
     var raw = sget(FLASH);
@@ -1240,7 +1195,7 @@ WATCHLIST_SCRIPT = r"""
       sset(FOCUS, null);
       var el = null;
       if (want === 'record') el = document.getElementById('rec-h');
-      else if (want === 'log') el = document.getElementById('log-date');
+      else if (want === 'log') { openLog(); el = document.getElementById('log-date'); }
       else if (want.indexOf('row:') === 0) {
         var id = want.slice(4);
         el = document.querySelector('[data-row-link="' + id + '"]');
@@ -1259,9 +1214,11 @@ WATCHLIST_SCRIPT = r"""
     if (a.hasAttribute('data-focus-log')) sset(FOCUS, 'log');
     else if (a.hasAttribute('data-focus-record') || a.hasAttribute('data-row-link')) sset(FOCUS, 'record');
     else if (a.hasAttribute('data-close-record') && state.selected) sset(FOCUS, 'row:' + state.selected);
-    else if (a.hasAttribute('data-log-focus')) {
-      var first = document.getElementById('log-date');
-      if (first) { e.preventDefault(); first.focus(); }
+    else if (a.hasAttribute('data-focus-log') && a.pathname === location.pathname
+             && a.search === location.search) {
+      // The card of the record already open: open its form here.
+      e.preventDefault();
+      openLog(true);
     }
   });
 
