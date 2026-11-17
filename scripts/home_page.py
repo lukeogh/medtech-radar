@@ -1697,7 +1697,7 @@ a{color:inherit}
 .ny-story .story-h a{color:var(--text-1);text-decoration:none}
 .ny-story .story-h a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px}
 .ny-story .story-sum{max-width:72ch;color:var(--text-2);font-size:15px;line-height:24px;text-wrap:pretty}
-.ny-move{padding:14px 16px;background:#101417;border:1px solid #1f262b;border-radius:10px}
+.ny-move{max-width:40rem;padding:14px 16px;background:#101417;border:1px solid #1f262b;border-radius:10px}
 .ny-move .sec-h{margin-bottom:4px;font-size:14px;line-height:20px;font-weight:600;color:var(--text-1)}
 .ny-move .ny-para{color:var(--text-2);font-size:15px;line-height:24px}
 .ny-story .ny-acts{gap:12px 24px;margin-top:2px}
@@ -1715,7 +1715,9 @@ a{color:inherit}
 .hf-main,.hf-side{min-width:0}
 .hf-side{display:flex;flex-direction:column;gap:24px}
 @container app (min-width:768px){.hf{gap:24px;padding-block:32px 48px}}
-@container app (min-width:1024px){.hf-cols{grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:20px}}
+/* The right column is a third, up to 560px, so its cards never stretch on a
+   wide window; Open actions takes the rest. */
+@container app (min-width:1024px){.hf-cols{grid-template-columns:minmax(0,1fr) min(calc((100% - 20px) / 3),560px);gap:20px}}
 /* Under 768 every target is 44px. */
 @media (max-width:767.98px){
   html{scroll-padding-top:8px}

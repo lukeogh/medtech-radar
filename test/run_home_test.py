@@ -1081,7 +1081,7 @@ def page_checks(tmp: Path) -> None:
                      r'Next move</h4><p class="ny-para">(.*?)</p></section><div class="action-bar ny-acts">'
                      r'<a class="link" href="[^"]+" target="_blank"', card)
     check(move is not None and move.group(1) == "Send the compliance-cost article, or the gap assessment one-pager."
-          and ".ny-move{padding:14px 16px;background:#101417;border:1px solid #1f262b;border-radius:10px}" in hp.HOME_CSS,
+          and ".ny-move{max-width:40rem;padding:14px 16px;background:#101417;border:1px solid #1f262b;border-radius:10px}" in hp.HOME_CSS,
           "its Next move, the playbook step, sits under the summary in an inset panel, then its links and Done")
     check(card and "<dt>" not in card and "On file for" not in card and "Builds" not in card,
           "without the fixed On file fields (builds, software, stage, where, people)")
@@ -1110,10 +1110,11 @@ def page_checks(tmp: Path) -> None:
               '<div class="side-card glow-wide g-apps">' in apps[1]
           and body.index('id="ny"') < body.index('id="tile-jobs"') < body.index('id="tile-applications"'),
           "Applications: its teal chip and title over its card, under Jobs; Open actions comes first")
-    check(".hf-cols{grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:20px}" in hp.HOME_CSS
+    check(".hf-cols{grid-template-columns:minmax(0,1fr) min(calc((100% - 20px) / 3),560px);gap:20px}" in hp.HOME_CSS
           and ".hf-side{display:flex;flex-direction:column;gap:24px}" in hp.HOME_CSS
           and "align-items:start" in hp.HOME_CSS.split(".hf-cols{", 1)[1].split("}", 1)[0],
-          "two columns, 2fr and 1fr, 20px apart and aligned at the top, Applications 24px under Jobs")
+          "two columns, 2fr and 1fr with the right one at 560px at most, 20px apart and aligned "
+          "at the top, Applications 24px under Jobs")
     # Links on Home: the text colour, underlined in grey, never teal.
     link = re.search(r"\.link\{([^}]*)\}", hp.HOME_CSS).group(1)
     hover = re.search(r"\.link:hover\{([^}]*)\}", hp.HOME_CSS).group(1)

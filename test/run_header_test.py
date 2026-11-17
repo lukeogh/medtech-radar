@@ -265,6 +265,10 @@ def page_checks(tmp: Path) -> None:
           and "padding-inline:max(0px,calc((100% - var(--frame-max)) / 2 + var(--frame-pad) - 16px));"
           in jobs,
           "Jobs' head and list keep their ground the full width and meet the shared edge")
+    check("min(760px,100% - clamp(440px,24vw,640px) - min(640px,100vw - 760px - "
+          "clamp(440px,24vw,640px)))" in jobs,
+          "from 1800px Jobs' advert column gives up what the shared box lacks, so the three "
+          "columns fit")
     for name, (page, _current) in stalled.items():
         bar = bar_of(page)
         check("Check Radar" in bar and 'data-state="check"' in bar and "All running" not in bar
@@ -299,12 +303,13 @@ def edge_checks() -> None:
     # edge is the greeting's at every width; worked out at 1920 and 1440, with a
     # 15px scroll bar and without.
     home = hp.HOME_CSS
-    check(":root{--frame-max:1440px;--frame-pad:16px}" in css
+    check(":root{--frame-max:2560px;--frame-pad:16px}" in css
           and "@media (min-width:768px){:root{--frame-pad:24px}}" in css
           and "@media (min-width:1024px){:root{--frame-pad:32px}}" in css
           and "max-width:var(--frame-max);margin:0 auto;padding:20px var(--frame-pad) 32px}" in home
           and "grid-template-rows:var(--bar-h) auto;" in home,
-          "the shared box is 1440px, 16, 24 and 32px in, and Home's page reads it")
+          "the shared box fills the window up to 2560px, 16, 24 and 32px in, and Home's page "
+          "reads it")
     def left(width: float, cap: float = 1440, pad: float = 32) -> float:
         return max(0.0, (width - cap) / 2) + pad
     for window in (1920, 1440):

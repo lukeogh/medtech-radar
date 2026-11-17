@@ -406,6 +406,8 @@ button,select,textarea{font:inherit}
 .drafts p.text{margin-top:4px;padding:12px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);
   background:var(--surface);color:var(--text-1);white-space:pre-wrap}
 .drafts .btn{margin-top:8px}
+/* Running text stays about 80 characters a line on a wide window. */
+.story-sum,.why,.notice p,.drafts p.text{max-width:80ch}
 .log-line{margin-top:24px;max-width:72ch;color:var(--text-2);font-size:14px;line-height:20px}
 .log-line a{color:var(--accent);text-underline-offset:2px}
 .watch-done{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
