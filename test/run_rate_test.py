@@ -429,10 +429,12 @@ def page_checks() -> None:
           "the role pane's Rate gate reads Not stated, neutral, with no Passes or Fails")
     check(rc.RATE_NOT_STATED_NOTE in html.unescape(rate_part[:600]),
           "and code's note beside it, not the older score's")
-    body = home_page._body_role({"role": o, "lead": jobs_page.lead_line(o)}, "t")
-    check("not stated, that's your first question" in body.replace("&#x27;", "'").replace("&#39;", "'")
-          and 'class="status is-neu"' in body,
-          "Home's gates say not stated in the neutral colour, never the pass colour")
+    from datetime import datetime, timezone
+    item = {"kind": "role", "id": "role-1", "key": "role:top:k", "title": "T", "role": {"id": 1, **o}}
+    body = home_page.role_row(item, {"now": datetime.now(timezone.utc), "show": "todo"})
+    check("Rate not stated, that's your first question" in body.replace("&#x27;", "'").replace("&#39;", "'")
+          and 'class="mk mk-ns"' in body and "Rate passes" not in body,
+          "Home's role row, the Jobs row, says not stated in its own neutral mark, never the pass colour")
     check(prepare_page._gate_mark(rc.NOT_STATED) == '<span class="none">? Not stated</span>'
           and "Passes" not in prepare_page._gate_mark(rc.NOT_STATED),
           "Prepare's gates table marks a rate not stated with its own words")
