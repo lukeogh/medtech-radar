@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Checks for the Settings page, /settings (owner, 18 Nov).
+"""Checks for the Settings page, /settings, and the CV page in rose (owner, 18 Nov).
 
 What the CV page's Preferences tab held, on a page of its own: Scoring (the
 pay floors and the CV match marks, Save and re-sort), Location and sector
@@ -137,10 +137,14 @@ def chips_checks(page: str) -> None:
     keywords = rc.read_pref_line("keywords", CFG) or ""
     t_row = re.search(r'<h3 class="tk-l" id="tk-target_title">Title</h3>.*?</ul>', page, re.S).group(0)
     k_row = re.search(r'<h3 class="tk-l" id="tk-keywords">Keywords</h3>.*?</ul>', page, re.S).group(0)
-    check("," in title and t_row.count('<li class="chip-v">') == 1
-          and f'<li class="chip-v">{page_frame.esc(title)}</li>' in t_row,
-          "the title is one value by design (the template's has a comma in it), so it is one chip")
-    check(k_row.count('<li class="chip-v">') == len(sp.keyword_list(keywords)) >= 2,
+    template = (REPO_ROOT / "config" / "preferences.template.md").read_text(encoding="utf-8")
+    shipped = re.search(r"^target_title:\s*(.+)$", template, re.M).group(1)
+    check("," in shipped
+          and t_row.count('<li class="chip-v">') == (1 if title.strip() else 0)
+          and (not title.strip() or f'<li class="chip-v">{page_frame.esc(title)}</li>' in t_row),
+          "the title is one value by design (the template's own has a comma in it), so it is one "
+          "chip, never split")
+    check(k_row.count('<li class="chip-v">') == len(sp.keyword_list(keywords)),
           "the keywords are a chip each")
     check('<button type="button" class="pen" data-chips-edit="target_title" aria-label="Edit title"' in t_row
           and '<button type="button" class="pen" data-chips-edit="keywords" aria-label="Edit keywords"' in k_row
@@ -218,12 +222,84 @@ def route_checks() -> None:
         check(n == 0, "and drawing the page or a dry run writes nothing")
 
 
+def cv_page_checks() -> None:
+    """The CV page in rose (owner, 18 Nov)."""
+    import cv_screen
+    page = cv_screen.render_page(CFG, None, None).decode("utf-8")
+    css = cv_screen.CV_SCREEN_CSS
+    bar = page[page.index('<header class="appbar">'):page.index("</header>")]
+    check('<a href="/cv" data-group="cv" aria-current="page">CV</a>' in bar
+          and '.appbar a[data-group="cv"]{--nav-line:var(--group-cv)}' in page_frame.FRAME_CSS,
+          "the menu's CV is underlined in rose on the CV page")
+    head = page[page.index('<header class="cv-head">'):page.index("</header>", page.index('<header class="cv-head">'))]
+    check('<span class="gchip g-cv"' in head and "<h1>CV</h1>" in head
+          and '<span class="pill pill-ok">The scorer reads this version</span>' in head
+          and 'id="pages-pill"' in head
+          and '<button type="button" class="btn btn-rose" id="tb-save" data-cv-act="master" '
+              'aria-keyshortcuts="Control+S" hidden>Save version</button>' in head
+          and ".btn-rose,.cvp a.btn-rose{background:#e88fb4;border-color:#e88fb4;color:#2a0f1c" in css
+          and ".pill.is-over{" in css and "var(--caution)" in css.split(".pill.is-over{", 1)[1].split("}", 1)[0],
+          "the title row: rose chip, CV, the green pill, the pages pill (amber over the limit) and "
+          "Save version as the one solid button, rose, at the right")
+    check("pill.textContent = plural(pages.length, 'page') + ', limit is 2';" in cv_screen.CV_SCREEN_JS,
+          "the pages pill reads like 4 pages, limit is 2, as the copy is edited")
+    import score_item
+    real = score_item.load_cv_text
+    try:
+        score_item.load_cv_text = lambda config: ("Alex Rennie\nGuildford\n\nPROFILE\nA leader.\n", "x")
+        unlaid = cv_screen.render_page(CFG, None, None).decode("utf-8")
+        score_item.load_cv_text = lambda config: ("# Alex Rennie\nA leader.\n", "x")
+        laid = cv_screen.render_page(CFG, None, None).decode("utf-8")
+    finally:
+        score_item.load_cv_text = real
+    line = ('<p class="cv-caution" role="note">Not saved in Radar\'s layout yet. Prepare application '
+            "can't make a copy until it is.</p>")
+    check(unlaid.count('class="cv-caution"') == 1 and line in unlaid
+          and "This version was not written by this editor" not in unlaid
+          and 'class="cv-caution"' not in laid and 'id="cv-editor"' in laid
+          and 'notice-text">The master CV could not be read' not in laid
+          and "cv-banner" not in laid.split("<main", 1)[1],
+          "one caution line replaces the not-in-layout notice, only in that state")
+    tb = page[page.index('id="cv-toolbar"'):page.index("</div>", page.index('id="cv-toolbar"'))]
+    order = [w for w in ("Add section", "Rearrange", "Design", "Line numbers", 'aria-label="Undo"',
+                         'aria-label="Redo"', 'id="save-state"', 'id="over-note"') if w in tb]
+    check(len(order) == 8 and [tb.index(w) for w in order] == sorted(tb.index(w) for w in order)
+          and "phone-only" not in tb and "Ctrl S" not in tb and "<kbd" not in page
+          and "over.innerHTML = '<a class=\"link\" href=\"#page-3\" id=\"go-page-3\">Go to page 3</a>';"
+              in cv_screen.CV_SCREEN_JS,
+          "the toolbar: Add section, Rearrange, Design, Line numbers, undo, redo, the save status "
+          "and Go to page N when over length, with no Ctrl S label")
+    rail = page[page.index('<aside class="cv-rail"'):page.index("</aside>")]
+    check(re.findall(r'id="(\w+)-h">([^<]+)</h2>', rail) == [("versions", "Versions"), ("import", "Import")]
+          and re.search(r'id="versions-h">Versions</h2><span class="sec-count">\d+</span>', rail)
+          and rail.count('class="card g-cv glow-faint cv-card"') == 2 and rail.count('<span class="gchip g-cv"') == 2
+          and '<p class="help">Word, Markdown, text or PDF, up to 5 MB</p>' in rail
+          and "Choose a file" in rail,
+          "the rail: Versions with its count and Import with Choose a file and its one line, rose chips and glows")
+    check("@media (min-width:1024px){.cv-layout{grid-template-columns:minmax(0,1fr) 360px}}" in css
+          and "@media (min-width:1800px){.cv-layout{grid-template-columns:minmax(0,1fr) 400px}}" in css
+          and "grid-template-areas" not in css,
+          "the sheet and a 360px rail from 1024px, 400px from 1800px, stacked below; no three columns")
+    words = text(page)
+    for gone in ("Edit it in place, section by section", "Master CV", "Keys on this page",
+                 "On a phone the CV is for reading", 'role="tab"', "Scoring preferences",
+                 "Bring the master in from a file", "Saving makes it the active master",
+                 "A citation on a Prepare page follows", "tracking systems read it"):
+        if gone in words or gone in page:
+            check(False, f"the CV page has no {gone!r}")
+            break
+    else:
+        check(True, "gone: the sentence under the title, the Master CV panel, the keys panel, the "
+                    "phone note, the Preferences tab and the import's and dialogs' explanations")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Settings page checks")
     ap.add_argument("--db", help="accepted for suite symmetry, unused")
     ap.parse_args()
     page = sp.render_page(CFG, None, None).decode("utf-8")
-    for section in (lambda: page_checks(page), lambda: chips_checks(page), script_checks, route_checks):
+    for section in (lambda: page_checks(page), lambda: chips_checks(page), script_checks, route_checks,
+                    cv_page_checks):
         try:
             section()
         except Exception as err:  # noqa: BLE001

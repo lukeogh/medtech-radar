@@ -28,7 +28,7 @@ NAV = (("home", "/", "Home"), ("jobs", "/jobs", "Jobs"),
        ("watchlist", "/watchlist", "Watchlist"), ("insights", "/insights", "Insights"),
        ("cv", "/cv", "CV"), ("settings", "/settings", "Settings"))
 # Each page's group, for its menu underline (owner, 17 Nov). Set here once.
-NAV_GROUP = {"jobs": "jobs", "watchlist": "apps", "insights": "story"}
+NAV_GROUP = {"jobs": "jobs", "watchlist": "apps", "insights": "story", "cv": "cv"}
 
 FRAME_CSS = """
 :root{
@@ -133,8 +133,8 @@ html{scrollbar-gutter:stable}
 .appbar .nav a:hover{color:var(--text-1)}
 .appbar .nav a[aria-current="page"]{color:var(--text-1);font-weight:600;border-bottom-color:var(--nav-line,var(--accent))}
 /* The page you are on is underlined in its group's colour: Jobs purple, the
-   Watchlist teal, Insights amber (NAV_GROUP); Home, CV and Settings keep the
-   accent. */
+   Watchlist teal, Insights amber, the CV rose (NAV_GROUP); Home and Settings
+   keep the accent. */
 """ + "".join(f'.appbar a[data-group="{k}"]{{--nav-line:var(--group-{g})}}' for k, g in NAV_GROUP.items()) + """
 .appbar .nav a:focus-visible{outline-offset:-4px;box-shadow:none}
 .appbar .appbar-tools{display:flex;align-items:center;gap:16px;min-width:0;margin-left:auto}

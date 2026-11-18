@@ -1361,10 +1361,10 @@ def route_checks(tmp: Path) -> None:
               "GET /radar serves Radar's health, the old Home's telemetry")
         check(b'class="entrance"' not in radar and b'id="pref-target_title"' not in radar,
               "without the entrance cards or the scoring panel")
-        s8, _t, cv = call(port, "GET", "/cv", headers={"Host": own})
-        check(s8 == 200 and b'id="settings"' in cv and b'id="pref-first_name"' in cv
-              and b'data-pref-save="target_title"' in cv,
-              "the CV page has Settings, with the first name beside the scorer's lines")
+        s8, _t, cv = call(port, "GET", "/settings", headers={"Host": own})
+        check(s8 == 200 and b'<h1>Settings</h1>' in cv and b'id="pref-first_name"' in cv
+              and b'data-chips-edit="target_title"' in cv,
+              "Settings has the first name beside the scorer's lines")
 
 
 # ================================================================ 8. the script

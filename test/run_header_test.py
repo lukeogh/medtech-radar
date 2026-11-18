@@ -305,16 +305,17 @@ def edge_checks() -> None:
           and "height:100%;min-height:44px;" in css,
           "the menu is 18px at 500, 32px apart, the page you are on 600 with a 3px rule, "
           "and each link the bar's full height")
-    check(page_frame.NAV_GROUP == {"jobs": "jobs", "watchlist": "apps", "insights": "story"}
+    check(page_frame.NAV_GROUP == {"jobs": "jobs", "watchlist": "apps", "insights": "story", "cv": "cv"}
           and '.appbar a[data-group="jobs"]{--nav-line:var(--group-jobs)}' in css
           and '.appbar a[data-group="watchlist"]{--nav-line:var(--group-apps)}' in css
           and '.appbar a[data-group="insights"]{--nav-line:var(--group-story)}' in css
+          and '.appbar a[data-group="cv"]{--nav-line:var(--group-cv)}' in css
           and "text-decoration-color:var(--nav-line,var(--accent));" in css
           and 'data-group="home"' not in page_frame.appbar_html("home")
-          and 'data-group="cv"' not in page_frame.appbar_html("cv"),
+          and 'data-group="settings"' not in page_frame.appbar_html("settings"),
           "the page you are on is underlined in its group's colour, Jobs purple, the Watchlist "
-          "teal and Insights amber, in the bar and the narrow menu; Home, CV and Settings keep "
-          "the accent")
+          "teal, Insights amber and the CV rose, in the bar and the narrow menu; Home and "
+          "Settings keep the accent")
     check(".appbar .brand-mark{width:68px;height:32px}" in css
           and ".appbar .brand-name{font-size:17px;line-height:24px}" in css,
           "the mark and the wordmark grow with the bar, the wordmark 17px")
