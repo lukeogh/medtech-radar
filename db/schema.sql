@@ -388,6 +388,22 @@ CREATE TABLE IF NOT EXISTS experience_evidence (
 CREATE INDEX IF NOT EXISTS idx_experience_evidence_entry ON experience_evidence(entry_id);
 
 -- Small key value store, e.g. last_digest_ts.
+-- The news watcher's sources as Luke keeps them (news_sources.py). A row of
+-- kind added is a feed he added on /insights/sources; a row of kind builtin
+-- only records that a source in config/watchlist.yaml is paused. The built-in
+-- sources themselves stay in that file. source_id is the id the watcher and
+-- source_state and signals know the source by.
+CREATE TABLE IF NOT EXISTS news_sources (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id   TEXT NOT NULL UNIQUE,
+  kind        TEXT NOT NULL CHECK (kind IN ('added', 'builtin')),
+  name        TEXT,
+  url         TEXT,
+  feed_url    TEXT,
+  added_at    TEXT,
+  paused_at   TEXT                  -- NULL when the source is read
+);
+
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT

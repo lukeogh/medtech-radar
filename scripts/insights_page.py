@@ -178,15 +178,15 @@ def build_model(conn, config: dict | None = None, now: str | None = None) -> dic
         sec["count"] = len(sec["stories"])
     jobs = radar_common.job_health(conn, now)
     watcher = jobs.get("signals") or {}
-    sources = [s for s in bd.load_watchlist() if (s.get("status") or "live") != "unverified"]
-    state = {r["source_id"]: dict(r) for r in conn.execute("SELECT * FROM source_state")}
-    answering = sum(1 for s in sources if str((state.get(s.get("id")) or {}).get("last_status") or "")
-                    in ("200", "304"))
+    # Counted as /insights/sources counts them: built-in and added, none paused.
+    import news_sources
+    counted = news_sources.page_model(conn, _iso(moment))
+    answering = counted["answering"]
     return {
         "now": _iso(moment), "stories": stories, "week": week, "earlier": earlier,
         "above": above, "below": below, "top": top, "other": other, "sections": sections,
         "ranked": above[:RANKED], "buying": sum(1 for s in week if s["relevance"] >= BUYING), "hidden": [s for s in stories if s["hidden"] and s["this_week"]],
-        "watcher": watcher, "jobs": jobs, "sources": len(sources), "answering": answering,
+        "watcher": watcher, "jobs": jobs, "sources": counted["total"], "answering": answering,
         "unscored": unscored, "companies": companies,
     }
 
@@ -491,7 +491,7 @@ def head_html(model: dict) -> str:
            '<span class="sec-count upd">Not run yet</span>')
     cover = f'{model["answering"]} of {model["sources"]} sources answering'
     return (f'<header class="ins-head"><div class="ins-title">{page_frame.chip("story", "story")}'
-            f'<h1>Insights</h1>{upd}</div><a class="plain ins-health" href="/health">{cover}</a></header>')
+            f'<h1>Insights</h1>{upd}</div><a class="plain ins-health" href="/insights/sources">{cover}</a></header>')
 
 
 def notice_html(model: dict) -> str:
