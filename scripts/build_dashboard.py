@@ -2856,7 +2856,7 @@ the market moves. Generated {esc(fmt_long(now))} from {esc(db_label)}. The page 
 <footer class="heartbeat">
 <ul class="heartbeat-facts">{heartbeat_facts(data)}</ul>
 {sparkline(data)}
-<ul class="outlinks"><li><a href="/">Home</a></li><li><a href="/archive">The full archive, every row on file but the applied ones</a></li><li><a href="/cv#settings">Settings, on the CV page</a></li></ul>
+<ul class="outlinks"><li><a href="/">Home</a></li><li><a href="/archive">The full archive, every row on file but the applied ones</a></li><li><a href="/settings">Settings</a></li></ul>
 <p class="end">Buttons write, everything else reads. Regenerate the static fallback with <code>python scripts/build_dashboard.py</code>.</p>
 </footer>
 </main>

@@ -83,6 +83,7 @@ import applications
 import build_dashboard
 import jobs_page
 import insights_page
+import settings_page
 import page_frame
 import cv_doc
 import cv_page
@@ -1100,6 +1101,12 @@ def render_cv_page(query: dict | None = None) -> bytes:
                                  job_verdicts_now(), query or {})
 
 
+def render_settings_page() -> bytes:
+    """The Settings page, settings_page.py: what the CV page's Preferences tab
+    held, on its own page (owner, 18 Nov)."""
+    return settings_page.render_page(radar_common.load_config(), db_path(), job_verdicts_now())
+
+
 def version_when(name: str | None) -> str:
     return cv_screen.version_when(name)
 
@@ -1752,6 +1759,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/cv/rescore/status":
             self._send(200, json.dumps(cv_screen.rescore_status()).encode(),
                        "application/json")
+            return
+        if path == "/settings":
+            try:
+                self._send(200, render_settings_page(), "text/html; charset=utf-8")
+            except Exception as err:  # noqa: BLE001
+                self._send(500, f"Render failed. {type(err).__name__}: {err}"
+                           .encode(), "text/plain; charset=utf-8")
             return
         if path == "/cv":
             try:
