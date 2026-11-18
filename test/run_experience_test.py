@@ -396,11 +396,92 @@ def script_checks() -> None:
           "after a paste the page says how many were added and, for each block not read, its first line and why")
 
 
+def prepare_checks() -> None:
+    """Commit 2: From your experience on Prepare application."""
+    import prepare_page
+    import seed_experience_sample
+    import seed_jobs_sample
+    cfg = rc.load_config()
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "x.sqlite"
+        ids = seed_jobs_sample.seed(db)
+        t1 = ids["T1"]
+
+        def draw() -> str:
+            conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            try:
+                return prepare_page.render_prepare_page(conn, t1, cfg)
+            finally:
+                conn.close()
+        page = draw()
+        check('data-slot="experience"' in page and "From your experience" not in body_only(page),
+              "with no entries at all the fold does not show")
+        conn = rc.get_db(db)
+        bank = seed_experience_sample.seed(conn, NOW)
+        conn.close()
+        before = db.read_bytes()
+        page = draw()
+        check(db.read_bytes() == before, "drawing Prepare with the fold writes nothing")
+        body = body_only(page)
+        fold = body[body.index('<details class="pa-xp">'):body.index("</details>", body.index('<details class="pa-xp">'))]
+        col = body.index('id="cv-h">Tailored CV</h2>')
+        at = body.index('<details class="pa-xp">')
+        sheet = body.find('<div class="sheet-wrap">')
+        check(col < at and (at < sheet if sheet >= 0 else body.index('class="notice warn pa-unlaid"') < at),
+              "the fold is in the Tailored CV column, above the sheet (under the save-your-master line "
+              "when there is no sheet yet)")
+        check('<summary><span class="xp-sum">From your experience</span><span class="xp-n">6</span></summary>' in fold
+              and "color:var(--group-cv)" in prepare_page.PREPARE_CSS.split(".pa-xp summary{")[1].split("}")[0],
+              "one fold titled From your experience with its count, in rose")
+        rows = re.findall(r'<li class="xp-row"( hidden data-xp-more)?><a class="plain xp-link" '
+                          r'href="/cv/experience/(\d+)">([^<]+)</a><ul class="chips" aria-label="Matched tags">(.*?)</ul></li>', fold)
+        counts = [len(re.findall("chip-v", r[3])) for r in rows]
+        check(len(rows) == 6 and counts == sorted(counts, reverse=True)
+              and [bool(r[0]) for r in rows] == [False] * 5 + [True]
+              and '<button type="button" class="btn-text" data-xp-all>Show all 6</button>' in fold,
+              "most matching tags first, five shown, Show all 6 for the rest")
+        shown = {int(r[1]) for r in rows}
+        backed = {i for i, f in zip(bank["ids"], seed_experience_sample.FATE) if f == "backed"}
+        check(shown == backed, "only backed entries appear; the drafts and the parked entry, whose tags the advert "
+                               "also names, never do")
+        check('<li class="chip-v">IEC 62304</li>' in rows[0][3] and '<li class="chip-v">ISO 14971</li>' in rows[0][3]
+              and "<li class=\"chip-v\">FDA 510(k)</li>" in fold,
+              "each row links to its entry and shows the matched tags as chips")
+        check("textarea" not in fold and "<input" not in fold and fold.count("<button") == 1,
+              "the fold is read only")
+        check("[data-xp-all]" in prepare_page.PREPARE_SCRIPT and "'experience'" in prepare_page.PREPARE_SCRIPT,
+              "Show all opens the rest, and the fold is redrawn with the page's parts after a press")
+        conn = rc.get_db(db)
+        conn.execute("UPDATE experience_entries SET status = 'parked' WHERE status = 'backed'")
+        conn.commit()
+        conn.close()
+        check("From your experience" not in body_only(draw()), "with no backed entries the fold does not show")
+        conn = rc.get_db(db)
+        conn.execute("UPDATE experience_entries SET status = 'backed', tags = 'infusio, ra, qual'"
+                     " WHERE id = ?", (bank["backed"],))
+        conn.commit()
+        conn.close()
+        check("From your experience" not in body_only(draw()),
+              "a tag matches only as a whole word or phrase, never inside one (infusio, ra, qual)")
+        conn = rc.get_db(db)
+        conn.execute("UPDATE experience_entries SET tags = 'SOFTWARE QUALITY, hardware-IN-the-loop' WHERE id = ?",
+                     (bank["backed"],))
+        conn.commit()
+        conn.close()
+        fold = body_only(draw())
+        check('<span class="xp-n">1</span>' in fold and "SOFTWARE QUALITY" in fold and "hardware-IN-the-loop" in fold,
+              "whatever the case, and a phrase across words")
+    check(xp.matched_tags(["IEC 62304", "C++", "FDA 510(k)"], "iec\n62304, C++ and fda 510(k).") ==
+          ["IEC 62304", "C++", "FDA 510(k)"], "a phrase matches across a line break, and tags with symbols match")
+    check(xp.matched_tags(["AI"], "We maintain it.") == [], "a short tag never matches inside a word")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Experience bank checks")
     ap.add_argument("--db", help="accepted for suite symmetry, unused")
     ap.parse_args()
-    for section in (parse_checks, storage_checks, route_checks, script_checks):
+    for section in (parse_checks, storage_checks, route_checks, script_checks, prepare_checks):
         try:
             section()
         except Exception as err:  # noqa: BLE001
