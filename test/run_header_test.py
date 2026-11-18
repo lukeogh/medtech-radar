@@ -51,7 +51,7 @@ import seed_watchlist_sample  # noqa: E402
 failures: list[str] = []
 NOW = datetime.now(timezone.utc)
 MENU = ["Home", "Jobs", "Watchlist", "Insights", "CV", "Settings"]
-HREFS = ["/", "/jobs", "/watchlist", "/insights", "/cv", "/cv#settings"]
+HREFS = ["/", "/jobs", "/watchlist", "/insights", "/cv", "/settings"]
 
 
 def check(cond, label: str) -> None:
@@ -211,6 +211,7 @@ def every_page(ids: dict) -> dict[str, tuple[str, str | None]]:
         "an unwatched company's record": (text(serve_dashboard.render_watchlist(ids["unwatched"], "record")),
                                           "Watchlist"),
         "CV": (text(serve_dashboard.render_cv_page()), "CV"),
+        "Settings": (text(serve_dashboard.render_settings_page()), "Settings"),
         "Radar's health": (text(serve_dashboard.render("radar")), None),
         "the archive": (text(serve_dashboard.render("archive")), None),
     }

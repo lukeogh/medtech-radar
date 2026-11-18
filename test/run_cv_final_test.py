@@ -1248,8 +1248,8 @@ def pref_line_checks() -> None:
                 rc.update_pref_line(key, value, p.cfg)
                 check(False, f"/profile/setting refuses {key}")
             except ValueError as err:
-                check("Preferences tab" in str(err) and p.prefs.read_bytes() == raw,
-                      f"the one-line save refuses {key}, which only the Preferences tab "
+                check("Scoring on the Settings page" in str(err) and p.prefs.read_bytes() == raw,
+                      f"the one-line save refuses {key}, which only Settings' Scoring "
                       "saves, with its re-sort and history, and writes nothing")
         check("day_rate_floor_gbp" not in rc.PREF_EDITABLE
               and rc.read_pref_line("day_rate_floor_gbp", p.cfg) == "750",

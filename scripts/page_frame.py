@@ -22,12 +22,11 @@ from __future__ import annotations
 import html
 from datetime import datetime
 
-# The pages in the bar, in order (owner's order, 17 Nov). Settings has no page
-# of its own: it is the Settings tab of the CV page, so it links there and is
-# never marked as the page you are on.
+# The pages in the bar, in order (owner's order, 17 Nov). Settings is a page
+# of its own since 18 Nov, /settings, underlined in the accent.
 NAV = (("home", "/", "Home"), ("jobs", "/jobs", "Jobs"),
        ("watchlist", "/watchlist", "Watchlist"), ("insights", "/insights", "Insights"),
-       ("cv", "/cv", "CV"), ("settings", "/cv#settings", "Settings"))
+       ("cv", "/cv", "CV"), ("settings", "/settings", "Settings"))
 # Each page's group, for its menu underline (owner, 17 Nov). Set here once.
 NAV_GROUP = {"jobs": "jobs", "watchlist": "apps", "insights": "story"}
 
@@ -355,6 +354,9 @@ ICONS = {
     # Reasons given for a score: a quote mark.
     "quote": '<path d="M5.5 14.5c0-3.4 1.2-5.6 3.8-7"/><path d="M11.5 14.5c0-3.4 1.2-5.6 3.8-7"/>'
              '<circle cx="6.5" cy="14" r="1.6"/><circle cx="12.5" cy="14" r="1.6"/>',
+    # Settings: a cog.
+    "settings": '<circle cx="10" cy="10" r="2.6"/><path d="M10 3.5v2M10 14.5v2M3.5 10h2M14.5 10h2'
+                'M5.4 5.4l1.4 1.4M13.2 13.2l1.4 1.4M5.4 14.6l1.4-1.4M13.2 6.8l1.4-1.4"/>',
     # A CV: a sheet with its lines.
     "cv": '<path d="M5.5 3.5h6l3 3v10h-9z"/><polyline points="11.5,3.5 11.5,6.5 14.5,6.5"/>'
           '<line x1="7.5" y1="10" x2="12.5" y2="10"/><line x1="7.5" y1="13" x2="12.5" y2="13"/>',

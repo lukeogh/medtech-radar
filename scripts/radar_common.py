@@ -1740,7 +1740,7 @@ def update_pref_line(key: str, value: str,
     Returns the stored value.
     """
     if key in SCORING_PREFS:
-        raise ValueError(f"{key} is saved on the CV page's Preferences tab, "
+        raise ValueError(f"{key} is saved under Scoring on the Settings page, "
                          "which re-sorts the roles already scored.")
     if key not in PREF_EDITABLE:
         raise ValueError(f"{key} is not a dashboard-editable line.")
