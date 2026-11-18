@@ -91,6 +91,7 @@ import cv_screen
 import cv_store
 import experience
 import experience_page
+import hand_roles
 import home_page
 import prepare_application
 import score_item
@@ -1123,6 +1124,35 @@ def render_experience(rest: str) -> bytes | None:
     return experience_page.render_entry(db_path(), int(rest), jobs)
 
 
+def add_hand_role(body) -> dict:
+    """Add and score: store the role added by hand, under the write lock and
+    committed before anything is spent, then score it on the pasted advert
+    through Prepare application's path, the one call the press says yes to.
+    A score that fails leaves the role stored and unscored. A link Radar
+    already holds comes back as existing, and nothing is stored or spent."""
+    config = radar_common.load_config()
+    now = radar_common.now_iso()
+
+    def go(conn):
+        radar_common.begin_write(conn)
+        result = hand_roles.add_role(conn, body, now, config)
+        if result.get("id"):
+            conn.commit()
+        else:
+            conn.rollback()
+        return result
+    result = _write(go)
+    if not result.get("id"):
+        return result
+    try:
+        scored = prepare_application.prepare(result["id"], db_path(), config)
+    except sqlite3.OperationalError:
+        scored = {"outcome": "busy"}
+    result["outcome"] = scored.get("outcome")
+    result["scored"] = bool(scored.get("scored"))
+    return result
+
+
 def experience_write(fn) -> dict:
     """One experience bank write under the write lock, in one transaction:
     commit what succeeded, roll back what was refused."""
@@ -2134,6 +2164,15 @@ class Handler(BaseHTTPRequestHandler):
                                        bool(body.get("confirm")))
             self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
+            return
+        if path == "/jobs/add":
+            body = self._read_json_body()
+            if not isinstance(body, dict):
+                self._send(400, b'{"ok": false, "note": "send JSON"}', "application/json")
+                return
+            result = add_hand_role(body)
+            status = (200 if result.get("ok") else 422 if result.get("invalid") else 409)
+            self._send(status, json.dumps(result).encode(), "application/json")
             return
         if path == "/jobs/source":
             body = self._read_json_body()

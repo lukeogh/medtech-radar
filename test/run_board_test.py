@@ -743,7 +743,9 @@ def page_checks(tmp: Path) -> None:
     check(board_html.count('aria-haspopup="menu"') == 7 and 'id="move-menu" role="menu"' in board_html,
           "every item on file has its Move to button, a menu button")
     check("Keys:" not in board_html and "Single-key" not in board_html and "<kbd" not in board_html
-          and 'id="keys-open"' not in board_html and "<dialog" not in board_html
+          and 'id="keys-open"' not in board_html
+          # The one dialog is Jobs's Add a role, in the shared header.
+          and board_html.count("<dialog") == board_html.count('<dialog class="ar-dlg"') == 1
           and "·" not in re.sub(r"<(style|script)[^>]*>.*?</>", "", board_html, flags=re.S),
           "no list of keys, no key hints and no middle dot on the board")
     check('class="picker"' in board_html and board_html.count("data-pick=") == 6,

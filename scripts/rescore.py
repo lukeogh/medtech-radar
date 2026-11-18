@@ -204,13 +204,15 @@ def _rescore_rows(conn, config, usage_total, rows,
 
 
 def rescore_opportunities(conn, config, usage_total) -> tuple[int, int]:
+    # A role added by hand is scored on its pasted advert when Luke says so,
+    # never on a card here (hand_roles).
     # Acknowledged rows are dismissed, re-scoring them would spend tokens
     # on something a human already waved past.
     # Phase three. An unscored row is one with no tier, not one with no
     # combined, because combined is history now and nothing new writes it.
     rows = conn.execute(
         "SELECT * FROM opportunities WHERE tier IS NULL"
-        " AND acknowledged_at IS NULL"
+        " AND acknowledged_at IS NULL AND added_at IS NULL"
         " AND closed_at IS NULL AND dismissed_at IS NULL"
         " AND expired_at IS NULL AND " + radar_common.NOT_APPLIED_SQL
     ).fetchall()
@@ -232,13 +234,13 @@ def regate_backlog(conn, config, usage_total, cap: int, dry_run: bool = False):
     """
     rows = conn.execute(
         "SELECT * FROM opportunities WHERE tier IS NULL"
-        " AND acknowledged_at IS NULL"
+        " AND acknowledged_at IS NULL AND added_at IS NULL"
         " AND closed_at IS NULL AND dismissed_at IS NULL AND expired_at IS NULL"
         " AND " + radar_common.NOT_APPLIED_SQL +
         " ORDER BY id LIMIT ?", (cap,)).fetchall()
     remaining = conn.execute(
         "SELECT COUNT(*) FROM opportunities WHERE tier IS NULL"
-        " AND acknowledged_at IS NULL"
+        " AND acknowledged_at IS NULL AND added_at IS NULL"
         " AND closed_at IS NULL AND dismissed_at IS NULL"
         " AND expired_at IS NULL AND " + radar_common.NOT_APPLIED_SQL
     ).fetchone()[0] - len(rows)

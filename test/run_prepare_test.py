@@ -3394,8 +3394,11 @@ def static_checks() -> None:
                       if isinstance(f, ast.FunctionDef)
                       and f.lineno <= node.lineno <= f.end_lineno]
                 callers.append((path.name, fn[-1] if fn else "<module>"))
-    check(callers == [("serve_dashboard.py", "run_prepare")],
-          f"nothing calls the click but the route's own function ({callers})")
+    # Two presses make the call: Score the full description (/prepare) and Add
+    # and score on Jobs (/jobs/add), each through its route's own function.
+    check(sorted(callers) == [("serve_dashboard.py", "add_hand_role"),
+                              ("serve_dashboard.py", "run_prepare")],
+          f"nothing calls the click but the two routes' own functions ({callers})")
     imports = sorted(p.name for p in scripts
                      if p.name != "prepare_application.py"
                      and re.search(r"^\s*(import|from)\s+prepare_application\b",

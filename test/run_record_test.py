@@ -742,6 +742,7 @@ OTHER_WRITERS = {
     ("scripts/enrich_company.py", "enrich_company"), # region
     ("scripts/prepare_application.py", "_store_description"),  # description_text only
     ("scripts/process_email.py", "main"),            # sightings and revival
+    ("scripts/hand_roles.py", "add_role"),           # a role added by hand, unscored
     ("scripts/radar_common.py", "_migrate"),         # backfills and the labels
     ("scripts/radar_common.py", "mark_read"),        # read_at, the Jobs page's New
     ("scripts/radar_common.py", "recompute_regions"),

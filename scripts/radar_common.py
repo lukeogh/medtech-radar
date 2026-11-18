@@ -291,6 +291,15 @@ _MIGRATIONS = (
     # to say who changed a company's state, which is not a contact and never
     # opens, closes or moves a thread.
     ("touches", "kind", "TEXT"),
+    # Roles added by hand (hand_roles). added_at is when Luke added the role
+    # on Jobs, NULL on every collected row, which is what tells the two apart;
+    # hand_type is the type he chose, contract, permanent or fixed-price, kept
+    # apart from engagement_type because the scorer writes that one. Both set
+    # in code by the Add a role dialog, never by a model, and NULL on every row
+    # on file when they arrive, which is the honest answer: none was added by
+    # hand.
+    ("opportunities", "added_at", "TEXT"),
+    ("opportunities", "hand_type", "TEXT"),
 )
 
 # What the score record says about a row scored before the record existed.

@@ -14,8 +14,9 @@ which pages it changed and which it left alone.
                                                  what changed
 
 How a page is drawn. One database, test/snapshot_radar.sqlite, is built fresh
-on every run from the four invented samples (seed_jobs_sample,
-seed_watchlist_sample, seed_insights_sample and seed_experience_sample), at one fixed clock, FROZEN
+on every run from the five invented samples (seed_jobs_sample,
+seed_watchlist_sample, seed_insights_sample, seed_experience_sample and
+seed_hand_sample), at one fixed clock, FROZEN
 below, 13 Nov 2026 09:14 UTC. The real server (serve_dashboard.Handler) runs on
 a loopback port and every view is fetched through it with a GET, so the
 routing, the 200 and the content type are part of what is checked. RADAR_MOCK
@@ -173,6 +174,7 @@ import score_item  # noqa: E402
 import watchlist  # noqa: E402,F401
 import watchlist_page  # noqa: E402,F401
 import seed_experience_sample  # noqa: E402
+import seed_hand_sample  # noqa: E402
 import seed_insights_sample  # noqa: E402
 import seed_jobs_sample  # noqa: E402
 import seed_watchlist_sample  # noqa: E402
@@ -293,7 +295,7 @@ def build_dashboard_exists_patch(exists) -> None:
 
 
 def build_db() -> dict:
-    """test/snapshot_radar.sqlite from the four samples, at FROZEN. Returns
+    """test/snapshot_radar.sqlite from the five samples, at FROZEN. Returns
     the ids the views need."""
     for suffix in ("", "-wal", "-shm", "-journal"):
         Path(str(DB) + suffix).unlink(missing_ok=True)
@@ -320,6 +322,9 @@ def build_db() -> dict:
         ids["unwatched"] = row[0]
     finally:
         conn.close()
+    # Two roles added by hand, stored and scored through the real paths.
+    hand = seed_hand_sample.seed(DB, FROZEN.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    ids["hand_upwork"], ids["hand_fixed"] = hand["upwork"], hand["fixed"]
     return ids
 
 
@@ -343,6 +348,9 @@ def views(ids: dict) -> list[tuple[str, str]]:
         ("role-filtered", f"/jobs/{ids['F1']}?show=filtered"),
         ("role-applied", f"/jobs/{ids['A2']}?show=applied"),
         ("prepare", f"/prepare/{ids['T1']}"),
+        ("role-hand-upwork", f"/jobs/{ids['hand_upwork']}"),
+        ("role-hand-fixed", f"/jobs/{ids['hand_fixed']}"),
+        ("prepare-hand", f"/prepare/{ids['hand_upwork']}"),
         ("insights", "/insights"),
         ("watchlist", "/watchlist"),
         ("watchlist-company", f"/watchlist/{ids['company']}"),

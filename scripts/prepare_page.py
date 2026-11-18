@@ -65,6 +65,7 @@ import prepare_application as prep  # noqa: E402
 import radar_common as rc  # noqa: E402
 import tailored_cv  # noqa: E402
 import experience  # noqa: E402
+import hand_roles  # noqa: E402
 import tiers  # noqa: E402
 
 esc = bd.esc
@@ -459,7 +460,8 @@ def head_html(m: dict) -> str:
     url, board = advert_link(m)
     if url:
         acts.append(f'<a class="plain" href="{esc(url)}" target="_blank" rel="noopener noreferrer">'
-                    f'Open the advert on {esc(board)}<span class="visually-hidden"> (opens in a new tab)'
+                    f'{esc(jp.open_advert_words(row) if hand_roles.is_hand(row) else "Open the advert on " + board)}'
+                    '<span class="visually-hidden"> (opens in a new tab)'
                     '</span></a>')
     copy = m["copy"] or {}
     stage = (m.get("app") or {}).get("stage")
@@ -483,6 +485,13 @@ def head_html(m: dict) -> str:
     source = jp.BOARDS.get(row.get("source"), bd.via(row.get("source")))
     facts = [company, esc(row.get("location") or "Place not stated"), esc(kind), esc(source),
              f'First seen {esc(day(row["first_seen"]))}' if row.get("first_seen") else ""]
+    if hand_roles.is_hand(row):
+        # Said as Jobs says it: the client or Client not named, the type
+        # chosen, and Added by you with the date.
+        if not row.get("company"):
+            facts[0] = "Client not named"
+        facts[2] = esc(hand_roles.type_word(row))
+        facts[4] = f'Added by you {esc(day(row["added_at"]))}'
     marked = ""
     if m["applied"]:
         name = row.get("applied_cv")
@@ -506,8 +515,9 @@ def _floor_words(m: dict) -> str:
 
 
 def _gate_tile(gate: str, name: str, state, body: str, line: str, attrs: str = "",
-               line_cls: str = "gate-note") -> str:
-    _mk, _st, word = jp.STATE_MARKS[state]
+               line_cls: str = "gate-note", word: str | None = None) -> str:
+    _mk, _st, mark_word = jp.STATE_MARKS[state]
+    word = word or mark_word
     cls = jp.GATE_TONES.get(state, "is-neu")
     glow = " gate-glow" if state in (rc.NOT_STATED, rc.FAILS) else ""
     icon = (f'<span class="gate-chip {cls}" aria-hidden="true"><svg viewBox="0 0 20 20" width="18" '
@@ -543,6 +553,9 @@ def tiles_html(m: dict) -> str:
                 line = f"“{quote}”"
             elif state == rc.NOT_STATED:
                 line = _floor_words(m)
+            word, line = jp.rate_tile_words(row, state, jp.STATE_MARKS[state][2], line)
+            tiles.append(_gate_tile(gate, name, state, "", esc(line), word=word))
+            continue
         tiles.append(_gate_tile(gate, name, state, "", esc(line)))
     return f'<div class="gate-tiles">{"".join(tiles)}</div>'
 

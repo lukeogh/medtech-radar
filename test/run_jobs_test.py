@@ -1024,7 +1024,9 @@ def page_checks(tmp: Path) -> None:
                         r'cdn\.tailwindcss|iconify|https://[^"\s]*\.(js|css|woff2?)', html),
           "no external script, stylesheet, font or icon set: plain HTML, CSS and script")
     keydowns = re.findall(r"addEventListener\('keydown', function \(e\) \{(.*?)\n  \}\);", html, re.S)
-    check('id="keys-open"' not in html and "<dialog" not in html and "<kbd" not in html
+    # The one dialog on the page is Add a role; no other, a shortcuts list least of all.
+    check('id="keys-open"' not in html and html.count("<dialog") == html.count('<dialog class="ar-dlg"') == 1
+          and "<kbd" not in html
           and "keysOn" not in html and "Single-key" not in html
           and keydowns and all(not re.search(r"'[jkpadcmo?]'", k) for k in keydowns),
           "no shortcuts button, no list of keys and no key hints; the page listens for "
