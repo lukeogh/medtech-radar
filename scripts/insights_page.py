@@ -224,8 +224,6 @@ button,select,textarea{font:inherit}
 a.plain{color:var(--text-1);text-decoration:underline;text-decoration-color:#5b6770;text-decoration-thickness:1px;
   text-underline-offset:3px}
 a.plain:hover{color:var(--text-1);text-decoration-color:var(--text-1)}
-.fact-rule{flex:none;display:inline-block;width:0;height:12px;margin:0 10px;border-left:1px solid var(--text-3);
-  vertical-align:-1px}
 .card{min-width:0;border:1px solid var(--border-subtle);border-radius:14px;background-color:var(--surface)}
 .btn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border:1px solid var(--border-strong);
   border-radius:8px;background:var(--surface);color:var(--text-1);font:500 14px/20px var(--font-sans);
@@ -382,12 +380,11 @@ def story_href(s: dict) -> str:
     return f"/insights/story/{s['id']}"
 
 
-RULE = '<span class="fact-rule" aria-hidden="true"></span><span class="visually-hidden">, </span>'
 
 
 def _join(parts: list) -> str:
-    """Items on one line with the shared thin divider between them."""
-    return RULE.join(p for p in parts if p)
+    """Items on one line with the shared divider between them."""
+    return page_frame.divided(parts)
 
 
 def company_link(s: dict) -> str:
@@ -488,8 +485,9 @@ SECTION_IDS = {"funding": "funding", "spinoffs": "spin-offs", "market": "regulat
 def head_html(model: dict) -> str:
     w = model["watcher"]
     when = page_frame._when(w["last_run"]) if w.get("last_run") else None
-    upd = (f'<span class="sec-count upd">Updated <time datetime="{when[0]}" data-hm>'
-           f'{esc(when[1].split(" ")[2])}</time></span>' if when else
+    # One inline run inside the pill, which is a flex box and would drop the space.
+    upd = (f'<span class="sec-count upd"><span>Updated <time datetime="{when[0]}" data-hm>'
+           f'{esc(when[1].split(" ")[2])}</time></span></span>' if when else
            '<span class="sec-count upd">Not run yet</span>')
     cover = f'{model["answering"]} of {model["sources"]} sources answering'
     return (f'<header class="ins-head"><div class="ins-title">{page_frame.chip("story", "story")}'
@@ -514,8 +512,8 @@ def toc_html(model: dict) -> str:
              ("other-stories", "Other stories this week", len(model["other"]))]
     items += [(SECTION_IDS[sec["key"]], sec["name"], sec["count"]) for sec in model["sections"]]
     items.append(("more-stories", "More stories", len(model["below"])))
-    links = RULE.join(f'<a class="plain" href="#{i}">{esc(t)}<span class="visually-hidden">, </span>'
-                      f'<span class="toc-n">{n}</span></a>' for i, t, n in items)
+    links = page_frame.divided(f'<a class="plain" href="#{i}">{esc(t)}<span class="visually-hidden">, </span>'
+                               f'<span class="toc-n">{n}</span></a>' for i, t, n in items)
     return f'<nav class="ins-toc" aria-label="Sections on this page">{links}</nav>'
 
 
@@ -633,9 +631,10 @@ def company_html(conn, s: dict, others: list | None = None) -> str:
     if roles:
         tiers = {"top": "Top prospect", "question": "One question away", "reading": "Reading", "filtered": "Filtered"}
         lis = "".join(f'<li><a href="/jobs/{r["id"]}">{esc(r["title"] or "A role")}</a><span class="meta">'
-                      f'{"Applied" if r["applied_at"] else esc(tiers.get(r["tier"] or "", "Not scored"))}'
-                      f'{RULE + esc(r["location"]) if r["location"] else ""}'
-                      f'</span></li>' for r in roles)
+                      + page_frame.divided(["Applied" if r["applied_at"] else
+                                           esc(tiers.get(r["tier"] or "", "Not scored")),
+                                           esc(r["location"] or "")])
+                      + '</span></li>' for r in roles)
         parts.append(f'<h3>Roles on Jobs</h3><ul>{lis}</ul>')
     else:
         parts.append(f'<h3>Roles on Jobs</h3><p class="empty-line">No open roles from {esc(c["display_name"])} on Jobs.</p>')

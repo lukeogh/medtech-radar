@@ -669,16 +669,13 @@ def _toolbar_html(editable: bool) -> str:
 </div>"""
 
 
-RULE = '<span class="fact-rule" aria-hidden="true"></span><span class="visually-hidden">, </span>'
-
-
 def _history_html(rows: list, viewing: str | None, compare: dict | None,
                   counts: dict) -> str:
     items = []
     for r in rows:
         name = r["name"]
         roles = counts.get(name, 0)
-        still = (f'{RULE}{plural(roles, "open role")} still scored on it'
+        still = (f'{plural(roles, "open role")} still scored on it'
                  if roles and not r["active"] else "")
         tag = ('<span class="tag tag-ok">' + _icon("tick", 12) + "Active</span>" if r["active"]
                else '<span class="tag tag-accent">Viewing, read only</span>' if name == viewing
@@ -689,9 +686,10 @@ def _history_html(rows: list, viewing: str | None, compare: dict | None,
             f'<a class="btn btn-ghost" href="/cv?compare={esc(name)}#history" '
             f'aria-label="Compare version {r["number"]} with the active version">Compare</a>')
         cls = " is-viewing" if name == viewing else ""
+        vfile = page_frame.divided([f"Version {r['number']}", esc(name), still])
         items.append(f"""<li class="vrow{cls}"><div><p class="vwhen">{esc(r['when'])}</p>
 <p class="vwhat">{esc(r['what'])}</p>
-<p class="vfile">Version {r['number']}{RULE}{esc(name)}{still}</p></div>
+<p class="vfile">{vfile}</p></div>
 <div class="vacts">{tag}{acts}</div></li>""")
     compare_html = ""
     if compare:
@@ -815,7 +813,10 @@ def render_page(config: dict, db_path: Path | None, jobs: dict | None = None,
     active_number = active_row["number"] if active_row else 0
     page_count = len(pages)
     run = rescore_status()
+    laid_out = (master_text is not None
+                and laid_text == "\n".join(cv_store.cv_lines(master_text)) + "\n")
     data = {
+        "laidOut": laid_out or problem is not None,
         "active": marker, "activeNumber": active_number, "viewing": viewing,
         "viewText": shown if viewing and problem is None else None,
         "stale": stale, "open": open_scope, "run": run,
@@ -823,8 +824,6 @@ def render_page(config: dict, db_path: Path | None, jobs: dict | None = None,
         "prefs": {k: prefs.get(k) for k in radar_common.SCORING_PREFS},
         "live": prefs["live"],
     }
-    laid_out = (master_text is not None
-                and laid_text == "\n".join(cv_store.cv_lines(master_text)) + "\n")
     banners = []
     if problem is not None:
         banners.append(("bad", "The master CV could not be read. " + problem))
@@ -843,6 +842,8 @@ def render_page(config: dict, db_path: Path | None, jobs: dict | None = None,
     if problem is None and not laid_out:
         banner_html += ('<p class="cv-caution" role="note">Not saved in Radar\'s layout yet. Prepare '
                         'application can\'t make a copy until it is.</p>')
+    # A master not yet in the editor's layout always has something to save.
+    needs_layout = problem is None and not laid_out and not viewing
     pages_pill = (f'<span class="pill pages-pill{" is-over" if page_count > 2 else ""}" id="pages-pill">'
                   f'{esc(plural(page_count, "page"))}, limit is 2</span>' if page_count else
                   '<span class="pill pages-pill" id="pages-pill" hidden></span>')
@@ -850,7 +851,8 @@ def render_page(config: dict, db_path: Path | None, jobs: dict | None = None,
             '<span class="pill pill-ok">The scorer reads this version</span>'
             f'{pages_pill}'
             '<button type="button" class="btn btn-rose" id="tb-save" data-cv-act="master" '
-            'aria-keyshortcuts="Control+S" hidden>Save version</button></header>')
+            'aria-keyshortcuts="Control+S"'
+            f'{"" if needs_layout else " hidden"}>Save version</button></header>')
 
     def rail_sec(key: str, title: str, body: str, count: str = "") -> str:
         return (f'<section class="cv-sec" id="{key}-sec" aria-labelledby="{key}-h"><header class="sec-head">'
@@ -983,7 +985,6 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 @media (min-width:1024px){.cv-layout{grid-template-columns:minmax(0,1fr) 360px}}
 @media (min-width:1800px){.cv-layout{grid-template-columns:minmax(0,1fr) 400px}}
 .cv-main,.cv-rail{min-width:0}
-.fact-rule{flex:none;display:inline-block;width:0;height:12px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-1px}
 .cv-sec + .cv-sec{margin-top:24px}
 .cv-card{padding:16px}
 .over-go{display:inline-flex;align-items:center;padding:0 6px;font-size:14px;line-height:20px}
@@ -1077,7 +1078,7 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .vrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 0;border-bottom:1px solid var(--border-subtle)}
 .vrow .vwhen{font:500 14px/20px var(--font-sans);color:var(--text-1)}
 .vrow .vwhat{color:var(--text-2);font-size:13px;line-height:20px}
-.vrow .vfile{color:var(--text-3);font:400 12px/16px var(--font-mono);overflow-wrap:anywhere}
+.vrow .vfile{--dv-space:8px;color:var(--text-3);font:400 12px/16px var(--font-mono);overflow-wrap:anywhere}
 .vrow .vacts{display:flex;gap:4px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}
 .vrow.is-viewing{background:var(--accent-tint);outline:1px solid var(--accent);border-radius:8px;padding-left:10px;padding-right:10px}
 @media (max-width:767.98px){.vrow{grid-template-columns:minmax(0,1fr)}.vrow .vacts{justify-content:flex-start}}
@@ -1269,6 +1270,7 @@ CV_SCREEN_JS = r"""
     stateEl.className = 'save-state is-' + kind;
     stateEl.innerHTML = html;
   }
+  function needsLayout(st) { return !D.laidOut && !D.viewing && st.editable !== false; }
   function refresh(st) {
     lastState = st;
     if (undoBtn) undoBtn.setAttribute('aria-disabled', String(!st.canUndo));
@@ -1279,11 +1281,13 @@ CV_SCREEN_JS = r"""
           : 'Unsaved changes') + '</span>');
       } else if (D.viewing) {
         setState('ok', '<span>Read only</span>');
+      } else if (needsLayout(st)) {
+        setState('warn', ICON.dot + '<span>Not in Radar\'s layout</span>');
       } else {
         setState('ok', ICON.tick + '<span>' + (D.savedAt ? 'Saved ' + D.savedAt : 'Nothing to save') + '</span>');
       }
     }
-    if (saveBtn) saveBtn.hidden = !st.edited || failed;
+    if (saveBtn) saveBtn.hidden = !(st.edited || needsLayout(st)) || failed;
     if (discardBtn) discardBtn.hidden = !st.edited || failed;
     if (toolbar) rove(tbItems(), tbItems().indexOf(document.activeElement) >= 0
       ? document.activeElement : tbItems()[0]);

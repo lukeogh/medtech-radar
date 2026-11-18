@@ -657,8 +657,8 @@ def page_checks() -> None:
               "preferences' explanation has gone with them to Settings")
         check("1 role was scored on an earlier version of this CV." in page,
               "the earlier-CV notice is there")
-        hist = re.findall(r'<p class="vfile">Version (\d)<span class="fact-rule" aria-hidden="true"></span>'
-                          r'<span class="visually-hidden">, </span>(cv-[\d-]+\.md)', page)
+        hist = re.findall(r'<p class="vfile"><span class="dv"><span class="dv-in"><span class="dv-i">Version (\d)</span>'
+                          r'<span class="dv-i"><span class="visually-hidden">, </span>(cv-[\d-]+\.md)</span>', page)
         check(hist == [("3", V_NOW), ("2", V_OLD), ("1", V_OLDER)]
               and "1 open role still scored on it" in page,
               "History lists the versions newest first with their numbers and the roles still on each")

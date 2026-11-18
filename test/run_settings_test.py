@@ -96,6 +96,17 @@ def page_checks(page: str) -> None:
     check(page.count('class="card g-apps glow-faint st-card"') == 4
           and page.count('<span class="gchip g-apps"') == 5,
           "each section's chip and card glow in the accent")
+    chips = re.findall(r'<section class="st-sec" aria-labelledby="(\w+)-h"><header class="sec-head">'
+                       r'<span class="gchip g-apps" aria-hidden="true"><svg [^>]*>(.*?)</svg>', page)
+    check(dict(chips) == {"scoring": page_frame.ICONS["target"], "place": page_frame.ICONS["pin"],
+                          "words": page_frame.ICONS["tag"], "you": page_frame.ICONS["person"]}
+          and len({v for _k, v in chips}) == 4,
+          "each section's chip has its own icon from the shared set: a target, a map pin, a tag, a person")
+    scoring = page[page.index('<legend>Pay floors</legend>'):page.index('<legend>CV match</legend>')]
+    check(scoring.rstrip().endswith('</fieldset>\n<hr class="rule">\n<fieldset class="group">')
+          and ".rule{margin:16px 0;border:0;border-top:1px solid var(--border-subtle)}" in sp.SETTINGS_CSS
+          and ".group + .group" not in sp.SETTINGS_CSS,
+          "CV match's hairline is above its heading, 16px either side, not beside it")
     check(re.search(r'<legend>Pay floors</legend>.*?<label for="pref-day_rate_floor_gbp">Contract day rate</label>'
                     r'<span class="affixed"><span class="affix" aria-hidden="true">£</span><input [^>]*id="pref-day_rate_floor_gbp"'
                     r'[^>]*><span class="affix">a day</span>.*?<label for="pref-salary_floor_gbp">Permanent salary</label>'
@@ -182,7 +193,22 @@ def chips_checks(page: str) -> None:
     check("fetch" not in close and "getElementById('chips-cancel').addEventListener('click', close)" in js
           and "getElementById('chips-x').addEventListener('click', close)" in js,
           "Cancel and the close button discard the changes: they close without a save")
-    check("Maximum" not in page, "no limit line: the code keeps no limit on keywords")
+    empty = sp.chips_row("keywords", "Keywords", [], "Edit keywords")
+    check('<ul class="chips" aria-labelledby="tk-keywords"><li class="chips-none">None yet</li></ul>' in empty
+          and ".chips-none{font-size:14px;line-height:20px;color:var(--text-2)}" in sp.SETTINGS_CSS
+          and "chips-none" not in sp.chips_row("keywords", "Keywords", ["IVD"], "Edit keywords"),
+          "an empty row says None yet, muted at 14px, where the chips would be")
+    check(f'data-max="{rc.PREF_LINE_MAX}"' in dlg and rc.PREF_LINE_MAX == 200
+          and "[:PREF_LINE_MAX]" in (REPO_ROOT / "scripts" / "radar_common.py").read_text(encoding="utf-8")
+          and '<p class="chips-limit" id="chips-limit" aria-live="polite" hidden>That\'s the limit. '
+              'Remove one to add another.</p>' in dlg
+          and dlg.index('id="chips-box"') < dlg.index('id="chips-limit"')
+          and "var MAX = parseInt(dlg.getAttribute('data-max'), 10) || 0;" in js
+          and "function fits(list) { return !MAX || list.join(', ').length <= MAX; }" in js
+          and "if (fits(values.concat([w]))) values.push(w); else held.push(w);" in js
+          and "if (input.value.trim() && !add()) { input.focus(); return; }" in js,
+          "the dialog takes the line's limit from the code, stops adding at it with one line under "
+          "the box, and never saves past it quietly")
 
 
 def script_checks() -> None:
@@ -235,8 +261,8 @@ def cv_page_checks() -> None:
     check('<span class="gchip g-cv"' in head and "<h1>CV</h1>" in head
           and '<span class="pill pill-ok">The scorer reads this version</span>' in head
           and 'id="pages-pill"' in head
-          and '<button type="button" class="btn btn-rose" id="tb-save" data-cv-act="master" '
-              'aria-keyshortcuts="Control+S" hidden>Save version</button>' in head
+          and re.search(r'<button type="button" class="btn btn-rose" id="tb-save" data-cv-act="master" '
+                        r'aria-keyshortcuts="Control\+S"( hidden)?>Save version</button>', head)
           and ".btn-rose,.cvp a.btn-rose{background:#e88fb4;border-color:#e88fb4;color:#2a0f1c" in css
           and ".pill.is-over{" in css and "var(--caution)" in css.split(".pill.is-over{", 1)[1].split("}", 1)[0],
           "the title row: rose chip, CV, the green pill, the pages pill (amber over the limit) and "
@@ -260,6 +286,15 @@ def cv_page_checks() -> None:
           and 'notice-text">The master CV could not be read' not in laid
           and "cv-banner" not in laid.split("<main", 1)[1],
           "one caution line replaces the not-in-layout notice, only in that state")
+    save = r'<button type="button" class="btn btn-rose" id="tb-save" data-cv-act="master" aria-keyshortcuts="Control\+S"%s>Save version</button>'
+    js = cv_screen.CV_SCREEN_JS
+    check(re.search(save % "", unlaid) and re.search(save % " hidden", laid)
+          and "&quot;laidOut&quot;: false" in unlaid and "&quot;laidOut&quot;: true" in laid
+          and "function needsLayout(st) { return !D.laidOut && !D.viewing && st.editable !== false; }" in js
+          and "saveBtn.hidden = !(st.edited || needsLayout(st)) || failed;" in js
+          and "} else if (needsLayout(st)) {\n        setState('warn', ICON.dot + '<span>Not in Radar\\'s layout</span>');" in js,
+          "a master not in the layout shows Save version, solid, with no edit, and the status "
+          "reads Not in Radar's layout, not Nothing to save; a laid-out master still waits for an edit")
     tb = page[page.index('id="cv-toolbar"'):page.index("</div>", page.index('id="cv-toolbar"'))]
     order = [w for w in ("Add section", "Rearrange", "Design", "Line numbers", 'aria-label="Undo"',
                          'aria-label="Redo"', 'id="save-state"', 'id="over-note"') if w in tb]

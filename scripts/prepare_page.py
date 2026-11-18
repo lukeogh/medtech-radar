@@ -403,11 +403,8 @@ def _months(row: dict) -> str:
     return f", {found.group(1)} months" if found else ""
 
 
-RULE = '<span class="fact-rule" aria-hidden="true"></span><span class="visually-hidden">, </span>'
-
-
 def _join(parts: list) -> str:
-    return RULE.join(p for p in parts if p)
+    return page_frame.divided(parts)
 
 
 def advert_link(m: dict):
@@ -1052,13 +1049,17 @@ def workhead_html(m: dict) -> str:
             if not a.get("stale"):
                 n[a.get("status") if a.get("status") in n else "missing"] += 1
         stale = sum(1 for a in asks if a.get("stale"))
-        bits.append('<span class="tally" data-pa-tally>'
-                    f'<b>{_plural(len(asks), "ask")}</b>{RULE}'
-                    f'<span data-pa-count="met">{n["met"]} met</span>{RULE}'
-                    f'<span data-pa-count="partly">{n["partly"]} partly</span>{RULE}'
-                    f'<span data-pa-count="missing">{_plural(n["missing"], "gap")}</span>'
-                    + (f'<span data-pa-count="stale">{stale} stale</span>' if stale
-                       else '<span data-pa-count="stale" hidden></span>') + '</span>')
+        sr = page_frame.SR_COMMA
+        # Each count in a span of its own, which the script rewrites, inside
+        # its fact, which carries the divider and the screen reader's comma.
+        bits.append('<span class="tally dv" data-pa-tally><span class="dv-in">'
+                    f'<b class="dv-i">{_plural(len(asks), "ask")}</b>'
+                    f'<span class="dv-i">{sr}<span data-pa-count="met">{n["met"]} met</span></span>'
+                    f'<span class="dv-i">{sr}<span data-pa-count="partly">{n["partly"]} partly</span></span>'
+                    f'<span class="dv-i">{sr}<span data-pa-count="missing">{_plural(n["missing"], "gap")}'
+                    '</span></span>'
+                    f'<span class="dv-i"{"" if stale else " hidden"}>{sr}<span data-pa-count="stale">'
+                    f'{str(stale) + " stale" if stale else ""}</span></span></span></span>')
     else:
         bits.append('<span class="tally">No asks yet.</span>')
     record = m["record"]
@@ -1160,7 +1161,7 @@ def _cite_line(m: dict, a: dict) -> str:
     if where:
         bits.append(f'<a href="#adv-a{a["num"]}" data-pa-show="adv-a{a["num"]}">advert, '
                     f'{esc(where[0])}</a>')
-    return f'<span class="cite">{RULE.join(bits)}</span>' if bits else ""
+    return page_frame.divided(bits, "cite") if bits else ""
 
 
 # Why an ask shows no advert sentence, by score_item's sentence_dropped. An
@@ -1449,7 +1450,6 @@ a:hover{color:var(--accent-hover)}
 .card{min-width:0;border:1px solid var(--border-subtle);border-radius:14px;background-color:var(--surface)}
 a.plain{color:var(--text-1);text-decoration:underline;text-decoration-color:#5b6770;text-decoration-thickness:1px;text-underline-offset:3px}
 a.plain:hover{color:var(--text-1);text-decoration-color:var(--text-1)}
-.fact-rule{flex:none;display:inline-block;width:0;height:12px;margin:0 10px;border-left:1px solid var(--text-3);vertical-align:-1px}
 .pa-back{margin-bottom:12px;font-size:14px;line-height:20px}
 /* ---- the header card ---- */
 .pa-head{padding:20px 24px}
@@ -1497,11 +1497,10 @@ a.plain:hover{color:var(--text-1);text-decoration-color:var(--text-1)}
 #cv-say:empty{display:none}
 #cv-say.bad{border-color:var(--negative);background:var(--negative-tint);color:var(--text-1)}
 .row-btns{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
-/* ---- the four gates: one row, two by two under 900px, one column on a phone ---- */
+/* ---- the four gates: one row, two by two under 900px, one card of rows under 600px ---- */
 .pa-gates{margin-top:16px}
 .gate-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 @media (max-width:899.98px){.gate-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media (max-width:479.98px){.gate-tiles{grid-template-columns:minmax(0,1fr)}}
 .gate{--st:232 237 240;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-areas:"chip name" "chip status" "fig fig" "note note";column-gap:12px;align-content:start;min-width:0;padding:14px;border:1px solid var(--border-subtle);border-radius:12px;background-color:var(--surface)}
 .gate.is-pos{--st:116 211 155}
 .gate.is-cau{--st:240 196 106}
@@ -1523,6 +1522,21 @@ a.plain:hover{color:var(--text-1);text-decoration-color:var(--text-1)}
 .pill.is-over{border-color:rgba(240,196,106,.5);background:var(--caution-tint);color:var(--caution)}
 .gate-note{grid-area:note;margin-top:10px;font-size:14px;line-height:20px;color:var(--text-2);text-wrap:pretty;overflow-wrap:anywhere}
 @media (forced-colors:active){.gate-chip{border:1px solid CanvasText}}
+/* Under 600px the four gates are one card of compact rows, hairlines between:
+   icon and name at the left, the status at the right, the reason under. */
+@media (max-width:599.98px){
+.gate-tiles{display:block;border:1px solid var(--border-subtle);border-radius:12px;background-color:var(--surface);overflow:hidden}
+.gate{grid-template-columns:auto minmax(0,1fr) auto auto;grid-template-areas:"chip name num status" "note note note note" "pill pill pill pill";column-gap:0;align-items:center;padding:12px 14px;border:0;border-radius:0;background-color:transparent}
+.gate + .gate{border-top:1px solid var(--border-subtle)}
+.gate-glow{background-image:none}
+.gate-chip{margin-right:12px}
+.gate-status{margin-left:12px;text-align:right}
+.gate-fig{display:contents}
+.gate-num{grid-area:num;margin-left:12px;font:600 17px/20px var(--font-sans)}
+.gate-num.none{font-size:14px;line-height:20px}
+.gate-fig .src-pill{grid-area:pill;justify-self:start;margin-top:8px}
+.gate-note{margin-top:6px}
+}
 .pa-why{margin-top:12px;padding:0 16px;font-size:14px;line-height:20px;color:var(--text-2)}
 .pa-why summary{display:flex;align-items:center;min-height:44px;cursor:pointer;color:var(--text-1);font-weight:600}
 .pa-why-in{padding-bottom:12px}
@@ -1540,9 +1554,8 @@ a.plain:hover{color:var(--text-1);text-decoration-color:var(--text-1)}
 .strip-t{color:var(--text-1);font-weight:500}
 .fetch{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-left:auto}
 .fetch .cost{font-size:13px;line-height:20px;color:var(--text-2)}
-.tally{display:inline-flex;flex-wrap:wrap;align-items:center;row-gap:4px;color:var(--text-2)}
+.tally{color:var(--text-2)}
 .tally b{color:var(--text-1);font-weight:600}
-.tally [data-pa-count="stale"]::before{content:"";display:inline-block;width:0;height:12px;margin:0 10px;border-left:1px solid var(--text-3);vertical-align:-1px}
 .tally [data-pa-count="stale"]{color:var(--negative)}
 .none{color:var(--text-2);font-size:14px;line-height:20px}
 .work-head .notice{margin:0 0 12px}
@@ -1604,7 +1617,7 @@ a.plain:hover{color:var(--text-1);text-decoration-color:var(--text-1)}
 .mark.met{color:var(--positive)}.mark.partly{color:var(--caution)}.mark.gap,.mark.stale{color:var(--negative)}
 .note q{display:block;color:var(--text-1);quotes:"\201C" "\201D"}
 .note .ask-words{display:block;color:var(--text-1)}
-.note .cite{display:flex;flex-wrap:wrap;align-items:center;font-size:13px;line-height:20px;color:var(--text-3)}
+.note .cite{--dv-space:8px;font-size:13px;line-height:20px;color:var(--text-3)}
 .note .cite a{color:var(--text-2)}
 .note .gapwhy{display:block;color:var(--text-2)}
 .note .when{color:var(--text-3)}
@@ -1867,7 +1880,7 @@ PREPARE_SCRIPT = r"""
       put('missing', counts.missing + (counts.missing === 1 ? ' gap' : ' gaps'));
       put('stale', counts.stale + ' stale');
       var st = tally.querySelector('[data-pa-count="stale"]');
-      if (st) st.hidden = counts.stale === 0;
+      if (st) st.parentNode.hidden = counts.stale === 0;
     }
     var band = document.getElementById('copy-edited-note');
     if (band) {
