@@ -1897,7 +1897,7 @@ def main() -> int:
                         f"http://127.0.0.1:{port}/cv", timeout=10) as resp:
                     cv_page = resp.read().decode("utf-8")
                 check(resp.status == 200
-                      and "Import from Word" in cv_page
+                      and 'id="import-h">Import</h2>' in cv_page
                       and 'id="cv-sheet"' in cv_page,
                       "GET /cv serves the CV page, its sheet and its Word "
                       "import tab")

@@ -2850,8 +2850,8 @@ def master_page_checks() -> None:
             check("<h1>CV</h1>" in page and data.get("mode") == "master"
                   and data["version"] == "cv-20261101-080000.md" and data["editable"]
                   and data.get("sheet") is True
-                  and re.search(r'id="tb-save" data-cv-act="master"[^>]*hidden>', page)
-                  and "saved 1 Nov 08:00 UTC" in text,
+                  and re.search(r'class="btn btn-rose" id="tb-save" data-cv-act="master"[^>]*hidden>', page)
+                  and "1 Nov 08:00 UTC" in text and "&quot;savedAt&quot;: &quot;1 Nov 08:00 UTC&quot;" in page,
                   "the CV page holds the master in the editor, on its sheet, with its version "
                   "and the date it was saved, and Save version waits for an edit (C1, C2)")
             check([s["title"] for s in data["doc"]["sections"]] == list(cv_doc.STANDARD_SECTIONS)
@@ -2859,17 +2859,19 @@ def master_page_checks() -> None:
                   and data["doc"]["sections"][2]["lines"] == [{"b": True, "t": "IEC 62304"}],
                   "with sections for summary, experience, skills, and education and "
                   "certifications, filled from the version that is active")
-            check("This version was not written by this editor" in text,
-                  "a version imported from Word says it is shown in the editor's layout "
-                  "and is read as it is until it is saved")
-            tabs = re.findall(r'role="tab" id="tab-(\w+)"', page)
-            check(tabs == ["history", "settings", "import"]
+            check('<p class="cv-caution" role="note">Not saved in Radar\'s layout yet. Prepare application '
+                  "can't make a copy until it is.</p>" in page
+                  and "This version was not written by this editor" not in text,
+                  "a version imported from Word gets the one caution line, and no explanation")
+            rail = re.findall(r'<h2 class="sec-title" id="(\w+)-h">', page)
+            check(rail == ["versions", "import"] and 'role="tab"' not in page
                   and re.search(r'id="cv-file"[^>]*accept=".md,.markdown,.txt,.docx,.pdf"', page)
-                  and "Import from Word" in text
-                  and re.search(r"Version 1 · cv-20261101-080000\.md", text)
-                  and "Active" in text,
-                  "the upload is the Word import tab and still takes the same files, beside "
-                  "the History tab, where the active version is marked")
+                  and '<p class="help">Word, Markdown, text or PDF, up to 5 MB</p>' in page
+                  and re.search(r"Version 1 , cv-20261101-080000\.md", text)
+                  and "Active" in text
+                  and "\u00b7" not in page_text(re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", page)),
+                  "the rail is Versions, with the active version marked, and Import, which still "
+                  "takes the same files, with no tabs")
             check("full job description" in cv_screen.CV_SCREEN_JS
                   and "NOT_SPEC_SQL" in inspect.getsource(rescore.affected),
                   "and the rescore after a change leaves full description scores alone, "
@@ -2942,7 +2944,7 @@ def master_page_checks() -> None:
             check("The master CV could not be read." in page_text(page)
                   and f"no CV needs more than {cv_doc.RAW_LINES_MAX:,}" in page_text(page)
                   and 'id="cv-editor"' not in page
-                  and "Import from Word" in page_text(page),
+                  and 'id="import-h">Import</h2>' in page,
                   "and such a master is refused the same way: the page says why, and still "
                   "offers the import that would replace it, where it was a 500")
     finally:

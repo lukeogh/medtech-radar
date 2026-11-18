@@ -624,56 +624,54 @@ def page_checks() -> None:
               and rows == [str(i) for i in range(1, len(lines) + 1)],
               "the server draws one .cvl[data-n] per line, numbered as cv_store.cv_lines "
               "numbers the master, before the script runs")
-        check('<div class="tabpanel" role="tabpanel" id="settings"' in page
-              and 'id="pref-first_name"' in page and 'data-pref-save="target_title"' in page,
-              "the Preferences tab is the panel /cv#settings names, with Home's lines in it")
+        check('id="settings"' not in page and 'id="pref-first_name"' not in page
+              and 'data-pref-save="target_title"' not in page
+              and "if (h === '#settings' || h === '#preferences') { location.replace('/settings'); return; }"
+                  in cv_screen.CV_SCREEN_JS,
+              "the Preferences tab is gone from the CV page, and /cv#settings leads to /settings")
         # That the top bar's Settings links there, on every page, is checked
         # with the header in test/run_header_test.py.
         check('id="keys-on"' not in page and "Single" not in page
               and set(re.findall(r'aria-keyshortcuts="([^"]+)"', page))
               == {"Control+S", "Control+Z", "Control+Shift+Z"}
-              and [ "".join(k) for k, _w in cv_screen.KEYS]
-              == ["Tab", "Enter", "Esc", "AltShift↑↓", "CtrlS", "CtrlZ", "←→"]
-              and "Ctrl S saves a version even while you type in a line, by design" in " ".join(page.split())
-              and "With Rearrange or Design open, Ctrl S does nothing." in " ".join(page.split())
-              and "so none fires while you type" not in " ".join(page.split()),
-              "the page has no single-key shortcuts and no switch for them: its keys are the "
-              "frames' Tab, Enter, Esc, Alt Shift arrows, Ctrl S, Ctrl Z and the arrows, and "
-              "the panel says Ctrl S works while typing and not with a dialog open")
-        check(re.search(r'<h2 class="visually-hidden" id="sheet-h">The CV sheet</h2>\s*'
-                        r'<p class="phone-note">', page) is not None
+              and not hasattr(cv_screen, "KEYS") and "Keys on this page" not in page
+              and "<kbd" not in page and ">Save version</button>" in page,
+              "the page has no single-key shortcuts and no switch for them, no keys panel and no "
+              "Ctrl S label; Ctrl S, Ctrl Z and Ctrl Shift Z still work")
+        check('<h2 class="visually-hidden" id="sheet-h">The CV sheet</h2>' in page
+              and 'class="phone-note"' not in page
               and page.index('id="sheet-h"') < page.index('id="cv-sheet"')
-              and '<section class="panel tabs a-tabs" aria-labelledby="tabs-h">\n'
-                  '<h2 class="visually-hidden" id="tabs-h">' in page
-              and page.index('id="tabs-h"') < page.index('id="history"'),
-              "the sheet has its own visually hidden h2, and so does the tabs section, so the "
-              "tab panels' h3s sit under it and not under Master CV")
+              and page.index('id="versions-h"') < page.index('id="history"')
+              and page.index('id="import-h"') < page.index('id="import"'),
+              "the sheet has its own visually hidden h2, and Versions and Import their titles, "
+              "with no phone note")
         live = re.search(r'<p class="visually-hidden" id="rescore-live" role="status" '
                          r'aria-live="polite"></p>', page)
         run_box = re.search(r'<section class="notice" id="rescore-run"[^>]*>', page).group(0)
         check(live is not None and "aria-live" not in run_box and "hidden" in run_box,
               "Rescore's status region is on the page, empty, from the start, outside the "
               "box that is unhidden in one step, which carries no live region of its own")
-        check("Changing these changes how roles are scored." in page
+        check("Changing these changes how roles are scored." not in page
               and 'class="sheet sheet-paper"' in page and "#f8f6f1" not in CV_CSS_ONLY(),
-              "the page says plainly that changing preferences changes how roles are scored, "
-              "and the sheet is the shared light paper, no paper colour of its own")
+              "the sheet is the shared light paper, no paper colour of its own, and the "
+              "preferences' explanation has gone with them to Settings")
         check("1 role was scored on an earlier version of this CV." in page,
               "the earlier-CV notice is there")
-        hist = re.findall(r'<p class="vfile">Version (\d) · (cv-[\d-]+\.md)', page)
+        hist = re.findall(r'<p class="vfile">Version (\d)<span class="fact-rule" aria-hidden="true"></span>'
+                          r'<span class="visually-hidden">, </span>(cv-[\d-]+\.md)', page)
         check(hist == [("3", V_NOW), ("2", V_OLD), ("1", V_OLDER)]
               and "1 open role still scored on it" in page,
               "History lists the versions newest first with their numbers and the roles still on each")
         view = serve_dashboard.render_cv_page({"view": [V_OLD]}).decode("utf-8")
         vdata = json.loads(htmllib.unescape(re.search(r'id="cv-editor"[^>]*data-cv="([^"]*)"', view).group(1)))
-        check(vdata["editable"] is False and "You are viewing version 2" in view
+        check(vdata["editable"] is False and "Viewing version 2" in view
               and "16 years" in view and "Back to version 3" in view,
               "View opens an older version read only, marked, with the way back")
         comp = serve_dashboard.render_cv_page({"compare": [V_OLD]}).decode("utf-8")
         check('id="compare"' in comp and "1 line changed" in comp and "17 years" in comp,
               "Compare says what changed line by line against the active version")
         bad = serve_dashboard.render_cv_page({"view": ["../radar.yaml"]}).decode("utf-8")
-        check("You are viewing" not in bad, "a view of a name that is not a version shows the master")
+        check("Viewing version" not in bad, "a view of a name that is not a version shows the master")
         rep = cv_screen.import_report("Alex Rennie\nPROFILE\nA leader.\n\nKEY SKILLS\n• IEC 62304\n", MASTER)
         check(rep["lines_read"] == 5 and rep["guesses"] == [{"from": "PROFILE", "to": "Summary"},
                                                              {"from": "KEY SKILLS", "to": "Skills"}]
@@ -1277,10 +1275,11 @@ def pref_line_checks() -> None:
             status, got, _h = post(port, "/profile/setting", {"key": "first_name", "value": "Alex"})
             check(status == 200 and rc.read_first_name(p.cfg) == "Alex",
                   "and the first name Home greets")
-        page = serve_dashboard.render_cv_page({}).decode("utf-8")
-        check('data-pref-save="day_rate_floor_gbp"' not in page
-              and all(f'data-pref-save="{k}"' in page for k in ("target_title", "keywords", "first_name")),
-              "the CV page's one-line Save buttons are the title, keywords and name, no floor")
+        page = serve_dashboard.render_settings_page().decode("utf-8")
+        check('data-pref-save="day_rate_floor_gbp"' not in page and 'data-pref-save="first_name"' in page
+              and all(f'data-chips-edit="{k}"' in page for k in ("target_title", "keywords")),
+              "Settings' one-line saves are the title and keywords (through their dialog) and the "
+              "name, no floor")
 
 
 def cache_token_checks() -> None:

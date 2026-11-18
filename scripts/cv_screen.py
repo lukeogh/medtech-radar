@@ -644,21 +644,8 @@ def _icon(name: str, size: int = 16) -> str:
             f'focusable="false">{paths[name]}</svg>')
 
 
-def _kbd(*keys) -> str:
-    return "".join(f'<kbd class="kbd">{esc(k)}</kbd>' for k in keys)
-
-
-KEYS = (
-    (("Tab",), "Through the CV's head and sections"),
-    (("Enter",), "Edit the part in focus, line by line"),
-    (("Esc",), "Leave the line, then close the part"),
-    (("Alt", "Shift", "↑", "↓"), "Move the section in focus (not while a line is being edited)"),
-    (("Ctrl", "S"), "Save as a new version"),
-    (("Ctrl", "Z"), "Undo, outside a line; with Shift, redo"),
-    (("←", "→"), "Along the toolbar and the tabs"),
-)
-# The page has no single-key shortcuts (the owner's call, 16 Nov, as the design's
-# notes frame drew it): every key above goes with Ctrl or Alt, or moves focus.
+# The page has no single-key shortcuts (the owner's call, 16 Nov): Ctrl S saves
+# a version, Ctrl Z and Ctrl Shift Z undo and redo, and no key is hinted.
 ADD_CHOICES = ("Selected projects", "Talks and writing", "Languages", "Publications")
 
 
@@ -671,15 +658,18 @@ def _toolbar_html(editable: bool) -> str:
 <button type="button" class="btn btn-ghost" id="tb-design" aria-haspopup="dialog">{_icon('pen')}Design</button>
 <span class="sep" aria-hidden="true"></span>
 </span>
+<button type="button" class="switch" role="switch" aria-checked="true" id="tb-numbers"><span class="track" aria-hidden="true"></span><span class="sw-word">Line numbers</span></button>
 <button type="button" class="btn btn-ghost btn-icon" id="tb-undo" aria-label="Undo" aria-keyshortcuts="Control+Z" aria-disabled="true">{_icon('undo')}</button>
 <button type="button" class="btn btn-ghost btn-icon" id="tb-redo" aria-label="Redo" aria-keyshortcuts="Control+Shift+Z" aria-disabled="true">{_icon('redo')}</button>
-<button type="button" class="switch phone-only" role="switch" aria-checked="true" id="tb-numbers"><span class="track" aria-hidden="true"></span><span class="sw-word">Line numbers</span></button>
 <span class="grow" aria-hidden="true"></span>
 <span class="save-state is-ok" id="save-state" role="status"></span>
+<span class="over-go" id="over-note" hidden></span>
 <button type="button" class="btn btn-ghost" id="tb-discard" hidden>Discard</button>
-<button type="button" class="btn btn-primary" id="tb-save" data-cv-act="master" aria-keyshortcuts="Control+S" hidden>Save version <kbd class="kbd" aria-hidden="true">Ctrl S</kbd></button>
 <button type="button" class="btn btn-secondary" id="tb-reload" hidden>Reload</button>
 </div>"""
+
+
+RULE = '<span class="fact-rule" aria-hidden="true"></span><span class="visually-hidden">, </span>'
 
 
 def _history_html(rows: list, viewing: str | None, compare: dict | None,
@@ -688,7 +678,7 @@ def _history_html(rows: list, viewing: str | None, compare: dict | None,
     for r in rows:
         name = r["name"]
         roles = counts.get(name, 0)
-        still = (f' · {plural(roles, "open role")} still scored on it'
+        still = (f'{RULE}{plural(roles, "open role")} still scored on it'
                  if roles and not r["active"] else "")
         tag = ('<span class="tag tag-ok">' + _icon("tick", 12) + "Active</span>" if r["active"]
                else '<span class="tag tag-accent">Viewing, read only</span>' if name == viewing
@@ -701,7 +691,7 @@ def _history_html(rows: list, viewing: str | None, compare: dict | None,
         cls = " is-viewing" if name == viewing else ""
         items.append(f"""<li class="vrow{cls}"><div><p class="vwhen">{esc(r['when'])}</p>
 <p class="vwhat">{esc(r['what'])}</p>
-<p class="vfile">Version {r['number']} · {esc(name)}{esc(still)}</p></div>
+<p class="vfile">Version {r['number']}{RULE}{esc(name)}{still}</p></div>
 <div class="vacts">{tag}{acts}</div></li>""")
     compare_html = ""
     if compare:
@@ -711,14 +701,11 @@ def _history_html(rows: list, viewing: str | None, compare: dict | None,
             f'&ldquo;{esc(t)}&rdquo;</span></li>' for k, n, t in compare["items"])
         compare_html = f"""<div class="dialog compare" id="compare" tabindex="-1">
 <h4>Version {compare['number']} ({esc(compare['when'])}) against the active version</h4>
-<p class="dlg-body">{esc(compare['words'])}. Line numbers are the active version's.</p>
+<p class="dlg-body">{esc(compare['words'])}.</p>
 <ul class="diffs">{lines or '<li>Nothing differs.</li>'}</ul>
 <p class="dlg-acts"><a class="btn btn-secondary" href="/cv#history">Close</a>
 <a class="btn btn-ghost" href="/cv?view={esc(compare['name'])}#history">View version {compare['number']}</a></p></div>"""
-    return (f"""<h3>Versions of the master CV</h3>
-<p class="tp-note">Newest first. Every save is kept as a new version and nothing
-is overwritten, so an old score can always be explained.</p>
-{compare_html}
+    return (f"""{compare_html}
 <ul class="vlist">{''.join(items) or '<li class="vrow"><p class="vwhat">No saved versions yet.</p></li>'}</ul>""")
 
 
@@ -726,94 +713,13 @@ def _num(v) -> str:
     return "" if v is None else radar_common._plain_number(v)
 
 
-def _prefs_html(prefs: dict, config: dict) -> str:
-    live = prefs["live"]
-    lock = "" if live else " disabled"
-    missing = "" if live else (
-        f'<div class="notice notice-caution" role="note"><div class="notice-body">'
-        f'<span class="notice-mark">{_icon("warn")}</span><p class="notice-text">There is no '
-        f'preferences file at {esc(prefs["path"])}, so these are read from the tracked '
-        "template and cannot be saved here. Copy config/preferences.template.md there "
-        "first.</p></div></div>")
-    title_val = radar_common.read_pref_line("target_title", config) or ""
-    keywords_val = radar_common.read_pref_line("keywords", config) or ""
-    name_val = radar_common.read_first_name(config) or ""
-    changed = (f"Last changed {esc(prefs['changed'])}" if prefs.get("changed")
-               else "Not changed here yet")
-
-    def prose(key, label, gate, help_text):
-        value = prefs.get(key)
-        return f"""<div class="field">
-<label for="pref-{key}">{label}</label>
-<textarea class="input wide prose" id="pref-{key}" rows="4" data-was="{esc(value or '')}"{lock}>{esc(value or '')}</textarea>
-<p class="help">{help_text}</p>
-<p class="gate">{gate} · judged by the scorer from these words</p>
-<p class="inrow"><button type="button" class="btn btn-secondary" data-section-save="{key}"{lock}>Save {label.lower()}</button></p>
-</div>"""
-
-    return f"""<h3 id="prefs-h">Scoring preferences</h3>
-<p class="tp-note">What a role is judged against, beside the CV. They live in
-{esc(prefs['path'])}, which stays out of git.</p>
-<div class="statement" role="note"><span class="notice-mark">{_icon('info')}</span>
-<p><strong>Changing these changes how roles are scored.</strong> The scorer reads
-them for every role it scores from the next one on. A change to a floor, the
-pass mark or the Filtered floor also re-sorts the roles already scored, in code,
-at no cost, and says how many moved. A change to location or sector cannot be
-worked out again without the model, so saving one offers a paid rescore, with
-the count and the cost first.</p></div>
-{missing}
-<form class="prefs" id="prefs-form" novalidate>
-<div class="field">
-<label for="pref-day_rate_floor_gbp">Contract day-rate floor</label>
-<span class="inrow"><span class="affix">£</span><input class="input num" id="pref-day_rate_floor_gbp" name="day_rate_floor_gbp" inputmode="decimal" value="{_num(prefs['day_rate_floor_gbp'])}" data-was="{_num(prefs['day_rate_floor_gbp'])}" aria-describedby="help-day"{lock}><span class="affix">a day</span></span>
-<p class="help" id="help-day">A day rate under this fails the Rate gate. A range is judged on its top figure; an hourly rate counts times eight.</p>
-<p class="gate">Rate gate · re-sorted in code</p>
-</div>
-<div class="field">
-<label for="pref-salary_floor_gbp">Permanent salary floor</label>
-<span class="inrow"><span class="affix">£</span><input class="input num" id="pref-salary_floor_gbp" name="salary_floor_gbp" inputmode="decimal" value="{_num(prefs['salary_floor_gbp'])}" data-was="{_num(prefs['salary_floor_gbp'])}" aria-describedby="help-salary"{lock}><span class="affix">a year</span></span>
-<p class="help" id="help-salary">A salary under this fails the Rate gate. A salary is judged as a salary and never turned into a day rate.</p>
-<p class="gate">Rate gate · re-sorted in code</p>
-</div>
-<fieldset class="field"><legend>CV match</legend>
-<span class="inrow"><label class="affix" for="pref-cv_pass_score">Pass mark</label><input class="input short" id="pref-cv_pass_score" name="cv_pass_score" inputmode="numeric" value="{_num(prefs['cv_pass_score'])}" data-was="{_num(prefs['cv_pass_score'])}" aria-describedby="help-cv"{lock}>
-<label class="affix" for="pref-cv_floor_score">Filtered floor</label><input class="input short" id="pref-cv_floor_score" name="cv_floor_score" inputmode="numeric" value="{_num(prefs['cv_floor_score'])}" data-was="{_num(prefs['cv_floor_score'])}" aria-describedby="help-cv"{lock}></span>
-<p class="help" id="help-cv">A CV match at the pass mark or over passes the CV gate. Under the Filtered floor a role is Filtered: counted on Jobs, never listed.</p>
-<p class="gate">CV gate · re-sorted in code from the stored CV match</p>
-</fieldset>
-<div class="form-foot"><button type="submit" class="btn btn-primary" id="prefs-save"{lock}>Save and re-sort</button>
-<span class="muted small">{changed}</span></div>
-<p class="say" id="prefs-say" aria-live="polite"></p>
-</form>
-<h3 class="sub-h">Location and sector</h3>
-{prose('location', 'Location', 'Location gate', 'Where you will work and travel. The scorer reads these words as they are.')}
-{prose('sector', 'Sector', 'Sector gate', 'The sectors you want first, and the ones that score lower.')}
-<p class="say" id="section-say" aria-live="polite"></p>
-<h3 class="sub-h">Title, keywords and welcome name</h3>
-<div class="pref-lines">
-<label class="field">Title<input type="text" class="input wide" id="pref-target_title" value="{esc(title_val)}">
-<span class="inrow"><button type="button" class="btn btn-secondary" data-pref-save="target_title">Save title</button></span></label>
-<label class="field">Keywords, comma separated<input type="text" class="input wide" id="pref-keywords" value="{esc(keywords_val)}">
-<span class="inrow"><button type="button" class="btn btn-secondary" data-pref-save="keywords">Save keywords</button></span></label>
-<label class="field">First name, for Home's welcome<input type="text" class="input wide" id="pref-first_name" value="{esc(name_val)}" autocomplete="given-name">
-<span class="inrow"><button type="button" class="btn btn-secondary" data-pref-save="first_name">Save name</button></span></label>
-</div>
-<p class="say" id="pref-note" aria-live="polite"></p>
-<p class="help">The scorer also reads the title and keywords, and the notes you
-keep on engagement types and rates, which are edited in the file by hand.</p>"""
-
-
 def _import_html(active_number: int) -> str:
-    return f"""<h3>Import from Word</h3>
-<p class="tp-note">Bring the master in from a file. Radar reads it to text and
-shows it laid out the editor's way, with every guess named, before anything is
-saved. Nothing changes until you choose.</p>
-<div class="drop" id="import-drop">
+    return f"""<div class="drop" id="import-drop">
 <button type="button" class="btn btn-secondary" id="import-choose">Choose a file</button>
 <input type="file" id="cv-file" class="visually-hidden" tabindex="-1" aria-hidden="true" accept=".md,.markdown,.txt,.docx,.pdf">
-<p class="help">Reads Word (.docx), Markdown, plain text and PDF files with text, up to 5 MB. A .doc from older Word needs saving as .docx first.</p>
+<p class="help">Word, Markdown, text or PDF, up to 5 MB</p>
 </div>
-<div id="import-reading" hidden><p class="help"><span id="import-name"></span> Reading the file to text. Nothing has changed.</p>
+<div id="import-reading" hidden><p class="help"><span id="import-name"></span> Reading the file.</p>
 <div class="bar" role="progressbar" aria-label="Reading the file"><span style="width:50%"></span></div>
 <button type="button" class="btn btn-ghost" id="import-cancel">Cancel</button></div>
 <div id="import-failed" class="notice notice-bad" hidden role="alert"><div class="notice-body"><span class="notice-mark">{_icon('bad')}</span><p class="notice-text" id="import-failed-text"></p></div></div>
@@ -824,17 +730,7 @@ saved. Nothing changes until you choose.</p>
 <pre class="preview" id="cv-preview" tabindex="0" aria-label="The file as the editor will lay it out"></pre>
 <p class="form-foot"><button type="button" class="btn btn-primary" id="cv-confirm">Save as version {active_number + 1}</button>
 <button type="button" class="btn btn-ghost" id="cv-discard">Discard</button></p>
-<p class="help">Saving makes it the active master, the one the scorer reads, and the roles scored on the version before are flagged above.</p>
 </div>"""
-
-
-def _keys_html() -> str:
-    rows = "".join(f"<dt>{_kbd(*k)}</dt><dd>{esc(w)}</dd>" for k, w in KEYS)
-    return f"""<h2 id="keys-h">Keys on this page</h2>
-<dl class="keys">{rows}</dl>
-<p class="help">Every key here goes with Ctrl or Alt, or moves focus. Ctrl S saves a
-version even while you type in a line, by design; no other key here acts on
-what you type. With Rearrange or Design open, Ctrl S does nothing.</p>"""
 
 
 def _rescore_blocks(stale: dict | None, active: str | None, run: dict) -> str:
@@ -913,7 +809,6 @@ def render_page(config: dict, db_path: Path | None, jobs: dict | None = None,
         except OSError:
             compare = None
     prefs = pref_values(config)
-    marks = radar_common.read_score_thresholds(config)
     pages = (cv_doc.estimate_pages(cv_store.cv_lines(laid_text), design)
              if laid_text is not None else [])
     active_row = next((r for r in hist if r["active"]), None)
@@ -933,71 +828,46 @@ def render_page(config: dict, db_path: Path | None, jobs: dict | None = None,
     banners = []
     if problem is not None:
         banners.append(("bad", "The master CV could not be read. " + problem))
-    elif not laid_out:
-        banners.append(("caution", "This version was not written by this editor, so it "
-                        "is shown in the editor's layout: a name, a headline, then the "
-                        "sections. Check it, then save it to make a version in this layout. "
-                        "Until then the scorer reads the version as it is, and no role's "
-                        "Prepare application page makes a tailored copy from it, because "
-                        "the copy's line numbers would not be the scorer's."))
     if viewing:
         vrow = next(r for r in hist if r["name"] == viewing)
-        banners.append(("info", f"You are viewing version {vrow['number']} of the master, "
-                        f"saved {vrow['when']}, read only."))
+        banners.append(("info", f"Viewing version {vrow['number']}, saved {vrow['when']}, read only."))
     banner_html = "".join(
-        f'<div class="notice notice-{k} cv-banner" role="note"><div class="notice-body">'
-        f'<span class="notice-mark">{_icon({"bad": "bad", "caution": "warn", "info": "info"}[k])}</span>'
+        f'<div class="notice notice-{k}" role="note"><div class="notice-body">'
+        f'<span class="notice-mark">{_icon({"bad": "bad", "info": "info"}[k])}</span>'
         f'<p class="notice-text">{esc(t)}</p></div>'
         + ('<div class="notice-acts"><a class="btn btn-secondary" href="/cv">Back to version '
            f'{active_number}</a><button type="button" class="btn btn-ghost" id="view-restore">'
            'Start a new version from this one</button></div>' if k == "info" else "")
         + "</div>" for k, t in banners)
-    over = ""
-    if page_count > 2:
-        p3 = pages[2]
-        over = (f'<p class="over-label" id="over-note">{_icon("warn")}<span>The CV runs to '
-                f'{page_count} pages, over the two-page limit. Page 3 starts at line '
-                f'{p3["first"]}. Saving is still allowed.</span> '
-                '<a class="link" href="#page-3" id="go-page-3">Go to page 3</a></p>')
-    else:
-        over = '<p class="over-label" id="over-note" hidden></p>'
-    meta_pages = f"{plural(page_count, 'page')}" if page_count else ""
-    meta = (f'<span class="mono">{esc(active or "")}</span> '
-            f'<span class="tag tag-ok">{_icon("tick", 12)}The scorer reads this</span> '
-            f'<span class="muted">{esc(meta_pages)}{" · saved " + esc(short_when(marker)) if marker else ""}</span>')
-    reads_open = (f"{open_scope['count']} open, scored, not applied for"
-                  if open_scope else "Not known: the database could not be read")
-    master_panel = f"""<section class="panel masters a-masters" aria-labelledby="master-h">
-<h2 id="master-h">Master CV <span class="muted small">one, with dated versions</span></h2>
-<p class="panel-note">The master is the CV the scorer reads for every role, and the one
-Prepare application tailors from. Every save is a new dated version.</p>
-<div class="mlist"><div class="mrow is-open"><p class="mtop"><span class="mname">{esc(active or 'No master yet')}</span>
-<span class="tag tag-ok">{_icon('tick', 12)}Active, the scorer reads this</span></p>
-<p class="mmeta">{esc(meta_pages)}{' · ' + plural(len(hist), 'version') if hist else ''}{' · saved ' + esc(short_when(marker)) if marker else ''}{' · over the two-page limit' if page_count > 2 else ''}</p></div></div>
-<dl class="reads"><dt>The scorer reads</dt><dd><span class="mono">{esc(active or '')}</span>{', version ' + str(active_number) if active_number else ''}</dd>
-<dt>Preferences</dt><dd>{esc('Last changed ' + prefs['changed'] if prefs.get('changed') else 'Read from the template')}, in the Preferences tab</dd>
-<dt>CV gate</dt><dd>Passes at {_num(marks['pass'])}, Filtered under {_num(marks['floor'])}</dd>
-<dt>Roles</dt><dd>{esc(reads_open)}</dd></dl>
-</section>"""
-    tabs = f"""<section class="panel tabs a-tabs" aria-labelledby="tabs-h">
-<h2 class="visually-hidden" id="tabs-h">History, preferences and import</h2>
-<div class="tablist" role="tablist" aria-label="About the CV" id="cv-tabs">
-<button type="button" class="tab" role="tab" id="tab-history" aria-controls="history" aria-selected="true" tabindex="0">History<span class="count">{len(hist)}</span></button>
-<button type="button" class="tab" role="tab" id="tab-settings" aria-controls="settings" aria-selected="false" tabindex="-1">Preferences</button>
-<button type="button" class="tab" role="tab" id="tab-import" aria-controls="import" aria-selected="false" tabindex="-1">Word import</button>
-</div>
-<div class="tabpanel" role="tabpanel" id="history" aria-labelledby="tab-history" tabindex="0">{_history_html(hist, viewing, compare, counts)}</div>
-<div class="tabpanel" role="tabpanel" id="settings" aria-labelledby="tab-settings" tabindex="0" hidden>{_prefs_html(prefs, config)}</div>
-<div class="tabpanel" role="tabpanel" id="import" aria-labelledby="tab-import" tabindex="0" hidden>{_import_html(active_number)}</div>
-</section>"""
-    work = f"""<div class="a-work"><div class="canvas">
+    # One caution line, only while the master is not in the editor's layout.
+    if problem is None and not laid_out:
+        banner_html += ('<p class="cv-caution" role="note">Not saved in Radar\'s layout yet. Prepare '
+                        'application can\'t make a copy until it is.</p>')
+    pages_pill = (f'<span class="pill pages-pill{" is-over" if page_count > 2 else ""}" id="pages-pill">'
+                  f'{esc(plural(page_count, "page"))}, limit is 2</span>' if page_count else
+                  '<span class="pill pages-pill" id="pages-pill" hidden></span>')
+    head = (f'<header class="cv-head">{page_frame.chip("cv", "cv")}<h1>CV</h1>'
+            '<span class="pill pill-ok">The scorer reads this version</span>'
+            f'{pages_pill}'
+            '<button type="button" class="btn btn-rose" id="tb-save" data-cv-act="master" '
+            'aria-keyshortcuts="Control+S" hidden>Save version</button></header>')
+
+    def rail_sec(key: str, title: str, body: str, count: str = "") -> str:
+        return (f'<section class="cv-sec" id="{key}-sec" aria-labelledby="{key}-h"><header class="sec-head">'
+                f'{page_frame.chip("cv" if key == "versions" else "list", "cv")}'
+                f'<h2 class="sec-title" id="{key}-h">{esc(title)}</h2>{count}</header>'
+                f'<div class="card g-cv glow-faint cv-card">{body}</div></section>')
+    rail = (f'<aside class="cv-rail" aria-label="Versions and import">'
+            + rail_sec("versions", "Versions",
+                       f'<div id="history">{_history_html(hist, viewing, compare, counts)}</div>',
+                       f'<span class="sec-count">{len(hist)}</span>')
+            + rail_sec("import", "Import", f'<div id="import">{_import_html(active_number)}</div>')
+            + '</aside>')
+    work = f"""<div class="cv-main"><div class="canvas">
 <h2 class="visually-hidden" id="sheet-h">The CV sheet</h2>
-<p class="phone-note">On a phone the CV is for reading: Edit beside each section opens its lines as fields.</p>
 {_toolbar_html(problem is None and not viewing)}
-{over}
 <p class="cv-note" id="cv-say" aria-live="polite"></p>
 <article class="sheet sheet-paper" id="cv-sheet" aria-label="The CV, {esc(plural(page_count, 'page'))} of A4">{editor or '<p class="cvl-t">No CV to show.</p>'}</article>
-<div class="sheet-foot"><span id="page-foot">{esc(plural(page_count, 'page'))} of A4{', lines 1 to ' + str(pages[-1]['last']) if pages else ''}</span><span>Pages as the Word file prints them, estimated</span></div>
 </div></div>"""
     add_menu = ('<ul class="menu" role="menu" id="add-menu" aria-label="Add section" hidden>'
                 '<li class="mhead" role="presentation" id="add-after">Add after the section in focus</li>'
@@ -1010,15 +880,12 @@ Prepare application tailors from. Every save is a new dated version.</p>
 <p class="dlg-body" id="rearrange-help">Pick a section up with Space, move it with the Up and Down arrows and put it down with Space. Escape puts it back where it was. Move up and Move down do the same with a click.</p>
 <ul class="rlist" id="rearrange-list"></ul>
 <p class="live" id="rearrange-live" aria-live="assertive"></p>
-<p class="help">Line numbers move with the sections. A citation on a Prepare page follows the words of its line, not the number.</p>
 <div class="dlg-acts"><button type="button" class="btn btn-primary" id="rearrange-done">Done</button><button type="button" class="btn btn-ghost" id="rearrange-cancel">Cancel</button></div>
 </dialog>
 <dialog class="dialog" id="design-dlg" aria-labelledby="design-h">
 <h3 id="design-h">Design</h3>
-<p class="dlg-body">How the sheet and the Word file look. The text and its line numbers do not change, so the scorer reads exactly what it read before.</p>
 <div class="opts" id="design-opts"></div>
 <p class="live" id="design-pages" aria-live="polite"></p>
-<p class="help">Every choice keeps the Word file one column, with no tables, images, headers or footers, so tracking systems read it as plainly as a person does.</p>
 <div class="dlg-acts"><button type="button" class="btn btn-primary" id="design-apply">Apply</button><button type="button" class="btn btn-ghost" id="design-standard">Back to standard</button><button type="button" class="btn btn-ghost" id="design-cancel">Cancel</button></div>
 </dialog>"""
     page = f"""<!doctype html>
@@ -1026,29 +893,25 @@ Prepare application tailors from. Every save is a new dated version.</p>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MedTech Radar. CV.</title>
+<title>CV, MedTech Radar</title>
 <link rel="icon" href="{build_dashboard.FAVICON}">
-<style>{page_frame.FRAME_CSS}{cv_page.CV_CSS}{CV_SCREEN_CSS}</style>
+<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{cv_page.CV_CSS}{CV_SCREEN_CSS}</style>
 </head>
 <body class="cvp-body">
 {page_frame.appbar_html("cv", jobs)}
 <main class="cvp" id="main" data-page="{esc(json.dumps(data, ensure_ascii=False))}">
-<header class="page-head"><div class="ph-row"><h1>CV</h1><p class="ph-meta">{meta}</p></div>
-<p class="lede">The master CV the scorer reads for every role. Edit it in place, section by
-section; every save is kept as a new version.</p></header>
+{head}
 {banner_html}
 {_rescore_blocks(stale, marker, run)}
-<div class="layout">
+<div class="cv-layout">
 {work}
-{master_panel}
-{tabs}
-<section class="panel a-keys" aria-labelledby="keys-h">{_keys_html()}</section>
+{rail}
 </div>
 {add_menu}
 {dialogs}
 <p class="visually-hidden" id="cv-live" aria-live="assertive"></p>
 </main>
-<script>{build_dashboard.SCRIPT}{page_frame.FRAME_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}{build_dashboard.PREFS_SCRIPT}{CV_SCREEN_JS}</script>
+<script>{build_dashboard.SCRIPT}{page_frame.FRAME_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}{CV_SCREEN_JS}</script>
 </body>
 </html>"""
     return page.encode("utf-8")
@@ -1067,11 +930,18 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .cvp button,.cvp input,.cvp select,.cvp textarea{font:inherit}
 /* The shared content box, page_frame's --frame-max and --frame-pad. */
 .cvp{display:block;padding:24px var(--frame-pad) 48px;max-width:var(--frame-max);margin:0 auto}
-.page-head{margin:0 0 16px}
-.ph-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;min-height:28px}
-.ph-row .ph-meta{margin-left:auto;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:13px;line-height:20px}
-.page-head h1{font:600 20px/28px var(--font-sans)}
-.page-head .lede{color:var(--text-2);font-size:14px;line-height:20px;max-width:88ch;margin-top:4px}
+/* The title row (owner, 18 Nov): the CV's rose chip, CV, the pills, and the
+   page's one solid button at the right. */
+.cv-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 16px}
+.cv-head h1{font:600 24px/32px var(--font-sans)}
+.cv-head #tb-save{margin-left:auto}
+.pill{display:inline-flex;align-items:center;height:24px;padding:0 10px;border:1px solid #2a3238;border-radius:12px;background:#1a2025;font-size:13px;line-height:20px;font-weight:500;color:var(--text-2);white-space:nowrap}
+.pill-ok{border-color:rgba(116,211,155,.45);background:var(--positive-tint);color:var(--positive)}
+.pill.is-over{border-color:rgba(240,196,106,.5);background:var(--caution-tint);color:var(--caution)}
+.btn-rose,.cvp a.btn-rose{background:#e88fb4;border-color:#e88fb4;color:#2a0f1c;font-weight:600}
+.btn-rose:hover{background:#efa9c6;border-color:#efa9c6;color:#2a0f1c}
+.cv-caution{margin:0 0 16px;padding:10px 16px;border:1px solid var(--caution);border-radius:10px;background:var(--caution-tint);color:var(--text-1);font-size:14px;line-height:20px}
+.card{min-width:0;border:1px solid var(--border-subtle);border-radius:14px;background-color:var(--surface)}
 .mono{font-family:var(--font-mono);font-size:13px}
 .muted{color:var(--text-3)}
 .small{font-size:12px;line-height:16px}
@@ -1091,11 +961,11 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .tag-accent{background:var(--accent-tint);color:var(--accent)}
 .tag-caution{background:var(--caution-tint);color:var(--caution)}
 .link{color:var(--accent);text-underline-offset:2px}
-.notice{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:10px 16px;border:1px solid var(--border-subtle);border-left-width:4px;border-radius:var(--radius-2);background:var(--surface);margin:0 0 16px}
-.notice-caution{border-left-color:var(--caution)}
-.notice-info{border-left-color:var(--neutral)}
-.notice-ok{border-left-color:var(--positive)}
-.notice-bad{border-left-color:var(--negative)}
+.notice{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:10px 16px;border:1px solid var(--border-subtle);border-radius:10px;background:var(--surface);margin:0 0 16px}
+.notice-caution{border-color:var(--caution)}
+.notice-info{border-color:var(--neutral)}
+.notice-ok{border-color:var(--positive)}
+.notice-bad{border-color:var(--negative)}
 .notice-body{display:flex;gap:12px;align-items:flex-start;flex:1 1 40ch;min-width:0;font-size:14px;line-height:20px}
 .notice-mark{flex:none;margin-top:2px;display:inline-flex}
 .notice-caution .notice-mark{color:var(--caution)}
@@ -1107,22 +977,22 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .notice-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .notice:focus{outline:none}
 .notice:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
-.layout{display:grid;gap:24px;align-items:start;grid-template-columns:minmax(0,1fr);grid-template-areas:"masters" "work" "tabs" "keys"}
-.a-masters{grid-area:masters;min-width:0}.a-work{grid-area:work;min-width:0}.a-tabs{grid-area:tabs;min-width:0}.a-keys{grid-area:keys;min-width:0}
-@media (min-width:768px){.layout{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"work work" "masters tabs" "keys tabs"}}
-@media (min-width:1280px){.layout{grid-template-columns:minmax(0,1fr) 380px;grid-template-rows:auto auto 1fr;grid-template-areas:"work masters" "work tabs" "work keys"}}
-@media (min-width:1920px){.layout{grid-template-columns:400px minmax(0,1fr) 480px;grid-template-rows:auto 1fr;grid-template-areas:"masters work tabs" "keys work tabs"}}
-@media (max-width:767.98px){.a-keys{display:none}.reads{display:none}}
+/* The sheet and a rail of Versions and Import: 360px from 1024px, 400px from
+   1800px, stacked below (owner, 18 Nov). */
+.cv-layout{display:grid;gap:32px;align-items:start;grid-template-columns:minmax(0,1fr)}
+@media (min-width:1024px){.cv-layout{grid-template-columns:minmax(0,1fr) 360px}}
+@media (min-width:1800px){.cv-layout{grid-template-columns:minmax(0,1fr) 400px}}
+.cv-main,.cv-rail{min-width:0}
+.fact-rule{flex:none;display:inline-block;width:0;height:12px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-1px}
+.cv-sec + .cv-sec{margin-top:24px}
+.cv-card{padding:16px}
+.over-go{display:inline-flex;align-items:center;padding:0 6px;font-size:14px;line-height:20px}
 .cvp .panel{background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius-4);padding:16px;margin:0}
 .cvp .panel h2{font:600 16px/24px var(--font-sans)}
-.panel .panel-note{color:var(--text-2);font-size:14px;line-height:20px;margin-top:4px}
 .canvas{display:flex;flex-direction:column;align-items:center;min-width:0}
 .canvas > .toolbar,.canvas > .cv-note,.canvas > .over-label{width:794px;max-width:100%}
 .wide-only{display:inline-flex;align-items:center;gap:2px}
-.toolbar .phone-only{display:none}
-@media (max-width:767.98px){.toolbar .wide-only{display:none}.toolbar .phone-only{display:inline-flex}}
-.phone-note{width:100%;font-size:13px;line-height:20px;color:var(--text-2);margin:0 0 12px}
-@media (min-width:768px){.phone-note{display:none}}
+@media (max-width:767.98px){.toolbar .wide-only{display:none}}
 .toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:6px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-4);margin-bottom:12px;position:sticky;top:0;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.35)}
 .toolbar .sep{width:1px;align-self:stretch;margin:4px 2px;background:var(--border-subtle)}
 .toolbar .grow{flex:1 1 auto}
@@ -1197,28 +1067,11 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
   .ph-row .ph-meta{margin-left:0}
 }
 .masters h2{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
-.mlist{margin-top:12px;display:flex;flex-direction:column;gap:8px}
-.mrow{border:1px solid var(--border-subtle);border-radius:var(--radius-2);padding:10px 12px;background:var(--canvas)}
-.mrow.is-open{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
-.mrow .mtop{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
-.mrow .mname{font:500 14px/20px var(--font-mono);color:var(--text-1);overflow-wrap:anywhere}
-.mrow .mmeta{margin-top:2px;color:var(--text-3);font-size:12px;line-height:16px}
-.reads{margin-top:12px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;font-size:13px;line-height:20px}
-.reads dt{color:var(--text-3)}
-.reads dd{color:var(--text-1);min-width:0;overflow-wrap:anywhere}
-.cvp .tabs{padding:0}
-.tablist{display:flex;flex-wrap:wrap;border-bottom:1px solid var(--border-subtle);padding:0 8px}
-.tab{position:relative;min-height:44px;padding:0 12px;border:0;background:transparent;color:var(--text-2);font:500 14px/20px var(--font-sans);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
-.tab[aria-selected="true"]{color:var(--text-1);border-bottom-color:var(--accent)}
-.tab[aria-selected="true"]::after{content:"";position:absolute;left:12px;right:12px;bottom:-2px;height:2px;background:var(--accent)}
-.tab .count{color:var(--text-3);font-weight:400;margin-left:4px}
-.tab:focus-visible{outline-offset:-4px;box-shadow:none}
 .tabpanel{padding:16px}
 .tabpanel:focus{outline:none}
 .tabpanel:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 .tabpanel h3{font:600 15px/24px var(--font-sans)}
 .tabpanel h4{font:600 14px/20px var(--font-sans)}
-.tabpanel .sub-h,.a-keys .sub-h{margin-top:20px;padding-top:12px;border-top:1px solid var(--border-subtle);font:600 15px/24px var(--font-sans)}
 .tabpanel .tp-note{color:var(--text-2);font-size:14px;line-height:20px;margin:2px 0 12px}
 .vlist{display:flex;flex-direction:column;border-top:1px solid var(--border-subtle)}
 .vrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 0;border-bottom:1px solid var(--border-subtle)}
@@ -1226,15 +1079,9 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .vrow .vwhat{color:var(--text-2);font-size:13px;line-height:20px}
 .vrow .vfile{color:var(--text-3);font:400 12px/16px var(--font-mono);overflow-wrap:anywhere}
 .vrow .vacts{display:flex;gap:4px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}
-.vrow.is-viewing{background:var(--accent-tint);box-shadow:inset 3px 0 0 var(--accent);padding-left:10px;padding-right:10px}
+.vrow.is-viewing{background:var(--accent-tint);outline:1px solid var(--accent);border-radius:8px;padding-left:10px;padding-right:10px}
 @media (max-width:767.98px){.vrow{grid-template-columns:minmax(0,1fr)}.vrow .vacts{justify-content:flex-start}}
 .compare{margin:0 0 12px}
-.keys{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 12px;margin-top:10px;font-size:13px;line-height:20px;align-items:center}
-.keys dt{display:flex;gap:4px;flex-wrap:wrap}
-.keys dd{color:var(--text-2)}
-.a-keys .help{margin-top:12px}
-.a-keys h2:focus{outline:none}
-.a-keys h2:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .field{display:flex;flex-direction:column;gap:4px;padding:12px 0;border:0;border-bottom:1px solid var(--border-subtle);margin:0;min-width:0}
 .field:last-of-type{border-bottom:0}
 .field > label,.field > legend{font:600 14px/20px var(--font-sans);color:var(--text-1);padding:0}
@@ -1251,9 +1098,6 @@ textarea.input{padding:6px 10px;resize:vertical}
 .affix{color:var(--text-2);font-size:14px}
 .check{display:inline-flex;align-items:center;gap:8px;font-size:14px;line-height:20px;color:var(--text-1);min-height:32px;cursor:pointer}
 .check input{width:16px;height:16px;margin:0;accent-color:var(--accent)}
-.statement{display:flex;gap:12px;padding:12px;border:1px solid var(--border-subtle);border-left:4px solid var(--accent);border-radius:var(--radius-2);background:var(--canvas);font-size:14px;line-height:20px;margin-bottom:4px}
-.statement strong{color:var(--text-1)}
-.statement .notice-mark{color:var(--accent)}
 .form-foot{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--border-subtle)}
 .say{font-size:13px;line-height:20px;color:var(--text-2);margin-top:8px}
 .say:empty{display:none}
@@ -1453,13 +1297,17 @@ CV_SCREEN_JS = r"""
     if (over) {
       if (pages.length > 2) {
         over.hidden = false;
-        over.innerHTML = ICON.warn + '<span>The CV runs to ' + pages.length + ' pages, over the '
-          + 'two-page limit. Page 3 starts at line ' + pages[2].first + '. Saving is still '
-          + 'allowed.</span> <a class="link" href="#page-3" id="go-page-3">Go to page 3</a>';
+        over.innerHTML = '<a class="link" href="#page-3" id="go-page-3">Go to page 3</a>';
       } else {
         over.hidden = true;
         over.textContent = '';
       }
+    }
+    var pill = $('pages-pill');
+    if (pill && pages.length) {
+      pill.hidden = false;
+      pill.textContent = plural(pages.length, 'page') + ', limit is 2';
+      pill.classList.toggle('is-over', pages.length > 2);
     }
   }
   if (E) {
@@ -1844,48 +1692,16 @@ CV_SCREEN_JS = r"""
   var dCancel = $('design-cancel');
   if (dCancel) dCancel.addEventListener('click', function () { closeDialog(dDlg); });
 
-  // ------------------------------------------------- the tabs
-  var tablist = $('cv-tabs');
-  var tabs = tablist ? all('[role="tab"]', tablist) : [];
-  function selectTab(tab, focus) {
-    if (!tab) return;
-    tabs.forEach(function (t) {
-      var on = t === tab;
-      t.setAttribute('aria-selected', String(on));
-      t.setAttribute('tabindex', on ? '0' : '-1');
-      var panel = $(t.getAttribute('aria-controls'));
-      if (panel) panel.hidden = !on;
-    });
-    if (focus) tab.focus();
-    var id = tab.getAttribute('aria-controls');
-    if (window.history && history.replaceState && typeof location !== 'undefined' && location.pathname) {
-      try { history.replaceState(null, '', location.pathname + (location.search || '') + '#' + id); } catch (e) {}
-    }
-  }
-  if (tablist) tablist.addEventListener('keydown', function (e) {
-    var i = tabs.indexOf(document.activeElement);
-    if (i < 0) return;
-    var j = null;
-    if (e.key === 'ArrowRight') j = (i + 1) % tabs.length;
-    else if (e.key === 'ArrowLeft') j = (i - 1 + tabs.length) % tabs.length;
-    else if (e.key === 'Home') j = 0;
-    else if (e.key === 'End') j = tabs.length - 1;
-    if (j === null) return;
-    e.preventDefault();
-    selectTab(tabs[j], true);
-  });
-  tabs.forEach(function (t) { t.addEventListener('click', function () { selectTab(t, false); }); });
+  // ------------------------------------------------- the old tabs' addresses
+  // Preferences is the Settings page now; History and the Word import are
+  // the rail's Versions and Import.
   function fromHash() {
     var h = (typeof location !== 'undefined' && location.hash) || '';
-    var want = { '#settings': 'tab-settings', '#preferences': 'tab-settings', '#history': 'tab-history',
-                 '#import': 'tab-import', '#compare': 'tab-history' }[h];
-    if (!want) return;
-    selectTab($(want), false);
-    var panel = $($(want).getAttribute('aria-controls'));
-    if (h === '#compare' || ($('compare') && h === '#history')) panel = $('compare') || panel;
-    if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'start' });
+    if (h === '#settings' || h === '#preferences') { location.replace('/settings'); return; }
+    var at = { '#history': 'versions-sec', '#compare': 'compare', '#import': 'import-sec' }[h];
+    var el = at ? ($(at) || $('versions-sec')) : null;
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
   }
-  if ($('compare')) selectTab($('tab-history'), false);
   fromHash();
   window.addEventListener('hashchange', fromHash);
 
