@@ -1150,8 +1150,8 @@ def first_click_checks() -> None:
         row = env.row(oid)
         check(out["outcome"] == "scored" and not FETCHES and not out["fetched"]
               and row["description_fetched_at"] is None and len(CALLS) == 1
-              and "Stored by the page checker, date not recorded"
-              in page_text(render_inner(env, oid)),
+              and "Scored on the full description" in page_text(render_inner(env, oid))
+              and "Read from the advert" not in page_text(render_inner(env, oid)),
               "a description the page checker stored is used without a fetch, "
               "scored once, and shown as stored with no date rather than a made-up one")
 
@@ -1176,11 +1176,10 @@ def tier_move_checks() -> None:
               and row["status"] == "new",
               "and nothing is dismissed, acknowledged, closed, expired or applied")
         text = page_text(render_inner(env, oid))
-        check("moved this role from Top prospects to Filtered" in text
-              and "Nothing was dismissed" in text
-              and "counts a Filtered role instead of listing it" in text,
-              "the page reports the move, says nothing was dismissed, and says "
-              "the Jobs page will count it instead of listing it")
+        check("The full description moved this role from Top prospects to Filtered." in text
+              and "Nothing was dismissed" not in text
+              and "counts a Filtered role instead of listing it" not in text,
+              "the page reports the move in one sentence, with no explanation")
         # The notice lasts as long as the score it came from, no longer.
         env.sql("UPDATE opportunities SET score_basis = 'card', scored_at = ? WHERE id = ?",
                 ("2026-11-12T12:00:00Z", oid))
@@ -1841,18 +1840,17 @@ def stale_description_checks() -> None:
         inner = render_inner(env, oid)
         text = page_text(inner)
         check("The stored description has changed since this role was scored" in text
-              and "pay quoted from the earlier one is not shown" in text
-              and "the asks and the rate line from the earlier one are not shown" in text
+              and "the asks and the rate line from the earlier one are not shown" not in text
               and "Score the new description" in text
               and "“£700 to £800 per day”" not in text
               and "IEC 62304 and ISO 13485" not in text
-              and "✓ Met" not in text and BUTTON.search(inner),
+              and 'class="mark met"' not in inner and BUTTON.search(inner),
               "a description the page checker has since replaced hides the asks and "
               "the pay quoted from the old one, says so, and offers to score the new")
         out = env.prepare(oid)
         text = page_text(render_inner(env, oid))
         check(out["outcome"] == "scored" and len(CALLS) == 2
-              and "Kubernetes certification" in text and "✗ Gap" in text
+              and "Kubernetes certification" in text and "Gap, not on the CV" in text
               and "has changed since" not in text,
               "and scoring it once more shows the asks and the pay of the new one")
     # A prompt that has moved on is not a description that has.
@@ -1862,13 +1860,10 @@ def stale_description_checks() -> None:
         env.sql("UPDATE opportunities SET score_working = NULL, prompt_version = ?"
                 " WHERE id = ?", ("abcd1234", oid))
         text = page_text(render_inner(env, oid))
-        check("the prompt has changed since" in text
-              and "has changed since this role was scored" not in text
-              and "No asks yet" in text
-              and "Not read yet" in text,
+        check("has changed since this role was scored" not in text
+              and "No asks yet" in text and "Scored on the full description" in text,
               "a score made on this very description, whose working has been lost, "
-              "under a prompt that has moved on, says the prompt has changed and "
-              "does not say the description has")
+              "under a prompt that has moved on, does not say the description has changed")
 
 
 def odd_replies_checks() -> None:
@@ -2257,19 +2252,20 @@ def page_checks() -> None:
         go = render_page(env, oid, go=True)
         plain = render_page(env, oid, go=False)
         button = BUTTON.search(plain)
-        words = page_text(plain[button.start():plain.index("</button>", button.start())])
+        end = plain.index("</button>", button.start())
+        words = page_text(plain[button.start():end])
         check(go == plain and 'data-run' not in plain
               and '<p class="notice work" data-pa-working hidden' in plain
               and len(BUTTON.findall(plain)) == 1
-              and words.strip() == "About 3 cents, 1 call: Fetch and score the full description",
+              and words.strip() == "Fetch and score the full description"
+              and plain[end:].startswith('</button><span class="cost">About 3 cents, 1 call</span>'),
               "opened from the Jobs link or any other way, the page is the same: it starts "
-              "nothing, and offers one button that states its cost before what it does "
+              "nothing, and offers one button with its cost beside it in the short form "
               f"({words.strip()!r})")
-        check(prepare_page.COST_DETAIL in page_text(plain)
-              and "A fetch that fails costs nothing." in page_text(plain)
-              and "never more than about 15 cents" in page_text(plain),
-              "beside it the page says what the press costs, at most, and that a failed "
-              "fetch and a page opened again cost nothing")
+        check("never more than about 15 cents" not in page_text(plain)
+              and "A fetch that fails costs nothing." not in page_text(plain)
+              and re.search(r'<div class="pa-strip"><span class="strip-t">[^<]+</span><span class="fetch">', plain),
+              "the long cost paragraph is gone: the button sits in the description's top strip")
         for _ in range(5):
             render_page(env, oid, go=True)
         check(env.dump() == before and not FETCHES and not CALLS,
@@ -2279,41 +2275,40 @@ def page_checks() -> None:
         env.prepare(oid)
         done = render_page(env, oid, go=True)
         check(not BUTTON.search(done)
-              and "Scored once for this description" in page_text(done)
-              and "so there is no fetch button" in page_text(done),
-              "once the role is scored there is no button, and the page says a second "
-              "open costs nothing")
+              and '<span class="strip-t">Scored on the full description</span></div>' in done
+              and "so there is no fetch button" not in page_text(done),
+              "once the role is scored on the full description there is no button, and the "
+              "strip says so with no explanation")
         inner = render_inner(env, oid)
         text = page_text(inner)
-        for needle in ("Scored against the full description", "by mock",
-                       f"prompt {radar_common.prompt_version()}", "CV cv-test-1.md",
-                       "Basis: full spec", "The role’s score, shown on Jobs",
-                       "✓ Met", "◐ Partly", "✗ Gap, not on the CV",
+        for needle in ("Scored on the full description", "Full description", "Pass mark",
+                       " Met ", " Partly ", "Gap, not on the CV",
                        "IEC 62304 and ISO 13485 in a Class C IVD",
                        "Leadership of an FDA submission", "Kubernetes certification",
                        "RADAR-UNANCHORED claim of ten years of Rust",
-                       "4 asks from the advert: ✓ 2 met ◐ 1 partly ✗ 1 gap, not on the CV "
-                       "1 without a CV line",
-                       "On the card: No usable figure stated.", "About the role"):
+                       "4 asks , 2 met , 1 partly , 1 gap", "About the role"):
             if needle not in text:
                 check(False, f"the page shows {needle!r}")
                 break
         else:
-            check(True, "the page shows the score and how it was made, the gates, each "
-                        "ask with its mark as a word as well as a glyph, the counts, the "
-                        "card's pay and the description")
-        gates = part(inner, "gates")
-        # The advert states no pay, so Rate is not stated, never a pass.
-        check('<th scope="col">Full spec</th>' in gates and page_text(gates).count("✓ Passes") == 3
-              and page_text(gates).count("? Not stated") == 1
-              and all(f'aria-hidden="true">{k}</span>' in gates for k in "SCLR"),
-              "the gates are a table, each with the letter the Jobs row marks it by and "
-              "its result in words")
+            check(True, "the page shows where the score came from, each ask with its mark "
+                        "as a word, the counts and the description")
+        check(not any(w in text for w in ("✓", "✗", "◐", "Basis:", "by mock", "On the card:",
+                                          "without a CV line")),
+              "no tick or cross characters, no Basis tag, no how-it-was-made line")
         figs = part(inner, "score")
-        check('data-fig="spec"><dt>Full spec</dt><dd class="num">93</dd>' in figs
-              and '<dt>Card</dt><dd class="num">80</dd>' in figs
-              and '<dt>This copy</dt>' in figs,
-              "three scores sit side by side: the card's, the full spec's and this copy's")
+        tiles = re.findall(r'<div class="gate gate-(\w+) ', figs)
+        # The card states no pay, so Rate is not stated, never a pass.
+        check(tiles == ["sector", "cv", "location", "rate"]
+              and page_text(figs).count(" Passes ") == 3 and page_text(figs).count(" Not stated ") == 1
+              and "S C L R" not in page_text(figs) and "<table" not in figs,
+              "the gates are four tiles, Sector, CV match, Location and Rate, each with its "
+              "status in words, and no table of letters")
+        check('data-fig="spec"' in figs and '<span class="gate-num num">93</span>' in figs
+              and '<span class="src-pill">Full description</span>' in figs
+              and "Pass mark 70" in page_text(figs) and '<span class="gate-num num">80</span>' not in figs,
+              "CV match shows the full description's score at 28px with its pill and the pass "
+              "mark, not the card's")
         cited = cited_lines(inner)
         check(set(cited) == {(13, FIXTURE_LINES[12]), (16, FIXTURE_LINES[15])}
               and "marked met or partly with no CV line that exists" in text,
@@ -2328,18 +2323,17 @@ def page_checks() -> None:
 
         CV_LABEL[0] = "cv-test-2.md"
         text = page_text(render_inner(env, oid))
-        check("the CV has changed since" in text and "the prompt has changed" not in text
-              and "is not scored again from this page" in text,
-              "a CV that has changed since the score is flagged, and the page says "
-              "a scored description is not scored again from there")
+        check("is not scored again from this page" not in text and "Scored on the full description" in text,
+              "a CV that has changed since the score explains nothing: the strip still says "
+              "what the score was made on")
         real_version = radar_common.prompt_version
         radar_common.prompt_version = lambda name="scorer.md": "ffffffff"
         try:
             text = page_text(render_inner(env, oid))
         finally:
             radar_common.prompt_version = real_version
-        check("the prompt has changed since" in text and "the CV has changed since" in text,
-              "and so is a prompt that has")
+        check("the prompt has changed since" not in text and "Scored on the full description" in text,
+              "and nor does a prompt that has")
 
         CV_LABEL[0] = "cv-test-1.md"
         before = prep.load_working(env.row(oid))
@@ -2347,7 +2341,7 @@ def page_checks() -> None:
                 ("2026-11-12T12:34:56Z", oid))
         text = page_text(render_inner(env, oid))
         check(before is not None and prep.load_working(env.row(oid)) is None
-              and "✓ Met" not in text and "No asks yet" in text,
+              and 'class="mark met"' not in render_inner(env, oid) and "No asks yet" in text,
               "a working whose date is not the date of the score the row holds is "
               "not shown, even beside another score made on a description")
 
@@ -2372,14 +2366,14 @@ def page_checks() -> None:
               "and says it once when a click has said it already")
         text = page_text(render_inner(env, linked))
         check("could not be fetched" not in text and "Not stored yet." in text
-              and "Not fetched" in text,
+              and BUTTON.search(render_inner(env, linked)),
               "while an advert that can be fetched claims no failure before one is tried")
         stored = env.role(page=False, description_text="- IEC 62304 experience")
         inner = render_inner(env, stored)
         text = page_text(inner)
-        check("Not read yet. The rate line is quoted from the full description" in text
+        check("Not read yet." not in text
               and "No asks yet." in text and "Score the full description" in text
-              and "Not scored" in text,
+              and "Scored on the advert card" in text,
               "and one with a description stored that has not been scored says the "
               "pay and the asks come once it is, and offers to score it")
 
@@ -2387,19 +2381,20 @@ def page_checks() -> None:
         oid = env.role(description="<p>Join us. We build medical device software.</p>"
                                    "<p>- IEC 62304 experience</p>")
         env.prepare(oid)
-        check("The full description names no pay." in page_text(render_inner(env, oid)),
-              "an advert that names no pay says so")
+        rate = rate_tile(render_inner(env, oid))
+        check(rate and "“" not in rate and "names no pay" not in page_text(rate),
+              "an advert that names no pay quotes nothing on the Rate tile, and explains nothing")
     with fresh() as env:
         oid = env.role(description="<p>A medical device team.</p>"
                                    "<p>Salary: Competitive salary and benefits.</p>")
         env.prepare(oid)
-        check("“Competitive salary”" in page_text(render_inner(env, oid)),
-              "and one that says competitive is quoted as it says it")
+        check("“Competitive salary”" in page_text(rate_tile(render_inner(env, oid))),
+              "and one that says competitive is quoted on the Rate tile as it says it")
     with fresh() as env:
         oid = env.role(description="<p>A medical device team.</p><p>RADAR-BADQUOTE</p>")
         env.prepare(oid)
         text = page_text(render_inner(env, oid))
-        check("£999" not in text and "could not be found in the advert" in text
+        check("£999" not in text and "“" not in rate_tile(render_inner(env, oid))
               and "names no pay" not in text,
               "a quote the advert does not carry is not shown, and the page does "
               "not claim the advert names none either")
@@ -2410,13 +2405,10 @@ def page_checks() -> None:
         working = prep.load_working(env.row(oid))
         text = page_text(render_inner(env, oid))
         check(working is not None and working["rate_quote_from"] == "disagrees"
-              and "The scorer reported no pay, but the description has wording that "
-                  "may be pay" in text
-              and "“£650 per day”" in text
-              and "may not be pay" in text and "names no pay" not in text,
-              "a scorer that reports no pay over an advert with a figure and a period "
-              "is shown as a disagreement, with the wording quoted and a warning that "
-              "it may not be pay, never as the advert naming none")
+              and "“£650 per day”" not in rate_tile(render_inner(env, oid))
+              and "names no pay" not in text,
+              "a scorer that reports no pay over an advert with a figure and a period is "
+              "not quoted as the advert's rate line, and never shown as the advert naming none")
 
     with fresh() as env:
         evil = ("- <img src=x onerror=alert(1)>\n<script>alert(2)</script>\n"
@@ -2447,11 +2439,15 @@ def page_checks() -> None:
               and "<b>Boss</b>" not in page and "A&B <i>" not in page
               and "&lt;script&gt;alert(2)" in page and "&lt;script&gt;alert(3)" in page
               and "&lt;img src=x onerror=alert(1)&gt;" in page
-              and "&lt;svg onload=alert(4)&gt;" in page
-              and "&lt;i&gt;Led&lt;/i&gt; everything" in page
               and "&lt;b&gt;Boss&lt;/b&gt;" in page,
-              "the description, an ask, its sentence, a gate note, a cited CV line, the "
-              "title and the company are escaped, whoever wrote them")
+              "the description, a gate note, the title and the company are escaped, whoever "
+              "wrote them")
+        check('<p class="notice warn pa-unlaid">Save your master CV on the CV page to make a copy '
+              'for this role. <a class="plain" href="/cv">Open CV</a></p>' in page
+              and 'id="cv-pane"' not in page and '<span class="tally" data-pa-tally>' not in page
+              and 'data-cv-act="save" disabled>Save copy' not in page,
+              "with the master CV not in the editor's layout the Tailored CV column is one "
+              "caution line and the Open CV link, nothing else")
 
     with fresh() as env:
         oid = env.role()
@@ -2469,6 +2465,108 @@ def page_checks() -> None:
               and "About 3 cents" not in page_text(inner),
               "while a Try again that stores a reply already paid for says it costs "
               "nothing, and names no cost")
+
+
+def rate_tile(html_text: str) -> str:
+    """The Rate gate's tile."""
+    found = re.search(r'<div class="gate gate-rate .*?</span></div>', html_text, re.S)
+    return found.group(0) if found else ""
+
+
+def look_checks() -> None:
+    """The page in the shared look (owner, 18 Nov): a header card, four gate
+    tiles, and the description and the tailored CV side by side."""
+    import page_frame
+    css = prepare_page.PREPARE_CSS
+    with canonical_master() as master, fresh() as env:
+        oid = env.role(description=DESCRIPTION + "<p>We are an equal opportunity employer and "
+                       "welcome applicants from all backgrounds.</p>")
+        env.prepare(oid)
+        prep.open_copy(oid, env.db, CFG)
+        page = render_page(env, oid)
+        main = page[page.index("<main"):]
+        check(main.index('<p class="pa-back"><a class="plain" href="/jobs">Back to Jobs</a></p>')
+              < main.index('class="card g-jobs glow-head pa-head"'),
+              "a plain Back to Jobs link above the header card, which glows purple")
+        head = part(render_inner(env, oid), "head")
+        top = head[:head.index('<p class="ph-facts">')]
+        check('<span class="gchip g-jobs"' in top and "<h1>Director of Software</h1>" in top
+              and 'class="tier-pill t-top">Top prospect</span>' in top
+              and re.search(r'<a class="plain" href="https://www\.linkedin\.com/jobs/view/\d+/" '
+                            r'target="_blank" rel="noopener noreferrer">Open the advert on LinkedIn', top)
+              and '<button type="button" class="btn btn-solid" id="pa-apply" data-pa-apply' in top
+              and ".ph-top h1{font:600 24px/32px" in css
+              and ".btn-solid{background:#a79cf0;border-color:#a79cf0;color:#15122e" in css,
+              "line one: chip, the title at 24px/600, the tier pill, the advert link and Mark "
+              "applied as the one solid purple button")
+        facts = re.search(r'<p class="ph-facts">(.*?)</p>', head, re.S).group(1)
+        check(facts.count('class="fact-rule"') == 3 and "Veltrix Diagnostics" in facts
+              and "First seen" in facts and "\u00b7" not in facts,
+              "line two: company, place, source and first seen, with thin dividers")
+        check(re.findall(r'</span>([A-Za-z ]+)</li>', head[head.index('class="stages"'):])
+              == ["Preparing", "Applied", "In conversation", "Interviewing", "Offer"]
+              and '<span class="pa-app-l" id="pa-app-l">Application</span>' in head
+              and 'class="plain pa-board" href="/jobs?show=applied' in head
+              and ".stages li.is-reached .dot{background:var(--group-jobs)" in css
+              and ".pa-app{" in css and "border-top:1px solid var(--border-subtle)" in css.split(".pa-app{", 1)[1].split("}", 1)[0],
+              "line three, above a hairline: Application, the five stages as dots filled purple "
+              "when reached, and the applications board link")
+        score = part(render_inner(env, oid), "score")
+        check(score.count('<div class="gate gate-') == 4 and "<table" not in score
+              and ".gate-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))" in css
+              and "@media (max-width:899.98px){.gate-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}" in css
+              and "@media (max-width:479.98px){.gate-tiles{grid-template-columns:minmax(0,1fr)}}" in css
+              and ".gate-num{font:600 28px/36px" in css and not re.search(r'card[^"]*"[^>]*>\s*<div class="gate-tiles"', score),
+              "four gate tiles in one row, two by two under 900px, one column on a phone, not "
+              "in an outer card, the CV figure at 28px")
+        check('<details class="pa-why card g-jobs glow-faint"><summary>Why this score</summary>' in score,
+              "Why these scores is one fold under the tiles, Why this score")
+        adv = part(render_inner(env, oid), "advert")
+        check('<template data-part="advert"><div class="pa-strip"><span class="strip-t">Scored on the full description</span></div>' in adv
+              and '<details class="advert-rest"><summary>Rest of the advert</summary>' in adv
+              and "equal opportunity employer" in adv.split("advert-rest", 1)[1],
+              "the description's strip says what it was scored on, and boilerplate folds under "
+              "Rest of the advert as on Jobs")
+        check('<span class="gchip g-cv"' in main and 'class="card g-cv glow-faint pa-card pa-cvcard"' in main
+              and '<h2 class="sec-title" id="cv-h">Tailored CV</h2><button type="button" class="btn btn-plain '
+                  'sec-link" data-cv-act="save" disabled>Save copy</button>' in main
+              and '<span class="gchip g-jobs"' in main.split('id="adv-h"', 1)[0][-900:],
+              "the Tailored CV takes the CV's rose chip and glow, with Save copy at the right of "
+              "its title; the description stays purple")
+        work = part(render_inner(env, oid), "workhead")
+        check('<span class="tally" data-pa-tally><b>4 asks</b>' in work
+              and 'id="pa-pages">1 page, limit is 2</span>' in work
+              and ".pill.is-over{" in css and "var(--caution)" in css.split(".pill.is-over{", 1)[1].split("}", 1)[0],
+              "the CV's strip: the asks summary and the pages pill, amber when over the limit")
+        check("@media (min-width:1024px){.pa-cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}" in css
+              and "1800px" not in css and ".rail" not in css,
+              "two equal columns from 1024px, stacked below; no three-column wide layout")
+        for gone in ("Single-key shortcuts", "aria-keyshortcuts", "<kbd", "Opens in a new tab. Radar never",
+                     "Basis:", "Rate line", "S C L R", "Why these scores", "Esc is Cancel"):
+            if gone in page:
+                check(False, f"the page has no {gone!r}")
+                break
+        else:
+            check(True, "no M key or hint, no shortcuts switch, no new-tab sentence, no Basis tag, "
+                        "no rate line panel, no gate letters, no Esc line")
+        check('<dialog class="pa-dialog card" id="pa-apply-dialog"' in page and "never sends" not in page,
+              "Mark applied's dialog is a shared card")
+        check(".g-cv{--g:var(--group-cv-rgb);--gc:var(--group-cv)}" in page_frame.GROUPS_CSS
+              and "--group-cv:#e88fb4; --group-cv-rgb:232 143 180;" in page_frame.FRAME_CSS,
+              "rose joins page_frame's group colours")
+    with fresh() as env:
+        oid = env.role(page=False, description_text="- IEC 62304 experience")
+        adv = part(render_inner(env, oid), "advert")
+        check(re.search(r'<template data-part="advert"><div class="pa-strip"><span class="strip-t">Scored on the advert card</span>'
+                       r'<span class="fetch"><button type="button" class="btn" data-pa-fetch>'
+                       r'<span class="lbl">Score the full description</span></button>'
+                       r'<span class="cost">About 3 cents, 1 call</span></span></div>', adv),
+              "not scored on the full description: the strip carries Score the full description "
+              "with its cost beside it")
+        tile = re.search(r'<div class="gate gate-cv .*?</span></div>', part(render_inner(env, oid), "score"), re.S)
+        check(tile and "Full description" not in tile.group(0)
+              and '<span class="gate-num num">80</span>' in tile.group(0),
+              "and CV match shows the card's score, with no Full description pill")
 
 
 def part(html_text: str, name: str) -> str:
@@ -2604,9 +2702,9 @@ def tailored_never_on_jobs_checks() -> None:
               "the history keeps it marked tailored, apart from the role's own scores")
         with pointed_at(env.db):
             jobs = serve_dashboard.render_jobs(oid, {"part": ["role"]})[1].decode("utf-8")
-        figs = part(render_inner(env, oid), "score")
-        check(f'<dd class="num">{record["cv_match"]}</dd>' in figs
-              and "This page only, never written to Jobs" in page_text(figs)
+        figs = part(render_inner(env, oid), "workhead")
+        check(f'<span class="pill" data-fig="copy">This copy <span class="num">{record["cv_match"]}</span>' in figs
+              and "never written to Jobs" not in page_text(figs)
               and f"{row_before['cv_match']}" in jobs,
               "the page shows the copy's score as this page's only, and the Jobs row "
               "still has the role's own")
@@ -2646,11 +2744,12 @@ def board_store_checks() -> None:
                   == [("stage", "preparing", "radar")],
                   "Save CV over HTTP puts the role in Preparing on the board, by Radar, with "
                   "the event recorded")
-            app_part = part(got["html"], "app")
-            check('aria-current="step">Preparing' in app_part and "In Preparing" in page_text(app_part)
+            app_part = part(got["html"], "head")
+            check('<li class="is-reached" aria-current="step"><span class="dot" aria-hidden="true"></span>Preparing'
+                  in app_part and app_part.count('class="is-reached"') == 1
                   and 'href="/jobs?show=applied#app-' in app_part,
-                  "and the page it hands back shows Preparing as the stage, in words, with a "
-                  "link to the item on the board")
+                  "and the page it hands back shows Preparing reached, filled, in the header's "
+                  "stages, with a link to the item on the board")
             status, got, _h = post(port, "/apply", {"id": oid})
             row = env.row(oid)
             c = env.conn()
@@ -2664,11 +2763,11 @@ def board_store_checks() -> None:
                   "Mark applied, the page's POST /apply, stamps the role with the saved CV "
                   "and moves it to Applied")
             page = render_page(env, oid)
-            check('aria-current="step">Applied' in page
+            check('aria-current="step"><span class="dot" aria-hidden="true"></span>Applied' in page
                   and re.search(r"<button[^>]*data-pa-undo", page)
                   and not re.search(r"<button[^>]*data-pa-apply", page)
-                  and 'aria-keyshortcuts="Z"' in page,
-                  "the page then shows Applied, with Undo on Z and no Mark applied")
+                  and "aria-keyshortcuts" not in page and '<kbd' not in page,
+                  "the page then shows Applied reached, with Undo, no key, and no Mark applied")
             status, got, _h = post(port, "/unapply", {"id": oid})
             c = env.conn()
             try:
@@ -2718,7 +2817,7 @@ def notes_checks() -> None:
               "met notes are folded to one line behind a button, partly ones open, and no "
               "gap is beside the sheet")
         gaps = page[gaps_at:page.index('id="cv-pane"')]
-        check('data-status="missing"' in gaps and "✗ Gap, not on the CV" in page_text(gaps),
+        check('data-status="missing"' in gaps and "Gap, not on the CV" in page_text(gaps),
               "the gaps say so in words")
         lines = cv_store.cv_lines(CANON[0])
         for raw in re.findall(r'data-pa-group="(\d+)"[^>]*>(.*?)</ol>', notes):
@@ -2985,11 +3084,11 @@ def review_fix_checks() -> None:
           "the add chips are hidden until a line of their run is edited, at every width")
     # 3. Prepare's own buttons, the switch and every summary at 44px on touch.
     touch = re.search(r"@media \(pointer:coarse\)\{(\.pa \.btn,[^\n]*)\}", prepare_page.PREPARE_CSS)
-    check(bool(touch) and ".pa .btn,.pa .btn-sm,.pa .switch,.pa summary" in touch.group(1)
-          and "min-height:44px" in touch.group(1)
+    check(bool(touch) and ".pa .btn,.pa .btn-sm,.pa summary" in touch.group(1)
+          and "min-height:44px" in touch.group(1) and ".switch" not in prepare_page.PREPARE_CSS
           and "@media (max-width:767.98px)" not in (touch.group(0) if touch else ""),
-          "on a touch screen, at every width, the buttons, the shortcut switch and every "
-          "summary are 44px: the bar, Mark applied, the cost-first button, Why these scores")
+          "on a touch screen, at every width, the buttons and every summary are 44px: the "
+          "bar, Mark applied, the paid button, Why this score; there is no shortcut switch")
     # 4. The notes before the sheet in the source, beside it on screen.
     check(".pa-sheet{grid-column:1;grid-row:1" in prepare_page.PREPARE_CSS
           and ".pa-notes{grid-column:3;grid-row:1" in prepare_page.PREPARE_CSS,
@@ -3006,7 +3105,7 @@ def review_fix_checks() -> None:
         slots_html = "".join(re.findall(r'data-slot="[^"]+"[^>]*>(.*?)</(?:section|div|details|header)>',
                                         page, re.S))
         check(bool(live) and 'id="pa-live"' not in slots_html
-              and '<h2 id="score-h" tabindex="-1">Score</h2>' in page
+              and '<h2 class="visually-hidden" id="score-h" tabindex="-1">Gates</h2>' in page
               and 'data-pa-working hidden role="status"' not in page
               and 'id="cv-say" aria-live' not in page,
               "the page has one empty status region from the start, outside every part a "
@@ -3036,13 +3135,11 @@ def review_fix_checks() -> None:
         env.sql("UPDATE opportunities SET score_working = ? WHERE id = ?",
                 (json.dumps(working), oid))
         bare = part(render_inner(env, oid), "advert")
-        check("Asks underlined: solid met" in legend
-              and "Asks underlined" not in page_text(bare)
-              and "No ask is underlined" in page_text(bare)
+        with_sentences = part(render_inner(env, oid), "advert") if False else None
+        check("Asks underlined" not in legend and "No ask is underlined" not in page_text(bare)
               and 'class="ask ' not in bare,
-              "the description's legend says what is underlined only when something is; "
-              "with no sentence held it says no ask is underlined (the control: with "
-              "sentences it gives the key)")
+              "the description has no legend: with no sentence held no ask is underlined, "
+              "and nothing explains it")
         gaps_old = page_text(part(render_inner(env, oid), "gaps"))
         check("not found word for word" not in gaps_old,
               "and the gaps of asks stored before the sentences say nothing about one")
@@ -3106,28 +3203,15 @@ def review_fix_checks() -> None:
                           env.db, CFG)
         env.sql("UPDATE opportunities SET gate_rate = 0, gate_rate_note = ? WHERE id = ?",
                 ("Stated day rate £800 against the £900 floor, below, judged in code.", oid))
-        gates = part(render_inner(env, oid), "gates")
-        rate_row = next(r for r in re.findall(r"<tr>(.*?)</tr>", gates, re.S) if "Rate" in r)
-        role_why = re.search(r'data-gwhy="role">(.*?)</span>', rate_row, re.S)
-        copy_why = re.search(r'data-gwhy="copy">(.*?)</span>', rate_row, re.S)
-        when = page_text(gates[gates.index("data-pa-gates-when"):]) if "data-pa-gates-when" in gates else ""
-        check(role_why and copy_why and "£900 floor" in role_why.group(1)
-              and "£900" not in copy_why.group(1)
-              and "Fails" in page_text(rate_row) and "Passes" in page_text(rate_row),
-              "each column of the gates has its own Why from its own score: the full spec's "
-              "fail beside its £900 floor, the copy's pass beside its own note")
-        check("This copy's gates were judged when it was scored" in when
-              and "against the £900 floor" in when and "not judged again" in when,
-              "and the table says the copy's gates were judged when it was scored, and the "
-              "floor each column was judged against where its note names one")
-        foot = page_text(gates)
-        floor = int(FLOORS["day"])
-        check(("its bottom, £700, is under your floor" in foot) == (700 < floor),
-              "the gates' foot adds the range's bottom being under the floor, where the "
-              "stored pay is a range whose bottom is under it")
-        rate = page_text(part(render_inner(env, oid), "rate"))
-        check("per day. Your floor" in rate,
-              "the rate line's card words end with a full stop before Your floor")
+        inner = render_inner(env, oid)
+        rate = rate_tile(inner)
+        check(rate and " Fails " in page_text(rate) and "“£700 to £800 per day”" in page_text(rate)
+              and "data-gwhy" not in inner and "data-pa-gates-when" not in inner,
+              "the Rate tile shows the role's own fail and the quoted rate line; the old "
+              "table's columns and its paragraph on when each was judged are gone")
+
+        check("is under your floor" not in page_text(inner) and "Your floor" not in page_text(inner),
+              "and no foot under the gates and no rate line panel explain the floor")
     probe = {"row": {"pay_min": 650, "pay_max": 750, "pay_period": "day",
                      "pay_currency": "GBP"}, "floors": {"day": 700, "salary": 90000},
              "config": CFG}
@@ -3159,16 +3243,15 @@ def review_fix_checks() -> None:
                   and design == cv_store.read_design(),
                   "the Prepare sheet is drawn in the CV page's Design, its font, size, "
                   "spacing and margins, as the CV page sets them")
-            check(prepare_page.pages_words(pages, design) in page_text(page)
-                  and "Georgia 11 pt, relaxed spacing, 25 mm margins" in page_text(page),
-                  f"and says the CV page's page estimate under it ({len(pages)} pages)")
+            check(f'id="pa-pages">{prepare_page.pages_words(pages, design)}</span>' in page
+                  and "Georgia 11 pt, relaxed spacing, 25 mm margins" not in page_text(page),
+                  f"and the pages pill gives the CV page's estimate with the limit ({len(pages)} pages)")
         cv_store.PROFILE_DIR = Path(tempfile.mkdtemp(prefix="radar-design-none-"))
         with canonical_master(), fresh() as env:
             oid = env.role()
             prep.open_copy(oid, env.db, CFG)
             plain = render_page(env, oid)
-            check("--cv-font:Arial;" in plain and "Arial 10.5 pt, standard spacing, 20 mm "
-                  "margins" in page_text(plain),
+            check("--cv-font:Arial;" in plain,
                   "the control: with no Design saved it is the template's, as on the CV page")
 
         # 11. The master-change notice names versions by number and date.
@@ -3193,9 +3276,9 @@ def review_fix_checks() -> None:
             (prof / "cv-20261113-090000.md").unlink()
             head = part(render_inner(env, oid), "workhead")
             moved = head[head.index("data-pa-master-moved"):] if "data-pa-master-moved" in head else ""
-            check('href="/cv#history"' in moved and "keeps no comparison" in page_text(moved),
-                  "and where the CV page has no comparison for it, it links to History and "
-                  "says so")
+            check('href="/cv#history"' in moved and "keeps no comparison" not in page_text(moved),
+                  "and where the CV page has no comparison for it, it links to the CV page's "
+                  "versions, with no explanation")
     finally:
         cv_store.PROFILE_DIR = real_dir
         CV_LABEL[0] = "cv-test-1.md"
@@ -3668,7 +3751,7 @@ def main() -> int:
                     fetch_lock_checks, fetch_spacing_checks,
                     fetch_reuse_checks, page_checks, jobs_page_checks, server_checks,
                     sentence_checks, tailored_never_on_jobs_checks, board_store_checks,
-                    notes_checks, review_fix_checks, page_script_checks, static_checks, box_query_checks,
+                    notes_checks, review_fix_checks, look_checks, page_script_checks, static_checks, box_query_checks,
                     final_box_checks, docs_checks):
         # One section that raises is one FAIL that names it. The sections
         # after it still run, so a mistake in the first does not hide the rest.

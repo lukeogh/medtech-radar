@@ -59,10 +59,12 @@ import build_dashboard as bd  # noqa: E402
 import cv_doc  # noqa: E402
 import cv_page  # noqa: E402
 import cv_store  # noqa: E402
+import jobs_page as jp  # noqa: E402
 import page_frame  # noqa: E402
 import prepare_application as prep  # noqa: E402
 import radar_common as rc  # noqa: E402
 import tailored_cv  # noqa: E402
+import tiers  # noqa: E402
 
 esc = bd.esc
 
@@ -75,23 +77,12 @@ esc = bd.esc
 # 90 tokens more of prompt), so about 2.9 cents, still about 3. The reply is
 # capped at score_item.SPEC_MAX_TOKENS, 10,240, about 15 cents.
 COST = "About 3 cents, 1 call"
-COST_DETAIL = ("One read of the advert page and one scoring call, made once for "
-               "this description: about 0.9 cent for the score, about 2 cents with "
-               "the per-ask working and the quotes, about 3 cents with the advert "
-               "sentence and the short reason of each ask, and never more than about "
-               "15 cents. A fetch "
-               "that fails costs nothing. Opening this page again, reloading it or "
-               "pressing again once it has scored costs nothing.")
 BOARD_URL = "/jobs?show=applied"
-KEYS_STORE = "radar-jobs-keys"      # shared with Jobs and the board
 
-TIER_TAGS = {"top": ("&#10003; Top prospect", "top"),
-             "question": ("? One question away", ""),
-             "reading": ("Reading", ""), "filtered": ("Filtered", "")}
 GATE_ROWS = (("sector", "S", "Sector"), ("cv", "C", "CV match"),
              ("location", "L", "Location"), ("rate", "R", "Rate"))
-MARKS = {"met": ("&#10003; Met", "met"), "partly": ("&#9680; Partly", "partly"),
-         "missing": ("&#10007; Gap, not on the CV", "gap")}
+MARKS = {"met": ("Met", "met"), "partly": ("Partly", "partly"),
+         "missing": ("Gap, not on the CV", "gap")}
 SHORT = {"met": "met", "partly": "partly", "missing": "missing"}
 
 
@@ -205,7 +196,10 @@ def model(conn, item_id: int, config: dict, notices=None) -> dict | None:
     design = cv_store.read_design()
     pages = (cv_doc.estimate_pages(cv_store.cv_lines(shown_text), design)
              if shown_text else [])
+    company_known = bool(row.get("company_id")) and conn.execute(
+        "SELECT 1 FROM companies WHERE id = ?", (row["company_id"],)).fetchone() is not None
     return {"row": row, "id": int(item_id), "applied": applied, "is_open": is_open,
+            "company_known": company_known,
             "design": design, "pages": pages,
             "can_edit": can_edit, "description": description, "working": working,
             "on_description": on_description, "stale_description": stale_description,
@@ -240,17 +234,12 @@ def design_words(design: dict) -> str:
     return f"{d['font']} {d['size']:g} pt, {d['spacing']} spacing, {d['margins']} mm margins"
 
 
-def pages_words(pages: list, design: dict) -> str:
-    """How many A4 pages the Word file would be, as the CV page estimates it."""
+def pages_words(pages: list, design: dict | None = None) -> str:
+    """How many A4 pages the Word file would be, as the CV page estimates it,
+    and the limit: "4 pages, limit is 2"."""
+    del design
     n = len(pages)
-    if not n:
-        return ""
-    words = (f"About {_plural(n, 'page')} of A4 in the Word file, at the CV page's Design "
-             f"({design_words(design)}). An estimate.")
-    if n > 2:
-        words += (f" Over the two-page limit from line {pages[2]['first']}; "
-                  "those lines are marked in the margin.")
-    return words
+    return f"{_plural(n, 'page')}, limit is 2" if n else ""
 
 
 def linkedin_url(conn, row: dict) -> str | None:
@@ -361,9 +350,9 @@ def _gate_mark(state) -> str:
     """One gate's mark from its state (radar_common.gate_state). A rate the
     advert does not state has its own mark, never a pass or a fail."""
     if state == rc.PASSES:
-        return '<span class="pass">&#10003; Passes</span>'
+        return '<span class="pass">Passes</span>'
     if state == rc.FAILS:
-        return '<span class="fail">&#10007; Fails</span>'
+        return '<span class="fail">Fails</span>'
     if state == rc.NOT_STATED:
         return '<span class="none">? Not stated</span>'
     return '<span class="none">Not judged</span>'
@@ -414,218 +403,182 @@ def _months(row: dict) -> str:
     return f", {found.group(1)} months" if found else ""
 
 
+RULE = '<span class="fact-rule" aria-hidden="true"></span><span class="visually-hidden">, </span>'
+
+
+def _join(parts: list) -> str:
+    return RULE.join(p for p in parts if p)
+
+
+def advert_link(m: dict):
+    """(the advert's address, the board's name): LinkedIn's job page where
+    there is one, else the row's own link."""
+    if m["linkedin"]:
+        return m["linkedin"], "LinkedIn"
+    row = m["row"]
+    url = bd.safe_url(row.get("source_url"))
+    if not url:
+        return None, None
+    return url, jp.BOARDS.get(row.get("source"), bd.via(row.get("source")))
+
+
+def stages_html(m: dict) -> str:
+    """Application: the five stages as dots and labels, those reached filled."""
+    app = m["app"] or {}
+    stage = app.get("stage")
+    order = list(applications.OPEN_STAGES)
+    reached = order.index(stage) if stage in order else -1
+    items = []
+    for i, s in enumerate(order):
+        cls = "is-reached" if i <= reached else ""
+        here = ' aria-current="step"' if s == stage else ""
+        items.append(f'<li class="{cls}"{here}><span class="dot" aria-hidden="true"></span>'
+                     f'{esc(applications.STAGE_WORDS[s])}'
+                     + ('<span class="visually-hidden">, reached</span>' if i <= reached else '')
+                     + '</li>')
+    closed = ""
+    if stage == "closed":
+        reason = applications.REASON_WORDS.get(app.get("closed_reason"), "Closed")
+        closed = f'<span class="stchip is-neu">Closed, {esc(reason.lower())}</span>'
+    board = f"{BOARD_URL}#app-{app['id']}" if app.get("id") else BOARD_URL
+    return (f'<div class="pa-app"><span class="pa-app-l" id="pa-app-l">Application</span>'
+            f'<ol class="stages" aria-labelledby="pa-app-l">{"".join(items)}</ol>{closed}'
+            f'<a class="plain pa-board" href="{esc(board)}">Open the applications board</a></div>'
+            '<p class="pa-app-say" data-pa-app-say role="status" aria-live="polite"></p>')
+
+
 def head_html(m: dict) -> str:
+    """The header card: the role, its tier, the advert and Mark applied; its
+    facts; the application's stages."""
     row = m["row"]
     title = row.get("title") or "Untitled role"
     tier = row.get("tier")
-    tags = []
-    if tier in TIER_TAGS:
-        words, cls = TIER_TAGS[tier]
-        tags.append(_tag(words, cls))
-    basis = str(row.get("score_basis") or "").lower()
-    if m["on_description"]:
-        tags.append(_tag(f"Basis: full spec, {esc(day_time(row.get('scored_at')))}", "basis"))
-    elif basis:
-        tags.append(_tag(f"Basis: advert card, {esc(day(row.get('scored_at')))}"))
-    else:
-        tags.append(_tag("Not scored yet"))
-    facts = [row.get("company") or "Unknown company", row.get("location") or "Place not stated"]
+    pill = (tiers.pill_html(tier, jp.TIER_WORDS.get(tier), singular=True) if tier
+            else '<span class="tier-pill">Not scored</span>')
+    acts = []
+    url, board = advert_link(m)
+    if url:
+        acts.append(f'<a class="plain" href="{esc(url)}" target="_blank" rel="noopener noreferrer">'
+                    f'Open the advert on {esc(board)}<span class="visually-hidden"> (opens in a new tab)'
+                    '</span></a>')
+    copy = m["copy"] or {}
+    stage = (m.get("app") or {}).get("stage")
+    if m["can_edit"]:
+        saved_lines = cv_store.cv_lines(copy["saved_text"]) if copy.get("saved_text") else []
+        same = bool(copy.get("saved_text")) and copy.get("saved_hash") == copy.get("cv_hash")
+        data = {"name": copy.get("saved_name"), "at": clock(copy.get("saved_at")),
+                "same": same, "lines": saved_lines}
+        acts.append('<button type="button" class="btn btn-solid" id="pa-apply" data-pa-apply '
+                    f'aria-haspopup="dialog" data-saved="{esc(json.dumps(data, ensure_ascii=False))}">'
+                    'Mark applied</button>')
+    elif m["applied"] and stage in (None, "applied"):
+        acts.append('<button type="button" class="btn" id="pa-undo" data-pa-undo>Undo'
+                    '<span class="visually-hidden"> Mark applied</span></button>')
+    company = esc(row.get("company") or "Unknown company")
+    if m.get("company_known"):
+        company = f'<a class="plain" href="/watchlist/{int(row["company_id"])}">{company}</a>'
     eng = str(row.get("engagement_type") or "").lower()
-    if eng == "contract":
-        facts.append("Contract" + _months(row))
-    elif eng == "permanent":
-        facts.append("Permanent")
-    if (row.get("salary_rate") or "").strip():
-        facts.append(row["salary_rate"].strip())
-    facts.append(f"Via {bd.via(row.get('source'))}")
-    if row.get("first_seen"):
-        facts.append(f"First seen {day(row['first_seen'])}")
+    kind = ("Contract" + _months(row) if eng == "contract" else "Permanent" if eng == "permanent"
+            else "")
+    source = jp.BOARDS.get(row.get("source"), bd.via(row.get("source")))
+    facts = [company, esc(row.get("location") or "Place not stated"), esc(kind), esc(source),
+             f'First seen {esc(day(row["first_seen"]))}' if row.get("first_seen") else ""]
     marked = ""
     if m["applied"]:
         name = row.get("applied_cv")
         at = row.get("applied_at") or (m.get("app") or {}).get("stage_at")
-        undo = ('<p class="row-btns"><button type="button" class="btn" data-pa-undo>Undo '
-                '<kbd class="kbd" aria-hidden="true">Z</kbd></button></p>'
-                if (m.get("app") or {}).get("stage") in (None, "applied") else "")
         marked = (f'<div class="notice ok" id="pa-marked" hidden tabindex="-1">'
                   f'<p><b>Marked applied, {esc(clock(at))}</b>'
-                  + (f', with {esc(name)}.docx as the CV sent.' if name
-                     else ', with no CV recorded.')
-                  + ' This role moved to Applied on the applications board.</p>'
-                  + undo + '</div>')
-    return ('<div class="h1row"><h1>' + esc(title) + '</h1><div class="page-acts">'
-            + "".join(tags)
-            + '<a class="btn" href="/jobs">Back to Jobs</a></div></div>'
-            '<ul class="facts">' + "".join(f"<li>{esc(f)}</li>" for f in facts) + "</ul>"
-            + marked)
+                  + (f', with {esc(name)}.docx.' if name else ', with no CV recorded.') + '</p></div>')
+    return (f'<div class="ph-top">{page_frame.chip("jobs", "jobs")}<h1>{esc(title)}</h1>{pill}'
+            f'<div class="ph-acts">{"".join(acts)}</div></div>'
+            f'<p class="ph-facts">{_join(facts)}</p>{stages_html(m)}{marked}')
 
 
-# ------------------------------------------------------------- the score
+def _floor_words(m: dict) -> str:
+    floors = m["floors"] or {}
+    eng = str(m["row"].get("engagement_type") or "").lower()
+    if eng == "permanent" and floors.get("salary"):
+        return f"Floor £{int(floors['salary']):,} a year"
+    if floors.get("day"):
+        return f"Floor £{int(floors['day']):,} a day"
+    return ""
 
-def _fig(label: str, num, words: str, cls: str = "", none: str | None = None,
-         attrs: str = "") -> str:
-    if num is None:
-        value = f'<dd class="num none">{esc(none or "Not scored")}</dd>'
-    else:
-        value = f'<dd class="num">{esc(num)}</dd>'
-    return (f'<div class="fig{(" " + cls) if cls else ""}" {attrs}><dt>{esc(label)}</dt>{value}'
-            f'<dd class="fig-sub">{words}</dd></div>')
+
+def _gate_tile(gate: str, name: str, state, body: str, line: str, attrs: str = "",
+               line_cls: str = "gate-note") -> str:
+    _mk, _st, word = jp.STATE_MARKS[state]
+    cls = jp.GATE_TONES.get(state, "is-neu")
+    glow = " gate-glow" if state in (rc.NOT_STATED, rc.FAILS) else ""
+    icon = (f'<span class="gate-chip {cls}" aria-hidden="true"><svg viewBox="0 0 20 20" width="18" '
+            'height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+            f'stroke-linejoin="round" aria-hidden="true" focusable="false">{jp.GATE_ICONS[state]}</svg></span>')
+    return (f'<div class="gate gate-{gate} {cls}{glow}" {attrs}>{icon}<span class="gate-name">{name}</span>'
+            f'<span class="gate-status {cls}">{esc(word)}</span>{body}'
+            f'<span class="{line_cls}">{line}</span></div>')
+
+
+def tiles_html(m: dict) -> str:
+    """The four gates as tiles: Sector, CV match, Location, Rate."""
+    row = m["row"]
+    tiles = []
+    for gate, name, _letter in jp.GATES:
+        state = rc.gate_state(row, gate)
+        if gate == "cv":
+            spec = m["on_description"]
+            score = row.get("cv_match") if spec else (m["card"] or {}).get("cv_match")
+            num = (f'<span class="gate-num num">{int(score)}</span>' if score is not None
+                   else '<span class="gate-num num none">Not scored</span>')
+            pill = '<span class="src-pill">Full description</span>' if spec and score is not None else ""
+            body = f'<span class="gate-fig">{num}{pill}</span>'
+            line = f'Pass mark {int(m["thresholds"].get("pass", 70))}'
+            tiles.append(_gate_tile(gate, name, state, body, esc(line), 'data-fig="spec"',
+                                    "gate-note fig-sub"))
+            continue
+        line = (row.get(f"gate_{gate}_note") or "").strip()
+        if gate == "rate":
+            quote = (_rate_working(m) or {}).get("rate_quote")
+            source = (_rate_working(m) or {}).get("rate_quote_from")
+            if quote and source != "disagrees":
+                line = f"“{quote}”"
+            elif state == rc.NOT_STATED:
+                line = _floor_words(m)
+        tiles.append(_gate_tile(gate, name, state, "", esc(line)))
+    return f'<div class="gate-tiles">{"".join(tiles)}</div>'
 
 
 def score_html(m: dict) -> str:
+    """The gate tiles, what a press said, and Why this score."""
     row = m["row"]
     record = m["record"]
     kind = m["standing"]["kind"]
-    out = ['<h2 id="score-h" tabindex="-1">Score</h2>']
-    card = m["card"]
-    spec = m["on_description"]
-    if spec:
-        fetched = row.get("description_fetched_at")
-        out.append('<p class="sub">Basis: full spec, the description read from the advert'
-                   + (f' on {esc(day_time(fetched))}' if fetched else '')
-                   + ' and scored once for it. The Jobs row shows '
-                   + f'{esc(row.get("cv_match"))}.</p>')
-    elif card:
-        out.append('<p class="sub">Basis: the advert card.'
-                   + (' The full description is stored and not scored yet.'
-                      if m["description"] else ' The full description is not stored yet.')
-                   + '</p>')
-    else:
-        out.append('<p class="sub">This role has no score yet.</p>')
-    figs = []
-    current_master = m["master_version"]
-    if card:
-        earlier = (card.get("cv_version") and current_master
-                   and card["cv_version"] != current_master)
-        words = (f"Advert card, {esc(day(card.get('scored_at')))}"
-                 + (", scored on an earlier CV" if earlier else "")
-                 + (". Replaced by the full spec score." if card.get("replaced")
-                    else ". The role&rsquo;s score, shown on Jobs."))
-        figs.append(_fig("Card", card.get("cv_match"), words,
-                         "is-old" if card.get("replaced") else "is-role"))
-    else:
-        figs.append(_fig("Card", None, "No card score is kept for this advert.", "is-old",
-                         none="Not kept"))
-    if spec:
-        figs.append(_fig("Full spec", row.get("cv_match"),
-                         "The role&rsquo;s score, shown on Jobs. Master CV, "
-                         f"{esc(day_time(row.get('scored_at')))}.", "is-role",
-                         attrs='data-fig="spec"'))
-    else:
-        figs.append(_fig("Full spec", None,
-                         "Made only when you press the button below." if m["pending"]
-                         else "Made only when you press, and nothing is fetched or scored "
-                         "for this role now." if not m["can_edit"]
-                         else "Made only when you press, once a fetch can run.",
-                         none=("Not scored" if m["description"] else "Not fetched"),
-                         attrs='data-fig="spec"'))
-    which = shown_copy_words(m)
-    if kind == "current" and record and not m["can_edit"]:
-        figs.append(_fig("This copy", record.get("cv_match"),
-                         f"Scored against the full description and {esc(which)}, "
-                         f"{esc(day_time(record.get('scored_at')))}. Never written to Jobs.",
-                         "is-copy", attrs='data-fig="copy"'))
-    elif kind == "current" and record:
-        figs.append(_fig("This copy", record.get("cv_match"),
-                         "This page only, never written to Jobs. Tailored CV, "
-                         f"{esc(day_time(record.get('scored_at')))}.", "is-copy",
-                         attrs='data-fig="copy"'))
-    elif kind == "earlier" and record:
-        figs.append(_fig("This copy", record.get("cv_match"),
-                         "Scored on an earlier text of this copy, "
-                         f"{esc(day_time(record.get('scored_at')))}. Rescore role scores "
-                         "it as it is now.", "is-copy is-old", attrs='data-fig="copy"'))
-    elif kind == "master" and spec:
-        figs.append(_fig("This copy", row.get("cv_match"),
-                         "The master CV unchanged, so the full spec score stands for it. "
-                         "Never written to Jobs.", "is-copy", attrs='data-fig="copy"'))
-    elif kind == "elsewhere" and record:
-        figs.append(_fig("This copy", None,
-                         "Last scored against another advert&rsquo;s description, "
-                         f"{esc(day(record.get('scored_at')))}."
-                         + (" Rescore role scores it against this one." if m["can_edit"] else ""),
-                         "is-copy", none="Not on this one", attrs='data-fig="copy"'))
-    elif m["copy"] is not None and not m["can_edit"]:
-        figs.append(_fig("This copy", None,
-                         f"{esc(which[:1].upper() + which[1:])} was not scored on its own "
-                         "against this description.", "is-copy", attrs='data-fig="copy"'))
-    elif m["copy"] is None and not m["can_edit"]:
-        figs.append(_fig("This copy", None, "No tailored copy was made for this role.",
-                         "is-copy", none="No copy", attrs='data-fig="copy"'))
-    elif m["copy"] is None and m["can_edit"] and m["unlaid"]:
-        figs.append(_fig("This copy", None, "No copy yet. One is made from the master CV "
-                         "once the master has been saved on the CV page.", "is-copy",
-                         none="No copy", attrs='data-fig="copy"'))
-    elif m["copy"] is None and m["can_edit"]:
-        figs.append(_fig("This copy", None, "No tailored copy yet. It is made from the master "
-                         "CV when this page opens, and is scored only when Rescore role is "
-                         "pressed.", "is-copy", none="No copy yet", attrs='data-fig="copy"'))
-    else:
-        words = ("Needs the full spec first." if not spec
-                 else "Rescore role scores it once you change it. This page only."
-                 if m["can_edit"] else "Not scored on its own.")
-        figs.append(_fig("This copy", None, words, "is-copy", attrs='data-fig="copy"'))
-    out.append('<dl class="figs">' + "".join(figs) + '</dl>')
-    why_from = None
-    if kind in ("current", "earlier") and record and record.get("one_line_why"):
-        why_from = ("This copy", record["one_line_why"])
-    elif spec and row.get("one_line_why"):
-        why_from = ("Full spec", row["one_line_why"])
-    elif card and card.get("one_line_why"):
-        why_from = ("Card", card["one_line_why"])
-    if why_from:
-        out.append(f'<p class="why">{esc(why_from[0])}: &ldquo;{esc(why_from[1].strip())}&rdquo;</p>')
-    bits = []
-    if spec:
-        bits.append(f'<b>{esc(row.get("cv_match"))}</b> full spec, shown on Jobs')
-    if kind in ("current", "earlier") and record:
-        bits.append(f'<b>{esc(record.get("cv_match"))}</b> this copy, this page only')
-    if card:
-        bits.append(f'{esc(card.get("cv_match"))} card')
-    out.append('<p class="sumline">' + " &middot; ".join(bits)
-               + (". " if bits else "") + esc(gates_summary(m)) + '</p>')
+    out = ['<h2 class="visually-hidden" id="score-h" tabindex="-1">Gates</h2>', tiles_html(m)]
     for n in m["notices"]:
         out.append(_press_notice(n))
     if not m["notices"]:
         out.append(_standing_notice(m))
-    if m["pending"] and not m["notices"]:
-        label = ("Fetch and score the full description" if not m["description"]
-                 else "Score the new description" if m["stale_description"]
-                 else "Score the full description")
-        out.append('<div class="fetch">' + _btn_cost(label, 'data-pa-fetch', primary=True)
-                   + f'<p class="small">{esc(COST_DETAIL)}</p></div>')
-    elif spec and not m["notices"]:
-        out.append('<p class="small" data-pa-scored>Scored once for this description'
-                   f', {esc(day_time(row.get("scored_at")))}. Opening this page again, '
-                   'reloading it or a second tab costs nothing, so there is no fetch '
-                   'button.</p>')
     if m["tier_move"]:
-        out.append(_notice("", esc(m["tier_move"])))
-    if m["moved_on"]:
-        out.append('<p class="small">This score is shown as it was made: '
-                   + esc(" and ".join(m["moved_on"])) + '. A description that has been '
-                   'scored is not scored again from this page.</p>')
-    # What a press is doing, seen. It is said by #pa-live, the status region
-    # that is on the page from the start, outside the parts a press redraws.
+        out.append(_notice("", esc(m["tier_move"].split(". ")[0].rstrip(".") + ".")))
     out.append('<p class="notice work" data-pa-working hidden></p>')
+    spec = m["on_description"]
     master_reasons = bd.reasons_html(row.get("score_reasons"), row.get("scored_at"),
                                      bd.quotes_hold(row), row=row)
     tailored_reasons = (bd.reasons_html(record.get("reasons"), record.get("scored_at"))
                         if record and kind in ("current", "earlier") else "")
-    moved = _moved_html(m)
-    made = _made_html(row, spec)
-    copy_made = (_made_html(record, True, tailored=True)
-                 if record and kind in ("current", "earlier") else "")
-    if master_reasons or tailored_reasons or moved or made:
-        out.append('<details class="pa-why"><summary>Why these scores</summary>'
-                   f'<div class="score-master"><h3>{"Full spec" if spec else "Card"}</h3>'
-                   + made
-                   + (master_reasons or "<p class=small>No reasons were kept with it.</p>")
-                   + '</div><div id="tailored-score"><h3>This copy</h3>' + copy_made + moved
-                   + (tailored_reasons or "<p class=small>No reasons of its own yet.</p>")
-                   + '</div></details>')
+    if master_reasons or tailored_reasons:
+        parts_ = []
+        if master_reasons:
+            parts_.append(f'<div class="score-master"><h3>{"Full description" if spec else "Advert card"}'
+                          f'</h3>{master_reasons}</div>')
+        if tailored_reasons:
+            parts_.append(f'<div id="tailored-score"><h3>This copy</h3>{_moved_html(m)}'
+                          f'{tailored_reasons}</div>')
+        out.append('<details class="pa-why card g-jobs glow-faint"><summary>Why this score</summary>'
+                   f'<div class="pa-why-in">{"".join(parts_)}</div></details>')
     return "".join(out)
 
+
+# ------------------------------------------------------------- the score
 
 def _made_html(rec: dict, spec: bool, tailored: bool = False) -> str:
     """How a score was made: on what, when, by which model and prompt."""
@@ -680,9 +633,6 @@ def _moved_html(m: dict) -> str:
                    '<ul class="moved">' + "".join(items) + '</ul>')
     elif changes is not None:
         out.append('<p class="small">No ask changed.</p>')
-    if record.get("reused"):
-        out.append('<p class="small">Shown again from an earlier score of this same copy. '
-                   'Nothing was spent on it.</p>')
     return "".join(out)
 
 
@@ -711,8 +661,7 @@ def _standing_notice(m: dict) -> str:
         return _notice("", esc(prep.NOT_OPEN_NOTE))
     if m["stale_description"]:
         return _notice("warn", "<b>The stored description has changed since this role "
-                       "was scored.</b> Radar has read a newer version of the advert since, "
-                       "so the asks and the rate line from the earlier one are not shown.")
+                       "was scored.</b>")
     if not m["description"] and (blocked := prep.fetch_blocked_why(row)):
         return _notice("bad", esc(prep.fetch_failed_text(blocked)))
     if (m["description"] and prep.needs_score(row)
@@ -721,83 +670,7 @@ def _standing_notice(m: dict) -> str:
     return ""
 
 
-def gates_summary(m: dict) -> str:
-    row = m["row"]
-    if not row.get("tier"):
-        return "No gates judged yet."
-    role = [rc.gate_state(row, g) for g, _l, _n in GATE_ROWS]
-    record = m["record"] if m["standing"]["kind"] in ("current", "earlier") else None
-    copy = [_copy_state(row, record, g) for g, _l, _n in GATE_ROWS] if record else []
-    tier_words = {"top": "a Top prospect", "question": "One question away",
-                  "reading": "in Reading", "filtered": "Filtered"}.get(row.get("tier"),
-                                                                     row.get("tier"))
-    if all(v == rc.PASSES for v in role) and (record is None
-                                              or all(v == rc.PASSES for v in copy)):
-        return (f"All four pass{' on both' if record else ''}, so the role stays "
-                f"{tier_words}.")
-    failed = [n for (g, _l, n), v in zip(GATE_ROWS, role) if v == rc.FAILS]
-    silent = [n for (g, _l, n), v in zip(GATE_ROWS, role) if v == rc.NOT_STATED]
-    said = (f" {', '.join(silent)} isn't stated, so it's your first question."
-            if silent else "")
-    if failed:
-        on = "the full spec" if m["on_description"] else "the card"
-        return f"{', '.join(failed)} fails on {on}, so the role is {tier_words}.{said}"
-    return f"The role is {tier_words}.{said}"
-
-
 # ------------------------------------------------------------- the gates
-
-def gates_html(m: dict) -> str:
-    row = m["row"]
-    record = m["record"] if m["standing"]["kind"] in ("current", "earlier") else None
-    first = "Full spec" if m["on_description"] else "Card"
-    out = [f'<summary><h2>Gates</h2><span class="sub">{esc(gates_summary(m))}'
-           + ('' if m["on_description"] or not row.get("tier")
-              else ' Judged on the card; judged again on the full description.')
-           + '</span></summary>']
-    if not row.get("tier"):
-        out.append('<p class="small">No gates are judged until the role is scored.</p>')
-        return "".join(out)
-    cols = ['<col class="c-gate">', '<col class="c-mark">']
-    head = [f'<th scope="col">Gate</th><th scope="col">{first}</th>']
-    if record:
-        cols.append('<col class="c-mark">')
-        head.append('<th scope="col">This copy</th>')
-    cols.append('<col class="gwhy-col">')
-    head.append('<th scope="col" class="gwhy-col">Why</th>')
-    rows = []
-    passmark = m["thresholds"].get("pass", 70)
-    notes = gate_whys(m)
-    for g, letter, name in GATE_ROWS:
-        label = f"CV match, {passmark} or more" if g == "cv" else name
-        cells = [f'<th scope="row"><span class="letter" aria-hidden="true">{letter}</span>'
-                 f'{esc(label)}</th>', f'<td>{_gate_mark(rc.gate_state(row, g))}</td>']
-        if record:
-            cells.append(f'<td>{_gate_mark(_copy_state(row, record, g))}</td>')
-        role_note, copy_note = notes[g]
-        if record:
-            # Each column's Why is its own score's, said apart, so a mark is
-            # never read beside the other column's reason for it.
-            whole = f"{first}: {role_note or 'no note kept'}. This copy: {copy_note or 'no note kept'}."
-            why = (f'<span class="gwhy-l" data-gwhy="role"><b>{esc(first)}</b> '
-                   f'{esc(role_note or "No note kept.")}</span>'
-                   f'<span class="gwhy-l" data-gwhy="copy"><b>This copy</b> '
-                   f'{esc(copy_note or "No note kept with this score.")}</span>')
-        else:
-            whole = role_note or ""
-            why = f'<span class="gwhy-l" data-gwhy="role">{esc(role_note or "")}</span>'
-        cells.append(f'<td class="gwhy gwhy-col" title="{esc(whole)}">{why}</td>')
-        rows.append("<tr>" + "".join(cells) + "</tr>")
-    out.append('<table class="gates"><colgroup>' + "".join(cols) + '</colgroup><thead><tr>'
-               + "".join(head) + '</tr></thead><tbody>' + "".join(rows) + '</tbody></table>')
-    bottom = range_bottom_words(m)
-    foot = ('S C L R are the marks on the Jobs row. A range is judged on its top figure'
-            + (f'; {bottom}.' if bottom else '.'))
-    out.append(f'<p class="sub gates-foot">{esc(foot)}</p>')
-    if record:
-        out.append(f'<p class="sub gates-foot" data-pa-gates-when>{esc(gates_when_words(m))}</p>')
-    return "".join(out)
-
 
 _FLOOR = re.compile(r"£\s?([0-9][0-9,]*(?:\.[0-9]+)?k?)\s+floor", re.I)
 
@@ -859,46 +732,6 @@ def _rate_working(m: dict):
     return None
 
 
-def rate_html(m: dict) -> str:
-    row = m["row"]
-    out = ['<h2>Rate line</h2>']
-    w = _rate_working(m)
-    if w is not None:
-        quote, source = w.get("rate_quote"), w.get("rate_quote_from")
-        if quote and source == "disagrees":
-            out.append('<p class="small">The scorer reported no pay, but the description '
-                       'has wording that may be pay:</p>')
-            out.append(f'<p class="quote">&ldquo;{esc(quote)}&rdquo;</p>')
-            out.append('<p class="sub">Found by pattern matching, not by the scorer, and '
-                       'it may not be pay: a bonus or a budget reads the same.</p>')
-        elif quote:
-            out.append(f'<p class="quote">&ldquo;{esc(quote)}&rdquo;</p>')
-            where = where_in_advert(m, quote, whole=False)
-            out.append('<p class="sub">Quoted word for word from the full description'
-                       + (f', {esc(where[0].split(",")[0])}' if where and where[0] else '')
-                       + '. '
-                       + ('<a class="link" href="#adv-rate" data-pa-show="adv-rate">Show it in '
-                          'the advert</a>' if where else '')
-                       + (' Found by pattern matching, not by the scorer.'
-                          if source == "pattern" else '')
-                       + '</p>')
-        elif source == "unverified":
-            out.append('<p class="small">The scorer reported pay, but its wording could not '
-                       'be found in the advert, so nothing is quoted.</p>')
-        else:
-            out.append('<p class="small">The full description names no pay.</p>')
-    elif m["stale_description"]:
-        out.append('<p class="small">The stored description has changed since this role '
-                   'was scored, so the pay quoted from the earlier one is not shown.</p>')
-    else:
-        out.append('<p class="small">Not read yet. The rate line is quoted from the full '
-                   'description, word for word, once the role is scored against it.</p>')
-    floor = (m["floors"] or {}).get("day")
-    out.append(f'<p class="sub">On the card: {esc(_sentence_end(bd.rate_detail(row)))}'
-               + (f' Your floor: &pound;{int(floor):,} a day.' if floor else '') + '</p>')
-    return "".join(out)
-
-
 def _sentence_end(text: str) -> str:
     """Words that end as a sentence does, so the next one can follow."""
     text = (text or "").strip()
@@ -930,76 +763,6 @@ def range_bottom_words(m: dict) -> str:
 
 
 # -------------------------------------------------------- the application
-
-def app_html(m: dict) -> str:
-    row = m["row"]
-    app = m["app"] or {}
-    stage = app.get("stage")
-    copy = m["copy"] or {}
-    out = ['<h2>Application</h2>']
-    items = []
-    for s in applications.OPEN_STAGES:
-        here = s == stage
-        attrs = ' class="is-here" aria-current="step"' if here else ''
-        items.append(f'<li{attrs}>{esc(applications.STAGE_WORDS[s])}'
-                     + ('<span class="visually-hidden">, here</span>' if here else '') + '</li>')
-    out.append('<ol class="stages" aria-label="Stages on the applications board">'
-               + "".join(items) + '</ol>')
-    since = day_time(app.get("stage_at")) if app.get("stage_at") else ""
-    if stage is None:
-        out.append('<p class="app-state"><b>Not on the applications board yet.</b> Save CV '
-                   'puts this role in Preparing. Mark applied moves it to Applied.</p>')
-    elif stage == "preparing":
-        out.append(f'<p class="app-state"><b>In Preparing</b> since {esc(since)}, when the CV '
-                   'was saved. Mark applied moves it to Applied.</p>')
-    elif stage == "applied":
-        name = row.get("applied_cv")
-        out.append(f'<p class="app-state"><b>In Applied</b> since {esc(since)}, '
-                   + (f'with {esc(name)}.docx as the CV sent.' if name
-                      else 'with no CV recorded.') + '</p>')
-    elif stage == "closed":
-        reason = applications.REASON_WORDS.get(app.get("closed_reason"), "Closed")
-        out.append(f'<p class="app-state"><b>Closed</b>, {esc(reason.lower())}, '
-                   f'{esc(since)}. The applications board is where it moves.</p>')
-    else:
-        out.append(f'<p class="app-state"><b>In {esc(applications.STAGE_IN[stage])}</b> since '
-                   f'{esc(since)}. The applications board is where it moves on.</p>')
-    board = f"{BOARD_URL}#app-{app['id']}" if app.get("id") else BOARD_URL
-    btns, keys = [], []
-    if m["can_edit"]:
-        saved_lines = cv_store.cv_lines(copy["saved_text"]) if copy.get("saved_text") else []
-        same = bool(copy.get("saved_text")) and copy.get("saved_hash") == copy.get("cv_hash")
-        data = {"name": copy.get("saved_name"), "at": clock(copy.get("saved_at")),
-                "same": same, "lines": saved_lines}
-        btns.append('<button type="button" class="btn" id="pa-apply" data-pa-apply '
-                    'aria-keyshortcuts="M" aria-haspopup="dialog" '
-                    f'data-saved="{esc(json.dumps(data, ensure_ascii=False))}">Mark applied '
-                    '<kbd class="kbd" aria-hidden="true">M</kbd></button>')
-        keys.append("M Mark applied.")
-    elif m["applied"] and stage in (None, "applied"):
-        btns.append('<button type="button" class="btn" id="pa-undo" data-pa-undo '
-                    'aria-keyshortcuts="Z">Undo <kbd class="kbd" aria-hidden="true">Z</kbd>'
-                    '</button>')
-        keys.append("Z Undo.")
-    btns.append(f'<a class="link" href="{esc(board)}">Open the applications board</a>')
-    out.append('<p class="row-btns">' + "".join(btns) + '</p>')
-    out.append('<p class="small" data-pa-app-say role="status" aria-live="polite"></p>')
-    if keys:
-        out.append('<p class="keys-line"><span>Keys: ' + " ".join(keys)
-                   + ' Not while typing in a field.</span>'
-                   '<button type="button" class="switch" data-pa-keys aria-pressed="true">'
-                   '<span class="knob" aria-hidden="true"></span>Single-key shortcuts: '
-                   '<span data-pa-keys-word>On</span></button></p>')
-    if m["linkedin"]:
-        out.append(f'<p class="sub"><a class="link" href="{esc(m["linkedin"])}" target="_blank" '
-                   'rel="noopener noreferrer">Open the advert on LinkedIn</a> Opens in a new '
-                   'tab. Radar never sends an application.</p>')
-    else:
-        out.append('<p class="sub">No LinkedIn advert is stored for this role.</p>')
-    return "".join(out)
-
-
-# ------------------------------------------------------- the description
 
 _HEADING = re.compile(r"^[A-Z][^.!?:;,]{0,58}$")
 
@@ -1060,72 +823,6 @@ def where_in_advert(m: dict, sentence: str, whole: bool = True):
     return None
 
 
-def advert_html(m: dict) -> str:
-    row = m["row"]
-    desc = m["description"]
-    out = ['<section class="panel" aria-labelledby="adv-h"><div class="adv-head">'
-           '<h2 id="adv-h">Job description</h2>']
-    if not desc:
-        out.append('<p class="sub">Not stored yet. Only the alert card&rsquo;s few lines are '
-                   'known: title, company, place, rate and two lines of summary.</p>'
-                   '</div></section>')
-        return "".join(out)
-    fetched = row.get("description_fetched_at")
-    asks = m["asks"]
-    blocks = m.setdefault("_blocks", advert_blocks(desc))
-    marks: dict = {}
-    for a in asks:
-        s = a.get("sentence")
-        where = where_in_advert(m, s) if s else None
-        if where:
-            marks.setdefault(where[1], []).append(a)
-    rate = (_rate_working(m) or {}).get("rate_quote")
-    rate_at = where_in_advert(m, rate, whole=False) if rate else None
-    import check_jobs
-    cap = check_jobs.DESCRIPTION_CAP
-    # The legend says what is underlined only where something is: an ask
-    # whose sentence was not found, or one stored before the sentences, is
-    # underlined nowhere.
-    line = (("Read from the advert " + day_time(fetched) if fetched
-             else "Stored by the page checker, date not recorded")
-            + f", {len(desc):,} characters"
-            + (f", cut at the stored limit of {cap:,}" if len(desc) >= cap else "")
-            + (", scored once for this version." if m["on_description"] else ", not scored yet.")
-            + (" Asks underlined: solid met, dashed partly, dotted gap, each with its mark "
-               "and number." if marks else
-               " No ask is underlined, because no ask carries a sentence found in it word "
-               "for word."
-               if asks else ""))
-    out.append(f'<p class="sub" data-pa-adv-legend>{esc(line)}</p>'
-               '<button type="button" class="btn advert-toggle" aria-expanded="false" '
-               'aria-controls="adv-body" data-pa-advert>Show the job description</button></div>')
-    body = []
-    in_list = False
-    for i, b in enumerate(blocks):
-        if b["kind"] == "h":
-            if in_list:
-                body.append("</ul>")
-                in_list = False
-            body.append(f'<h3>{esc(b["text"])}</h3>')
-            continue
-        text = _marked(b["text"], marks.get(i, []),
-                       rate if rate_at and rate_at[1] == i else None)
-        if b["kind"] == "li":
-            if not in_list:
-                body.append("<ul>")
-                in_list = True
-            body.append(f"<li>{text}</li>")
-        else:
-            if in_list:
-                body.append("</ul>")
-                in_list = False
-            body.append(f"<p>{text}</p>")
-    if in_list:
-        body.append("</ul>")
-    out.append('<div class="adv" id="adv-body">' + "".join(body) + '</div></section>')
-    return "".join(out)
-
-
 def _marked(text: str, asks: list, rate: str | None) -> str:
     """One block of the advert with each ask's sentence underlined, and the
     pay line marked. A span that overlaps one already marked only adds its
@@ -1167,9 +864,8 @@ def _marked(text: str, asks: list, rate: str | None) -> str:
 
 
 def _tagmark(a: dict) -> str:
-    sym = {"met": "&#10003;", "partly": "&#9680;", "missing": "&#10007;"}.get(a["status"], "")
     st = MARKS.get(a["status"], MARKS["missing"])[1]
-    return (f' <span class="tagmark {st}"><span aria-hidden="true">{sym}</span>'
+    return (f' <span class="tagmark {st}">'
             f'<span class="visually-hidden">{SHORT.get(a["status"], "missing")}, ask</span>'
             f' A{a["num"]}</span>')
 
@@ -1189,110 +885,6 @@ def _span_len(text: str, at: int, found: str) -> int:
 
 
 # ---------------------------------------------------------- the CV's head
-
-def workhead_html(m: dict) -> str:
-    row = m["row"]
-    copy = m["copy"]
-    master = m["master"]
-    out = ['<h2 id="cv-h">Tailored CV</h2>']
-    if m["applied"]:
-        name = row.get("applied_cv")
-        out.append('<p class="notice">This role is marked applied'
-                   + (f' with {esc(name)}' if name else '') + '. '
-                   + ('Its CV is shown as it was saved, as it was sent, and nothing is scored, saved or '
-                      'changed for it. Rescore role, Save CV and Start again from master are '
-                      'gone; Download Word stays.' if copy and copy.get("saved_text")
-                      else 'No CV was saved for this role, and nothing is scored, saved or '
-                      'changed for it.') + '</p>')
-    elif not m["is_open"]:
-        out.append('<p class="notice">This role is not open, so its CV is shown as it was '
-                   'stored and cannot be changed.</p>')
-    elif m["unlaid"] and copy is None:
-        out.append(f'<p class="notice warn">{esc(prep.MASTER_NOT_LAID_OUT)} <a class="link" '
-                   'href="/cv">Open the CV page</a>. Shown below as it is stored, numbered as '
-                   'the scorer numbers it, read only.</p>')
-    if m["master_problem"] and copy is None:
-        out.append(f'<p class="notice bad">The master CV could not be read, so there is no '
-                   f'copy to tailor. {esc(m["master_problem"])}</p>')
-    if m["needs_copy"]:
-        out.append('<p class="sub" id="cv-status">This is the master CV. The tailored copy for '
-                   'this role is made from it as the page opens, with no call, and nothing '
-                   'done to the copy changes the master.</p>')
-    elif copy is not None:
-        made = (f'Made from the master CV, {esc(version_words(copy.get("master_version")))}, '
-                f'when this page first opened, {esc(day_time(copy.get("created_at")))}. '
-                'Nothing done here changes the master.')
-        changed = bool(m["master_version"] and copy.get("master_version")
-                       and m["master_version"] != copy.get("master_version"))
-        if master and master.get("canonical") and m["can_edit"]:
-            count, how = master_diff(master["text"], m["shown_text"])
-            versus = "the master as it is now" if changed else "it"
-            if count:
-                listed = ", ".join(how[:5]) + (f" and {len(how) - 5} more" if len(how) > 5 else "")
-                made += f" {_plural(count, 'line')} differ from {versus}: {esc(listed)}."
-            else:
-                made += f" It is the same as {versus}."
-        out.append(f'<p class="sub" id="cv-status">{made}</p>')
-        if changed and m["can_edit"]:
-            saved = copy.get("saved_name")
-            was = copy.get("master_version")
-            compare = compare_url(was)
-            link = (f'<a class="link" href="{esc(compare)}">Compare {esc(version_words(was, short=True))} '
-                    'with the active version on the CV page</a>' if compare else
-                    '<a class="link" href="/cv#history">Open the CV page&rsquo;s History</a>'
-                    '<span class="sub"> The CV page keeps no comparison for that version, so '
-                    'this opens its list of versions.</span>')
-            out.append('<div class="notice warn" data-pa-master-moved><p><b>The master CV has '
-                       'changed since this copy was made.</b> This copy was made from '
-                       f'{esc(version_words(was))}; the master is now '
-                       f'{esc(version_words(m["master_version"]))}. The copy keeps its own text '
-                       'and its own score. Start again from master takes the master as it is now'
-                       + (f'; the saved copy, {esc(saved)}, stays as it was saved.' if saved
-                          else '.') + '</p><p class="row-btns"><button type="button" '
-                       'class="btn" data-cv-act="reset" disabled>Start again from master'
-                       f'</button>{link}</p></div>')
-    asks = m["asks"]
-    if asks:
-        n = {"met": 0, "partly": 0, "missing": 0}
-        for a in asks:
-            if not a.get("stale"):
-                n[a.get("status") if a.get("status") in n else "missing"] += 1
-        stale = sum(1 for a in asks if a.get("stale"))
-        loose = sum(1 for a in asks if a.get("status") in ("met", "partly")
-                    and not note_cites(a))
-        out.append('<p class="tally" data-pa-tally>'
-                   f'<b>{_plural(len(asks), "ask")}</b> from the advert: '
-                   f'<span data-pa-count="met">&#10003; {n["met"]} met</span> '
-                   f'<span data-pa-count="partly">&#9680; {n["partly"]} partly</span> '
-                   f'<span data-pa-count="missing">&#10007; {n["missing"]} '
-                   f'{"gap" if n["missing"] == 1 else "gaps"}, not on the CV</span> '
-                   + (f'<span>{loose} without a CV line</span> ' if loose else '')
-                   + (f'<span data-pa-count="stale">! {stale} stale</span>' if stale
-                      else '<span data-pa-count="stale" hidden></span>')
-                   + '</p>')
-        record = m["record"]
-        by = ("by the " + clock(record.get("scored_at")) + " rescore of this copy, CV lines "
-              "as numbered in the tailored copy as it was scored"
-              if m["asks_from"] == "tailored" and record else
-              "by the full spec score of the master CV, CV lines as numbered in "
-              + str((m["asks_working"] or {}).get("cv_version") or "the CV"))
-        out.append(f'<p class="legend">Judged on the CV text alone, {esc(by)}. Met notes '
-                   'fold to one line; open one to read the advert sentence it came from.</p>')
-        if m["can_edit"]:
-            earlier = m["standing"]["kind"] == "earlier"
-            out.append('<p class="notice warn" id="copy-edited-note"'
-                       + (' data-pa-earlier="1">' if earlier else ' hidden>')
-                       + 'The copy has been edited since this score. Rescore role scores '
-                       'it as it is now. <b data-pa-counts></b></p>')
-    elif m["stale_description"]:
-        out.append('<p class="small">No asks are shown: the stored description has changed '
-                   'since this role was scored.</p>')
-    else:
-        out.append('<p class="small">No asks yet. Each ask the advert makes is read from the '
-                   'full description when it is scored, and set beside the CV line that '
-                   'evidences it.</p>')
-    return "".join(out)
-
 
 def _version_time(name):
     found = re.match(r"^cv-(\d{8})-(\d{6})(?:-\d+)?\.md$", name or "")
@@ -1340,7 +932,173 @@ def compare_url(name) -> str | None:
 
 # ------------------------------------------------------------- the bar
 
+def scored_words(m: dict) -> str:
+    row = m["row"]
+    if m["on_description"]:
+        return "Scored on the full description"
+    if str(row.get("score_basis") or "").strip() or row.get("cv_match") is not None:
+        return "Scored on the advert card"
+    return "Not scored yet"
+
+
+def fetch_button(m: dict) -> str:
+    """The one paid press, Score the full description, with its cost beside it.
+    Only where the role is not scored on the full description and a fetch or
+    score can run."""
+    if m["on_description"] or not m["pending"] or m["notices"]:
+        return ""
+    label = ("Fetch and score the full description" if not m["description"]
+             else "Score the new description" if m["stale_description"]
+             else "Score the full description")
+    return (f'<span class="fetch"><button type="button" class="btn" data-pa-fetch>'
+            f'<span class="lbl">{esc(label)}</span></button>'
+            f'<span class="cost">{COST}</span></span>')
+
+
+def advert_html(m: dict) -> str:
+    row = m["row"]
+    desc = m["description"]
+    out = [f'<div class="pa-strip"><span class="strip-t">{esc(scored_words(m))}</span>{fetch_button(m)}</div>']
+    if not desc:
+        out.append('<p class="none">Not stored yet.</p>')
+        return "".join(out)
+    asks = m["asks"]
+    blocks = m.setdefault("_blocks", advert_blocks(desc))
+    marks: dict = {}
+    for a in asks:
+        s = a.get("sentence")
+        where = where_in_advert(m, s) if s else None
+        if where:
+            marks.setdefault(where[1], []).append(a)
+    rate = (_rate_working(m) or {}).get("rate_quote")
+    rate_at = where_in_advert(m, rate, whole=False) if rate else None
+    company = row.get("company") or ""
+
+    def rest_of(i: int, b: dict, under_rest: bool) -> bool:
+        """Boilerplate, folded as on Jobs, unless an ask or the rate is marked in it."""
+        if marks.get(i) or (rate_at and rate_at[1] == i):
+            return False
+        return under_rest or (b["kind"] != "h" and jp._rest_line(b["text"]))
+
+    main, rest = [], []
+    under_rest = False
+    for i, b in enumerate(blocks):
+        if b["kind"] == "h":
+            under_rest = bool(jp._REST_HEADING.match(b["text"]) or jp._about_company(b["text"], company))
+            (rest if under_rest else main).append((i, b))
+            continue
+        (rest if rest_of(i, b, under_rest) else main).append((i, b))
+
+    def draw(items: list) -> str:
+        body, in_list = [], False
+        for i, b in items:
+            if b["kind"] == "h":
+                if in_list:
+                    body.append("</ul>")
+                    in_list = False
+                body.append(f'<h3>{esc(b["text"])}</h3>')
+                continue
+            text = _marked(b["text"], marks.get(i, []), rate if rate_at and rate_at[1] == i else None)
+            if b["kind"] == "li":
+                if not in_list:
+                    body.append("<ul>")
+                    in_list = True
+                body.append(f"<li>{text}</li>")
+            else:
+                if in_list:
+                    body.append("</ul>")
+                    in_list = False
+                body.append(f"<p>{text}</p>")
+        if in_list:
+            body.append("</ul>")
+        return "".join(body)
+
+    folded = (f'<details class="advert-rest"><summary>Rest of the advert</summary>{draw(rest)}</details>'
+              if rest else "")
+    out.append(f'<div class="adv" id="adv-body">{draw(main)}{folded}</div>')
+    return "".join(out)
+
+
+def copy_label(m: dict) -> str:
+    """The copy the score pill is for: the one being tailored, or, where
+    nothing can change any more, the copy sent, the copy saved, or the copy
+    as it was left unsaved."""
+    copy = m["copy"] or {}
+    if m["can_edit"]:
+        return "This copy"
+    if copy.get("saved_text"):
+        return "Sent copy" if m["applied"] else "Saved copy"
+    return "Unsaved copy"
+
+
+def pages_pill(m: dict) -> str:
+    n = len(m["pages"])
+    if not n:
+        return '<span class="pill pa-pages" id="pa-pages" hidden></span>'
+    return (f'<span class="pill pa-pages{" is-over" if n > 2 else ""}" id="pa-pages">'
+            f'{esc(pages_words(m["pages"]))}</span>')
+
+
+def workhead_html(m: dict) -> str:
+    """The Tailored CV's top strip: the asks, this copy's score, the pages;
+    then what stands in the way of a copy, where something does."""
+    row = m["row"]
+    copy = m["copy"]
+    asks = m["asks"]
+    bits = []
+    if asks:
+        n = {"met": 0, "partly": 0, "missing": 0}
+        for a in asks:
+            if not a.get("stale"):
+                n[a.get("status") if a.get("status") in n else "missing"] += 1
+        stale = sum(1 for a in asks if a.get("stale"))
+        bits.append('<span class="tally" data-pa-tally>'
+                    f'<b>{_plural(len(asks), "ask")}</b>{RULE}'
+                    f'<span data-pa-count="met">{n["met"]} met</span>{RULE}'
+                    f'<span data-pa-count="partly">{n["partly"]} partly</span>{RULE}'
+                    f'<span data-pa-count="missing">{_plural(n["missing"], "gap")}</span>'
+                    + (f'<span data-pa-count="stale">{stale} stale</span>' if stale
+                       else '<span data-pa-count="stale" hidden></span>') + '</span>')
+    else:
+        bits.append('<span class="tally">No asks yet.</span>')
+    record = m["record"]
+    if record and m["standing"]["kind"] in ("current", "earlier") and record.get("cv_match") is not None:
+        bits.append(f'<span class="pill" data-fig="copy">{esc(copy_label(m))} <span class="num">'
+                    f'{esc(record.get("cv_match"))}</span><span class="fig-sub" hidden></span></span>')
+    bits.append(pages_pill(m))
+    out = [f'<div class="pa-strip cv-strip">{"".join(bits)}</div>']
+    if m["applied"]:
+        name = row.get("applied_cv")
+        out.append(f'<p class="notice">Marked applied{" with " + esc(name) if name else ", no CV saved"}.</p>')
+    elif not m["is_open"]:
+        out.append('<p class="notice">This role is not open.</p>')
+    if m["master_problem"] and copy is None:
+        out.append(f'<p class="notice bad">The master CV could not be read. {esc(m["master_problem"])}</p>')
+    if copy is not None and m["can_edit"]:
+        changed = bool(m["master_version"] and copy.get("master_version")
+                       and m["master_version"] != copy.get("master_version"))
+        if changed:
+            was = copy.get("master_version")
+            compare = compare_url(was)
+            link = (f'<a class="plain" href="{esc(compare)}">Compare {esc(version_words(was, short=True))} '
+                    'with the active version</a>' if compare else
+                    '<a class="plain" href="/cv#history">Open the CV page&rsquo;s versions</a>')
+            out.append('<div class="notice warn" data-pa-master-moved><p><b>The master CV has changed '
+                       f'since this copy was made.</b> This copy is from {esc(version_words(was))}; the '
+                       f'master is now {esc(version_words(m["master_version"]))}.</p><p class="row-btns">'
+                       '<button type="button" class="btn" data-cv-act="reset" disabled>Start again from '
+                       f'master</button>{link}</p></div>')
+    if asks and m["can_edit"]:
+        earlier = m["standing"]["kind"] == "earlier"
+        out.append('<p class="notice warn" id="copy-edited-note"'
+                   + (' data-pa-earlier="1">' if earlier else ' hidden>')
+                   + 'Edited since this score. <b data-pa-counts></b></p>')
+    return "".join(out)
+
+
 def bar_html(m: dict) -> str:
+    """The copy's other buttons: Rescore role, Download Word, Start again from
+    master, and where it was saved. Save copy sits by the section's title."""
     row = m["row"]
     copy = m["copy"] or {}
     rid = m["id"]
@@ -1348,48 +1106,27 @@ def bar_html(m: dict) -> str:
     dl_attrs = (f'href="/prepare/{rid}/cv.docx" download' if saved else
                 f'href="/prepare/{rid}/cv.docx" aria-disabled="true" '
                 'aria-describedby="pa-save-as" data-pa-nodownload')
-    download = (f'<a class="btn" id="pa-download" {dl_attrs}>'
-                '<span aria-hidden="true">&#8681;</span> Download Word</a>')
+    download = f'<a class="btn" id="pa-download" {dl_attrs}>Download Word</a>'
     editable = m["can_edit"] and not m["unlaid"] and m["shown_text"] is not None
     out = []
     if editable:
         if m["description"]:
             out.append('<button type="button" class="btn" data-cv-act="rescore" disabled>'
-                       '<span aria-hidden="true">&#8635;</span> '
-                       f'<span class="cost">{COST}:</span> <span class="lbl">Rescore role'
-                       '</span></button>')
+                       '<span class="lbl">Rescore role</span> '
+                       f'<span class="cost">{COST}</span></button>')
         else:
-            out.append('<button type="button" class="btn" disabled '
-                       'aria-describedby="pa-rescore-why"><span aria-hidden="true">&#8635;'
-                       '</span> Rescore role</button>')
-        out.append('<button type="button" class="btn" data-cv-act="save" disabled>'
-                   '<span aria-hidden="true">&#9636;</span> Save CV</button>')
+            out.append('<button type="button" class="btn" disabled>Rescore role</button>')
         out.append(download)
-        out.append('<span class="sep" aria-hidden="true"></span>'
-                   '<button type="button" class="btn quiet" data-cv-act="reset" disabled>'
+        out.append('<button type="button" class="btn quiet" data-cv-act="reset" disabled>'
                    'Start again from master</button>')
-        name = cv_doc.saved_name(row.get("company"), row.get("title"))
         same = saved and copy.get("saved_hash") == copy.get("cv_hash")
-        if saved:
-            words = (f'Saved {esc(day_time(copy.get("saved_at")))} as '
-                     f'<b>{esc(copy.get("saved_name"))}</b>. '
-                     + ('Nothing on screen has changed since. ' if same else
-                        'The copy has changed since; Save CV again to keep what is on screen. ')
-                     + 'Download Word gives this saved copy.')
-        else:
-            words = (f'Not saved yet. Save CV stores it as <b>{esc(name)}</b> and puts the role '
-                     'in Preparing. Download Word gives the saved copy, so it waits for a save.')
-        out.append(f'<p class="save-as" id="pa-save-as" data-saved-same="{1 if same else 0}">'
-                   f'{words}</p>')
-        if not m["description"]:
-            out.append('<p class="save-as" id="pa-rescore-why">Rescore role needs the full '
-                       'description. Fetch it first.</p>')
-        out.append('<p class="cv-hint" id="cv-download-hint"></p>')
+        words = (f'Saved {esc(day_time(copy.get("saved_at")))} as <b>{esc(copy.get("saved_name"))}</b>.'
+                 if saved else 'Not saved yet.')
+        out.append(f'<p class="save-as" id="pa-save-as" data-saved-same="{1 if same else 0}">{words}</p>')
     elif saved:
         out.append(download)
-        out.append(f'<p class="save-as" id="pa-save-as">Saved '
-                   f'{esc(day_time(copy.get("saved_at")))} as '
-                   f'<b>{esc(copy.get("saved_name"))}</b>. Download Word gives that copy.</p>')
+        out.append(f'<p class="save-as" id="pa-save-as">Saved {esc(day_time(copy.get("saved_at")))} as '
+                   f'<b>{esc(copy.get("saved_name"))}</b>.</p>')
     return "".join(out)
 
 
@@ -1423,7 +1160,7 @@ def _cite_line(m: dict, a: dict) -> str:
     if where:
         bits.append(f'<a href="#adv-a{a["num"]}" data-pa-show="adv-a{a["num"]}">advert, '
                     f'{esc(where[0])}</a>')
-    return f'<span class="cite">{" &middot; ".join(bits)}</span>' if bits else ""
+    return f'<span class="cite">{RULE.join(bits)}</span>' if bits else ""
 
 
 # Why an ask shows no advert sentence, by score_item's sentence_dropped. An
@@ -1532,9 +1269,7 @@ def gaps_html(m: dict) -> str:
         return ""
     out = []
     if gaps:
-        out.append(f'<h3>Gaps: {_plural(len(gaps), "ask")} no line on the CV evidences</h3>'
-                   '<p class="sub">They have no line to stand beside, so they come first. Add a '
-                   'line only if it is true, then Rescore role.</p><ol>')
+        out.append(f'<h3>Gaps: {_plural(len(gaps), "ask")} no line on the CV evidences</h3><ol>')
         for a in gaps:
             sentence = a.get("sentence")
             quote = _sentence_html(a)
@@ -1545,14 +1280,13 @@ def gaps_html(m: dict) -> str:
                     if sentence and where_in_advert(m, sentence) else "")
             out.append(f'<li class="note st-gap is-open" id="note-a{a["num"]}" '
                        f'data-note="{a["num"]}" data-status="missing" data-cites="[]" '
-                       'tabindex="-1"><div class="head"><span class="mark gap">&#10007; Gap, '
+                       'tabindex="-1"><div class="head"><span class="mark gap">Gap, '
                        f'not on the CV</span> <span class="id">A{a["num"]}</span></div>'
                        f'<div class="note-body">{quote}{why}{_cite_line(m, a)}{show}</div></li>')
         out.append('</ol>')
     if loose:
         out.append(f'<h3>{_plural(len(loose), "ask")} marked met or partly with no CV line '
-                   'that exists</h3><p class="sub">The scorer says the CV evidences these and '
-                   'cites no line on it, so they have no line to stand beside.</p><ol>')
+                   'that exists</h3><ol>')
         changes = _changes(m)
         out += [note_html(m, a, changes, fold=False) for a in loose]
         out.append('</ol>')
@@ -1561,13 +1295,11 @@ def gaps_html(m: dict) -> str:
 
 # ------------------------------------------------------------ the parts
 
-SLOTS = ("head", "score", "app", "rate", "gates", "advert", "workhead", "bar", "gaps",
-         "notes")
+SLOTS = ("head", "score", "advert", "workhead", "bar", "gaps", "notes")
 
 
 def parts(m: dict) -> dict:
-    return {"head": head_html(m), "score": score_html(m), "app": app_html(m),
-            "rate": rate_html(m), "gates": gates_html(m), "advert": advert_html(m),
+    return {"head": head_html(m), "score": score_html(m), "advert": advert_html(m),
             "workhead": workhead_html(m), "bar": bar_html(m), "gaps": gaps_html(m),
             "notes": notes_html(m)}
 
@@ -1635,51 +1367,61 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str = "",
     def slot(k, tag="div", cls="", extra=""):
         return f'<{tag} class="{cls}" data-slot="{k}" {extra}>{p[k]}</{tag}>'
 
-    return f"""<!doctype html>
-<html lang="en-GB">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Prepare application · {esc(title)} · MedTech Radar</title>
-<link rel="icon" href="{bd.FAVICON}">
-<style>{page_frame.FRAME_CSS}{legacy_tokens()}{PREPARE_CSS}{cv_page.CV_CSS}{SHEET_CSS}</style>
-</head>
-<body>
-{page_frame.appbar_html("jobs", rc.job_health(conn), "Prepare application")}
-<main class="pa" id="main" data-id="{m['id']}" data-applied="{1 if m['applied'] else 0}" data-editable="{1 if m['can_edit'] else 0}" data-keys-store="{KEYS_STORE}">
-{slot("head", "header", "role-head")}
-<div class="layout">
-<div class="rail">
-{slot("score", "section", "panel p-score", 'aria-labelledby="score-h"')}
-{slot("app", "section", "panel p-app")}
-{slot("rate", "section", "panel p-rate")}
-{slot("gates", "details", "panel p-gates", "open")}
-</div>
-{slot("advert", "div", "advert")}
-<div class="work">
-{slot("workhead", "div", "work-head")}
+    editable = m["can_edit"] and not m["unlaid"] and m["shown_text"] is not None
+    save = ('<button type="button" class="btn btn-plain sec-link" data-cv-act="save" disabled>Save copy</button>'
+            if editable else "")
+    if m["unlaid"] and m["copy"] is None:
+        # No copy can be made until the master is in the editor's layout.
+        cv_body = ('<p class="notice warn pa-unlaid">Save your master CV on the CV page to make a copy '
+                   'for this role. <a class="plain" href="/cv">Open CV</a></p>')
+    else:
+        cv_body = f"""{slot("workhead", "div", "work-head")}
 {slot("bar", "div", "pa-bar" + ("" if p["bar"] else " is-empty"), 'role="group" aria-label="Tailored CV"')}
 <p class="cv-note notice-line" id="cv-say"></p>
-<p class="visually-hidden" id="pa-live" role="status" aria-live="polite" aria-atomic="true"></p>
 {slot("gaps", "section", "gaps" + ("" if p["gaps"] else " is-empty"), 'aria-label="Gaps"')}
 <div class="sheet-wrap">
 {slot("notes", "div", "pa-notes", 'aria-label="Margin notes"')}
 <div class="gut" aria-hidden="true"></div>
 <div class="sheet-paper pa-sheet" id="cv-pane" style="{design_style(m['design'])}" data-design="{esc(json.dumps(m['design']))}">{editor_pane(m)}</div>
+</div>"""
+
+    return f"""<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prepare application, {esc(title)}, MedTech Radar</title>
+<link rel="icon" href="{bd.FAVICON}">
+<style>{page_frame.FRAME_CSS}{legacy_tokens()}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{tiers.PILL_CSS}{PREPARE_CSS}{cv_page.CV_CSS}{SHEET_CSS}</style>
+</head>
+<body>
+{page_frame.appbar_html("jobs", rc.job_health(conn), "Prepare application")}
+<main class="pa" id="main" data-id="{m['id']}" data-applied="{1 if m['applied'] else 0}" data-editable="{1 if m['can_edit'] else 0}">
+<p class="pa-back"><a class="plain" href="/jobs">Back to Jobs</a></p>
+{slot("head", "header", "card g-jobs glow-head pa-head")}
+{slot("score", "section", "pa-gates", 'aria-labelledby="score-h"')}
+<div class="pa-cols">
+<section class="pa-col" aria-labelledby="adv-h">
+<header class="sec-head">{page_frame.chip("list", "jobs")}<h2 class="sec-title" id="adv-h">Job description</h2></header>
+<div class="card g-jobs glow-faint pa-card">{slot("advert", "div", "advert")}</div>
+</section>
+<section class="pa-col pa-cv" aria-labelledby="cv-h">
+<header class="sec-head">{page_frame.chip("cv", "cv")}<h2 class="sec-title" id="cv-h">Tailored CV</h2>{save}</header>
+<div class="card g-cv glow-faint pa-card pa-cvcard">
+{cv_body}
 </div>
-<p class="pa-pages{' is-over' if len(m['pages']) > 2 else ''}" id="pa-pages">{esc(pages_words(m['pages'], m['design']))}</p>
+</section>
 </div>
-</div>
+<p class="visually-hidden" id="pa-live" role="status" aria-live="polite" aria-atomic="true"></p>
 <div id="prepare-body" hidden></div>
-<dialog class="pa-dialog" id="pa-apply-dialog" aria-labelledby="pa-dialog-h" aria-describedby="pa-dialog-p">
+<dialog class="pa-dialog card" id="pa-apply-dialog" aria-labelledby="pa-dialog-h" aria-describedby="pa-dialog-p">
 <h2 id="pa-dialog-h">Mark applied</h2>
 <p id="pa-dialog-p"></p>
-<p class="row-btns"><button type="button" class="btn btn-primary" data-pa-dlg="save">Save this copy, then mark applied</button>
+<p class="row-btns"><button type="button" class="btn btn-solid" data-pa-dlg="save">Save this copy, then mark applied</button>
 <button type="button" class="btn" data-pa-dlg="apply">Mark applied</button>
 <button type="button" class="btn quiet" data-pa-dlg="cancel">Cancel</button></p>
-<p class="sub">Esc is Cancel. Focus goes back to Mark applied.</p>
 </dialog>
-<noscript><p class="notice bad">This page needs JavaScript to fetch, score and edit. What is stored is shown above.</p></noscript>
+<noscript><p class="notice bad">This page needs JavaScript to fetch, score and edit.</p></noscript>
 </main>
 <script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{PREPARE_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}</script>
 </body>
@@ -1700,134 +1442,123 @@ a:hover{color:var(--accent-hover)}
 .pa input,.pa textarea{font:inherit}
 :root{--note-w:440px;--gut:28px}
 /* The shared content box, page_frame's --frame-max and --frame-pad. */
-.pa{padding:24px var(--frame-pad) 48px;max-width:var(--frame-max);margin-inline:auto}
+.pa{padding:16px var(--frame-pad) 48px;max-width:var(--frame-max);margin-inline:auto}
 .pa h2{font:600 16px/24px var(--font-sans);color:var(--text-1)}
 .pa h3{font:600 14px/20px var(--font-sans);color:var(--text-1)}
-.pa .sub{font-size:12px;line-height:16px;color:var(--text-3)}
 .pa .small{font-size:14px;line-height:20px;color:var(--text-2)}
-.role-head{padding:0 0 16px;border-bottom:1px solid var(--border-subtle)}
-.h1row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 24px}
-.role-head h1{font:600 20px/28px var(--font-sans);color:var(--text-1);overflow-wrap:anywhere}
-.page-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.facts{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:4px;font-size:14px;line-height:20px;color:var(--text-2)}
-.facts li{white-space:nowrap}
-.role-head .notice{margin-top:12px}
-.tag{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font-size:12px;line-height:16px;color:var(--text-2);white-space:nowrap}
-.tag.basis{border-color:var(--accent);color:var(--accent)}
-.tag.top{border-color:var(--positive);color:var(--positive)}
-.kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface-sunken);color:var(--text-2);font:500 11px/16px var(--font-mono)}
-.btn{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:var(--surface);color:var(--text-1);font:500 14px/20px var(--font-sans);text-decoration:none;cursor:pointer;white-space:nowrap}
+.card{min-width:0;border:1px solid var(--border-subtle);border-radius:14px;background-color:var(--surface)}
+a.plain{color:var(--text-1);text-decoration:underline;text-decoration-color:#5b6770;text-decoration-thickness:1px;text-underline-offset:3px}
+a.plain:hover{color:var(--text-1);text-decoration-color:var(--text-1)}
+.fact-rule{flex:none;display:inline-block;width:0;height:12px;margin:0 10px;border-left:1px solid var(--text-3);vertical-align:-1px}
+.pa-back{margin-bottom:12px;font-size:14px;line-height:20px}
+/* ---- the header card ---- */
+.pa-head{padding:20px 24px}
+.ph-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-width:0}
+.ph-top h1{font:600 24px/32px var(--font-sans);color:var(--text-1);overflow-wrap:anywhere;min-width:0}
+.ph-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-left:auto;font-size:14px;line-height:20px}
+.ph-facts{display:flex;flex-wrap:wrap;align-items:center;row-gap:4px;margin-top:8px;font-size:14px;line-height:20px;color:var(--text-2)}
+.pa-app{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border-subtle);font-size:14px;line-height:20px}
+.pa-app-l{font-weight:600;color:var(--text-1)}
+.stages{display:flex;flex-wrap:wrap;gap:8px 20px;color:var(--text-2)}
+.stages li{display:inline-flex;align-items:center;gap:8px}
+.stages .dot{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--text-3)}
+.stages li.is-reached{color:var(--text-1)}
+.stages li.is-reached .dot{background:var(--group-jobs);border-color:var(--group-jobs)}
+.stages li[aria-current]{font-weight:600}
+.pa-board{margin-left:auto}
+.pa-app-say{font-size:14px;line-height:20px;color:var(--text-2)}
+.pa-app-say:empty{display:none}
+.stchip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:12px;font-size:13px;line-height:20px;font-weight:500;background:#2a3238;color:var(--text-1)}
+/* ---- buttons ---- */
+.btn{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--text-1);font:500 14px/20px var(--font-sans);text-decoration:none;cursor:pointer;white-space:nowrap}
 .btn:hover{background:var(--row-hover);color:var(--text-1)}
 .btn .cost{color:var(--text-2);font-weight:400}
-.btn-primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-.btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover);color:var(--on-accent)}
-.btn-primary .cost{color:var(--on-accent)}
+/* The page's one solid button, Mark applied, in the Jobs purple. */
+.btn-solid{background:#a79cf0;border-color:#a79cf0;color:#15122e;font-weight:600}
+.btn-solid:hover{background:#bab1f4;border-color:#bab1f4;color:#15122e}
+.btn-plain{background:transparent}
 .btn[disabled],.btn[aria-disabled="true"]{background:transparent;border-color:var(--border-subtle);color:var(--text-3);cursor:not-allowed}
 .btn[disabled] .cost,.btn[aria-disabled="true"] .cost{color:var(--text-3)}
 .btn.quiet{border-color:transparent;background:transparent;color:var(--text-2);padding:0 8px}
-.btn-sm{display:inline-flex;align-items:center;height:24px;padding:0 8px;border:1px solid var(--border-strong);border-radius:var(--radius-2);background:transparent;color:var(--text-2);font:500 12px/16px var(--font-sans);cursor:pointer;text-decoration:none}
+.btn-sm{display:inline-flex;align-items:center;height:28px;padding:0 10px;border:1px solid var(--border-strong);border-radius:6px;background:transparent;color:var(--text-2);font:500 13px/20px var(--font-sans);cursor:pointer;text-decoration:none}
 .btn-sm[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
-.link{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
-.notice{margin:12px 0 0;padding:8px 12px;border-left:3px solid var(--border-strong);background:var(--surface);font-size:14px;line-height:20px;color:var(--text-2)}
+.link{color:var(--text-1);text-decoration:underline;text-decoration-color:#5b6770;text-underline-offset:3px}
+/* ---- notices: a full border in the status colour, no edge bar ---- */
+.notice{margin:12px 0 0;padding:10px 14px;border:1px solid var(--border-strong);border-radius:10px;background:var(--surface);font-size:14px;line-height:20px;color:var(--text-2)}
 .notice:empty{display:none}
 .notice b{color:var(--text-1)}
-.notice.bad{border-left-color:var(--negative);background:var(--negative-tint)}
-.notice.ok{border-left-color:var(--positive);background:var(--positive-tint)}
-.notice.work{border-left-color:var(--accent);background:var(--accent-tint)}
-.notice.warn{border-left-color:var(--caution);background:var(--caution-tint)}
+.notice.bad{border-color:var(--negative);background:var(--negative-tint)}
+.notice.ok{border-color:var(--positive);background:var(--positive-tint)}
+.notice.work{border-color:var(--accent);background:var(--accent-tint)}
+.notice.warn{border-color:var(--caution);background:var(--caution-tint)}
 .notice .btn{margin-top:8px}
 .notice p + p{margin-top:4px}
-#cv-say{margin:0;padding:8px 12px;border-left:3px solid var(--positive);background:var(--positive-tint);font-size:14px;line-height:20px;color:var(--text-1);min-height:0}
+#cv-say{margin:0;padding:8px 12px;border:1px solid var(--positive);border-radius:10px;background:var(--positive-tint);font-size:14px;line-height:20px;color:var(--text-1);min-height:0}
 #cv-say:empty{display:none}
-#cv-say.bad{border-left-color:var(--negative);background:var(--negative-tint);color:var(--text-1)}
-.switch{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 6px 0 2px;border:1px solid var(--border-strong);border-radius:12px;background:transparent;color:var(--text-2);font:500 12px/16px var(--font-sans);cursor:pointer}
-.switch .knob{width:18px;height:18px;border-radius:50%;background:var(--accent)}
-.switch[aria-pressed="false"] .knob{background:transparent;border:2px solid var(--text-3)}
-.keys-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-top:12px;font-size:12px;line-height:16px;color:var(--text-3)}
-
-.layout{display:grid;gap:24px;margin-top:16px;grid-template-columns:minmax(0,1fr)}
-.work,.advert,.rail{min-width:0}
-@media (min-width:1800px){
-  :root{--note-w:520px}
-  .layout{grid-template-columns:480px 520px minmax(0,1fr);align-items:start}
-  .rail,.advert .panel{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto}
-}
-.rail{display:grid;gap:16px;align-content:start}
-.panel{padding:16px;border:1px solid var(--border-subtle);border-radius:var(--radius-4);background:var(--surface)}
-.panel > h2,.panel summary h2{margin-bottom:4px}
-@media (min-width:1024px) and (max-width:1799.98px){
-  .rail{grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);grid-template-areas:"score gates" "app gates" "rate gates";align-items:start}
-  .p-score{grid-area:score}.p-app{grid-area:app}.p-rate{grid-area:rate}.p-gates{grid-area:gates}
-}
-.figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0 8px}
-.fig{padding:8px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);background:var(--canvas)}
-.fig dt{font:600 12px/16px var(--font-sans);color:var(--text-2)}
-.fig .num{font:600 32px/40px var(--font-sans);color:var(--text-1)}
-.fig .num.none{font-size:16px;line-height:40px;color:var(--text-3);font-weight:500}
-.fig .fig-sub{font-size:12px;line-height:16px;color:var(--text-3)}
-.fig.is-role{border-color:var(--border-strong)}
-.fig.is-copy{border-color:var(--accent);border-style:dashed}
-.fig.is-old .num{color:var(--text-3)}
-.why{margin-top:8px;font-size:14px;line-height:20px;color:var(--text-2)}
-.sumline{display:none}
-.fetch{margin-top:12px}
-.fetch .small{margin-top:8px}
-.fetch .btn,.notice .btn{height:auto;min-height:32px;white-space:normal;text-align:left;padding:6px 12px}
-.pa-why{margin-top:12px;font-size:14px;line-height:20px;color:var(--text-2)}
-.pa-why summary{cursor:pointer;color:var(--text-2)}
-.pa-why h3{margin:8px 0 2px}
+#cv-say.bad{border-color:var(--negative);background:var(--negative-tint);color:var(--text-1)}
+.row-btns{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+/* ---- the four gates: one row, two by two under 900px, one column on a phone ---- */
+.pa-gates{margin-top:16px}
+.gate-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:899.98px){.gate-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:479.98px){.gate-tiles{grid-template-columns:minmax(0,1fr)}}
+.gate{--st:232 237 240;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-areas:"chip name" "chip status" "fig fig" "note note";column-gap:12px;align-content:start;min-width:0;padding:14px;border:1px solid var(--border-subtle);border-radius:12px;background-color:var(--surface)}
+.gate.is-pos{--st:116 211 155}
+.gate.is-cau{--st:240 196 106}
+.gate.is-neg{--st:255 155 143}
+.gate-glow{background-image:radial-gradient(150% 170% at 0% 0%,rgb(var(--st) / .28) 0%,rgb(var(--st) / .10) 45%,rgb(var(--st) / 0) 100%)}
+.gate-chip{grid-area:chip;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgb(var(--st) / .16)}
+.gate-chip.is-pos{color:var(--positive)}.gate-chip.is-neg{color:var(--negative)}.gate-chip.is-cau{color:var(--caution)}
+.gate-chip.is-neu{color:var(--text-2)}
+.gate-chip svg{display:block}
+.gate-name{grid-area:name;font-size:15px;line-height:20px;font-weight:600;color:var(--text-1)}
+.gate-status{grid-area:status;font-size:14px;line-height:20px;font-weight:500}
+.gate-status.is-pos{color:var(--positive)}.gate-status.is-neg{color:var(--negative)}.gate-status.is-cau{color:var(--caution)}
+.gate-status.is-neu{color:var(--text-2)}
+.gate-fig{grid-area:fig;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
+.gate-num{font:600 28px/36px var(--font-sans);color:var(--text-1);font-variant-numeric:tabular-nums}
+.gate-num.none{font-size:15px;line-height:36px;font-weight:500;color:var(--text-2)}
+.src-pill,.pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border:1px solid #2a3238;border-radius:12px;background:#1a2025;font-size:13px;line-height:20px;font-weight:500;color:var(--text-2);white-space:nowrap}
+.pill .num{color:var(--text-1);font-weight:600}
+.pill.is-over{border-color:rgba(240,196,106,.5);background:var(--caution-tint);color:var(--caution)}
+.gate-note{grid-area:note;margin-top:10px;font-size:14px;line-height:20px;color:var(--text-2);text-wrap:pretty;overflow-wrap:anywhere}
+@media (forced-colors:active){.gate-chip{border:1px solid CanvasText}}
+.pa-why{margin-top:12px;padding:0 16px;font-size:14px;line-height:20px;color:var(--text-2)}
+.pa-why summary{display:flex;align-items:center;min-height:44px;cursor:pointer;color:var(--text-1);font-weight:600}
+.pa-why-in{padding-bottom:12px}
+.pa-why h3{margin:8px 0 4px}
 .pa-why .reasons{display:grid;gap:4px;padding-left:18px;list-style:disc}
 .pa-why .detail-label{display:none}
-.pa-why .row-sub{display:block;font-size:12px;line-height:16px;color:var(--text-3)}
-details.panel > summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;cursor:pointer;list-style:none}
-details.panel > summary::-webkit-details-marker{display:none}
-details.panel > summary::before{content:"";align-self:center;width:8px;height:8px;border-right:2px solid var(--text-2);border-bottom:2px solid var(--text-2);transform:rotate(45deg);margin:0 2px 4px}
-details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bottom:0}
-.gates{width:100%;margin-top:8px;border-collapse:collapse;font-size:14px;line-height:20px;table-layout:fixed}
-.gates th,.gates td{padding:6px 8px 6px 0;text-align:left;vertical-align:top;border-top:1px solid var(--border-subtle)}
-.gates thead th{font:600 12px/16px var(--font-sans);color:var(--text-2);border-top:0}
-.gates col.c-gate{width:30%}.gates col.c-mark{width:15%}
-.gates tbody th{font-weight:600;color:var(--text-1)}
-.gates .letter{display:inline-flex;justify-content:center;width:18px;margin-right:6px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font:500 11px/16px var(--font-mono);color:var(--text-2)}
-.pass{color:var(--positive);white-space:nowrap}.fail{color:var(--negative);white-space:nowrap}.gates .none{color:var(--text-3)}
-.gates td.gwhy{color:var(--text-3);font-size:12px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gates-foot{margin-top:8px}
-.gates .gwhy-l{display:block;overflow:hidden;text-overflow:ellipsis}
-.gates .gwhy-l b{font-weight:600;color:var(--text-2)}
-.quote{margin:8px 0 4px;padding-left:12px;border-left:3px solid var(--accent);font:500 16px/24px var(--font-sans);color:var(--text-1)}
-.app-state{margin:8px 0 12px;font-size:14px;line-height:20px;color:var(--text-2)}
-.app-state b{color:var(--text-1)}
-.stages{display:flex;gap:4px;margin:8px 0 4px;font-size:12px;line-height:16px}
-.stages li{flex:1;min-width:0;padding:4px 6px;border:1px solid var(--border-subtle);border-radius:var(--radius-2);color:var(--text-3);text-align:center}
-.stages li.is-here{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);color:var(--text-1);font-weight:600}
-.row-btns{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
-.p-app .sub{margin-top:8px}
-
-.work{display:flex;flex-direction:column;gap:12px}
-.work-head .tally{display:flex;flex-wrap:wrap;gap:4px 16px;margin:4px 0;font-size:14px;line-height:20px;color:var(--text-2)}
-.tally b{color:var(--text-1)}
-.tally [data-pa-count="met"]{color:var(--positive)}
-.tally [data-pa-count="partly"]{color:var(--caution)}
-.tally [data-pa-count="missing"],.tally [data-pa-count="stale"]{color:var(--negative)}
-.legend{font-size:12px;line-height:16px;color:var(--text-3)}
-.work-head .notice{margin-top:8px}
-.pa-bar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface);box-shadow:var(--shadow-overlay)}
+.pa-why .row-sub{display:block;font-size:13px;line-height:20px;color:var(--text-3)}
+/* ---- two columns: the description and the tailored CV ---- */
+.pa-cols{display:grid;grid-template-columns:minmax(0,1fr);gap:32px;margin-top:32px;align-items:start}
+@media (min-width:1024px){.pa-cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+.pa-col{min-width:0}
+.pa-card{padding:16px 20px 20px}
+.pa-cv .sec-head .btn{height:32px}
+.pa-strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border-subtle);font-size:14px;line-height:20px;color:var(--text-2)}
+.strip-t{color:var(--text-1);font-weight:500}
+.fetch{display:inline-flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-left:auto}
+.fetch .cost{font-size:13px;line-height:20px;color:var(--text-2)}
+.tally{display:inline-flex;flex-wrap:wrap;align-items:center;row-gap:4px;color:var(--text-2)}
+.tally b{color:var(--text-1);font-weight:600}
+.tally [data-pa-count="stale"]::before{content:"";display:inline-block;width:0;height:12px;margin:0 10px;border-left:1px solid var(--text-3);vertical-align:-1px}
+.tally [data-pa-count="stale"]{color:var(--negative)}
+.none{color:var(--text-2);font-size:14px;line-height:20px}
+.work-head .notice{margin:0 0 12px}
+.pa-bar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px;padding:8px;border:1px solid var(--border-subtle);border-radius:10px;background:var(--surface)}
 .pa-bar.is-empty{display:none}
-.pa-bar .sep{width:1px;align-self:stretch;margin:0 4px;background:var(--border-subtle)}
-.save-as{flex-basis:100%;margin:0 4px;font-size:12px;line-height:16px;color:var(--text-3)}
+.save-as{flex-basis:100%;margin:0 4px;font-size:13px;line-height:20px;color:var(--text-3)}
 .save-as b{color:var(--text-2);font-weight:500}
-.pa-bar .cv-hint{flex-basis:100%;margin:0 4px;font-size:12px;line-height:16px;color:var(--caution)}
-.pa-bar .cv-hint:empty{display:none}
-.gaps{padding:12px 16px;border:1px dashed var(--negative);border-radius:var(--radius-4);background:var(--negative-tint)}
+.gaps{margin-bottom:12px;padding:12px 16px;border:1px dashed var(--negative);border-radius:10px;background:var(--negative-tint)}
 .gaps.is-empty{display:none}
 .gaps ol{display:grid;gap:12px;margin-top:8px}
-.gaps h3 + .sub{margin-top:2px}
 .gaps ol + h3{margin-top:16px}
-@media (min-width:1280px){.gaps ol{grid-template-columns:1fr 1fr}}
-
+.pa-unlaid{margin:0}
+/* ---- the sheet and its notes: beside it when the CV card is wide enough,
+   under each line when it is not (the script reads the wrapper's display) ---- */
+.pa-cvcard{container:pacv / inline-size}
 .sheet-wrap{position:relative;display:grid;grid-template-columns:minmax(0,1fr) var(--gut) var(--note-w);align-items:start;--page-canvas:var(--canvas);--page-text-3:var(--text-3);--page-caution:var(--caution)}
-/* The notes come before the sheet in the source, so Tab reaches them before
-   the editor's many fields, and sit beside it on screen. */
 .pa-sheet{grid-column:1;grid-row:1;border-radius:var(--radius-2);min-width:0}
 .pa-sheet .cv-lines{margin:0}
 .gut{grid-column:2;grid-row:1}
@@ -1836,12 +1567,26 @@ details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bott
 .pa-js .pa-notes > .notes{position:absolute;left:0;right:0}
 .notes{position:relative;display:grid;gap:6px;align-content:start;padding:0 0 4px}
 .notes::before{content:"";position:absolute;left:calc(-1 * var(--gut));top:12px;width:calc(var(--gut) - 4px);border-top:1px solid var(--border-strong)}
-.notes-empty{padding:8px 12px;border:1px dashed var(--border-strong);border-radius:var(--radius-2);font-size:14px;line-height:20px;color:var(--text-2)}
-.note{padding:6px 10px 8px;border-left:3px solid var(--border-strong);background:var(--canvas);font-size:14px;line-height:20px}
-.note.st-met{border-left-color:var(--positive)}
-.note.st-partly{border-left-color:var(--caution)}
-.note.st-gap{border-left-color:var(--negative);border-left-style:dashed}
-.note.st-stale{border-left-color:var(--negative);border-left-style:double;border-left-width:4px}
+.notes-empty{padding:8px 12px;border:1px dashed var(--border-strong);border-radius:8px;font-size:14px;line-height:20px;color:var(--text-2)}
+@container pacv (max-width:999.98px){
+  .sheet-wrap{display:block}
+  .gut{display:none}
+  .pa-notes{display:grid;gap:8px;margin-top:12px}
+  .pa-js .pa-notes{position:absolute;inset:0;z-index:2;margin:0;pointer-events:none}
+  .pa-js .pa-notes > *{pointer-events:auto}
+  .pa-js .pa-notes > .notes{right:8px}
+  .notes::before{display:none}
+  .notes-empty{margin-top:12px}
+  .pa-js .pa-notes > .notes-empty{display:none}
+  .note,.note.is-closed{box-shadow:var(--shadow-overlay)}
+  .note.is-closed{background:var(--canvas)}
+}
+/* A note: its status in words and a full border, never an edge bar. */
+.note{padding:6px 10px 8px;border:1px solid var(--border-strong);border-radius:8px;background:var(--canvas);font-size:14px;line-height:20px}
+.note.st-met{border-color:rgba(116,211,155,.45)}
+.note.st-partly{border-color:rgba(240,196,106,.5)}
+.note.st-gap{border-color:rgba(255,155,143,.55);border-style:dashed}
+.note.st-stale{border-color:var(--negative);border-style:double;border-width:3px}
 .note.is-closed{padding:0;background:transparent}
 .note.is-selected{background:var(--row-selected);outline:1px solid var(--accent)}
 .note .head{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
@@ -1853,24 +1598,20 @@ details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bott
 .note.st-met.is-open{padding:6px 10px 8px;background:var(--canvas)}
 .note.st-met.is-open.is-selected{background:var(--row-selected)}
 .note-body{display:grid;gap:2px;margin-top:2px}
-.note .id{font:500 12px/16px var(--font-mono);color:var(--text-3)}
+.note .id{font:500 13px/20px var(--font-mono);color:var(--text-3)}
 .note .lines{color:var(--text-3)}
 .mark{font-weight:600;white-space:nowrap}
 .mark.met{color:var(--positive)}.mark.partly{color:var(--caution)}.mark.gap,.mark.stale{color:var(--negative)}
 .note q{display:block;color:var(--text-1);quotes:"\201C" "\201D"}
 .note .ask-words{display:block;color:var(--text-1)}
-.note .cite{display:block;font-size:12px;line-height:16px;color:var(--text-3)}
-.note .cite a{color:var(--accent)}
+.note .cite{display:flex;flex-wrap:wrap;align-items:center;font-size:13px;line-height:20px;color:var(--text-3)}
+.note .cite a{color:var(--text-2)}
 .note .gapwhy{display:block;color:var(--text-2)}
 .note .when{color:var(--text-3)}
-.pa-why .moved{display:grid;gap:2px;padding-left:18px;list-style:disc}
-.note .was{display:inline-block;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font-size:12px;line-height:16px;color:var(--text-2)}
+.note .was{display:inline-block;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font-size:13px;line-height:20px;color:var(--text-2)}
 .note .btn-sm{justify-self:start;margin-top:4px}
 .gaps .note{background:var(--canvas)}
-
-.advert .panel{padding:16px 20px}
-.adv-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 16px}
-.advert-toggle{display:none}
+/* ---- the advert ---- */
 .adv h3{margin:16px 0 4px}
 .adv p,.adv li{font-size:15px;line-height:24px;color:var(--text-2)}
 .adv p + p{margin-top:8px}
@@ -1880,64 +1621,37 @@ details.panel:not([open]) > summary::before{transform:rotate(-45deg);margin-bott
 .adv .ask.partly{text-decoration-style:dashed;text-decoration-color:var(--caution)}
 .adv .ask.gap{text-decoration-style:dotted;text-decoration-color:var(--negative)}
 .adv .ask.sel,.adv .rate.sel{background:var(--row-selected)}
-.adv .tagmark{font:500 12px/16px var(--font-mono);white-space:nowrap}
+.adv .tagmark{font:500 13px/20px var(--font-mono);white-space:nowrap}
 .adv .tagmark.met{color:var(--positive)}.adv .tagmark.partly{color:var(--caution)}.adv .tagmark.gap{color:var(--negative)}
 .adv .rate{color:var(--text-1);background:var(--accent-tint);box-shadow:inset 0 -2px 0 var(--accent)}
-@media (min-width:1800px){.adv-head > *{flex-basis:100%}}
-@media (max-width:1799.98px){
-  .advert:not(.is-open) .adv{display:none}
-  .advert-toggle{display:inline-flex}
-  .adv-head{flex-wrap:wrap}
-  .adv-head > h2{flex:0 0 100%}
-  .adv-head > .sub{flex:1 1 300px}
-  .advert.is-open .adv{margin-top:8px}
-}
-.pa-dialog{max-width:min(560px,calc(100vw - 32px));padding:20px;border:1px solid var(--border-strong);border-radius:var(--radius-4);background:var(--surface);color:var(--text-1);box-shadow:var(--shadow-overlay)}
+.advert-rest{margin-top:16px;border-top:1px solid var(--border-subtle)}
+.advert-rest summary{display:flex;align-items:center;min-height:44px;cursor:pointer;color:var(--text-1);font-size:14px;font-weight:500}
+/* ---- Mark applied, a shared card ---- */
+.pa-dialog{max-width:min(560px,calc(100vw - 32px));padding:24px;color:var(--text-1);box-shadow:var(--shadow-overlay)}
 .pa-dialog::backdrop{background:rgba(0,0,0,.6)}
-.pa-dialog h2{margin-bottom:8px}
-.pa-dialog p + p{margin-top:12px}
-.pa-dialog > p:not(.row-btns):not(.sub){font-size:14px;line-height:20px;color:var(--text-2)}
-.pa-dialog .btn{height:auto;min-height:32px;white-space:normal}
-
-/* Touch, at every width: the buttons, the shortcut switch and every summary
-   are 44px, as on the CV page (cv_screen, pointer:coarse). */
-@media (pointer:coarse){.pa .btn,.pa .btn-sm,.pa .switch,.pa summary,.note-toggle{min-height:44px}.pa .btn-sm,.pa .switch{height:auto}.pa-why summary{padding:12px 0}}
+.pa-dialog h2{margin-bottom:8px;font-size:20px;line-height:28px}
+.pa-dialog p + p{margin-top:16px}
+.pa-dialog > p:not(.row-btns){font-size:14px;line-height:20px;color:var(--text-2)}
+.pa-dialog > p:empty{display:none}
+.pa-dialog .btn{height:auto;min-height:36px;white-space:normal}
+@media (pointer:coarse){.pa .btn,.pa .btn-sm,.pa summary,.note-toggle{min-height:44px}.pa .btn-sm{height:auto}}
 @media (max-width:767.98px){
   html{scroll-padding-top:16px;scroll-padding-bottom:136px}
-  .pa{padding:24px var(--frame-pad) 48px}
-  .facts li{white-space:normal}
-  .layout{gap:16px}
-  .panel{padding:12px}
-  .p-score .figs,.p-score .why{display:none}
-  .sumline{display:block;margin-top:8px;font-size:15px;line-height:24px;color:var(--text-2)}
-  .sumline b{color:var(--text-1);font-size:18px}
-  .gates td.gwhy{white-space:normal}
-  .gates col.c-gate{width:40%}.gates col.c-mark{width:30%}
-  .gates .gwhy-col{display:none}
-  .stages{flex-wrap:wrap}
-  .stages li{flex:1 1 30%}
-  .sheet-wrap{display:block}
-  .gut{display:none}
-  .pa-notes{display:grid;gap:8px;margin-top:12px}
-  .pa-js .pa-notes{position:absolute;inset:0;z-index:2;margin:0;pointer-events:none}
-  .pa-js .pa-notes > *{pointer-events:auto}
-  .pa-js .pa-notes > .notes{right:8px}
-  .notes::before{display:none}
-  .notes-empty{margin-top:12px}
-  .pa-js .pa-notes > .notes-empty{display:none}
-  .pa-bar{top:auto;bottom:0;margin:0 -16px;border-radius:0;border-width:1px 0}
-  .pa-bar .btn{flex:1 1 0;flex-direction:column;justify-content:center;gap:0;height:auto;min-height:52px;padding:4px 6px;line-height:16px;white-space:normal;text-align:center}
-  .pa-bar .btn [aria-hidden="true"]{display:none}
-  .pa-bar .btn .cost{font-size:12px}
-  .pa-bar .sep,.pa-bar .quiet{display:none}
+  .pa-head{padding:16px}
+  .ph-top h1{font-size:20px;line-height:28px;flex-basis:100%}
+  .ph-acts{margin-left:0}
+  .pa-board{margin-left:0}
+  .pa-card{padding:12px 16px 16px}
+  .fetch{margin-left:0}
+  .pa-bar{top:auto;bottom:0;margin:0 -16px 12px;border-radius:0;border-width:1px 0}
+  .pa-bar .btn{flex:1 1 0;justify-content:center;height:auto;min-height:52px;padding:4px 6px;white-space:normal;text-align:center}
+  .pa-bar .quiet{display:none}
   .pa-bar .save-as{display:none}
   .btn{height:44px}
   .btn-sm{height:32px}
   .note-toggle{min-height:44px;align-items:center}
-  .note.is-closed{background:var(--canvas);box-shadow:var(--shadow-overlay)}
-  .note{box-shadow:var(--shadow-overlay)}
 }
-@media (forced-colors:active){.note,.fig,.tag,.kbd{border:1px solid CanvasText}.cvl.pa-lit{outline:2px solid Highlight}}
+@media (forced-colors:active){.note,.pill,.src-pill{border:1px solid CanvasText}.cvl.pa-lit{outline:2px solid Highlight}}
 """
 
 # The sheet: the editor inside the paper. Nothing here restyles the editor's
@@ -2032,8 +1746,13 @@ PREPARE_SCRIPT = r"""
     }
   }
   function slot(name) { return document.querySelector('[data-slot="' + name + '"]'); }
-  function phone() {
-    return !!(window.matchMedia && window.matchMedia('(max-width: 767.98px)').matches);
+  // The notes sit under their lines when the CV card is too narrow for them
+  // beside the sheet: the stylesheet's container query says so by laying
+  // the sheet's wrapper out as a block.
+  function under() {
+    var w = document.querySelector('.sheet-wrap');
+    if (!w || !window.getComputedStyle) return false;
+    return window.getComputedStyle(w).display === 'block';
   }
 
   // ------------------------------------------------- the lines on screen
@@ -2127,7 +1846,7 @@ PREPARE_SCRIPT = r"""
           words.textContent = 'CV line ' + gone.join(', ') + ' when scored, since changed.';
         } else {
           mark.className = 'mark ' + (status === 'met' ? 'met' : 'partly');
-          mark.textContent = status === 'met' ? '✓ Met' : '◐ Partly';
+          mark.textContent = status === 'met' ? 'Met' : 'Partly';
           note.classList.remove('st-stale');
           var w = note.querySelector('[data-pa-stale-words]');
           if (w) detach(w);
@@ -2143,10 +1862,10 @@ PREPARE_SCRIPT = r"""
         var el = tally.querySelector('[data-pa-count="' + k + '"]');
         if (el) el.textContent = words;
       };
-      put('met', '✓ ' + counts.met + ' met');
-      put('partly', '◐ ' + counts.partly + ' partly');
-      put('missing', '✗ ' + counts.missing + (counts.missing === 1 ? ' gap' : ' gaps') + ', not on the CV');
-      put('stale', '! ' + counts.stale + ' stale');
+      put('met', counts.met + ' met');
+      put('partly', counts.partly + ' partly');
+      put('missing', counts.missing + (counts.missing === 1 ? ' gap' : ' gaps'));
+      put('stale', counts.stale + ' stale');
       var st = tally.querySelector('[data-pa-count="stale"]');
       if (st) st.hidden = counts.stale === 0;
     }
@@ -2207,7 +1926,7 @@ PREPARE_SCRIPT = r"""
       lineEls().forEach(function (el) { if (el.style) el.style.marginBottom = ''; });
       var groups = all('ol.notes[data-pa-group]', layer);
       var y = 0;
-      if (phone()) {
+      if (under()) {
         var box = wrap.getBoundingClientRect();
         groups.forEach(function (g) {
           var el = lineEl(g.getAttribute('data-pa-group'));
@@ -2267,10 +1986,7 @@ PREPARE_SCRIPT = r"""
     var n = pages.length;
     if (!n) return '';
     if (window.RadarCv && window.RadarCv.cleanDesign) d = window.RadarCv.cleanDesign(d);
-    var words = 'About ' + n + (n === 1 ? ' page' : ' pages') + " of A4 in the Word file, at the CV page's Design ("
-      + d.font + ' ' + d.size + ' pt, ' + d.spacing + ' spacing, ' + d.margins + ' mm margins). An estimate.';
-    if (n > 2) words += ' Over the two-page limit from line ' + pages[2].first + '; those lines are marked in the margin.';
-    return words;
+    return n + (n === 1 ? ' page' : ' pages') + ', limit is 2';
   }
   function paginate() {
     all('#cv-editor .pa-break').forEach(detach);
@@ -2290,7 +2006,7 @@ PREPARE_SCRIPT = r"""
       var words = 'Page ' + (pg.page - 1) + ' of ' + total + ' ends. Page ' + pg.page + ' from line ' + pg.first;
       if (pg.page === 3) words = 'Over the two-page limit. ' + words;
       brk.setAttribute('aria-label', words);
-      brk.textContent = (pg.page === 3 ? '⚠ ' : '') + words;
+      brk.textContent = words;
       first.parentNode.insertBefore(brk, first);
     });
     if (total > 2) {
@@ -2301,6 +2017,7 @@ PREPARE_SCRIPT = r"""
     var foot = document.getElementById('pa-pages');
     if (foot) {
       foot.textContent = pagesWords(pages, sheetDesign());
+      foot.hidden = !total;
       foot.classList.toggle('is-over', total > 2);
     }
     return pages;
@@ -2420,7 +2137,6 @@ PREPARE_SCRIPT = r"""
     if (applyBtn) { askApply(applyBtn); return; }
     var undoBtn = t.closest('[data-pa-undo]');
     if (undoBtn) { undo(undoBtn); return; }
-    if (t.closest('[data-pa-keys]')) { setKeys(!keysOn()); return; }
     var dlg = t.closest('[data-pa-dlg]');
     if (dlg) { dialogChoice(dlg.getAttribute('data-pa-dlg')); return; }
     var rescore = t.closest('[data-cv-act="rescore"]');
@@ -2511,7 +2227,6 @@ PREPARE_SCRIPT = r"""
     setAdvert(advertOpen);
     if (gates && !gatesOpen) gates.removeAttribute('open');
     loaded = snapshot();
-    keysWord();
     busy = false;
     if (pendingApply) {
       var said = document.getElementById('pa-save-as');
@@ -2560,8 +2275,8 @@ PREPARE_SCRIPT = r"""
       say.hidden = false;
       say.className = 'notice work';
       say.innerHTML = which === 'spec'
-        ? '<b>Working.</b> The advert is read from LinkedIn once, then scored once against your master CV. This takes a few seconds. The page fills in when it is done.'
-        : '<b>Rescoring.</b> This copy, as it is on screen, is scored against the stored description once. This takes a few seconds.';
+        ? '<b>Working.</b> Reading the advert, then scoring it.'
+        : '<b>Rescoring this copy.</b>';
       announce(say.textContent);
     }
   }
@@ -2583,11 +2298,11 @@ PREPARE_SCRIPT = r"""
     var told = (j.notices || []).map(function (n) { return n.text; }).filter(Boolean).join(' ');
     var spec = figure('spec');
     if (j.outcome === 'scored') {
-      return 'Scored once. The full spec CV match is ' + (spec || 'not known') + '.' + (told ? ' ' + told : '');
+      return 'Scored. The CV match on the full description is ' + (spec || 'not known') + '.' + (told ? ' ' + told : '');
     }
     if (j.outcome === 'reused') {
       return 'This description was already scored, so nothing was spent.'
-        + (spec ? ' The full spec CV match is ' + spec + '.' : '') + (told ? ' ' + told : '');
+        + (spec ? ' The CV match on the full description is ' + spec + '.' : '') + (told ? ' ' + told : '');
     }
     return told || j.note || 'Done.';
   }
@@ -2686,7 +2401,7 @@ PREPARE_SCRIPT = r"""
     var bApply = dialog.querySelector('[data-pa-dlg="apply"]');
     if (!saved.name) {
       h.textContent = 'No CV is saved for this role';
-      p.textContent = 'Mark applied records the saved copy as the CV you sent, and nothing is saved yet. Save this copy first, or mark the role applied with no CV recorded.';
+      p.textContent = '';
       bApply.textContent = 'Mark applied with no CV recorded';
     } else {
       var lines = changedLines(saved);
@@ -2694,7 +2409,7 @@ PREPARE_SCRIPT = r"""
         : lines.length > 1 && lines.length <= 4 ? 'Lines ' + lines.join(', ') + ' have changed'
         : lines.length > 4 ? lines.length + ' lines have changed' : 'The copy on screen has changed';
       h.textContent = 'The copy on screen is not the saved one';
-      p.textContent = what + ' since you saved at ' + saved.at + '. Mark applied records one copy as the CV you sent. Which one did you send?';
+      p.textContent = what + ' since you saved at ' + saved.at + '.';
       bApply.textContent = 'Mark applied with the ' + saved.at + ' copy';
     }
     bSave.textContent = 'Save this copy, then mark applied';
@@ -2769,51 +2484,12 @@ PREPARE_SCRIPT = r"""
     post('/unapply', btn, 'Taking the role back to Preparing.', function () { leave(''); });
   }
 
-  // ------------------------------------------------------------ the keys
-  var STORE = main.getAttribute('data-keys-store') || 'radar-jobs-keys';
-  function keysOn() {
-    try { return localStorage.getItem(STORE) !== 'off'; } catch (e) { return true; }
-  }
-  function keysWord() {
-    all('[data-pa-keys]').forEach(function (b) {
-      b.setAttribute('aria-pressed', keysOn() ? 'true' : 'false');
-      var w = b.querySelector('[data-pa-keys-word]');
-      if (w) w.textContent = keysOn() ? 'On' : 'Off';
-    });
-  }
-  function setKeys(on) {
-    try { localStorage.setItem(STORE, on ? 'on' : 'off'); } catch (e) {}
-    keysWord();
-  }
-  function typing(t) {
-    return !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''));
-  }
-  function shown(el) {
-    for (var p = el; p && p !== document; p = p.parentNode) {
-      if (p.hasAttribute && p.hasAttribute('hidden')) return false;
-    }
-    return true;
-  }
-  document.addEventListener('keydown', function (e) {
-    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing) return;
-    if (typing(e.target) || (dialog && (dialog.open || dialog.hasAttribute('open'))) || !keysOn()) return;
-    var k = String(e.key || '').toLowerCase();
-    var target = null;
-    if (k === 'm') target = document.querySelector('[data-pa-apply]');
-    else if (k === 'z') target = all('[data-pa-undo]').filter(shown)[0];
-    if (!target || target.disabled) return;
-    e.preventDefault();
-    target.click();
-  });
-
   // ------------------------------------------------------------- opening
   if (location.hash === '#marked' && main.getAttribute('data-applied') === '1') {
     var marked = document.getElementById('pa-marked');
     if (marked) { marked.hidden = false; if (marked.focus) marked.focus(); }
     try { history.replaceState(null, '', location.pathname); } catch (e) {}
   }
-  if (phone() && slot('gates')) slot('gates').removeAttribute('open');
-  keysWord();
   var editorHost = document.getElementById('cv-editor');
   if (editorHost && window.MutationObserver) {
     new window.MutationObserver(function () { if (!laying) soon(); })
@@ -2836,6 +2512,6 @@ PREPARE_SCRIPT = r"""
   // After the editor's own script, which runs after this one, has drawn.
   Promise.resolve().then(function () { if (loaded === null) loaded = snapshot(); now(); });
   window.RadarPrepare = { take: take, refind: refind, layout: layout, snapshot: snapshot,
-                          edited: edited, keysOn: keysOn, paginate: paginate };
+                          edited: edited, paginate: paginate };
 })();
 """

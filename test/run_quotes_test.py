@@ -1486,7 +1486,8 @@ def page_checks() -> None:
             spec_page = build_dashboard.render_prepare_inner(c, spec, CFG)
         finally:
             c.close()
-        master = spec_page[spec_page.index("score-master"):spec_page.index('id="tailored-score"')]
+        # Why this score: the master's reasons, then this copy's where it has its own.
+        master = spec_page[spec_page.index("score-master"):spec_page.index("</details>")]
         mt = page_text(master)
         check('class="reasons"' in master
               and "The first ask is the heart of the role. “IEC 62304 software "
@@ -1495,7 +1496,7 @@ def page_checks() -> None:
               and mocks.CV_QUOTE not in mt,
               "the Prepare page lists the master CV score's reasons with their quotes "
               "from the description, and a dropped quote is not shown")
-        cm = card_page[card_page.index("score-master"):card_page.index('id="tailored-score"')]
+        cm = card_page[card_page.index("score-master"):card_page.index("</details>")]
         check("“Fractional Software Director, IVD platform”" in page_text(cm),
               "and for a role scored on its card, the card's quotes")
         env.sql("UPDATE opportunities SET score_reasons = ? WHERE id = ?",

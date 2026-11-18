@@ -48,6 +48,9 @@ FRAME_CSS = """
      them; other pages may later. */
   --group-story:#e0a94a; --group-jobs:#a79cf0; --group-apps:#5cc3cf;
   --group-story-rgb:224 169 74; --group-jobs-rgb:167 156 240; --group-apps-rgb:92 195 207;
+  /* The CV's own colour, rose (owner, 18 Nov): the CV page and the Tailored
+     CV on Prepare application. */
+  --group-cv:#e88fb4; --group-cv-rgb:232 143 180;
   --font-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --radius-2:2px; --radius-4:4px; --dur:120ms;
@@ -352,6 +355,9 @@ ICONS = {
     # Reasons given for a score: a quote mark.
     "quote": '<path d="M5.5 14.5c0-3.4 1.2-5.6 3.8-7"/><path d="M11.5 14.5c0-3.4 1.2-5.6 3.8-7"/>'
              '<circle cx="6.5" cy="14" r="1.6"/><circle cx="12.5" cy="14" r="1.6"/>',
+    # A CV: a sheet with its lines.
+    "cv": '<path d="M5.5 3.5h6l3 3v10h-9z"/><polyline points="11.5,3.5 11.5,6.5 14.5,6.5"/>'
+          '<line x1="7.5" y1="10" x2="12.5" y2="10"/><line x1="7.5" y1="13" x2="12.5" y2="13"/>',
     # A section of details: a list.
     "list": '<line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="16" y2="10"/>'
             '<line x1="8" y1="14" x2="16" y2="14"/><line x1="4" y1="6" x2="4.5" y2="6"/>'
@@ -361,7 +367,7 @@ ICONS = {
 
 def chip(icon: str, group: str) -> str:
     """A group's icon chip: 32px square, the icon in the group's colour on a
-    tint of it. group is story, jobs, apps or neutral."""
+    tint of it. group is story, jobs, apps, cv or neutral."""
     return (f'<span class="gchip g-{group}" aria-hidden="true"><svg viewBox="0 0 20 20" '
             'width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" '
             'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
@@ -373,6 +379,7 @@ GROUPS_CSS = """/* ---- the groups (owner, 17 Nov): each has one colour, page_fr
 .g-story{--g:var(--group-story-rgb);--gc:var(--group-story)}
 .g-jobs{--g:var(--group-jobs-rgb);--gc:var(--group-jobs)}
 .g-apps{--g:var(--group-apps-rgb);--gc:var(--group-apps)}
+.g-cv{--g:var(--group-cv-rgb);--gc:var(--group-cv)}
 .g-neutral{--g:232 237 240;--gc:var(--text-1)}
 .gchip{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;border-radius:8px;background:rgb(var(--g) / .16);color:var(--gc)}
 .gchip.g-neutral{background:rgb(var(--g) / .10)}
