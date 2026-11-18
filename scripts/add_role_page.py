@@ -43,9 +43,10 @@ def _err(key: str) -> str:
     return f'<p class="ar-err" id="ar-{key}-err" data-err="{key}" aria-live="polite"></p>'
 
 
-def dialog_html() -> str:
+def dialog_html(fee: str = "15") -> str:
     """The dialog, closed. Contract is chosen to begin with, the rate in pounds
-    a day; no source is chosen until one is."""
+    a day; no source is chosen until one is. fee is the Upwork fee from
+    Settings, which the fee row starts from."""
     currencies = [(k, sign) for k, sign in hand_roles.CURRENCIES]
     return f"""<dialog class="ar-dlg" id="ar-dlg" aria-labelledby="ar-h" data-mode="add">
 <form class="ar-form" id="ar-form" novalidate>
@@ -72,7 +73,11 @@ def dialog_html() -> str:
 <input class="ar-in ar-amt" id="ar-max" name="rate_max" type="text" inputmode="decimal" autocomplete="off" aria-label="Upper amount" aria-describedby="ar-rate-err">
 <div class="seg-row" role="radiogroup" aria-label="Currency">{"".join(f'<label class="seg"><input type="radio" name="currency" value="{k}"{" checked" if k == "GBP" else ""}><span>{esc(s)}</span></label>' for k, s in currencies)}</div>
 <div class="seg-row" role="radiogroup" aria-label="Period">{"".join(f'<label class="seg"><input type="radio" name="period" value="{k}"{" checked" if k == "day" else ""}><span>{esc(w)}</span></label>' for k, w in hand_roles.PERIODS)}</div>
-</div>{_err("rate")}</fieldset>
+</div>{_err("rate")}
+<div class="ar-fee" id="ar-fee-row" hidden><label for="ar-fee">Upwork fee</label>
+<input class="ar-in ar-fee-in" id="ar-fee" name="fee" type="text" inputmode="decimal" autocomplete="off" value="{esc(fee)}" data-default="{esc(fee)}" aria-describedby="ar-fee-err">
+<span class="ar-pct">%</span></div>{_err("fee")}
+<p class="ar-about" id="ar-about" aria-live="polite"></p></fieldset>
 <p class="ar-err ar-form-err" data-err="form" aria-live="polite"></p>
 <div class="ar-foot"><span class="ar-cost">{esc(cost_words())}</span>
 <span class="ar-acts"><button type="button" class="ar-cancel" id="ar-cancel">Cancel</button>
@@ -113,6 +118,15 @@ CSS = """
 .ar-amt{width:120px;flex:none}
 .ar-to{font-size:14px;line-height:20px;color:var(--text-2)}
 .ar-err{font-size:14px;line-height:20px;color:var(--negative)}
+.ar-fee{display:flex;align-items:center;gap:8px;margin-top:12px}
+.ar-fee[hidden]{display:none}
+.ar-fee label{font-size:14px;line-height:20px;font-weight:600}
+.ar-fee-in{width:72px}
+.ar-pct{font-size:14px;line-height:20px;color:var(--text-2)}
+.ar-about{margin-top:8px;font-size:14px;line-height:20px;color:var(--text-2)}
+.ar-about:empty{display:none}
+.ar-edit{min-height:24px;padding:0;border:0;background:none;color:var(--text-2);font:500 14px/20px var(--font-sans);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.ar-edit:hover{color:var(--text-1)}
 .ar-err:empty{display:none}
 .ar-foot{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;margin-top:4px;padding-top:16px;border-top:1px solid var(--border-subtle)}
 .ar-cost{font-size:14px;line-height:20px;color:var(--text-2)}
@@ -128,7 +142,7 @@ CSS = """
   .ar-pair{grid-template-columns:minmax(0,1fr)}
   .ar-acts{margin-left:0}
 }
-@media (pointer:coarse){.seg span,.ar-go,.ar-cancel,.ar-x{min-height:44px}.ar-x{min-width:44px}}
+@media (pointer:coarse){.seg span,.ar-go,.ar-cancel,.ar-x,.ar-edit{min-height:44px}.ar-x{min-width:44px}}
 """
 
 
@@ -168,6 +182,8 @@ SCRIPT = r"""
     lastOpener = from || opener;
     dlg.setAttribute('data-mode', mode);
     form.reset();
+    var feeIn = document.getElementById('ar-fee');
+    if (feeIn) feeIn.value = feeIn.getAttribute('data-default') || '';
     clearErrors();
     typeTouchedPeriod = false;
     if (data) fill(data);
@@ -183,6 +199,7 @@ SCRIPT = r"""
   }
   function fill(d) {
     ['link', 'client', 'location', 'rate_min', 'rate_max', 'fee'].forEach(function (k) {
+      if (k === 'fee' && !d[k]) return;    // no fee of its own: the Settings figure stays
       if (form.elements[k] && d[k] !== undefined && d[k] !== null) form.elements[k].value = d[k];
     });
     if (d.type) setChoice('type', d.type);
@@ -191,6 +208,46 @@ SCRIPT = r"""
     if (d.period) { setChoice('period', d.period); typeTouchedPeriod = true; }
   }
   window.arOpen = openDlg;
+  // What a rate comes to, as it is typed: converted at the Settings rate, an
+  // hourly figure times eight, Upwork's fee taken off, to the nearest £5. The
+  // same sums as radar_common.about_words.
+  var MONEY = JSON.parse(dlg.getAttribute('data-money') || '{}');
+  var feeRow = document.getElementById('ar-fee-row');
+  var about = document.getElementById('ar-about');
+  function amount(v) {
+    v = String(v || '').replace(/[,£$€\s]/g, '');
+    if (!/^[0-9]+(\.[0-9]+)?$/.test(v)) return null;
+    var n = parseFloat(v);
+    return n > 0 ? n : null;
+  }
+  function pounds(n) { return '£' + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  function five(n) { return Math.round(n / 5) * 5; }
+  window.arChanged = function () {
+    var upwork = choice('source') === 'upwork';
+    feeRow.hidden = !upwork;
+    var lo = amount(val('rate_min')), hi = amount(val('rate_max'));
+    if (lo === null) { about.textContent = ''; return; }
+    if (hi === null || hi < lo) hi = lo;
+    var cur = choice('currency'), per = choice('period');
+    var fee = upwork ? parseFloat(String(val('fee')).replace('%', '')) : 0;
+    if (!(fee >= 0 && fee <= 99)) fee = 0;
+    if (cur === 'GBP' && per !== 'hour' && !fee) { about.textContent = ''; return; }
+    var rate = cur === 'GBP' ? 1 : MONEY[cur];
+    if (!rate) { about.textContent = 'Check the rate'; return; }
+    var k = (per === 'hour' ? 8 : 1) * rate * (1 - fee / 100);
+    var a = five(lo * k), b = five(hi * k);
+    var words = 'About ' + pounds(a) + (b !== a ? ' to ' + pounds(b) : '')
+      + ({ hour: ' a day', day: ' a day', year: ' a year' }[per] || '');
+    if (fee) words += " after Upwork's " + fee + '%';
+    about.textContent = words;
+  };
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('[data-ar-edit]') : null;
+    if (!btn) return;
+    var d = JSON.parse(btn.getAttribute('data-ar-edit'));
+    dlg.setAttribute('data-id', String(d.id));
+    openDlg('edit', d, btn);
+  });
   if (opener) opener.addEventListener('click', function () { openDlg('add', null, opener); });
   document.getElementById('ar-x').addEventListener('click', closeDlg);
   document.getElementById('ar-cancel').addEventListener('click', closeDlg);
@@ -240,8 +297,24 @@ SCRIPT = r"""
 """
 
 
-def dialog_with_data() -> str:
-    """The dialog with what its script needs to say a field is missing."""
-    return dialog_html().replace(
+def dialog_with_data(config: dict | None = None) -> str:
+    """The dialog with what its script needs: the words for a missing field,
+    and the exchange rates and Upwork fee from Settings for the line that says
+    what a rate comes to (radar_common.read_money_prefs)."""
+    import radar_common as rc
+    money = rc.read_money_prefs(config)
+    fee = rc._plain_number(money["fee"])
+    data = {"USD": money["USD"], "EUR": money["EUR"], "fee": money["fee"]}
+    return dialog_html(fee).replace(
         'data-mode="add">',
-        f'data-mode="add" data-missing="{esc(json.dumps(hand_roles.MISSING))}">', 1)
+        f'data-mode="add" data-missing="{esc(json.dumps(hand_roles.MISSING))}" '
+        f'data-money="{esc(json.dumps(data))}">', 1)
+
+
+def edit_link(row) -> str:
+    """The small Edit on a role added by hand, which opens the dialog on the
+    fields Edit may change."""
+    if not hand_roles.is_hand(row):
+        return ""
+    return (f'<button type="button" class="ar-edit" data-ar-edit="{esc(json.dumps(hand_roles.edit_data(row)))}" '
+            'aria-haspopup="dialog">Edit<span class="visually-hidden"> the role</span></button>')

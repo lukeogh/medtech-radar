@@ -515,7 +515,7 @@ def _floor_words(m: dict) -> str:
 
 
 def _gate_tile(gate: str, name: str, state, body: str, line: str, attrs: str = "",
-               line_cls: str = "gate-note", word: str | None = None) -> str:
+               line_cls: str = "gate-note", word: str | None = None, link: str = "") -> str:
     _mk, _st, mark_word = jp.STATE_MARKS[state]
     word = word or mark_word
     cls = jp.GATE_TONES.get(state, "is-neu")
@@ -525,7 +525,7 @@ def _gate_tile(gate: str, name: str, state, body: str, line: str, attrs: str = "
             f'stroke-linejoin="round" aria-hidden="true" focusable="false">{jp.GATE_ICONS[state]}</svg></span>')
     return (f'<div class="gate gate-{gate} {cls}{glow}" {attrs}>{icon}<span class="gate-name">{name}</span>'
             f'<span class="gate-status {cls}">{esc(word)}</span>{body}'
-            f'<span class="{line_cls}">{line}</span></div>')
+            f'<span class="{line_cls}">{line}{(" " + link) if link else ""}</span></div>')
 
 
 def tiles_html(m: dict) -> str:
@@ -553,8 +553,8 @@ def tiles_html(m: dict) -> str:
                 line = f"“{quote}”"
             elif state == rc.NOT_STATED:
                 line = _floor_words(m)
-            word, line = jp.rate_tile_words(row, state, jp.STATE_MARKS[state][2], line)
-            tiles.append(_gate_tile(gate, name, state, "", esc(line), word=word))
+            word, line, link = jp.rate_tile_words(row, state, jp.STATE_MARKS[state][2], line)
+            tiles.append(_gate_tile(gate, name, state, "", esc(line), word=word, link=link))
             continue
         tiles.append(_gate_tile(gate, name, state, "", esc(line)))
     return f'<div class="gate-tiles">{"".join(tiles)}</div>'
@@ -766,7 +766,7 @@ def range_bottom_words(m: dict) -> str:
         return ""
     try:
         bottom = rc.gate_pay(row.get("pay_currency"), row.get("pay_period"), low, None,
-                             m["floors"], m["config"])
+                             m["floors"], m["config"], fee=hand_roles.fee_for(row))
     except Exception:  # noqa: BLE001  a floor line missing is no clause, not a failed page
         return ""
     if bottom.get("gate") is not False:

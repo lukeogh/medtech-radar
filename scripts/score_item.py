@@ -222,7 +222,13 @@ RATE_NOT_STATED_NOTE = radar_common.RATE_NOT_STATED_NOTE
 
 
 def rate_gate_note(pay: dict) -> str:
-    """One plain line saying what the code judged and against which floor."""
+    """One plain line saying what the code judged and against which floor. A
+    rate converted from dollars or euros, one an Upwork fee came off, a fixed
+    price and a rate with no exchange rate set say it their own way
+    (radar_common.rate_reason)."""
+    reason = radar_common.rate_reason(pay)
+    if reason is not None:
+        return reason
     if pay.get("gate") is None:
         return RATE_NOT_STATED_NOTE
     words = {"day-rate": "day rate", "salary": "salary",
@@ -777,7 +783,8 @@ def hold_reasons(raw, sources: list[str]) -> str | None:
 def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None,
                       floors: dict | None = None,
                       thresholds: dict | None = None,
-                      basis: str = radar_common.SCORE_BASIS_CARD):
+                      basis: str = radar_common.SCORE_BASIS_CARD,
+                      fee=None):
     """Score one opportunity. Returns (normalised_dict_or_None, usage, note).
 
     The normalised dict uses the database column names. combined is
@@ -828,20 +835,20 @@ def score_opportunity(opp: dict, system_blocks: list, config: dict, mock_fn=None
         return None, usage, "the reply had no list of asks, so it was not used"
     if not spec:
         return _finish_score(parsed, usage, opp, system_blocks, config, floors,
-                             thresholds, basis)
+                             thresholds, basis, fee)
     # A full description's reply has been paid for by now. Whatever in it
     # cannot be read is a failed score with a note and its usage, never an
     # exception that loses the usage on the way out.
     try:
         return _finish_score(parsed, usage, opp, system_blocks, config, floors,
-                             thresholds, basis)
+                             thresholds, basis, fee)
     except Exception as err:  # noqa: BLE001  see above
         return None, usage, ("the reply could not be read "
                              f"({type(err).__name__})")
 
 
 def _finish_score(parsed: dict, usage: dict, opp: dict, system_blocks,
-                  config: dict, floors, thresholds, basis: str):
+                  config: dict, floors, thresholds, basis: str, fee=None):
     """What score_opportunity does once the reply has been parsed.
 
     Kept apart so that a full description's reply, which has been paid for by
@@ -897,9 +904,11 @@ def _finish_score(parsed: dict, usage: dict, opp: dict, system_blocks,
     # pay: the scorer is not asked for a rate verdict and one it gives anyway
     # is not read.
     floors = floors or radar_common.read_rate_floors(config)
+    # fee is a role added by hand from Upwork's, taken off first
+    # (hand_roles.fee_for); None for every other role.
     pay = radar_common.gate_pay(opp.get("pay_currency"), opp.get("pay_period"),
                                 opp.get("pay_min"), opp.get("pay_max"),
-                                floors, config)
+                                floors, config, fee=fee)
     gates = {"sector": gate("gate_sector"),
              "cv": cv_gate(cv, thresholds["pass"]),
              "location": gate("gate_location"),
@@ -934,6 +943,9 @@ def _finish_score(parsed: dict, usage: dict, opp: dict, system_blocks,
                           if tier_info["tier"] == "question" else None),
         "rate_stated": rate_stated,
         "rate_value": rate_value,
+        # The gate's band, above, close, below, unstated, fixed or
+        # unconverted, so the page can say Check the rate where it is.
+        "rate_band": pay["band"],
         "rate_basis": rate_basis or None,
         "ir35": (str(parsed.get("ir35") or "").strip().lower() or None),
         "location_class": (str(parsed.get("location_class") or "").strip().lower() or None),

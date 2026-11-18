@@ -60,8 +60,9 @@ def check(cond, label: str) -> None:
 
 
 def text(html: str) -> str:
+    import html as _html
     html = re.sub(r"(?is)<(script|style|template|dialog)\b.*?</\1>", " ", html)
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))
+    return _html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)))
 
 
 def body(**over) -> dict:
@@ -83,30 +84,34 @@ def storage_checks() -> None:
             "  -- Roles added by hand on Jobs. When, and the type chosen. NULL on every\n"
             "  -- collected row. Set in code, never by a model (hand_roles).\n"
             "  added_at          TEXT,\n"
-            "  hand_type         TEXT              -- contract | permanent | fixed-price\n",
+            "  hand_type         TEXT,             -- contract | permanent | fixed-price\n"
+            "  upwork_fee        REAL              -- the fee Upwork takes, a percentage, Upwork roles only\n",
             "  engagement_note   TEXT\n")
-        check(old != schema, "the schema's opportunities table carries the two columns")
+        check(old != schema, "the schema's opportunities table carries the three columns")
         conn = sqlite3.connect(db)
         conn.executescript(old)
         conn.execute("INSERT INTO opportunities (url_hash, first_seen, title) VALUES ('h1', ?, 'A role')", (NOW,))
         conn.commit()
         cols = {r[1] for r in conn.execute("PRAGMA table_info(opportunities)")}
         conn.close()
-        check("added_at" not in cols and "hand_type" not in cols,
-              "a database from before has neither column")
+        check(not cols & set(NEW_COLS), "a database from before has none of them")
         for _ in range(2):
             rc.get_db(db).close()
         conn = sqlite3.connect(db)
-        info = [r for r in conn.execute("PRAGMA table_info(opportunities)") if r[1] in ("added_at", "hand_type")]
-        row = conn.execute("SELECT added_at, hand_type FROM opportunities WHERE url_hash = 'h1'").fetchone()
+        info = {r[1]: (r[2], r[3], r[4]) for r in conn.execute("PRAGMA table_info(opportunities)")
+                if r[1] in NEW_COLS}
+        row = conn.execute("SELECT added_at, hand_type, upwork_fee FROM opportunities WHERE url_hash = 'h1'").fetchone()
         n = conn.execute("SELECT COUNT(*) FROM opportunities").fetchone()[0]
         conn.close()
-        check(len(info) == 2 and all(r[2] == "TEXT" and r[3] == 0 and r[4] is None for r in info),
-              "get_db adds both as nullable TEXT, once, opened twice")
-        check(row == (None, None) and n == 1, "the row on file reads NULL for both and nothing else changed")
-    mig = [m for m in rc._MIGRATIONS if m[1] in ("added_at", "hand_type")]
-    check(mig == [("opportunities", "added_at", "TEXT"), ("opportunities", "hand_type", "TEXT")],
-          "both are in _MIGRATIONS, the buying_window pattern")
+        check(info == {c: (t, 0, None) for c, t in NEW_COLS.items()},
+              f"get_db adds each once, nullable with no default, opened twice ({info})")
+        check(row == (None, None, None) and n == 1, "the row on file reads NULL for each and nothing else changed")
+    mig = [m for m in rc._MIGRATIONS if m[1] in NEW_COLS]
+    check(mig == [("opportunities", c, t) for c, t in NEW_COLS.items()],
+          "each is in _MIGRATIONS, the buying_window pattern")
+
+
+NEW_COLS = {"added_at": "TEXT", "hand_type": "TEXT", "upwork_fee": "REAL"}
 
 
 # ------------------------------------------------------------ fields
@@ -406,11 +411,263 @@ def page_checks(page: str, oid: int) -> None:
           "the page says a missing field in the server's words")
 
 
+# ============================================================ commit 2
+
+MONEY = {"USD": 0.8, "EUR": None, "fee": 15}
+FLOORS = {"day": 750.0, "salary": 100000.0}
+
+
+def money_checks() -> None:
+    template = (REPO_ROOT / "config" / "preferences.template.md").read_text(encoding="utf-8")
+    check(not re.search(r"^(usd_to_gbp|eur_to_gbp|upwork_fee_percent):", template, re.M),
+          "no rate and no fee are written into the tracked template")
+    with tempfile.TemporaryDirectory() as tmp:
+        prefs = Path(tmp) / "preferences.md"
+        prefs.write_text(template, encoding="utf-8")
+        cfg = {**CONFIG, "prefs_file": str(prefs)}
+        check(rc.read_money_prefs(cfg) == {"USD": None, "EUR": None, "fee": 15},
+              "with no lines the exchange rates are empty and the Upwork fee is 15")
+        vals = rc.clean_scoring_prefs({"usd_to_gbp": "0.79", "eur_to_gbp": "", "upwork_fee_percent": "12%"}, cfg)
+        check(vals == {"usd_to_gbp": "0.79", "eur_to_gbp": "", "upwork_fee_percent": "12"},
+              f"the three are checked like the floors, an exchange rate may be emptied ({vals})")
+        rc.write_scoring_prefs(vals, cfg)
+        text_now = prefs.read_text(encoding="utf-8")
+        added = text_now[len(template):].splitlines() if text_now.startswith(template) else []
+        check(sorted(added) == ["eur_to_gbp:", "upwork_fee_percent: 12", "usd_to_gbp: 0.79"],
+              "they are stored as labelled lines in the preferences file, every other byte kept, as the floors are")
+        check(rc.read_money_prefs(cfg) == {"USD": 0.79, "EUR": None, "fee": 12.0}, "and read back")
+        rc.write_scoring_prefs(rc.clean_scoring_prefs({"eur_to_gbp": "0.86"}, cfg), cfg)
+        check(rc.read_money_prefs(cfg)["EUR"] == 0.86 and prefs.read_text(encoding="utf-8").count("eur_to_gbp") == 1,
+              "a line is replaced where it is")
+        for bad in ({"usd_to_gbp": "20"}, {"upwork_fee_percent": "100"}, {"upwork_fee_percent": ""},
+                    {"eur_to_gbp": "abc"}):
+            try:
+                rc.clean_scoring_prefs(bad, cfg)
+            except ValueError:
+                continue
+            check(False, f"a bad value is refused: {bad}")
+            break
+        else:
+            check(True, "an exchange rate over £10, a fee of 100% or none, and a word are refused")
+
+
+def gate_checks() -> None:
+    pay = rc.gate_pay("USD", "hour", 60, 90, FLOORS, CONFIG, money=MONEY, fee=15)
+    check(rc.rate_reason(pay) == "$60 to $90 an hour. About £325 to £490 a day after Upwork's 15%. Your floor is £750.",
+          f"the reason: as written, what it comes to after the fee to the nearest £5, the floor ({rc.rate_reason(pay)})")
+    check(pay["gate"] is False and pay["band"] == "below", "an hourly figure counts times eight, the top against the day floor")
+    pay = rc.gate_pay("USD", "hour", 60, 90, FLOORS, CONFIG, money=MONEY)
+    check(rc.rate_reason(pay) == "$60 to $90 an hour. About £385 to £575 a day. Your floor is £750.",
+          "with no fee it says the conversion alone")
+    pay = rc.gate_pay("USD", "year", 150000, None, FLOORS, CONFIG, money=MONEY)
+    check(pay["gate"] is True and pay["basis"] == "salary" and pay["figure"] == 120000
+          and rc.rate_reason(pay) == "$150,000 a year. About £120,000 a year. Your floor is £100,000.",
+          "a salary converts and meets the salary floor")
+    pay = rc.gate_pay("USD", "fixed", 4000, 4000, FLOORS, CONFIG, money=MONEY, fee=15)
+    check(pay["gate"] is None and pay["band"] == "fixed"
+          and rc.rate_reason(pay) == "$4,000 fixed. About £2,720 after Upwork's 15%.",
+          "a fixed price shows its amount after the fee and conversion, neither a pass nor a fail")
+    pay = rc.gate_pay("EUR", "day", 600, 700, FLOORS, CONFIG, money=MONEY)
+    check(pay["gate"] is None and pay["band"] == "unconverted" and rc.rate_reason(pay) == "€600 to €700 a day.",
+          "with no euro rate set the gate judges nothing and its reason is the rate as written")
+    pay = rc.gate_pay("GBP", "day", 800, 800, FLOORS, CONFIG, money=MONEY)
+    check(rc.rate_reason(pay) is None and score_item.rate_gate_note(pay)
+          == "Stated day rate £800 against the £750 floor, at or above, judged in code.",
+          "a pound figure with no fee keeps the words it always had")
+    pay = rc.gate_pay("GBP", "day", 800, 800, FLOORS, CONFIG, money=MONEY, fee=15)
+    check(pay["gate"] is False and round(pay["figure"]) == 680,
+          "on Upwork the fee comes off a pound figure too, before the comparison")
+    check(hr.fee_for({"added_at": NOW, "source": "hand-upwork", "upwork_fee": 10}, MONEY) == 10
+          and hr.fee_for({"added_at": NOW, "source": "hand-upwork", "upwork_fee": None}, MONEY) == 15
+          and hr.fee_for({"added_at": NOW, "source": "hand-referral", "upwork_fee": 10}, MONEY) is None
+          and hr.fee_for({"added_at": None, "source": "linkedin-alert"}, MONEY) is None,
+          "each Upwork role carries its own fee, the Settings figure where it has none, and no other role has one")
+
+
+def item23_checks() -> None:
+    """Existing roles keep their tier when this deploys: what was stored by
+    today's code draws the same, and only Save and re-sort judges again."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "d.sqlite"
+        conn = rc.get_db(db)
+        rows = [
+            # A euro day rate passed at radar.yaml's 0.85, a dollar salary read as
+            # not stated, a euro salary failed, and a pound rate.
+            ("e1", "EUR", "day", 950, 1100, 1, 1, "day-rate", "above", "top"),
+            ("u1", "USD", "year", 200000, 200000, None, 0, "unstated", "unstated", "top"),
+            ("e2", "EUR", "year", 60000, 60000, 0, 1, "salary", "below", "question"),
+            ("g1", "GBP", "day", 800, 800, 1, 1, "day-rate", "above", "top"),
+            # A dollar salary an older scorer passed, before code judged the
+            # rate: it has always drawn not stated, and still does.
+            ("u2", "USD", "year", 350000, 500000, 1, 1, "unstated", "unstated", "filtered"),
+        ]
+        for h, cur, per, lo, hi, gate, stated, basis, band, tier in rows:
+            conn.execute(
+                "INSERT INTO opportunities (url_hash, first_seen, title, company, pay_currency, pay_period,"
+                " pay_min, pay_max, gate_sector, gate_cv, gate_location, gate_rate, rate_stated, rate_basis,"
+                " rate_band, tier, cv_match) VALUES (?,?,?,?,?,?,?,?,1,1,1,?,?,?,?,?,84)",
+                (h, NOW, f"Role {h}", f"Company {h}", cur, per, lo, hi, gate, stated, basis, band, tier))
+        conn.execute("UPDATE opportunities SET cv_match = 30, gate_cv = 0 WHERE url_hash = 'u2'")
+        conn.commit()
+        before = {r["url_hash"]: (rc.gate_state(dict(r), "rate"), r["tier"])
+                  for r in conn.execute("SELECT * FROM opportunities")}
+        check(before == {"e1": ("passes", "top"), "u1": ("not stated", "top"),
+                         "e2": ("fails", "question"), "g1": ("passes", "top"),
+                         "u2": ("not stated", "filtered")},
+              f"rows stored by today's code draw as they did: no gate and no tier moves on deploy ({before})")
+        import regate_rates
+        look = regate_rates.regate(conn, CONFIG, FLOORS, write=False,
+                                   money={"USD": None, "EUR": None, "fee": 15})
+        check(look["tier_moves"] == {"question to top": 1} and look["mode"] == "dry-run",
+              f"only Save and re-sort judges them again, and then a euro rate with no exchange rate set is Check the rate ({look['tier_moves']})")
+        conn.close()
+
+
+def served_checks() -> None:
+    """Over the real server: Add and score with a fee and a conversion, Check
+    the rate, a fixed price, Edit, and the Exchange rates and fees group."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        db = tmp / "m.sqlite"
+        rc.get_db(db).close()
+        prefs = tmp / "preferences.md"
+        prefs.write_text((REPO_ROOT / "config" / "preferences.template.md").read_text(encoding="utf-8"),
+                         encoding="utf-8")
+        cfg = {**CONFIG, "prefs_file": str(prefs)}
+        real_load = rc.load_config
+        rc.load_config = lambda: dict(cfg)
+        try:
+            with serving(db) as port:
+                own = {"Host": f"127.0.0.1:{port}"}
+                w = {**own, "Origin": f"http://127.0.0.1:{port}", "Content-Type": "application/json",
+                     "X-Radar-Request": "1"}
+
+                def post(path, payload, headers=w):
+                    s, b = call(port, "POST", path, json.dumps(payload).encode(), headers)
+                    return s, json.loads(b or b"{}")
+
+                def row(oid):
+                    with contextlib.closing(sqlite3.connect(db)) as c:
+                        c.row_factory = sqlite3.Row
+                        return dict(c.execute("SELECT * FROM opportunities WHERE id = ?", (oid,)).fetchone())
+
+                def tile(oid):
+                    _s, b = call(port, "GET", f"/jobs/{oid}", headers=own)
+                    m = re.search(r'<div class="gate gate-rate ([^"]+)">(.*?)</div>', b.decode(), re.S)
+                    return m.group(1), text(m.group(2)).strip(), m.group(2), b.decode()
+
+                s, j = post("/jobs/add", body())
+                cls, words, _raw, _page = tile(j["id"])
+                check(row(j["id"])["rate_band"] == "unconverted" and "is-cau" in cls
+                      and words.startswith("Rate Check the rate $60 to $90 an hour.") and "Set it in Settings" in words,
+                      f"with no dollar rate set the Rate gate is amber Check the rate, with Set it in Settings ({words})")
+                check('href="/settings#scoring-h"' in _raw, "which goes to the Scoring card")
+                usd_id = j["id"]
+                s, j = post("/cv/preferences", {"values": {"usd_to_gbp": "0.8"}})
+                r = row(usd_id)
+                check(s == 200 and j.get("ok") and r["gate_rate"] == 0 and r["upwork_fee"] == 15
+                      and r["gate_rate_note"] == "$60 to $90 an hour. About £325 to £490 a day after Upwork's 15%. Your floor is £750.",
+                      f"Save and re-sort converts it at the rate set, the fee off first ({r['gate_rate_note']})")
+                cls, words, _raw, page = tile(usd_id)
+                check("is-neg" in cls and "Fails" in words and "About £325 to £490 a day after Upwork's 15%" in words,
+                      "the Rate tile's reason reads the same way")
+                check(r["tier"] == "question", "and the role is One question away on the rate")
+                edit = re.search(r'data-ar-edit="([^"]+)"', page)
+                data = json.loads(edit.group(1).replace("&quot;", '"')) if edit else {}
+                check(data == {"id": usd_id, "link": body()["link"], "client": "", "location": "Remote",
+                               "type": "contract", "source": "upwork", "rate_min": "60", "rate_max": "90",
+                               "currency": "USD", "period": "hour", "fee": "15"},
+                      f"a role added by hand has a small Edit that fills the dialog ({data})")
+                dlg = re.search(r'<dialog class="ar-dlg".*?</dialog>', page, re.S).group(0)
+                check(re.search(r'<div class="ar-fee" id="ar-fee-row" hidden><label for="ar-fee">Upwork fee</label>', dlg)
+                      and 'data-default="15"' in dlg and '<span class="ar-pct">%</span>' in dlg
+                      and 'id="ar-about"' in dlg,
+                      "the dialog has the Upwork fee row, the Settings figure in it, and the line under it")
+                money = json.loads(re.search(r'data-money="([^"]+)"', dlg).group(1).replace("&quot;", '"'))
+                check(money == {"USD": 0.8, "EUR": None, "fee": 15}, "the line's sums use the Settings rates")
+
+                real = score_item.score_opportunity
+
+                def no_call(*_a, **_k):
+                    raise AssertionError("Edit made a model call")
+                score_item.score_opportunity = no_call
+                try:
+                    s, j = post("/jobs/edit-role", {**body(rate_min="120", rate_max="140", fee="15",
+                                                          title="Changed", advert="Changed"), "id": usd_id})
+                finally:
+                    score_item.score_opportunity = real
+                r = row(usd_id)
+                with contextlib.closing(sqlite3.connect(db)) as c:
+                    kept = c.execute("SELECT COUNT(*) FROM score_history WHERE opportunity_id = ?"
+                                     " AND event = 'replaced' AND writer = 'hand_roles'",
+                                     (usd_id,)).fetchone()[0]
+                check(s == 200 and j.get("tier_move") == {"from": "question", "to": "top"} and r["gate_rate"] == 1
+                      and r["tier"] == "top" and kept == 1,
+                      f"Edit judges the Rate gate again in code, no model call, the old score kept ({j}, kept {kept})")
+                check(r["title"] == body()["title"] and r["description_text"] == ADVERT.strip("\n"),
+                      "Edit never changes the title or the advert")
+                s, j = post("/jobs/edit-role", {**body(fee="150"), "id": usd_id})
+                check(s == 422 and j["errors"] == {"fee": "Check the fee."}, "a fee that is not a percentage is refused")
+                s, j = post("/jobs/add", body(link="https://www.upwork.com/jobs/~02other", fee="10",
+                                              rate_min="4000", rate_max="", period="fixed", type="fixed-price"))
+                fixed_id = j["id"]
+                cls, words, _raw, _page = tile(fixed_id)
+                check("is-cau" in cls and words.startswith("Rate Fixed price")
+                      and "$4,000 fixed. About £2,880 after Upwork's 10%." in words and row(fixed_id)["upwork_fee"] == 10,
+                      f"a fixed price shows its amount after its own fee and the conversion, amber Fixed price ({words})")
+                s, j = post("/jobs/edit-role", {**body(link="https://www.upwork.com/jobs/~02other"), "id": usd_id})
+                check(s == 422 and j["errors"] == {"link": "Radar already holds that link."},
+                      "Edit will not take a link another role holds")
+                with contextlib.closing(sqlite3.connect(db)) as c:
+                    c.execute("INSERT INTO opportunities (url_hash, first_seen, title) VALUES ('col', ?, 'Collected')", (NOW,))
+                    c.commit()
+                    cid = c.execute("SELECT id FROM opportunities WHERE url_hash = 'col'").fetchone()[0]
+                s, j = post("/jobs/edit-role", {**body(), "id": cid})
+                check(s == 409 and j["note"] == hr.EDIT_REFUSED, "a collected role cannot be edited")
+                s1, _ = post("/jobs/edit-role", {**body(), "id": usd_id}, {**w, "Origin": "https://evil.example"})
+                s2, _ = post("/jobs/edit-role", {**body(), "id": usd_id},
+                             {k: v for k, v in w.items() if k != "X-Radar-Request"})
+                check(s1 == 403 and s2 == 403, "/jobs/edit-role goes through the write guard")
+                s, j = post("/jobs/add", body(link="", source="referral", rate_min="380", rate_max="570",
+                                              currency="GBP", period="day"))
+                check(row(j["id"])["upwork_fee"] is None, "a role from another source carries no fee")
+
+                _s, b = call(port, "GET", "/settings", headers=own)
+                st = b.decode()
+                grp = re.search(r'<hr class="rule">\s*<fieldset class="group"><legend>Exchange rates and fees</legend>(.*?)</fieldset>', st, re.S)
+                g = grp.group(1) if grp else ""
+                check(grp and re.search(r'One US dollar</label><span class="affixed"><span class="affix" aria-hidden="true">£</span>'
+                                        r'<input[^>]+id="pref-usd_to_gbp"[^>]+value="0.8"', g)
+                      and re.search(r'One euro</label><span class="affixed"><span class="affix" aria-hidden="true">£</span>'
+                                    r'<input[^>]+id="pref-eur_to_gbp"[^>]+value=""', g)
+                      and re.search(r'Upwork fee</label><span class="affixed"><input[^>]+id="pref-upwork_fee_percent"'
+                                    r'[^>]+value="15"[^>]*><span class="affix">%</span>', g),
+                      "Settings' Scoring card: Exchange rates and fees under a hairline, £ before each rate, % after the fee")
+                check(st.index("Exchange rates and fees") < st.index("Save and re-sort"),
+                      "saved with the existing Save and re-sort")
+        finally:
+            rc.load_config = real_load
+
+
+def dialog_script_checks() -> None:
+    js = add_role_page.SCRIPT
+    check("feeRow.hidden = !upwork" in js and "Math.round(n / 5) * 5" in js
+          and "(per === 'hour' ? 8 : 1) * rate * (1 - fee / 100)" in js
+          and "\" after Upwork's \" + fee + '%'" in js,
+          "the line under the rate shows only for Upwork's fee row, times eight an hour, the fee off, to the nearest £5")
+    check("'Check the rate'" in js and "'/jobs/edit-role'" in js and "closest('[data-ar-edit]')" in js,
+          "with no exchange rate the line says Check the rate; Edit opens the same dialog and saves through /jobs/edit-role")
+    check(".ar-dlg[data-mode=\"edit\"] [data-new]" in add_role_page.CSS
+          and add_role_page.dialog_html().count("data-new") == 2,
+          "in Edit the title and the advert are not shown")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Add a role checks")
     ap.add_argument("--db", help="accepted for suite symmetry, unused")
     ap.parse_args()
-    for section in (storage_checks, field_checks, place_checks, add_checks, skip_checks, route_checks):
+    for section in (storage_checks, field_checks, place_checks, add_checks, skip_checks, route_checks,
+                    money_checks, gate_checks, item23_checks, served_checks, dialog_script_checks):
         try:
             section()
         except Exception as err:  # noqa: BLE001

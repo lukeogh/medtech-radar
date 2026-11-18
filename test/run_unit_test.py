@@ -2098,8 +2098,10 @@ def main() -> int:
         check(row is not None and row["cv_version"] == new_name,
               f"a fresh score is stamped with the uploaded CV version "
               f"(got {row['cv_version'] if row else None})")
-        check(row is not None and row["rate_band"] == "above",
-              "the stamped row also banded its euro day rate")
+        # A euro rate converts only at the figure set in Settings, and none is
+        # set here, so the band says the rate waits on one.
+        check(row is not None and row["rate_band"] == "unconverted",
+              "the stamped row's euro day rate waits on a euro rate in Settings")
 
         # The stretch goal. A capped re-score of rows whose stamp
         # predates the active CV, skipping acknowledged rows.
@@ -2574,11 +2576,24 @@ def main() -> int:
             ("salary 100000 passes, never divided by 220", ("GBP", "year", 100000, 100000), True, "salary", "top"),
             ("hourly 90 is 720 a day and fails the 750 day floor", ("GBP", "hour", 90, 90), False, "hourly", "question"),
             ("hourly 94 is 752 a day and passes", ("GBP", "hour", 94, 94), True, "hourly", "top"),
-            ("a salary range gates on its top figure", ("GBP", "year", 90000, 110000), True, "salary", "top"),
-            ("a euro day rate converts at 0.85 then meets the day floor", ("EUR", "day", 950, 1100), True, "day-rate", "top")):
+            ("a salary range gates on its top figure", ("GBP", "year", 90000, 110000), True, "salary", "top")):
         pay, tier = land(*args)
         check(pay["gate"] is want_gate and pay["basis"] == want_basis and tier == want_tier,
               f"{label}, lands in {want_tier} (got gate {pay['gate']}, {pay['basis']}, {tier})")
+    # Dollars and euros convert at the rates set in Settings, never one built
+    # in; with none set the gate judges nothing and says why.
+    money = {"USD": 0.8, "EUR": 0.85, "fee": 15}
+    pay = radar_common.gate_pay("EUR", "day", 950, 1100, floors, CFG, money=money)
+    check(pay["gate"] is True and pay["basis"] == "day-rate" and round(pay["figure"]) == 935,
+          f"a euro day rate converts at the Settings rate then meets the day floor (got {pay})")
+    pay = radar_common.gate_pay("USD", "hour", 60, 90, floors, CFG, money=money, fee=15)
+    check(pay["gate"] is False and round(pay["figure"]) == 490 and round(pay["low"]) == 326
+          and pay["basis"] == "hourly",
+          f"dollars an hour convert, times eight, with the fee taken off, then meet the day floor (got {pay})")
+    pay = radar_common.gate_pay("EUR", "day", 950, 1100, floors, CFG,
+                                money={"USD": None, "EUR": None, "fee": 15})
+    check(pay["gate"] is None and pay["band"] == "unconverted" and pay["basis"] == "unstated",
+          "with no euro rate set nothing is guessed, the band says unconverted")
     pay, tier = land("", "", None, None)
     check(pay["gate"] is None and pay["basis"] == "unstated" and tier == "top",
           f"no figure is not stated, neither pass nor fail, and lands in top (got {pay}, {tier})")

@@ -132,7 +132,8 @@ def _rescore_rows(conn, config, usage_total, rows,
                      "gate_location", "gate_location_note", "gate_rate",
                      "gate_rate_note", "tier", "failed_gates", "question_text",
                      "filter_reason", "rate_stated", "rate_value", "rate_basis",
-                     "ir35", "location_class", "engagement_type", "engagement_note")
+                     "ir35", "location_class", "engagement_type", "engagement_note",
+                     "rate_band")
         # How the new score was made, stored beside it.
         record_cols = ("score_basis", "prompt_version", "score_model", "scored_at")
         outcome = None

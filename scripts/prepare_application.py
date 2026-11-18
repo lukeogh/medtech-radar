@@ -104,7 +104,8 @@ GATE_COLS = ("gate_sector", "gate_sector_note", "gate_cv", "gate_cv_note",
              "gate_location", "gate_location_note", "gate_rate",
              "gate_rate_note", "tier", "failed_gates", "question_text",
              "filter_reason", "rate_stated", "rate_value", "rate_basis",
-             "ir35", "location_class", "engagement_type", "engagement_note")
+             "ir35", "location_class", "engagement_type", "engagement_note",
+             "rate_band")
 RECORD_COLS = ("score_basis", "prompt_version", "score_model", "scored_at",
                "description_hash")
 
@@ -814,9 +815,11 @@ def _score(conn, row: dict, description: str, config: dict, out: dict,
     _unused, score_fn = score_item.get_mock_fns()
     opp = _spec_opportunity(row, description)
     try:
+        # An Upwork role's fee comes off before the Rate gate. It is passed
+        # beside the advert, not in it, so the scorer is shown what it always was.
         scored, usage, note = score_item.score_opportunity(
             opp, blocks, config, mock_fn=score_fn, floors=floors,
-            thresholds=thresholds, basis=SPEC)
+            thresholds=thresholds, basis=SPEC, fee=hand_roles.fee_for(row))
     except Exception as err:  # noqa: BLE001  no key, no network, an API error
         text = words["raised"].format(name=type(err).__name__)
         GUARD.remember_failure(key, ERROR_COOLDOWN_SECONDS, text)

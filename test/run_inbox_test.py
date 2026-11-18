@@ -267,8 +267,9 @@ def main() -> int:
           and veltrix_row["pay_period"] == "day"
           and veltrix_row["pay_max"] == 1100
           and round(veltrix_row["day_rate"]) == 935
-          and veltrix_row["rate_band"] == "above",
-          "Veltrix bands above, top of the euro range converted at 0.85"
+          and veltrix_row["rate_band"] == "unconverted",
+          "Veltrix's day rate for the market panel is the top of the euro range at"
+          " 0.85, and its Rate gate waits on a euro rate in Settings"
           + (f" (got {dict(veltrix_row) if veltrix_row else None})"))
     caldora_row = band_of("Caldora%")
     check(caldora_row is not None

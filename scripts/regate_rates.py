@@ -46,6 +46,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import radar_common as rc  # noqa: E402
 import score_item  # noqa: E402
+import hand_roles  # noqa: E402
 
 # gate_cv and its note are here for the CV page's re-sort, which judges the CV
 # gate again from the stored CV match (cv_gate_again). Everything else leaves
@@ -75,7 +76,8 @@ def cv_gate_note(cv_match, pass_mark) -> str:
 
 def judge_row(row: dict, floors: dict, config: dict | None = None,
               thresholds: dict | None = None,
-              cv_gate_again: bool = False) -> tuple[dict, dict]:
+              cv_gate_again: bool = False,
+              money: dict | None = None) -> tuple[dict, dict]:
     """The rate gate and the tier for one row, from its stored columns.
 
     Returns (new, pay): new holds a value for every column in _GATE_COLS,
@@ -115,8 +117,11 @@ def judge_row(row: dict, floors: dict, config: dict | None = None,
     # The Rate gate is code's from the pay on file, whatever the scorer
     # stored: a figure passes or fails against its floor, no figure is not
     # stated. So every row's rate says the same thing for the same pay.
+    # A rate in dollars or euros converts at the figure set in Settings
+    # (money), and a role added by hand from Upwork has its fee taken off.
     pay = rc.gate_pay(row.get("pay_currency"), row.get("pay_period"),
-                      row.get("pay_min"), row.get("pay_max"), floors, config)
+                      row.get("pay_min"), row.get("pay_max"), floors, config,
+                      money=money, fee=hand_roles.fee_for(row, money))
     gates["rate"] = score_item.rate_gate(pay)
     new.update(gate_rate=rc.gate_column(gates["rate"]),
                gate_rate_note=score_item.rate_gate_note(pay),
@@ -152,7 +157,7 @@ def pay_hint(row: dict) -> bool:
 
 def regate(conn, config: dict, floors: dict, write: bool = False,
            thresholds: dict | None = None, cv_gate_again: bool = False,
-           writer: str = "regate_rates") -> dict:
+           writer: str = "regate_rates", money: dict | None = None) -> dict:
     """Judge every open, scored, not applied role again in code. See the
     module's notes. cv_gate_again and writer are the CV page's re-sort's:
     it judges the CV gate again as well, and its history rows and its run
@@ -169,6 +174,8 @@ def regate(conn, config: dict, floors: dict, write: bool = False,
     verdict and so cannot be Top or One question away. A dry run counts all
     of it and writes nothing."""
     thresholds = thresholds or rc.read_score_thresholds(config)
+    # The exchange rates and the Upwork fee, read once for the whole pass.
+    money = money if money is not None else rc.read_money_prefs(config)
     if write:
         # The write lock before the rows are chosen. Between choosing a row
         # and writing it a role could be applied for, and an applied role
@@ -195,7 +202,7 @@ def regate(conn, config: dict, floors: dict, write: bool = False,
     for row in rows:
         row = dict(row)
         had = _flag(row.get("gate_rate"))
-        new, pay = judge_row(row, floors, config, thresholds, cv_gate_again)
+        new, pay = judge_row(row, floors, config, thresholds, cv_gate_again, money)
         before = (rc.NOT_JUDGED if had is None else rc.PASSES if had else rc.FAILS)
         after = rc.gate_state({**row, **new}, "rate")
         rate_before[before] = rate_before.get(before, 0) + 1

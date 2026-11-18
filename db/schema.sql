@@ -66,7 +66,8 @@ CREATE TABLE IF NOT EXISTS opportunities (
   -- Roles added by hand on Jobs. When, and the type chosen. NULL on every
   -- collected row. Set in code, never by a model (hand_roles).
   added_at          TEXT,
-  hand_type         TEXT              -- contract | permanent | fixed-price
+  hand_type         TEXT,             -- contract | permanent | fixed-price
+  upwork_fee        REAL              -- the fee Upwork takes, a percentage, Upwork roles only
 );
 
 -- The landscape is companies, not rows. One row per company, keyed on the

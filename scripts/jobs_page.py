@@ -1007,13 +1007,24 @@ def rate_note_fixed(o: dict) -> str:
     return f"{words[:1].upper()}{words[1:]}." if words else ""
 
 
-def rate_tile_words(o: dict, state: str, word: str, note: str) -> tuple[str, str]:
-    """The Rate tile's word and reason, on Jobs and Prepare application alike.
-    A fixed price is amber Fixed price, neither a pass nor a fail, because no
-    floor is a price; its reason is the price."""
+SET_RATE_LINK = '<a class="link set-rate" href="/settings#scoring-h">Set it in Settings</a>'
+
+
+def rate_tile_words(o: dict, state: str, word: str, note: str) -> tuple[str, str, str]:
+    """The Rate tile's word, reason and any link after it, on Jobs and Prepare
+    application alike. A fixed price is amber Fixed price, neither a pass nor
+    a fail, because no floor is a price; its reason is the price, after the
+    fee and the conversion where there are any. A rate in dollars or euros
+    with no exchange rate set is amber Check the rate, neither a pass nor a
+    fail, with the way to set one. The reason is code's own, stored with the
+    verdict (radar_common.rate_reason)."""
+    stored = str(o.get("gate_rate_note") or "").strip()
+    own = stored if stored and stored != radar_common.RATE_NOT_STATED_NOTE else ""
     if state == radar_common.NOT_STATED and hand_roles.is_fixed(o):
-        return "Fixed price", rate_note_fixed(o)
-    return word, note
+        return "Fixed price", own or rate_note_fixed(o), ""
+    if state == radar_common.NOT_STATED and o.get("rate_band") == "unconverted":
+        return "Check the rate", own, SET_RATE_LINK
+    return word, note, ""
 
 
 def score_html(o: dict) -> str:
@@ -1037,8 +1048,9 @@ def score_html(o: dict) -> str:
             # A note an older score wrote may pass or fail it. Code's is said
             # here whatever is stored.
             note = radar_common.RATE_NOT_STATED_NOTE
+        link = ""
         if gate == "rate":
-            word, note = rate_tile_words(o, state, word, note)
+            word, note, link = rate_tile_words(o, state, word, note)
         status = esc(word)
         if gate == "cv" and o.get("cv_match") is not None:
             # The figure shares the status's line, set apart by the drawn rule.
@@ -1051,7 +1063,7 @@ def score_html(o: dict) -> str:
         gates.append(f'<div class="gate gate-{gate} {cls}{glow}">{icon}'
                      f'<span class="gate-name">{name}</span>'
                      f'<span class="gate-status {cls}">{status}</span>'
-                     f'<span class="gate-note">{esc(note)}</span></div>')
+                     f'<span class="gate-note">{esc(note)}{(" " + link) if link else ""}</span></div>')
     return pane_section("score", "Score", f'{lead}<div class="gate-tiles">{"".join(gates)}</div>',
                         "top", "jobs", extra=pill, cls="score", card=False)
 
@@ -1324,7 +1336,8 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
     head = (f'<header class="detail-head g-jobs glow-head">{back}<div class="dh-grid">'
             f'<span class="dh-chip">{page_frame.chip("jobs", "jobs")}</span>'
             f'<h2 class="dh-title" id="role-title" tabindex="-1">{esc(title)}</h2>'
-            f'<div class="dh-meta"><p class="dh-facts">{page_frame.divided(meta)}</p>{tags}</div>'
+            f'<div class="dh-meta"><p class="dh-facts">{page_frame.divided(meta)}</p>'
+            f'{add_role_page.edit_link(face) if view in ("open", "filtered", "acknowledged") else ""}{tags}</div>'
             f'<div class="dh-nav">{open_advert}'
             f'{step(prev_id, "Previous job", "prev", "ic-left")}{step(next_id, "Next job", "next", "ic-right")}'
             f'</div></div>{actions_html(face, view)}{lead_html}</header>')
@@ -1479,7 +1492,7 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 </main>
 <p class="toast" id="toast" role="status" aria-live="polite"></p>
 <template id="no-selection">{no_selection_html(view)}</template>
-{add_role_page.dialog_with_data()}
+{add_role_page.dialog_with_data(config)}
 </div>
 <script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{JOBS_SCRIPT}{add_role_page.SCRIPT}</script>
 </body>
@@ -1530,7 +1543,7 @@ def render_board(data: dict, config: dict, loc: tuple = ()) -> str:
 </main>
 <div class="move-menu" id="move-menu" role="menu" hidden></div>
 <p class="toast" id="toast" role="status" aria-live="polite"></p>
-{add_role_page.dialog_with_data()}
+{add_role_page.dialog_with_data(config)}
 </div>
 <script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{board_page.BOARD_SCRIPT}{add_role_page.SCRIPT}</script>
 </body>

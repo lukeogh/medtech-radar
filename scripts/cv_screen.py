@@ -392,10 +392,18 @@ def save_preferences(body, config: dict, db_path: Path) -> dict:
                 "note": ("Saved, but the" if not dry else "The")
                         + f" roles could not be re-sorted: {err}. "
                         + ("No role moved. Re-sort now tries again." if not dry else "")}
+    # The exchange rates and the Upwork fee as they will be once saved, so a
+    # dry run re-sorts on what is typed and not on what the file still says.
+    money = radar_common.read_money_prefs(config)
+    for key, cur in (("usd_to_gbp", "USD"), ("eur_to_gbp", "EUR")):
+        if key in values:
+            money[cur] = float(values[key]) if values[key] != "" else None
+    if "upwork_fee_percent" in values:
+        money["fee"] = float(values["upwork_fee_percent"])
     try:
         res = regate_rates.regate(conn, config, floors, write=not dry,
                                   thresholds=marks, cv_gate_again=True,
-                                  writer="cv_preferences")
+                                  writer="cv_preferences", money=money)
         # The roles rescore.py --regate would score: no tier, a score from
         # before the gates, open, not acknowledged, not applied for.
         ungated = conn.execute(
@@ -1893,7 +1901,10 @@ CV_SCREEN_JS = r"""
   // ------------------------------------------------- Preferences
   var form = $('prefs-form');
   var say = $('prefs-say');
-  var KEYS = ['day_rate_floor_gbp', 'salary_floor_gbp', 'cv_pass_score', 'cv_floor_score'];
+  var KEYS = ['day_rate_floor_gbp', 'salary_floor_gbp', 'cv_pass_score', 'cv_floor_score',
+              'usd_to_gbp', 'eur_to_gbp', 'upwork_fee_percent'];
+  // An exchange rate may be emptied, which takes it away; nothing else may.
+  var CLEARABLE = ['usd_to_gbp', 'eur_to_gbp'];
   function field(k) { return $('pref-' + k); }
   function changedValues() {
     var out = {};
@@ -1955,7 +1966,8 @@ CV_SCREEN_JS = r"""
     {
       var values = changedValues();
       var bad = KEYS.filter(function (k) {
-        return k in values && !/^\s*£?\s*[0-9][0-9,]*(\.[0-9]+)?\s*$/.test(values[k]);
+        if (k in values && values[k] === '' && CLEARABLE.indexOf(k) >= 0) return false;
+        return k in values && !/^\s*£?\s*[0-9][0-9,]*(\.[0-9]+)?\s*%?\s*$/.test(values[k]);
       });
       if (bad.length) {
         var f = field(bad[0]);

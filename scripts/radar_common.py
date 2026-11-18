@@ -300,6 +300,10 @@ _MIGRATIONS = (
     # hand.
     ("opportunities", "added_at", "TEXT"),
     ("opportunities", "hand_type", "TEXT"),
+    # On a role added by hand from Upwork, the fee Upwork takes, a percentage,
+    # which comes off the rate before the Rate gate. It starts from the Settings
+    # figure and the role keeps its own. NULL on every other row.
+    ("opportunities", "upwork_fee", "REAL"),
 )
 
 # What the score record says about a row scored before the record existed.
@@ -1954,6 +1958,18 @@ SCORING_PREFS = {
     "cv_floor_score": ("The Filtered floor", 0, 100),
 }
 
+# The exchange rates and the Upwork fee, kept beside the floors and saved by
+# the same Save and re-sort (read_money_prefs reads them). Pounds to one dollar
+# and to one euro, empty until set, because no rate is built in; the fee a
+# percentage, 15 until set.
+MONEY_PREFS = {
+    "usd_to_gbp": ("One US dollar", 0.01, 10),
+    "eur_to_gbp": ("One euro", 0.01, 10),
+    "upwork_fee_percent": ("The Upwork fee", 0, 99),
+}
+MONEY_OPTIONAL = ("usd_to_gbp", "eur_to_gbp")
+
+
 # The two prose sections the tab edits: the words a heading must start with
 # (after "## "), and the heading a file without one gets at its end.
 PREF_SECTIONS = {
@@ -2015,14 +2031,20 @@ def clean_scoring_prefs(values: dict, config: dict | None = None) -> dict:
     if not isinstance(values, dict) or not values:
         raise ValueError("Nothing to save.")
     out = {}
+    cleared = []
     for key, raw in values.items():
-        if key not in SCORING_PREFS:
+        if key not in SCORING_PREFS and key not in MONEY_PREFS:
             raise ValueError(f"{key} is not a line this page edits.")
-        label, low, high = SCORING_PREFS[key]
+        label, low, high = SCORING_PREFS.get(key) or MONEY_PREFS[key]
+        if key in MONEY_OPTIONAL and isinstance(raw, str) and not raw.strip():
+            # An exchange rate taken away: the line stays, empty, and the
+            # rate reads as not set.
+            cleared.append(key)
+            continue
         if isinstance(raw, bool) or raw is None:
             raise ValueError(f"{label} needs a plain number.")
         try:
-            number = float(str(raw).replace("£", "").replace(",", "").strip())
+            number = float(str(raw).replace("£", "").replace("%", "").replace(",", "").strip())
         except ValueError as err:
             raise ValueError(f"{label} needs a plain number.") from err
         if number != number or not low <= number <= high:
@@ -2041,7 +2063,8 @@ def clean_scoring_prefs(values: dict, config: dict | None = None) -> dict:
     if passing is not None and floor is not None and floor > passing:
         raise ValueError(f"The Filtered floor ({_plain_number(floor)}) must be at or "
                          f"under the CV pass mark ({_plain_number(passing)}).")
-    return {key: _plain_number(number) for key, number in out.items()}
+    return {**{key: _plain_number(number) for key, number in out.items()},
+            **{key: "" for key in cleared}}
 
 
 def write_scoring_prefs(values: dict, config: dict | None = None) -> dict:
@@ -2058,7 +2081,7 @@ def write_scoring_prefs(values: dict, config: dict | None = None) -> dict:
                          "config/preferences.template.md there first.")
     newline = "\r\n" if "\r\n" in text else "\n"
     for key, value in values.items():
-        line = f"{key}: {value}"
+        line = f"{key}: {value}" if value != "" else f"{key}:"
         found = re.search(rf"^{re.escape(key)}:[^\r\n]*", text,
                           re.IGNORECASE | re.MULTILINE)
         if found:
@@ -2072,7 +2095,7 @@ def write_scoring_prefs(values: dict, config: dict | None = None) -> dict:
 
 
 def _labelled_keys() -> tuple:
-    return tuple(PREF_EDITABLE) + tuple(SCORING_PREFS)
+    return tuple(PREF_EDITABLE) + tuple(SCORING_PREFS) + tuple(MONEY_PREFS)
 
 
 def _section_span(text: str, key: str):
@@ -2221,20 +2244,29 @@ def band_for(figure: float | None, floor: float,
 
 
 def gate_pay(currency, period, pay_min, pay_max, floors: dict,
-             config: dict | None = None) -> dict:
-    """The rate gate, judged in code from what the extractor stored.
+             config: dict | None = None, money: dict | None = None,
+             fee=None) -> dict:
+    """The rate gate, judged in code from what is stored.
 
     A stated day rate meets the day floor, an hourly rate times eight
     meets the day floor, an annual salary meets the salary floor. No
     figure converts into another period, so a £100k salary is judged as
     £100k and never as £455 a day. A range gates on its top figure, the
-    best case. Euro amounts convert at eur_to_gbp from radar.yaml, and a
-    currency with no configured conversion reads as unstated rather than
-    guessed. gate is None when nothing usable is stated, and the caller
+    best case. gate is None when nothing usable is stated, and the caller
     lets that pass as unknown, because silence is a question, not a fail.
+
+    A rate in dollars or euros converts to pounds first at the rate set in
+    Settings (money, read_money_prefs), and with no rate set nothing is
+    guessed: band unconverted, gate None, the tile's Check the rate. fee is a
+    percentage that comes off before the comparison, an Upwork role's fee
+    (hand_roles.fee_for), None for every other role. A fixed price is never a
+    pass or a fail, band fixed with its figure after the conversion and the
+    fee. low, written and the rest say how the figure was reached, for the
+    note.
     """
     out = {"gate": None, "figure": None, "basis": "unstated",
-           "floor": None, "band": "unstated"}
+           "floor": None, "band": "unstated", "low": None, "currency": None,
+           "rate": None, "fee": None, "written": "", "period": None}
 
     def num(value):
         try:
@@ -2245,8 +2277,11 @@ def gate_pay(currency, period, pay_min, pay_max, floors: dict,
     amounts = [a for a in (num(pay_min), num(pay_max)) if a and a > 0]
     if not amounts:
         return out
-    amount = max(amounts)
+    amount, low = max(amounts), min(amounts)
     period = (period or "").strip().lower()
+    currency = (currency or "").strip().upper()
+    out.update(currency=currency, period=period,
+               written=rate_as_written(currency, period, low, amount))
     if period == "year":
         basis, floor, close = "salary", floors["salary"], SALARY_CLOSE_BAND_GBP
     elif period == "day":
@@ -2254,24 +2289,123 @@ def gate_pay(currency, period, pay_min, pay_max, floors: dict,
     elif period == "hour":
         basis, floor, close = "hourly", floors["day"], CLOSE_BAND_GBP
         amount *= HOURS_PER_DAY
+        low *= HOURS_PER_DAY
+    elif period == FIXED_PERIOD:
+        basis, floor, close = "fixed", None, None
     else:
         return out
-    currency = (currency or "").strip().upper()
-    if currency == "EUR":
-        config = config or load_config()
-        amount *= float(config.get("eur_to_gbp", 0.85))
-    elif currency != "GBP":
+    if currency == "GBP":
+        rate = 1.0
+    elif currency in FOREIGN_CURRENCIES:
+        money = money if money is not None else read_money_prefs(config)
+        rate = money.get(currency)
+        if not rate:
+            # Nothing is judged: the basis stays unstated, as for no figure,
+            # and the band says why.
+            out["band"] = "unconverted"
+            return out
+    else:
         return out
-    out.update(gate=amount >= floor, figure=amount, basis=basis,
-               floor=floor, band=band_for(amount, floor, close))
+    amount, low = amount * rate, low * rate
+    fee = num(fee)
+    if fee:
+        amount, low = amount * (1 - fee / 100), low * (1 - fee / 100)
+    out.update(figure=amount, low=low, basis=basis, rate=rate, fee=fee or None)
+    if basis == "fixed":
+        out["band"] = "fixed"
+        return out
+    out.update(gate=amount >= floor, floor=floor, band=band_for(amount, floor, close))
     return out
+
+
+# A rate in another currency converts at the figure set in Settings, never one
+# built in. A fixed price is a period of its own, set only by Add a role.
+FOREIGN_CURRENCIES = ("USD", "EUR")
+FIXED_PERIOD = "fixed"
+_SIGNS = {"GBP": "£", "USD": "$", "EUR": "€"}
+_PERIOD_WORDS = {"hour": "an hour", "day": "a day", "year": "a year",
+                 "fixed": "fixed"}
+
+
+def _money_words(amount: float, sign: str) -> str:
+    return (f"{sign}{amount:,.0f}" if float(amount) == int(amount)
+            else f"{sign}{amount:,.2f}")
+
+
+def rate_as_written(currency, period, pay_min, pay_max) -> str:
+    """A rate as written: "$60 to $90 an hour", "£4,000 fixed", "" for none."""
+    if not pay_min:
+        return ""
+    sign = _SIGNS.get(str(currency or "").upper(), "")
+    words = _money_words(float(pay_min), sign)
+    if pay_max and float(pay_max) != float(pay_min):
+        words += f" to {_money_words(float(pay_max), sign)}"
+    return f"{words} {_PERIOD_WORDS.get(str(period or ''), '')}".strip()
+
+
+def nearest_five(amount: float) -> int:
+    """Pounds to the nearest £5, the way a converted figure is said."""
+    return int(5 * round(float(amount) / 5))
+
+
+def about_words(pay: dict, fee_name: str = "Upwork") -> str:
+    """What a converted figure comes to: "About £320 to £485 a day after
+    Upwork's 15%", to the nearest £5. An hourly rate is said as a day, a
+    fixed price without a period. "" where no figure was reached."""
+    if pay.get("figure") is None:
+        return ""
+    high, low = nearest_five(pay["figure"]), nearest_five(pay.get("low") or pay["figure"])
+    words = f"About £{low:,}" + (f" to £{high:,}" if high != low else "")
+    words += {"salary": " a year", "day-rate": " a day", "hourly": " a day"}.get(pay["basis"], "")
+    if pay.get("fee"):
+        words += f" after {fee_name}'s {pay['fee']:g}%"
+    return words
+
+
+def rate_reason(pay: dict) -> str | None:
+    """The Rate tile's reason for a rate that was converted, had a fee taken,
+    is a fixed price, or has no exchange rate set: the rate as written, what
+    it comes to, and the floor. None for a pound figure judged as it stands,
+    which keeps the words it has always had."""
+    written = pay.get("written") or ""
+    lead = f"{written[:1].upper()}{written[1:]}." if written else ""
+    if pay.get("band") == "unconverted":
+        return lead
+    converted = pay.get("currency") in FOREIGN_CURRENCIES or pay.get("fee")
+    if pay.get("band") == "fixed":
+        about = about_words(pay)
+        return f"{lead} {about}.".strip() if converted and about else lead
+    if pay.get("gate") is None or not converted:
+        return None
+    return f"{lead} {about_words(pay)}. Your floor is £{pay['floor']:,.0f}."
+
+
+DEFAULT_UPWORK_FEE = 15
+
+
+def read_money_prefs(config: dict | None = None) -> dict:
+    """The exchange rates and the Upwork fee from the preferences file, the
+    way the floors are kept: {"USD": pounds to one dollar or None, "EUR": the
+    same for one euro or None, "fee": the Upwork fee, 15 with no line}. A rate
+    is None until Settings sets one, because none is built in."""
+    _path, text = _prefs_text(config)
+
+    def line(key):
+        found = (re.search(rf"^{key}:[ \t]*([0-9]+(?:\.[0-9]+)?)[ \t]*\r?$",
+                           text, re.IGNORECASE | re.MULTILINE) if text else None)
+        return float(found.group(1)) if found else None
+    fee = line("upwork_fee_percent")
+    return {"USD": line("usd_to_gbp") or None, "EUR": line("eur_to_gbp") or None,
+            "fee": DEFAULT_UPWORK_FEE if fee is None else fee}
 
 
 def pay_on_file(currency, period, pay_min, pay_max) -> bool:
     """Whether the stored pay holds a figure the rate gate can judge, by the
     floor rules gate_pay applies: a positive amount, a year, day or hour
-    period, in pounds or euros. Anything else is a rate not stated, words like
-    competitive included, because no floor can be met by it."""
+    period, in pounds, euros or dollars. Anything else is a rate not stated,
+    words like competitive included, because no floor can be met by it.
+    _rate_silent adds what the row's own verdict says: a figure with no
+    exchange rate set, or dollars judged before they could be converted."""
     def num(value):
         try:
             return float(value) if value is not None else None
@@ -2279,7 +2413,7 @@ def pay_on_file(currency, period, pay_min, pay_max) -> bool:
             return None
     return (any(a is not None and a > 0 for a in (num(pay_min), num(pay_max)))
             and (period or "").strip().lower() in ("year", "day", "hour")
-            and (currency or "").strip().upper() in ("GBP", "EUR"))
+            and (currency or "").strip().upper() in ("GBP", "EUR", "USD"))
 
 
 # ------------------------------------------------------------- gate states
@@ -2303,6 +2437,16 @@ RATE_NOT_STATED_NOTE = "No figure in the advert. That's your first question."
 
 
 def _rate_silent(row: dict) -> bool:
+    # A figure with no exchange rate set is a question, Check the rate. A dollar
+    # figure counts as judged only where code converted it, its band one of
+    # the three a verdict gives: before Settings held a dollar rate none was,
+    # and a verdict an older scorer stored beside one still reads not stated,
+    # as it always has.
+    if row.get("rate_band") == "unconverted":
+        return True
+    if (str(row.get("pay_currency") or "").strip().upper() == "USD"
+            and row.get("rate_band") not in ("above", "close", "below")):
+        return True
     return not pay_on_file(row.get("pay_currency"), row.get("pay_period"),
                            row.get("pay_min"), row.get("pay_max"))
 
