@@ -949,8 +949,6 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .pill{display:inline-flex;align-items:center;height:24px;padding:0 10px;border:1px solid #2a3238;border-radius:12px;background:#1a2025;font-size:13px;line-height:20px;font-weight:500;color:var(--text-2);white-space:nowrap}
 .pill-ok{border-color:rgba(116,211,155,.45);background:var(--positive-tint);color:var(--positive)}
 .pill.is-over{border-color:rgba(240,196,106,.5);background:var(--caution-tint);color:var(--caution)}
-.btn-rose,.cvp a.btn-rose{background:#e88fb4;border-color:#e88fb4;color:#2a0f1c;font-weight:600}
-.btn-rose:hover{background:#efa9c6;border-color:#efa9c6;color:#2a0f1c}
 .cv-caution{margin:0 0 16px;padding:10px 16px;border:1px solid var(--caution);border-radius:10px;background:var(--caution-tint);color:var(--text-1);font-size:14px;line-height:20px}
 .card{min-width:0;border:1px solid var(--border-subtle);border-radius:14px;background-color:var(--surface)}
 .mono{font-family:var(--font-mono);font-size:13px}
@@ -964,6 +962,10 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .btn-secondary:hover{background:var(--row-hover);color:var(--text-1)}
 .btn-ghost:hover,.cvp a.btn-ghost:hover{color:var(--text-1);background:var(--row-hover)}
 .btn[aria-disabled="true"],.btn:disabled{color:var(--text-3);border-color:var(--border-subtle);cursor:default;background:transparent}
+/* The solid rose button, after .btn so it wins in every state it shows in. */
+.btn.btn-rose,.cvp a.btn.btn-rose{background:#e88fb4;border-color:#e88fb4;color:#2a0f1c;font-weight:600}
+.btn.btn-rose:hover{background:#efa9c6;border-color:#efa9c6;color:#2a0f1c}
+.btn.btn-rose:disabled,.btn.btn-rose[aria-disabled="true"]{background:#e88fb4;border-color:#e88fb4;color:#2a0f1c;opacity:.7}
 .btn svg{flex:none}
 .kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--border-strong);border-radius:var(--radius-2);font:500 11px/16px var(--font-mono);color:var(--text-2);background:var(--canvas)}
 .btn-primary .kbd{border-color:var(--on-accent);color:var(--on-accent);background:transparent}
@@ -1087,7 +1089,7 @@ body.cvp-body{margin:0;background:var(--canvas);color:var(--text-1);font:400 15p
 .vrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 0;border-bottom:1px solid var(--border-subtle)}
 .vrow .vwhen{font:500 14px/20px var(--font-sans);color:var(--text-1)}
 .vrow .vwhat{color:var(--text-2);font-size:13px;line-height:20px}
-.vrow .vfile{--dv-space:8px;color:var(--text-3);font:400 12px/16px var(--font-mono);overflow-wrap:anywhere}
+.vrow .vfile{--dv-space:8px;color:var(--text-3);font:400 13px/18px var(--font-mono);overflow-wrap:anywhere}
 .vrow .vacts{display:flex;gap:4px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}
 .vrow.is-viewing{background:var(--accent-tint);outline:1px solid var(--accent);border-radius:8px;padding-left:10px;padding-right:10px}
 @media (max-width:767.98px){.vrow{grid-template-columns:minmax(0,1fr)}.vrow .vacts{justify-content:flex-start}}

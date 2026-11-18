@@ -343,6 +343,11 @@ def appbar_html(current: str, jobs: dict | None = None, page_name: str = "",
 # --group-story, --group-jobs and --group-apps; Radar's own items and the
 # Open actions title take a neutral chip.
 ICONS = {
+    # The experience bank's three sections: To review, Backed, Parked.
+    "review": '<circle cx="9" cy="9" r="5"/><line x1="12.6" y1="12.6" x2="16.5" y2="16.5"/>',
+    "backed": '<path d="M10 3.5 15.5 5.5v4.2c0 3.3-2.3 5.8-5.5 6.8-3.2-1-5.5-3.5-5.5-6.8V5.5z"/>',
+    "parked": '<rect x="3.5" y="3.5" width="13" height="13" rx="3"/><line x1="8.3" y1="7.3" x2="8.3" y2="12.7"/>'
+              '<line x1="11.7" y1="7.3" x2="11.7" y2="12.7"/>',
     "story": '<rect x="3.5" y="3.5" width="13" height="13" rx="2"/><line x1="6.5" y1="7.5" x2="13.5" y2="7.5"/>'
              '<line x1="6.5" y1="10.5" x2="13.5" y2="10.5"/><line x1="6.5" y1="13.5" x2="10.5" y2="13.5"/>',
     "top": '<circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="2.5"/>',
@@ -453,7 +458,7 @@ TITLES_CSS = """/* ---- a section's title, outside its card: the chip, the title
    pill, and a link or the tools at the right; 12px to the card ---- */
 .sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-width:0;margin-bottom:12px}
 .sec-title{display:flex;align-items:center;gap:10px;min-width:0;font-size:17px;line-height:24px;font-weight:600;color:var(--text-1)}
-.sec-count{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px solid #2a3238;border-radius:11px;background:#1a2025;font-size:12px;line-height:16px;font-weight:500;color:var(--text-2);font-variant-numeric:tabular-nums}
+.sec-count{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px solid #2a3238;border-radius:11px;background:#1a2025;font-size:13px;line-height:18px;font-weight:500;color:var(--text-2);font-variant-numeric:tabular-nums}
 .sec-link{margin-left:auto}
 .sec-head > .gchip{margin-right:2px}
 """

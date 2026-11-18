@@ -1291,8 +1291,7 @@ WATCHLIST_SCRIPT = r"""
         nm.textContent = m.name;
         var meta = document.createElement('span');
         meta.className = 'meta';
-        meta.textContent = [m.place, m.seen, m.watched ? 'on your Watchlist since ' + m.since : 'not on your Watchlist']
-          .filter(Boolean).join(', ');
+        meta.textContent = [m.place, m.roles].filter(Boolean).join(', ');
         li.appendChild(nm);
         li.appendChild(meta);
         li.addEventListener('mousedown', function (ev) { ev.preventDefault(); });
@@ -1307,58 +1306,21 @@ WATCHLIST_SCRIPT = r"""
       }
     }
     function clearStatus() { addStatus.innerHTML = ''; }
-    function statusBox(tone, html) {
-      clearStatus();
-      var div = document.createElement('div');
-      div.className = 'status' + (tone ? ' is-' + tone : '');
-      div.setAttribute('role', 'status');
-      div.innerHTML = html;
-      addStatus.appendChild(div);
-      return div;
-    }
-    function esc(s) {
-      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-      });
-    }
-    function showAlready(name, since, id) {
-      closeList();
-      hint.textContent = 'Nothing was added twice.';
-      statusBox('', '<span class="what"><b>' + esc(name) + '</b> is already on your Watchlist'
-        + (since ? ', since ' + esc(since) : '') + '.</span><a class="btn btn-secondary" data-focus-record href="'
-        + esc(recordUrl(id)) + '">Open its record</a>');
-      say(name + ' is already on your Watchlist' + (since ? ', since ' + since : '') + '. Nothing was added twice.');
-    }
-    function showNotFound(name) {
-      closeList();
-      hint.textContent = 'Nothing Radar has seen matches. Check the spelling, or add it anyway.';
-      var box = statusBox('warn', '<span class="what">Radar has not seen <b>' + esc(name) + '</b>. Add it anyway '
-        + 'and it joins your Watchlist with its facts Not known until a story or an advert names it.</span>'
-        + '<button type="button" class="btn btn-secondary">Add ' + esc(name) + ' anyway</button>');
-      var btn = box.querySelector('button');
-      btn.addEventListener('click', function () { btn.disabled = true; addName({ name: name, anyway: true }); });
-      say('Radar has not seen ' + name + '. Add it anyway, with the button after the field, or check the spelling.');
-    }
+    function openRecord(id) { go(recordUrl(id), null); }
     function addName(body) {
       post('/watchlist/add-name', body).then(function (r) {
-        if (r.ok && r.already) { showAlready(r.name, r.since, r.id); return; }
+        if (r.ok && r.already) { openRecord(r.id); return; }
         if (r.ok) {
-          go(null, { name: r.name, tone: 'ok',
-                     text: r.unknown ? 'is on your Watchlist, added by hand. Radar has not seen it, so its facts read '
-                                       + 'Not known until a story or an advert names it.'
-                                     : 'is on your Watchlist, added by hand. Its card is in your companies.',
+          go(null, { text: 'Added ' + r.name + '.', tone: 'ok',
                      undo: { url: '/watchlist/remove', body: { company_id: r.id, undo_add: true, since: r.since },
-                             done: 'is off your Watchlist again.' } });
+                             done: 'Taken off again.' } });
           return;
         }
-        if (r.not_found) { showNotFound(r.name || body.name); return; }
         if (r.choose && r.choose.length) {
           matches = r.choose;
           renderList();
           setActive(0);
           input.focus();
-          hint.textContent = r.note || 'Choose one from the list.';
-          say(hint.textContent);
           return;
         }
         hint.textContent = r.note || 'That did not go through. Try again.';
@@ -1370,8 +1332,8 @@ WATCHLIST_SCRIPT = r"""
       var name = input.value.trim();
       if (!m && !name) { hint.textContent = "Type a company's name first."; say(hint.textContent); input.focus(); return; }
       closeList();
-      if (m && m.watched) { showAlready(m.name, m.since, m.id); return; }
-      addName(m ? { company_id: m.id } : { name: name });
+      if (m && m.watched) { openRecord(m.id); return; }
+      addName(m ? { company_id: m.id } : { name: name, anyway: true });
     }
     input.addEventListener('input', function () {
       clearStatus();
@@ -1385,12 +1347,8 @@ WATCHLIST_SCRIPT = r"""
             if (mine !== seq) return;
             matches = (j && j.matches) || [];
             renderList();
-            if (matches.length) {
-              hint.textContent = matches.length + ' found. Up and Down choose, Enter adds the chosen one.';
-            } else {
-              hint.textContent = 'Nothing Radar has seen matches yet. Enter or Add looks again and offers to add it anyway.';
-            }
-            say(hint.textContent);
+            hint.textContent = matches.length ? '' : 'New to Radar';
+            if (!matches.length) say(hint.textContent);
           }).catch(function () { if (mine === seq) { hint.textContent = UNREACHABLE; say(UNREACHABLE); } });
       }, 250);
     });

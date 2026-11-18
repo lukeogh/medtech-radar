@@ -52,6 +52,7 @@ def dialog_html(fee: str = "15") -> str:
 <form class="ar-form" id="ar-form" novalidate>
 <div class="ar-top"><h2 id="ar-h">Add a role</h2>
 <button type="button" class="ar-x" id="ar-x" aria-label="Close">{CLOSE}</button></div>
+<div class="ar-body">
 <div class="ar-field"><label for="ar-link">Link</label>
 <input class="ar-in" id="ar-link" name="link" type="url" inputmode="url" autocomplete="off" maxlength="{hand_roles.CAPS['link']}" aria-describedby="ar-link-err">{_err("link")}</div>
 <div class="ar-field" data-new><label for="ar-title">Title</label>
@@ -79,6 +80,7 @@ def dialog_html(fee: str = "15") -> str:
 <span class="ar-pct">%</span></div>{_err("fee")}
 <p class="ar-about" id="ar-about" aria-live="polite"></p></fieldset>
 <p class="ar-err ar-form-err" data-err="form" aria-live="polite"></p>
+</div>
 <div class="ar-foot"><span class="ar-cost">{esc(cost_words())}</span>
 <span class="ar-acts"><button type="button" class="ar-cancel" id="ar-cancel">Cancel</button>
 <button type="submit" class="ar-go" id="ar-go">Add and score</button></span></div>
@@ -95,8 +97,11 @@ CSS = """
 .ar-open{margin-left:auto}
 .ar-dlg{width:min(760px,calc(100vw - 32px));max-width:none;max-height:calc(100vh - 32px);padding:0;border:1px solid var(--border-subtle);border-radius:14px;background:var(--surface);color:var(--text-1);box-shadow:var(--shadow-overlay)}
 .ar-dlg::backdrop{background:rgba(0,0,0,.6)}
-.ar-form{display:flex;flex-direction:column;gap:16px;padding:24px}
-.ar-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.ar-dlg[open]{display:flex;flex-direction:column;overflow:hidden}
+/* The heading and the footer stay put; the fields scroll between them. */
+.ar-form{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;max-height:calc(100vh - 34px)}
+.ar-body{display:flex;flex-direction:column;gap:16px;flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 24px 16px}
+.ar-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex:none;padding:24px 24px 12px}
 .ar-top h2{font:600 26px/32px var(--font-sans)}
 .ar-x{display:inline-flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;border:0;border-radius:8px;background:transparent;color:var(--text-2);cursor:pointer}
 .ar-x:hover{background:var(--row-hover);color:var(--text-1)}
@@ -128,7 +133,7 @@ CSS = """
 .ar-edit{min-height:24px;padding:0;border:0;background:none;color:var(--text-2);font:500 14px/20px var(--font-sans);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 .ar-edit:hover{color:var(--text-1)}
 .ar-err:empty{display:none}
-.ar-foot{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;margin-top:4px;padding-top:16px;border-top:1px solid var(--border-subtle)}
+.ar-foot{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;flex:none;padding:16px 24px 24px;border-top:1px solid var(--border-subtle)}
 .ar-cost{font-size:14px;line-height:20px;color:var(--text-2)}
 .ar-acts{display:flex;align-items:center;gap:16px;margin-left:auto}
 .ar-cancel{min-height:36px;padding:0;border:0;background:none;color:var(--text-1);font:500 14px/20px var(--font-sans);cursor:pointer}
@@ -138,7 +143,9 @@ CSS = """
 .ar-dlg[data-mode="edit"] [data-new],.ar-dlg[data-mode="edit"] .ar-cost{display:none}
 @media (max-width:767.98px){
   .ar-dlg{width:calc(100vw - 32px);margin:16px auto}
-  .ar-form{padding:20px 16px}
+  .ar-top{padding:20px 16px 12px}
+  .ar-body{padding:4px 16px 16px}
+  .ar-foot{padding:16px 16px 20px}
   .ar-pair{grid-template-columns:minmax(0,1fr)}
   .ar-acts{margin-left:0}
 }

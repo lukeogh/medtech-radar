@@ -2195,7 +2195,8 @@ def write_pref_section(key: str, body: str, config: dict | None = None) -> str:
 
 
 def convert_to_day_rate(currency, period, pay_min, pay_max,
-                        config: dict | None = None) -> float | None:
+                        config: dict | None = None,
+                        money: dict | None = None) -> float | None:
     """Deterministic conversion to a GBP day rate, or None when unusable.
 
     Annual divides by 220 working days. Hourly multiplies by 8. Daily
@@ -2220,8 +2221,14 @@ def convert_to_day_rate(currency, period, pay_min, pay_max,
 
     currency = (currency or "").strip().upper()
     if currency == "EUR":
-        config = config or load_config()
-        amount *= float(config.get("eur_to_gbp", 0.85))
+        # The euro rate set in Settings where there is one; with none set,
+        # radar.yaml's eur_to_gbp, as before Settings held a rate.
+        money = money if money is not None else read_money_prefs(config)
+        rate = money.get("EUR")
+        if not rate:
+            config = config or load_config()
+            rate = float(config.get("eur_to_gbp", 0.85))
+        amount *= rate
     elif currency != "GBP":
         return None
     return amount

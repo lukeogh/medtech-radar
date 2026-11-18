@@ -78,6 +78,10 @@ def counts_html(entries: list) -> str:
             f'<span class="pill" id="xp-n-review">{review} to review</span>')
 
 
+# Each section title's rose icon chip (page_frame.ICONS).
+SECTION_ICONS = {"draft": "review", "backed": "backed", "parked": "parked"}
+
+
 def lists_html(entries: list) -> str:
     out = []
     for key, title, empty in SECTIONS:
@@ -85,6 +89,7 @@ def lists_html(entries: list) -> str:
         body = (f'<ul class="xp-list">{"".join(card_html(e) for e in mine)}</ul>' if mine
                 else f'<p class="xp-none">{esc(empty)}</p>')
         out.append(f'<section class="xp-sec" aria-labelledby="xp-{key}-h"><header class="sec-head">'
+                   f'{page_frame.chip(SECTION_ICONS[key], "cv")}'
                    f'<h2 class="sec-title" id="xp-{key}-h">{esc(title)}</h2>'
                    f'<span class="sec-count">{len(mine)}</span></header>{body}</section>')
     return "".join(out)
@@ -277,7 +282,6 @@ button,input,textarea,select{font:inherit;color:inherit}
 .pill.st-backed{border-color:rgba(116,211,155,.45);background:var(--positive-tint);color:var(--positive)}
 .pill.st-parked{color:var(--text-2)}
 .pill.st-draft{border-color:rgb(var(--group-cv-rgb) / .45);background:rgb(var(--group-cv-rgb) / .12);color:var(--group-cv)}
-.sec-count{font-size:13px;line-height:20px}
 .card{min-width:0;border:1px solid var(--border-subtle);border-radius:14px;background-color:var(--surface)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 16px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--text-1);font:500 14px/20px var(--font-sans);cursor:pointer;white-space:nowrap;text-decoration:none}
 .btn:hover{background:var(--row-hover)}

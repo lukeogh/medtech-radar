@@ -391,14 +391,28 @@ def seen_words(stories: int, adverts: int) -> str:
     return ", ".join(bits) or "seen, no stories or adverts kept"
 
 
-def find_names(conn, query, limit: int = 6) -> list:
+def role_words(n: int) -> str:
+    """"3 roles", "1 role", or "" for none."""
+    return "" if not n else f"{n} {'role' if n == 1 else 'roles'}"
+
+
+def _role_counts(conn) -> dict:
+    """Roles per company: its adverts, one per repost chain."""
+    return {r["company_id"]: r["n"] for r in conn.execute(
+        "SELECT company_id, COUNT(DISTINCT COALESCE(role_key, 'row-' || id)) AS n"
+        " FROM opportunities WHERE company_id IS NOT NULL GROUP BY company_id")}
+
+
+def find_names(conn, query, limit: int = 5) -> list:
     """Companies Radar has seen whose name matches what was typed, ignoring
     capitals, spacing and endings such as Ltd. Whole-name matches first, then
-    names that start with it, then names that contain it."""
+    names that start with it, then names that contain it. Five at most, each
+    with its place where known and its roles where it has any."""
     want = loose_name(query)
     if len(want) < 2:
         return []
     counts = _company_counts(conn)
+    roles = _role_counts(conn)
     found = []
     for r in conn.execute("SELECT id, display_name, city, country, watched_at FROM companies"):
         if rc.is_placeholder_company(r["display_name"]):
@@ -410,7 +424,8 @@ def find_names(conn, query, limit: int = 6) -> list:
         stories, adverts = counts.get(r["id"], [0, 0])
         found.append((rank, r["display_name"].lower(), {
             "id": r["id"], "name": r["display_name"], "place": place_of(dict(r)),
-            "seen": seen_words(stories, adverts), "watched": bool(r["watched_at"]),
+            "seen": seen_words(stories, adverts), "roles": role_words(roles.get(r["id"], 0)),
+            "watched": bool(r["watched_at"]),
             "since": day_words(r["watched_at"]) if r["watched_at"] else ""}))
     found.sort(key=lambda f: (f[0], f[1]))
     return [f[2] for f in found[:limit]]

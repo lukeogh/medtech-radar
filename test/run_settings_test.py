@@ -263,7 +263,12 @@ def cv_page_checks() -> None:
           and 'id="pages-pill"' in head
           and re.search(r'<button type="button" class="btn btn-rose" id="tb-save" data-cv-act="master" '
                         r'aria-keyshortcuts="Control\+S"( hidden)?>Save version</button>', head)
-          and ".btn-rose,.cvp a.btn-rose{background:#e88fb4;border-color:#e88fb4;color:#2a0f1c" in css
+          # Solid rose in every state it shows in: declared after the plain .btn
+          # rule, which used to win and draw it as text, and rose when disabled.
+          and ".btn.btn-rose,.cvp a.btn.btn-rose{background:#e88fb4;border-color:#e88fb4;color:#2a0f1c" in css
+          and css.index(".btn.btn-rose,") > css.index(".btn{display:inline-flex")
+          and css.index(".btn.btn-rose,") > css.index(".btn:disabled{")
+          and ".btn.btn-rose:disabled,.btn.btn-rose[aria-disabled=\"true\"]{background:#e88fb4" in css
           and ".pill.is-over{" in css and "var(--caution)" in css.split(".pill.is-over{", 1)[1].split("}", 1)[0],
           "the title row: rose chip, CV, the green pill, the pages pill (amber over the limit) and "
           "Save version as the one solid button, rose, at the right")
