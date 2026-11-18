@@ -266,8 +266,10 @@ CHIPS_JS = r"""
   var dlg = document.getElementById('chips-dlg');
   if (!dlg) return;
   var KINDS = {
-    keywords: { head: 'Edit keywords', label: 'Your keywords', hint: 'Add a keyword', many: true },
-    target_title: { head: 'Edit title', label: 'Your titles', hint: 'Add a title', many: false }
+    keywords: { head: 'Edit keywords', label: 'Your keywords', hint: 'Add a keyword', many: true,
+                limit: "That's the limit. Remove one to add another." },
+    target_title: { head: 'Edit title', label: 'Your titles', hint: 'Add a title', many: false,
+                    limit: "That's the limit. Shorten it to save." }
   };
   var pills = document.getElementById('chips-pills');
   var input = document.getElementById('chips-in');
@@ -277,7 +279,10 @@ CHIPS_JS = r"""
   var MAX = parseInt(dlg.getAttribute('data-max'), 10) || 0;
   var key = null, values = [], opener = null;
   function fits(list) { return !MAX || list.join(', ').length <= MAX; }
-  function limit(on) { limitEl.hidden = !on; }
+  function limit(on) {
+    if (on && key) limitEl.textContent = KINDS[key].limit;
+    limitEl.hidden = !on;
+  }
   function split(raw) {
     var out = [];
     String(raw || '').split(',').forEach(function (p) {
@@ -320,8 +325,11 @@ CHIPS_JS = r"""
       draw();
       return held.length === 0;
     } else {
+      // A title past the limit stays in the box, and Save does not run.
       var t = typed.replace(/\s+/g, ' ').trim();
+      if (t && !fits([t])) { limit(true); return false; }
       if (t) values = [t];
+      limit(false);
     }
     input.value = '';
     draw();
@@ -349,6 +357,9 @@ CHIPS_JS = r"""
   document.addEventListener('click', function (e) {
     var b = e.target && e.target.closest ? e.target.closest('[data-chips-edit]') : null;
     if (b) open(b.getAttribute('data-chips-edit'), b);
+  });
+  input.addEventListener('input', function () {
+    if (!KINDS[key].many) limit(!fits([input.value.replace(/\s+/g, ' ').trim()]));
   });
   input.addEventListener('keydown', function (e) {
     if (e.key === 'Enter' || (e.key === ',' && KINDS[key].many)) { e.preventDefault(); add(); }

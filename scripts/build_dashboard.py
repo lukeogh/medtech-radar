@@ -187,8 +187,18 @@ def rate_metrics(conn, floor, days: int = 90) -> dict:
     since = (datetime.now(timezone.utc)
              - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
     rows = [dict(r) for r in conn.execute(
-        "SELECT day_rate, rate_band, first_seen FROM opportunities"
-        " WHERE first_seen > ?", (since,))]
+        "SELECT day_rate, rate_band, first_seen, pay_currency, pay_period, pay_min, pay_max"
+        " FROM opportunities WHERE first_seen > ?", (since,))]
+    # A euro figure is worked out again as the panel is drawn, at the euro
+    # rate set in Settings where there is one (radar_common.convert_to_day_rate),
+    # so a rate set later reaches every advert in the window. Nothing stored
+    # changes. With no rate set it is the stored figure, at radar.yaml's.
+    money = radar_common.read_money_prefs()
+    if money.get("EUR"):
+        for r in rows:
+            if str(r.get("pay_currency") or "").upper() == "EUR" and r.get("day_rate") is not None:
+                r["day_rate"] = radar_common.convert_to_day_rate(
+                    "EUR", r.get("pay_period"), r.get("pay_min"), r.get("pay_max"), money=money)
     banded = [r for r in rows if (r.get("rate_band") or "unstated") != "unstated"
               and r.get("day_rate") is not None]
     rates = [r["day_rate"] for r in banded]
