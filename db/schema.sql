@@ -344,6 +344,44 @@ CREATE TABLE IF NOT EXISTS company_people (
 );
 CREATE INDEX IF NOT EXISTS idx_company_people_company ON company_people(company_id);
 
+-- The experience bank (owner, 18 Nov): one entry is one thing the owner
+-- did, and experience_evidence holds what backs it. Entries come in by hand
+-- or pasted (experience.py reads the paste in code, never a model), wait in
+-- draft until reviewed, and are marked backed only when they have evidence
+-- or a named voucher and their stage is not discussed, a rule experience.py
+-- holds on the server. tags is one comma-separated line. Deleting an entry
+-- deletes its evidence, in code, in one transaction. Nothing else reads or
+-- writes these two tables apart from Prepare application, which reads the
+-- backed entries.
+CREATE TABLE IF NOT EXISTS experience_entries (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  title       TEXT NOT NULL,
+  did         TEXT,
+  result      TEXT,
+  period      TEXT,
+  place       TEXT,
+  tags        TEXT,
+  stage       TEXT NOT NULL DEFAULT 'drafted'
+                CHECK (stage IN ('delivered','drafted','discussed')),
+  vouch       TEXT,
+  questions   TEXT,
+  status      TEXT NOT NULL DEFAULT 'draft'
+                CHECK (status IN ('draft','backed','parked')),
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS experience_evidence (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  entry_id  INTEGER NOT NULL,
+  name      TEXT,
+  location  TEXT,
+  shows     TEXT,
+  level     TEXT NOT NULL DEFAULT 'describe_only'
+              CHECK (level IN ('can_show','describe_only','public'))
+);
+CREATE INDEX IF NOT EXISTS idx_experience_evidence_entry ON experience_evidence(entry_id);
+
 -- Small key value store, e.g. last_digest_ts.
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,

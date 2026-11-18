@@ -89,6 +89,8 @@ import cv_doc
 import cv_page
 import cv_screen
 import cv_store
+import experience
+import experience_page
 import home_page
 import prepare_application
 import score_item
@@ -1107,6 +1109,34 @@ def render_settings_page() -> bytes:
     return settings_page.render_page(radar_common.load_config(), db_path(), job_verdicts_now())
 
 
+def render_experience(rest: str) -> bytes | None:
+    """The experience bank (owner, 18 Nov): the list at /cv/experience, the
+    empty form at /cv/experience/new, one entry at /cv/experience/<id>. Read
+    only. None for an address that is no entry."""
+    jobs = job_verdicts_now()
+    if rest == "":
+        return experience_page.render_list(db_path(), jobs)
+    if rest == "new":
+        return experience_page.render_entry(db_path(), None, jobs)
+    if not rest.isdigit() or len(rest) > 18:
+        return None
+    return experience_page.render_entry(db_path(), int(rest), jobs)
+
+
+def experience_write(fn) -> dict:
+    """One experience bank write under the write lock, in one transaction:
+    commit what succeeded, roll back what was refused."""
+    def go(conn):
+        radar_common.begin_write(conn)
+        result = fn(conn)
+        if result.get("ok"):
+            conn.commit()
+        else:
+            conn.rollback()
+        return result
+    return _write(go)
+
+
 def version_when(name: str | None) -> str:
     return cv_screen.version_when(name)
 
@@ -1767,6 +1797,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, f"Render failed. {type(err).__name__}: {err}"
                            .encode(), "text/plain; charset=utf-8")
             return
+        if path == "/cv/experience" or path.startswith("/cv/experience/"):
+            try:
+                page = render_experience(path[len("/cv/experience/"):]
+                                         if path.startswith("/cv/experience/") else "")
+                if page is None:
+                    self._send(404, b"No such entry.", "text/plain; charset=utf-8")
+                else:
+                    self._send(200, page, "text/html; charset=utf-8")
+            except Exception as err:  # noqa: BLE001
+                self._send(500, f"Render failed. {type(err).__name__}: {err}"
+                           .encode(), "text/plain; charset=utf-8")
+            return
         if path == "/cv":
             try:
                 self._send(200, render_cv_page(parse_qs(urlsplit(self.path).query)),
@@ -2013,6 +2055,27 @@ class Handler(BaseHTTPRequestHandler):
                       "rescore": lambda: run_copy_rescore(item_id, text, base)}[action]()
             status = (200 if result.get("ok") else
                       400 if result.get("invalid") else 409)
+            self._send(status, json.dumps(result).encode(), "application/json")
+            return
+        if path in ("/cv/experience/save", "/cv/experience/delete", "/cv/experience/paste"):
+            body = self._read_json_body()
+            if not isinstance(body, dict):
+                self._send(400, b'{"ok": false, "note": "send JSON"}', "application/json")
+                return
+            now = radar_common.now_iso()
+            if path == "/cv/experience/save":
+                result = experience_write(lambda c: experience.save_entry(c, body, now))
+            elif path == "/cv/experience/paste":
+                result = experience_write(lambda c: experience.add_pasted(c, body.get("text"), now))
+            else:
+                eid = _int(body, "id")
+                if eid is None:
+                    self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                               "application/json")
+                    return
+                result = experience_write(lambda c: experience.delete_entry(c, eid))
+            status = (200 if result.get("ok") else 422 if result.get("invalid")
+                      else 404 if result.get("gone") else 409)
             self._send(status, json.dumps(result).encode(), "application/json")
             return
         if path == "/cv/master/save":

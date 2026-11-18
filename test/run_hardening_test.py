@@ -141,6 +141,7 @@ STUBS = (
     (serve_dashboard, "log_contact", {"ok": True, "id": 1}),
     (serve_dashboard, "watchlist_write", {"ok": True, "id": 1}),
     (serve_dashboard, "run_reread", {"ok": True, "id": 1}),
+    (serve_dashboard, "experience_write", {"ok": True, "id": 1}),
     (radar_common, "update_pref_line", "stored"),
     (radar_common, "add_job_source", {"id": "stub-alert"}),
     (cv_store, "extract_markdown", "# stub"),
@@ -195,6 +196,10 @@ ROUTES = (
     ("/watchlist/person", b'{"company_id": 1, "name": "x", "title": "y"}', {}, "watchlist_write"),
     ("/watchlist/person/remove", b'{"id": 1}', {}, "watchlist_write"),
     ("/watchlist/reread", b'{"company_id": 1}', {}, "run_reread"),
+    # The experience bank's writes, each through serve_dashboard.experience_write.
+    ("/cv/experience/save", b'{"title": "x", "stage": "drafted"}', {}, "experience_write"),
+    ("/cv/experience/delete", b'{"id": 1}', {}, "experience_write"),
+    ("/cv/experience/paste", b'{"text": "Title: x"}', {}, "experience_write"),
     ("/sig/done", b'{"id": 1}', {}, "set_signal_state"),
     ("/sig/ack", b'{"id": 1}', {}, "set_signal_state"),
     ("/sig/unack", b'{"id": 1}', {}, "set_signal_state"),

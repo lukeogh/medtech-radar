@@ -402,6 +402,27 @@ def chip(icon: str, group: str) -> str:
             'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
             f'{ICONS[icon]}</svg></span>')
 
+# The CV group's two pages (owner, 18 Nov): the CV and the experience bank,
+# a two-link switch under each one's title row, the page you are on
+# underlined in rose. The menu marks CV on both.
+CV_SWITCH = (("cv", "/cv", "CV"), ("experience", "/cv/experience", "Experience"))
+
+
+def cv_switch(current: str) -> str:
+    mark = ' aria-current="page"'
+    links = "".join(f'<a href="{href}"{mark if key == current else ""}>{label}</a>'
+                    for key, href, label in CV_SWITCH)
+    return f'<nav class="cv-switch" aria-label="CV pages">{links}</nav>'
+
+
+SWITCH_CSS = """/* ---- the CV group's switch, CV and Experience ---- */
+nav.cv-switch{display:flex;flex-wrap:wrap;gap:4px 24px;margin:0 0 20px}
+nav.cv-switch a{display:inline-flex;align-items:center;min-height:36px;padding:0 2px;border-bottom:2px solid transparent;color:var(--text-2);font:500 15px/24px var(--font-sans);text-decoration:none}
+nav.cv-switch a:hover{color:var(--text-1)}
+nav.cv-switch a[aria-current="page"]{color:var(--text-1);font-weight:600;border-bottom-color:var(--group-cv)}
+@media (pointer:coarse){nav.cv-switch a{min-height:44px}}
+"""
+
 GROUPS_CSS = """/* ---- the groups (owner, 17 Nov): each has one colour, page_frame's
    --group-*, for its icon chip and a soft glow from the top left of its
    cards. The glow is background only, over the card's own ground. ---- */
