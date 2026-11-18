@@ -14,8 +14,8 @@ which pages it changed and which it left alone.
                                                  what changed
 
 How a page is drawn. One database, test/snapshot_radar.sqlite, is built fresh
-on every run from the three invented samples (seed_jobs_sample,
-seed_watchlist_sample and seed_insights_sample), at one fixed clock, FROZEN
+on every run from the four invented samples (seed_jobs_sample,
+seed_watchlist_sample, seed_insights_sample and seed_experience_sample), at one fixed clock, FROZEN
 below, 13 Nov 2026 09:14 UTC. The real server (serve_dashboard.Handler) runs on
 a loopback port and every view is fetched through it with a GET, so the
 routing, the 200 and the content type are part of what is checked. RADAR_MOCK
@@ -172,6 +172,7 @@ import prepare_page  # noqa: E402,F401
 import score_item  # noqa: E402
 import watchlist  # noqa: E402,F401
 import watchlist_page  # noqa: E402,F401
+import seed_experience_sample  # noqa: E402
 import seed_insights_sample  # noqa: E402
 import seed_jobs_sample  # noqa: E402
 import seed_watchlist_sample  # noqa: E402
@@ -292,7 +293,7 @@ def build_dashboard_exists_patch(exists) -> None:
 
 
 def build_db() -> dict:
-    """test/snapshot_radar.sqlite from the three samples, at FROZEN. Returns
+    """test/snapshot_radar.sqlite from the four samples, at FROZEN. Returns
     the ids the views need."""
     for suffix in ("", "-wal", "-shm", "-journal"):
         Path(str(DB) + suffix).unlink(missing_ok=True)
@@ -307,6 +308,8 @@ def build_db() -> dict:
         seed_insights_sample.seed(conn, FROZEN.replace(second=0, microsecond=0))
         companies = seed_watchlist_sample.seed(conn, FROZEN)
         conn.commit()
+        bank = seed_experience_sample.seed(conn, FROZEN.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        ids["xp_backed"], ids["xp_draft"] = bank["backed"], bank["draft"]
         ids["company"] = companies["Hartwell Infusion Ltd"]
         # A company not on the Watchlist, reached from a role on Jobs: the Top
         # prospect's company where it is unwatched, else the first unwatched.
@@ -345,6 +348,10 @@ def views(ids: dict) -> list[tuple[str, str]]:
         ("watchlist-company", f"/watchlist/{ids['company']}"),
         ("company-unwatched", f"/watchlist/{ids['unwatched']}"),
         ("cv", "/cv"),
+        ("experience", "/cv/experience"),
+        ("experience-backed", f"/cv/experience/{ids['xp_backed']}"),
+        ("experience-draft", f"/cv/experience/{ids['xp_draft']}"),
+        ("experience-new", "/cv/experience/new"),
         ("settings", "/settings"),
         ("radar-health", "/radar"),
         ("archive", "/archive"),

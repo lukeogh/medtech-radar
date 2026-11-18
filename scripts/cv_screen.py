@@ -897,12 +897,13 @@ def render_page(config: dict, db_path: Path | None, jobs: dict | None = None,
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CV, MedTech Radar</title>
 <link rel="icon" href="{build_dashboard.FAVICON}">
-<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{cv_page.CV_CSS}{CV_SCREEN_CSS}</style>
+<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{cv_page.CV_CSS}{CV_SCREEN_CSS}{page_frame.SWITCH_CSS}</style>
 </head>
 <body class="cvp-body">
 {page_frame.appbar_html("cv", jobs)}
 <main class="cvp" id="main" data-page="{esc(json.dumps(data, ensure_ascii=False))}">
 {head}
+{page_frame.cv_switch("cv")}
 {banner_html}
 {_rescore_blocks(stale, marker, run)}
 <div class="cv-layout">
