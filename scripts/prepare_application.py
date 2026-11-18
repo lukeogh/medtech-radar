@@ -83,6 +83,7 @@ import applications  # noqa: E402
 import check_jobs  # noqa: E402
 import cv_doc  # noqa: E402
 import cv_store  # noqa: E402
+import hand_roles  # noqa: E402
 import score_item  # noqa: E402
 import tailored_cv  # noqa: E402
 
@@ -705,6 +706,9 @@ def _store_score(conn, row: dict, payload: dict, config: dict, key: tuple,
         _refuse(out, why, "the scorer was answering")
         return
     old_tier = current["tier"]
+    # A role added by hand keeps the type Luke chose, and Remote where he
+    # said so, over what the scorer read off the advert.
+    hand_roles.hold_hand_fields(current, scored)
     rc.archive_score(conn, row["id"], "prepare")
     # The reasons go with the score, their quotes held to the description it
     # was made on, so the card score's reasons never stay beside it.

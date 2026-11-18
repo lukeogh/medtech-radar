@@ -31,6 +31,9 @@ from datetime import datetime, timedelta, timezone
 
 import radar_common
 import build_dashboard as bd
+import add_role_page
+import add_role_page
+import hand_roles
 import page_frame
 import tiers
 
@@ -47,7 +50,9 @@ GATES = (("sector", "Sector", "S"), ("cv", "CV match", "C"),
          ("location", "Location", "L"), ("rate", "Rate", "R"))
 BOARDS = {"linkedin-alert": "LinkedIn", "reed-alert": "Reed",
           "indeed-alert": "Indeed", "cvlibrary-alert": "CV-Library",
-          "email-other": "Email alert"}
+          "email-other": "Email alert",
+          # Roles added by hand, by the source chosen (hand_roles).
+          **{hand_roles.SOURCE_PREFIX + k: w for k, w in hand_roles.SOURCES}}
 # An Unknown role says when it will expire once that is this close.
 EXPIRY_WARN_DAYS = 7
 # How long a role is on screen before it counts as opened. An action, Prepare
@@ -425,7 +430,18 @@ def facts_bits(o: dict) -> list:
     """A role's facts, each escaped, in the order the row and the role pane
     say them: company, place, contract or permanent where known, pay only
     when the advert states a figure, and the source only when it is not
-    LinkedIn."""
+    LinkedIn. A role added by hand says its client, or Client not named, its
+    place, the type chosen, the source and Added by you with the date."""
+    if hand_roles.is_hand(o):
+        bits = [esc(o.get("company") or "Client not named")]
+        place = location_text(o)
+        if place:
+            bits.append(esc(place))
+        if hand_roles.type_word(o):
+            bits.append(esc(hand_roles.type_word(o)))
+        bits.append(esc(board(o.get("source"))))
+        bits.append(f'Added by you {esc(_day(o.get("added_at")))}')
+        return bits
     bits = [esc(o.get("company") or "Unknown company")]
     place = location_text(o)
     if place:
@@ -984,6 +1000,22 @@ def pane_section(key: str, title: str, body: str, icon: str, group: str = "jobs"
             f'{inner}</section>')
 
 
+def rate_note_fixed(o: dict) -> str:
+    """A fixed price's reason on the Rate tile: the price as written."""
+    words = hand_roles.rate_words(o.get("pay_currency"), o.get("pay_period"),
+                                  o.get("pay_min"), o.get("pay_max"))
+    return f"{words[:1].upper()}{words[1:]}." if words else ""
+
+
+def rate_tile_words(o: dict, state: str, word: str, note: str) -> tuple[str, str]:
+    """The Rate tile's word and reason, on Jobs and Prepare application alike.
+    A fixed price is amber Fixed price, neither a pass nor a fail, because no
+    floor is a price; its reason is the price."""
+    if state == radar_common.NOT_STATED and hand_roles.is_fixed(o):
+        return "Fixed price", rate_note_fixed(o)
+    return word, note
+
+
 def score_html(o: dict) -> str:
     """Score, its own section: the tier's pill beside the title, then the four
     gates as tiles, each with its status chip, its name and word, the CV figure
@@ -1005,6 +1037,8 @@ def score_html(o: dict) -> str:
             # A note an older score wrote may pass or fail it. Code's is said
             # here whatever is stored.
             note = radar_common.RATE_NOT_STATED_NOTE
+        if gate == "rate":
+            word, note = rate_tile_words(o, state, word, note)
         status = esc(word)
         if gate == "cv" and o.get("cv_match") is not None:
             # The figure shares the status's line, set apart by the drawn rule.
@@ -1136,7 +1170,8 @@ def details_section(data: dict, o: dict, view: str, now: str, company: str = "")
     except (TypeError, ValueError):
         flags = []
     facts.append(("Red flags", esc("; ".join(flags)) if flags else "None"))
-    facts.append(("Type", esc(type_words(o))))
+    facts.append(("Type", esc(hand_roles.type_word(o) if hand_roles.is_hand(o)
+                              else type_words(o))))
     facts.append(("Source", esc(board(o.get("source")))))
     rows = "".join(f"<dt>{label}</dt><dd>{value}</dd>" for label, value in facts)
     # Then the way to everything on file for the company, in the same card.
@@ -1157,7 +1192,8 @@ def advert_section(o: dict, reasons: list, quotes: bool, view: str,
         if quotes and basis == radar_common.SCORE_BASIS_SPEC:
             spans, hits = _spans_for(reasons, text)
         fetched = o.get("description_fetched_at")
-        read = (f"Read from {board(o.get('source'))} on {_day(fetched)}" if fetched
+        read = (f"Pasted by you on {_day(o.get('added_at'))}" if hand_roles.is_hand(o)
+                else f"Read from {board(o.get('source'))} on {_day(fetched)}" if fetched
                 else "Stored by the page checker, date not recorded")
         body = (f'<div class="advert-text">'
                 f'{advert_text_html(text, spans, o.get("company") or "")}</div>')
@@ -1214,6 +1250,15 @@ def actions_html(o: dict, view: str) -> str:
             + '</div>')
 
 
+def open_advert_words(o: dict) -> str:
+    """Open the advert, and on a role added by hand the source it came from:
+    Open the advert on Upwork. Other names no source."""
+    key = hand_roles.source_key(o.get("source"))
+    if not hand_roles.is_hand(o) or key in (None, "other"):
+        return "Open the advert"
+    return f"Open the advert on {hand_roles.SOURCE_WORDS[key]}"
+
+
 def nav_ids(model: dict, view: str, face: dict) -> tuple:
     """The previous and next role in the view's order, by row id."""
     lst = model["lists"].get(view) or []
@@ -1255,7 +1300,7 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
     open_advert = (f'<a class="btn btn-ghost open-advert" href="{esc(link)}" '
                    'target="_blank" rel="noopener noreferrer" '
                    f'data-open="{oid}">{_use("ic-launch", 16)}'
-                   'Open the advert<span class="visually-hidden"> (opens in a new tab)'
+                   f'{esc(open_advert_words(face))}<span class="visually-hidden"> (opens in a new tab)'
                    '</span></a>'
                    if link else "")
     prev_id, next_id = nav_ids(model, view, face)
@@ -1410,7 +1455,7 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title>
 <link rel="icon" href="{bd.FAVICON}">
-<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{JOBS_CSS}</style>
+<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{JOBS_CSS}{add_role_page.CSS}</style>
 </head>
 <body>
 <div class="app" data-page="jobs" data-show="{view}" data-view="{"role" if face is not None else "list"}" data-state="{state_json}">
@@ -1425,6 +1470,7 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 {show_menu_html(model, view)}
 {layout_switch(view, loc)}
 <button type="button" class="btn btn-ghost undo-last" id="undo-last" disabled>Undo last</button>
+{add_role_page.open_button()}
 </div>
 </div>
 <main class="content" id="main">
@@ -1433,8 +1479,9 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 </main>
 <p class="toast" id="toast" role="status" aria-live="polite"></p>
 <template id="no-selection">{no_selection_html(view)}</template>
+{add_role_page.dialog_with_data()}
 </div>
-<script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{JOBS_SCRIPT}</script>
+<script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{JOBS_SCRIPT}{add_role_page.SCRIPT}</script>
 </body>
 </html>"""
     return status, page
@@ -1462,7 +1509,7 @@ def render_board(data: dict, config: dict, loc: tuple = ()) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Applications board, Jobs, MedTech Radar</title>
 <link rel="icon" href="{bd.FAVICON}">
-<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{JOBS_CSS}{board_page.BOARD_CSS}</style>
+<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{JOBS_CSS}{board_page.BOARD_CSS}{add_role_page.CSS}</style>
 </head>
 <body>
 <div class="app" data-page="jobs" data-show="applied" data-layout="board" data-state="{state_json}">
@@ -1475,6 +1522,7 @@ def render_board(data: dict, config: dict, loc: tuple = ()) -> str:
 {show_menu_html(model, "applied")}
 {board_page.layout_switch_html("board", loc)}
 <button type="button" class="btn btn-ghost undo-last" id="undo-last" disabled>Undo last</button>
+{add_role_page.open_button()}
 </div>
 </div>
 <main class="content content-board" id="main">
@@ -1482,8 +1530,9 @@ def render_board(data: dict, config: dict, loc: tuple = ()) -> str:
 </main>
 <div class="move-menu" id="move-menu" role="menu" hidden></div>
 <p class="toast" id="toast" role="status" aria-live="polite"></p>
+{add_role_page.dialog_with_data()}
 </div>
-<script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{board_page.BOARD_SCRIPT}</script>
+<script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{board_page.BOARD_SCRIPT}{add_role_page.SCRIPT}</script>
 </body>
 </html>"""
 

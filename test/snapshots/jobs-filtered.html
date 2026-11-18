@@ -13,12 +13,12 @@
 <link rel="icon" href="data:image/svg+xml,
 <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2314161a'/><circle cx='16' cy='21' r='7' fill='%23f2efe8'/><rect x='0' y='21' width='32' height='11' fill='%2314161a'/><rect x='4' y='21' width='24' height='1.6' rx='0.8' fill='%237db4e8'/></svg>">
 
-<style>/* style 77cc38cd15cf, 38679 chars */</style>
+<style>/* style 8dddac86d8f5, 42094 chars */</style>
 </head>
 
 <body>
 
-<div class="app" data-page="jobs" data-show="filtered" data-view="list" data-state="{&quot;view&quot;: &quot;filtered&quot;, &quot;id&quot;: null, &quot;key&quot;: null, &quot;tier&quot;: &quot;&quot;, &quot;unread&quot;: false, &quot;title&quot;: &quot;&quot;, &quot;readAfter&quot;: 2000, &quot;stamp&quot;: 45, &quot;loc&quot;: [], &quot;layout&quot;: &quot;list&quot;}">
+<div class="app" data-page="jobs" data-show="filtered" data-view="list" data-state="{&quot;view&quot;: &quot;filtered&quot;, &quot;id&quot;: null, &quot;key&quot;: null, &quot;tier&quot;: &quot;&quot;, &quot;unread&quot;: false, &quot;title&quot;: &quot;&quot;, &quot;readAfter&quot;: 2000, &quot;stamp&quot;: 47, &quot;loc&quot;: [], &quot;layout&quot;: &quot;list&quot;}">
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
 <symbol id="st-pos" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
@@ -73,13 +73,15 @@
 <button type="button" class="chip chip-facet is-selected" id="show-btn" aria-expanded="false" aria-controls="show-list">Show: Filtered
 <svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#ic-down"></use></svg></button>
 <ul class="show-list" id="show-list" hidden>
-<li><a href="/jobs">Open roles <span class="chip-count">29</span></a></li>
+<li><a href="/jobs">Open roles <span class="chip-count">31</span></a></li>
 <li><a href="/jobs?show=acknowledged">Acknowledged <span class="chip-count">1</span></a></li>
 <li><a href="/jobs?show=filtered" aria-current="page">Filtered <span class="chip-count">4</span></a></li>
 <li><a href="/jobs?show=applied">Applied <span class="chip-count" data-applied-count>7</span></a></li></ul></div>
 
 
 <button type="button" class="btn btn-ghost undo-last" id="undo-last" disabled>Undo last</button>
+
+<button type="button" class="btn btn-secondary ar-open" id="ar-open" aria-haspopup="dialog">Add a role</button>
 </div>
 </div>
 
@@ -104,8 +106,115 @@
 
 <template id="no-selection">
 <div class="no-selection"></div></template>
+
+<dialog class="ar-dlg" id="ar-dlg" aria-labelledby="ar-h" data-mode="add" data-missing="{&quot;title&quot;: &quot;Add a title.&quot;, &quot;advert&quot;: &quot;Paste the advert.&quot;}">
+
+<form class="ar-form" id="ar-form" novalidate>
+
+<div class="ar-top">
+<h2 id="ar-h">Add a role</h2>
+
+<button type="button" class="ar-x" id="ar-x" aria-label="Close">
+<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button></div>
+
+<div class="ar-field">
+<label for="ar-link">Link</label>
+
+<input class="ar-in" id="ar-link" name="link" type="url" inputmode="url" autocomplete="off" maxlength="2000" aria-describedby="ar-link-err">
+<p class="ar-err" id="ar-link-err" data-err="link" aria-live="polite"></p></div>
+
+<div class="ar-field" data-new>
+<label for="ar-title">Title</label>
+
+<input class="ar-in" id="ar-title" name="title" type="text" autocomplete="off" maxlength="200" aria-required="true" aria-describedby="ar-title-err">
+<p class="ar-err" id="ar-title-err" data-err="title" aria-live="polite"></p></div>
+
+<div class="ar-field" data-new>
+<label for="ar-advert">Advert</label>
+
+<textarea class="ar-in ar-advert" id="ar-advert" name="advert" rows="12" spellcheck="false" maxlength="20000" aria-required="true" aria-describedby="ar-advert-err"></textarea>
+<p class="ar-err" id="ar-advert-err" data-err="advert" aria-live="polite"></p></div>
+
+<div class="ar-pair">
+
+<div class="ar-field">
+<label for="ar-client">Client or company</label>
+
+<input class="ar-in" id="ar-client" name="client" type="text" autocomplete="off" placeholder="Not named" maxlength="200" aria-describedby="ar-client-err">
+<p class="ar-err" id="ar-client-err" data-err="client" aria-live="polite"></p></div>
+
+<div class="ar-field">
+<label for="ar-location">Location</label>
+
+<input class="ar-in" id="ar-location" name="location" type="text" autocomplete="off" maxlength="200" aria-describedby="ar-location-err">
+<p class="ar-err" id="ar-location-err" data-err="location" aria-live="polite"></p></div>
 </div>
 
-<script>/* script 95642fcef21b, 25653 chars */</script>
+<fieldset class="ar-field" id="ar-type">
+<legend>Type</legend>
+<div class="seg-row">
+<label class="seg">
+<input type="radio" name="type" value="contract" checked><span>Contract</span></label>
+<label class="seg">
+<input type="radio" name="type" value="permanent"><span>Permanent</span></label>
+<label class="seg">
+<input type="radio" name="type" value="fixed-price"><span>Fixed price</span></label></div></fieldset>
+
+<fieldset class="ar-field" id="ar-source">
+<legend>Source</legend>
+<div class="seg-row">
+<label class="seg">
+<input type="radio" name="source" value="upwork"><span>Upwork</span></label>
+<label class="seg">
+<input type="radio" name="source" value="referral"><span>Referral</span></label>
+<label class="seg">
+<input type="radio" name="source" value="recruiter"><span>Recruiter</span></label>
+<label class="seg">
+<input type="radio" name="source" value="company-site"><span>Company site</span></label>
+<label class="seg">
+<input type="radio" name="source" value="other"><span>Other</span></label></div></fieldset>
+
+<fieldset class="ar-field" id="ar-rate">
+<legend>Rate</legend>
+
+<div class="ar-rate-row">
+
+<input class="ar-in ar-amt" id="ar-min" name="rate_min" type="text" inputmode="decimal" autocomplete="off" aria-label="Amount" aria-describedby="ar-rate-err">
+<span class="ar-to">to</span>
+
+<input class="ar-in ar-amt" id="ar-max" name="rate_max" type="text" inputmode="decimal" autocomplete="off" aria-label="Upper amount" aria-describedby="ar-rate-err">
+
+<div class="seg-row" role="radiogroup" aria-label="Currency">
+<label class="seg">
+<input type="radio" name="currency" value="GBP" checked><span>£</span></label>
+<label class="seg">
+<input type="radio" name="currency" value="USD"><span>$</span></label>
+<label class="seg">
+<input type="radio" name="currency" value="EUR"><span>€</span></label></div>
+
+<div class="seg-row" role="radiogroup" aria-label="Period">
+<label class="seg">
+<input type="radio" name="period" value="hour"><span>an hour</span></label>
+<label class="seg">
+<input type="radio" name="period" value="day" checked><span>a day</span></label>
+<label class="seg">
+<input type="radio" name="period" value="year"><span>a year</span></label>
+<label class="seg">
+<input type="radio" name="period" value="fixed"><span>fixed</span></label></div>
+</div>
+<p class="ar-err" id="ar-rate-err" data-err="rate" aria-live="polite"></p></fieldset>
+
+<p class="ar-err ar-form-err" data-err="form" aria-live="polite"></p>
+
+<div class="ar-foot"><span class="ar-cost">About 3 cents, 1 call</span>
+<span class="ar-acts">
+<button type="button" class="ar-cancel" id="ar-cancel">Cancel</button>
+
+<button type="submit" class="ar-go" id="ar-go">Add and score</button></span></div>
+</form>
+</dialog>
+</div>
+
+<script>/* script 4dfd96d663d7, 30701 chars */</script>
 </body>
 </html>

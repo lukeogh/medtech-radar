@@ -62,7 +62,11 @@ CREATE TABLE IF NOT EXISTS opportunities (
   ir35              TEXT,             -- inside | outside, recorded never gated
   location_class    TEXT,             -- remote | hybrid | local | relocation | onsite-far
   engagement_type   TEXT,             -- contract | permanent | unknown, off the advert
-  engagement_note   TEXT              -- the phrase that decided it, "fixed term" and the like
+  engagement_note   TEXT,             -- the phrase that decided it, "fixed term" and the like
+  -- Roles added by hand on Jobs. When, and the type chosen. NULL on every
+  -- collected row. Set in code, never by a model (hand_roles).
+  added_at          TEXT,
+  hand_type         TEXT              -- contract | permanent | fixed-price
 );
 
 -- The landscape is companies, not rows. One row per company, keyed on the

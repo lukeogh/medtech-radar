@@ -437,6 +437,11 @@ def apply_page(conn, row: dict, page: dict, floors: dict,
 
 # ----------------------------------------------------------------- selection
 
+# Roles added by hand are never checked at source and never expire: Radar
+# never requests their link, and Luke closes them himself (hand_roles).
+HAND_SKIP_SQL = "added_at IS NULL"
+
+
 def due_candidates(conn, now: str | None = None) -> list[dict]:
     """Top and question rows due a look at their page (J20).
 
@@ -458,7 +463,7 @@ def due_candidates(conn, now: str | None = None) -> list[dict]:
         "SELECT * FROM opportunities"
         " WHERE acknowledged_at IS NULL AND closed_at IS NULL"
         " AND dismissed_at IS NULL AND expired_at IS NULL"
-        " AND " + rc.NOT_APPLIED_SQL +
+        " AND " + rc.NOT_APPLIED_SQL + " AND " + HAND_SKIP_SQL +
         " AND tier IN ('top', 'question')"
         " ORDER BY CASE tier WHEN 'top' THEN 0 ELSE 1 END,"
         " COALESCE(last_seen, first_seen)").fetchall()
@@ -517,6 +522,11 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
                            (only_id,)).fetchone()
         if raw is None:
             result["notes"].append(f"no stored row with id {only_id}")
+            return result
+        if raw["added_at"]:
+            # A role added by hand is never fetched, its link least of all.
+            # Luke closes it himself.
+            result["notes"].append(f"id {only_id}: added by hand, left alone")
             return result
         if rc.role_is_applied(conn, only_id):
             # A spot check bypasses the due gate, not the rule that an
@@ -655,6 +665,8 @@ def expire_stale(conn, write: bool = False, now: str | None = None) -> dict:
     clock. Expiry is retirement, not closure, nothing here claims the
     page said anything.
 
+    A role added by hand never expires either. Luke closes it himself.
+
     A role marked applied never expires, however long it has been quiet.
     It is waiting on a reply, not on a repost, so the pass leaves its
     whole chain alone.
@@ -677,7 +689,7 @@ def expire_stale(conn, write: bool = False, now: str | None = None) -> dict:
             " last_checked_at, last_check_result FROM opportunities"
             " WHERE acknowledged_at IS NULL AND closed_at IS NULL"
             " AND dismissed_at IS NULL AND expired_at IS NULL"
-            " AND " + rc.NOT_APPLIED_SQL):
+            " AND " + rc.NOT_APPLIED_SQL + " AND " + HAND_SKIP_SQL):
         seen = rc.latest_liveness(row)
         if row["role_key"]:
             seen = max(seen, newest.get(row["role_key"], ""))
