@@ -1524,22 +1524,11 @@ def gate_checks() -> None:
               and all(o["notices"][0]["text"] == prep.MASTER_NOT_LAID_OUT for o in outs),
               "open and Start again make no copy from it, write nothing, and say why")
         page = render_page(env, oid)
-        left = page[page.index('id="cv-pane"'):page.index('id="prepare-body"')]
-        data = pane_data(page)
-        rows = re.findall(r'<div class="cvl cvl-\w+" data-n="(\d+)">.*?<span class="cvl-t">(.*?)</span>',
-                          left)
-        import html as htmllib
-        check("has not been saved on the CV page" in page_text(page)
-              and 'href="/cv">Open the CV page</a>' in page
-              and "as it is stored, numbered as the scorer numbers it" in page_text(page)
-              and data["editable"] is False and data["needsCopy"] is False
-              and not re.search(r"<button[^>]*data-cv-act", page)
-              and data["lines"] == cv_store.cv_lines(UNLAID)
-              and [(int(n), htmllib.unescape(t)) for n, t in rows if t]
-              == [(n, l) for n, l in enumerate(cv_store.cv_lines(UNLAID), 1) if l],
-              "the page shows the master as it is stored, each line under the number the "
-              "scorer gives it, read only, with no button and no copy to make, and links "
-              "to the CV page")
+        check('<p class="notice warn pa-unlaid">Save your master CV on the CV page to make a copy '
+              'for this role. <a class="plain" href="/cv">Open CV</a></p>' in page
+              and 'id="cv-pane"' not in page and not re.search(r"<button[^>]*data-cv-act", page),
+              "the page's Tailored CV column is one caution line with Open CV and nothing else: "
+              "no sheet, no button, no copy to make")
         env.prepare(oid)
         inner = render_inner(env, oid)
         cited = cited_lines(inner)
@@ -1549,8 +1538,9 @@ def gate_checks() -> None:
               "and once the role is scored on the master as it is, every line an ask "
               "cites is the line the page shows under that number")
         del CALLS[:]
-        check("once the master has been saved on the CV page" in page_text(render_inner(env, oid)),
-              "and the tailored score says when a copy will be made")
+        check('<p class="notice warn pa-unlaid">' in render_page(env, oid)
+              and 'data-fig="copy"' not in render_inner(env, oid),
+              "and with no copy there is no copy score, only the caution line")
         MASTER[0] = MASTER_TEXT
         check(env.open(oid)["outcome"] == "made" and not CALLS,
               "once the master is in the layout, the copy is made")
@@ -1691,8 +1681,7 @@ def legacy_checks() -> None:
         out = env.rescore(oid, MASTER_TEXT)
         check(out["outcome"] == "reused" and len(CALLS) == 1
               and "master CV as it was scored" in out["notices"][0]["text"]
-              and "The master CV unchanged, so the full spec score stands for it"
-              in page_text(render_inner(env, oid)),
+              and 'data-fig="copy"' not in render_inner(env, oid),
               "an unchanged copy of a role scored before workings kept the CV's hash is "
               "known for the master by the dated version the role names, and nothing is "
               "spent")
@@ -1745,7 +1734,7 @@ def legacy_checks() -> None:
             conn.commit()
         finally:
             conn.close()
-        check("! 1 stale" in page_text(render_inner(env, oid))
+        check(" 1 stale" in page_text(render_inner(env, oid))
               and "! Stale, was met" in page_text(render_inner(env, oid)),
               "while an edit to the start it kept makes the ask stale")
 
@@ -2570,14 +2559,16 @@ def page_checks() -> None:
               "a role with no copy yet shows the master, and tells its script to make the "
               "copy from it")
         bar = page[page.index('data-slot="bar"'):page.index('id="cv-say"')]
-        check(re.findall(r'data-cv-act="(\w+)" disabled', bar) == ["rescore", "save", "reset"]
+        check(re.findall(r'data-cv-act="(\w+)" disabled', bar) == ["rescore", "reset"]
+              and 'id="cv-h">Tailored CV</h2><button type="button" class="btn btn-plain sec-link" '
+                  'data-cv-act="save" disabled>Save copy</button>' in page
               and 'data-pa-apply' in page
               and re.search(r'<a class="btn" id="pa-download" href="/prepare/\d+/cv.docx" '
                             r'aria-disabled="true"', bar)
-              and "This is the master CV." in page_text(page),
-              "it has Rescore role, Save CV and Start again from master, off until the "
-              "script runs, Mark applied beside the application, and Download Word held "
-              "until a save")
+              and "This is the master CV." not in page_text(page),
+              "it has Rescore role and Start again from master in the bar and Save copy by the "
+              "section's title, off until the script runs, Mark applied in the header, and "
+              "Download Word held until a save")
         rows = re.findall(r'data-n="(\d+)"', pane)
         check(rows == [str(n) for n in range(1, len(cv_store.cv_lines(MASTER_TEXT)) + 1)],
               "every line of the CV is on the page with its number")
@@ -2587,22 +2578,23 @@ def page_checks() -> None:
         check('href="https://www.linkedin.com/jobs/view/' + env.row(oid)["source_url"].rsplit("/", 1)[1] + '/"'
               in inner and "Open the advert on LinkedIn" in inner,
               "the role's LinkedIn advert is linked by its job page (C11)")
-        check("No tailored copy yet." in page_text(inner),
-              "the tailored score says there is no copy yet")
+        check('data-fig="copy"' not in inner and "No tailored copy yet." not in page_text(inner),
+              "with no copy yet there is no copy score and no sentence about it")
 
         env.open(oid)
         env.rescore(oid, COPY_TEXT)
         page = render_page(env, oid)
         inner = render_inner(env, oid)
         text = page_text(inner)
-        check('data-fig="copy"><dt>This copy</dt><dd class="num">80</dd>' in inner
-              and "This page only, never written to Jobs" in text
+        check('<span class="pill" data-fig="copy">This copy <span class="num">80</span>' in inner
+              and "This page only, never written to Jobs" not in text
               and "Before this rescore, on the master CV: CV match 80, Top prospects." in text,
-              "the tailored score sits beside the master's, with what it was made on and "
-              "the score before it")
-        check(text.count("✓ Met") == 3 and "◐ Partly" in text and "✗ Gap, not on the CV" in text
-              and "CV lines as numbered in the tailored copy as it was scored" in text,
-              "the asks drawn are the tailored score's, each with its mark")
+              "the copy's score is a pill in the CV's strip, and Why this score gives the score "
+              "before it")
+        check(inner.count('class="mark met"') == 3 and 'class="mark partly"' in inner
+              and "Gap, not on the CV" in text and "✓" not in text
+              and "CV lines as numbered in the tailored copy as it was scored" not in text,
+              "the asks drawn are the tailored score's, each with its mark in words")
         asks = notes_status(inner)
         cited = cited_lines(inner)
         lines = cv_store.cv_lines(COPY_TEXT)
@@ -2623,11 +2615,10 @@ def page_checks() -> None:
         data = pane_data(page)
         check(not data["needsCopy"] and data["lines"] == lines,
               "with a copy, the page shows the copy and asks for nothing")
-        check("Made from the master CV, " + prepare_page.version_words(MASTER_LABEL[0])
-              in page_text(page)
+        check("Made from the master CV, " not in page_text(page)
               and data["hash"] == cv_store.cv_hash(COPY_TEXT) and data["saved"] is None,
-              "and says which master it was made from, and hands its script the "
-              "version of the copy it shows")
+              "and hands its script the version of the copy it shows, with no sentence on "
+              "where it was made from")
         env.save(oid, MASTER_TEXT)
         conn = radar_common.get_db(env.db)
         try:
@@ -2656,12 +2647,12 @@ def page_checks() -> None:
         inner = render_inner(env, oid)
         text = page_text(inner)
         n = lines.index(risk) + 1
-        check("The copy has been edited since this score." in text
+        check("Edited since this score." in text
               and "! Stale, was met" in text and f"CV line {n} when scored, since changed" in text
-              and 'class="note st-stale' in inner and "! 1 stale" in text,
+              and 'class="note st-stale' in inner and '<span data-pa-count="stale">1 stale</span>' in inner,
               "a copy edited since its score marks the ask whose cited line is gone as "
               "stale and not met, and says the copy has changed")
-        check("✓ 2 met ◐ 1 partly ✗ 1 gap, not on the CV ! 1 stale" in text,
+        check("5 asks , 2 met , 1 partly , 1 gap 1 stale" in text,
               "and counts it as stale, not as met")
 
     with fresh() as env:
@@ -2670,8 +2661,10 @@ def page_checks() -> None:
         env.prepare(oid)
         env.open(oid)
         text = page_text(render_inner(env, oid))
-        check("The master CV unchanged, so the full spec score stands for it" in text,
-              "a copy that is the master unchanged shows the master's score standing for it")
+        check('data-fig="copy"' not in render_inner(env, oid)
+              and '<span class="src-pill">Full description</span>' in render_inner(env, oid),
+              "a copy that is the master unchanged has no copy score of its own; the full "
+              "description's score stands on CV match")
         env.sql("UPDATE opportunities SET description_text = ? WHERE id = ?",
                 (DESCRIPTION + "\n- RADAR something else", oid))
         conn = radar_common.get_db(env.db)
@@ -2683,8 +2676,8 @@ def page_checks() -> None:
         finally:
             conn.close()
         text = page_text(render_inner(env, oid))
-        check("Last scored against another advert’s description, 11 Nov." in text,
-              "a tailored score made on another advert's description is said to be so")
+        check('data-fig="copy"' not in render_inner(env, oid),
+              "a tailored score made on another advert's description is not shown as this copy's")
 
         # Changes are tagged on the asks they moved.
         oid2 = env.role(title="Second", company="Beta Diagnostics")
@@ -2698,15 +2691,11 @@ def page_checks() -> None:
         check('<span class="was">was missing</span>' in inner
               and "Now met, was missing." in page_text(inner) and "1 ask changed." in page_text(inner),
               "an ask that moved carries what it was, and the score lists what changed")
-        gates = part(inner, "gates")
-        rate = page_text(part(inner, "rate"))
-        # Competitive salary is no figure, so Rate is not stated in both columns.
-        check('<th scope="col">This copy</th>' in gates and page_text(gates).count("✓ Passes") == 6
-              and page_text(gates).count("? Not stated") == 2
-              and "Competitive salary" in rate and "Not read yet" not in rate
-              and "CV lines as numbered in the tailored copy as it was scored" in page_text(inner),
-              "the tailored score shows its own four gates, the pay line read from its "
-              "own working, and says its asks are numbered in the copy it scored")
+        rate = re.search(r'<div class="gate gate-rate .*?</span></div>', part(inner, "score"), re.S)
+        # Competitive salary is no figure, so Rate is not stated.
+        check(rate and " Not stated " in page_text(rate.group(0)) and "Competitive salary" in page_text(rate.group(0))
+              and "<table" not in inner,
+              "the Rate tile quotes the pay line read from the copy's own working")
         same_asks = cv_doc.accept(edited(better, "Guildford, Surrey, UK",
                                          "Guildford, Surrey, United Kingdom"))[1]
         env.rescore(oid2, same_asks)
@@ -2727,8 +2716,9 @@ def page_checks() -> None:
     with fresh() as env:
         oid = env.role()
         env.prepare(oid)
-        check(f"CV lines as numbered in {MASTER_LABEL[0]}" in page_text(render_inner(env, oid)),
-              "the master's own asks say which version of the master numbered them")
+        check(f"CV lines as numbered in {MASTER_LABEL[0]}" not in page_text(render_inner(env, oid))
+              and 'data-pa-tally' in render_inner(env, oid),
+              "the master's asks are counted in the strip, with no legend on how they are numbered")
 
     with fresh() as env:
         # LinkedIn from a repost, and none at all.
@@ -2739,8 +2729,9 @@ def page_checks() -> None:
                         source_url="https://www.reed.co.uk/jobs/lone/2")
         check('href="https://www.linkedin.com/jobs/view/4470000123/"' in render_inner(env, reed),
               "a role whose advert is on another board links the LinkedIn advert of its repost")
-        check("No LinkedIn advert is stored for this role." in page_text(render_inner(env, lone)),
-              "and one with none says so")
+        check("Open the advert on Reed" in page_text(render_inner(env, lone))
+              and "linkedin.com" not in render_inner(env, lone),
+              "and one with none links its own board's advert")
         del linked
 
     with fresh() as env:
@@ -2755,8 +2746,8 @@ def page_checks() -> None:
         page = render_page(env, oid)
         left = page[page.index('id="cv-pane"'):page.index('id="prepare-body"')]
         data = pane_data(page)
-        check("This role is marked applied with CV - Alex Rennie - Veltrix Diagnostics - Head of Software."
-              in page_text(page) and "as it was sent" in page_text(page)
+        check("Marked applied with CV - Alex Rennie - Veltrix Diagnostics - Head of Software."
+              in page_text(page) and "as it was sent" not in page_text(page)
               and data["lines"] == cv_store.cv_lines(saved) and data["editable"] is False
               and not re.search(r"<button[^>]*data-cv-act", page) and "<textarea" not in left
               and re.search(r'<a class="btn" id="pa-download" href="/prepare/\d+/cv.docx" download>', page),
@@ -2764,8 +2755,7 @@ def page_checks() -> None:
               "Download and no button that would change anything")
         check(env.dump() == before, "and drawing it writes nothing")
         right = page_text(render_inner(env, oid))
-        check("The copy saved and sent was not scored on its own against this "
-              "description." in right and "edited since" not in right
+        check('data-fig="copy"' not in render_inner(env, oid) and "edited since" not in right
               and "stale" not in right and 'data-cv-act="rescore"' not in render_inner(env, oid),
               "beside it, a score made later on an unsaved text is not shown as the sent "
               "copy's, and nothing offers a Rescore role the page does not have")
@@ -2784,11 +2774,9 @@ def page_checks() -> None:
         env.open(reset_only)
         env.apply(reset_only)
         words = [page_text(render_inner(env, r)) for r in (closed, unsent, reset_only)]
-        check("Scored against the full description and the copy saved for this role" in words[0]
-              and "saved and sent" not in words[0]
-              and "Scored against the full description and the copy as it was left, never saved"
-              in words[1] and "saved and sent" not in words[1]
-              and "The copy as it was left, never saved was not scored on its own" in words[2],
+        check("Saved copy 80" in words[0] and "Sent copy" not in words[0]
+              and "Unsaved copy 80" in words[1] and "Sent copy" not in words[1]
+              and 'data-fig="copy"' not in render_inner(env, reset_only),
               "a role closed with a copy saved, one applied with nothing saved, and one "
               "applied with an unscored copy each say which copy the score beside it is, "
               "and none says a copy was sent that was not")
@@ -2815,13 +2803,12 @@ def page_checks() -> None:
         inner = render_inner(env, oid)
         right = page_text(inner)
         check(len(CALLS) == 2
-              and "Scored against the full description and the copy saved and sent" in right
-              and '<dd class="num">80</dd>' in part(inner, "score")
-              and '<dd class="num">90</dd>' not in part(inner, "score")
+              and '<span class="pill" data-fig="copy">Sent copy <span class="num">80</span>' in inner
+              and 'data-fig="copy">Sent copy <span class="num">90' not in inner
               and "edited since" not in right and "Before this rescore" not in right
               and "stale" not in right and "st-stale" not in inner
               and "Kubernetes and cloud deployment of clinical systems" in right
-              and "✗ Gap, not on the CV" in right,
+              and "Gap, not on the CV" in right,
               "an applied role shows the sent copy's own score, from the history, with its "
               "own asks, not the score of a text made later and never sent")
 
