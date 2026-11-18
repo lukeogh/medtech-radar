@@ -47,7 +47,7 @@ def keyword_list(raw: str | None) -> list[str]:
     return out
 
 
-def _sec(key: str, title: str, body: str, icon: str = "settings") -> str:
+def _sec(key: str, title: str, body: str, icon: str) -> str:
     return (f'<section class="st-sec" aria-labelledby="{key}-h"><header class="sec-head">'
             f'{page_frame.chip(icon, "apps")}<h2 class="sec-title" id="{key}-h">{esc(title)}</h2>'
             f'</header><div class="card g-apps glow-faint st-card">{body}</div></section>')
@@ -67,7 +67,8 @@ def _mark(key: str, label: str, value: str, lock: str) -> str:
 
 
 def chips_row(key: str, label: str, values: list[str], edit: str) -> str:
-    chips = "".join(f'<li class="chip-v">{esc(v)}</li>' for v in values)
+    chips = ("".join(f'<li class="chip-v">{esc(v)}</li>' for v in values)
+             or '<li class="chips-none">None yet</li>')
     return (f'<div class="tk-row"><div class="tk-head"><h3 class="tk-l" id="tk-{key}">{esc(label)}</h3>'
             f'<button type="button" class="pen" data-chips-edit="{key}" aria-label="{esc(edit)}" '
             f'aria-haspopup="dialog">{PEN}</button></div>'
@@ -92,6 +93,7 @@ def body_html(config: dict, prefs: dict) -> str:
 {_money('day_rate_floor_gbp', 'Contract day rate', num(prefs['day_rate_floor_gbp']), 'a day', lock)}
 {_money('salary_floor_gbp', 'Permanent salary', num(prefs['salary_floor_gbp']), 'a year', lock)}
 </fieldset>
+<hr class="rule">
 <fieldset class="group"><legend>CV match</legend>
 <div class="pair">{_mark('cv_pass_score', 'Pass mark', num(prefs['cv_pass_score']), lock)}
 {_mark('cv_floor_score', 'Filtered under', num(prefs['cv_floor_score']), lock)}</div>
@@ -123,18 +125,20 @@ def body_html(config: dict, prefs: dict) -> str:
            'autocomplete="given-name"><button type="button" class="btn" data-pref-save="first_name">'
            'Save</button></span></div><p class="say" id="pref-note" aria-live="polite"></p>')
     return (f'<header class="st-head">{page_frame.chip("settings", "apps")}<h1>Settings</h1></header>{missing}'
-            f'<div class="st-cols"><div class="st-col">{_sec("scoring", "Scoring", scoring)}</div>'
-            f'<div class="st-col">{_sec("place", "Location and sector", sections)}'
-            f'{_sec("words", "Title and keywords", tk)}{_sec("you", "Your name", you)}</div></div>'
+            f'<div class="st-cols"><div class="st-col">{_sec("scoring", "Scoring", scoring, "target")}</div>'
+            f'<div class="st-col">{_sec("place", "Location and sector", sections, "pin")}'
+            f'{_sec("words", "Title and keywords", tk, "tag")}{_sec("you", "Your name", you, "person")}'
+            '</div></div>'
             + DIALOG)
 
 
-DIALOG = f"""<dialog class="chips-dlg card" id="chips-dlg" aria-labelledby="chips-dlg-h">
+DIALOG = f"""<dialog class="chips-dlg card" id="chips-dlg" aria-labelledby="chips-dlg-h" data-max="{radar_common.PREF_LINE_MAX}">
 <div class="dlg-top"><h2 id="chips-dlg-h">Edit keywords</h2>
 <button type="button" class="dlg-x" id="chips-x" aria-label="Close">{CLOSE}</button></div>
 <label class="dlg-l" id="chips-l" for="chips-in">Your keywords</label>
 <div class="chip-box" id="chips-box"><ul class="pills" id="chips-pills" aria-labelledby="chips-l"></ul>
 <input type="text" class="chip-in" id="chips-in" placeholder="Add a keyword" autocomplete="off"></div>
+<p class="chips-limit" id="chips-limit" aria-live="polite" hidden>That's the limit. Remove one to add another.</p>
 <p class="say" id="chips-dlg-say" aria-live="polite"></p>
 <div class="dlg-acts"><button type="button" class="btn-text" id="chips-cancel">Cancel</button>
 <button type="button" class="btn btn-solid" id="chips-save">Save</button></div>
@@ -161,7 +165,8 @@ button,input,textarea{font:inherit;color:inherit}
 .field + .field{margin-top:16px}
 .field label,.group legend{font-size:14px;line-height:20px;font-weight:600;color:var(--text-1)}
 .group{border:0;min-width:0}
-.group + .group{margin-top:20px;padding-top:20px;border-top:1px solid var(--border-subtle)}
+/* A hairline between the groups, above the next heading, 16px either side. */
+.rule{margin:16px 0;border:0;border-top:1px solid var(--border-subtle)}
 .group legend{margin-bottom:12px;font-size:15px}
 .input{height:40px;padding:0 12px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface-sunken);color:var(--text-1);font-size:15px;line-height:24px;min-width:0}
 .input.prose{height:auto;min-height:96px;padding:8px 12px;resize:vertical;width:100%}
@@ -209,6 +214,7 @@ button,input,textarea{font:inherit;color:inherit}
 .pen{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1.5px solid var(--accent);border-radius:50%;background:transparent;color:var(--accent);cursor:pointer}
 .pen:hover{background:var(--accent-tint)}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.chips-none{font-size:14px;line-height:20px;color:var(--text-2)}
 .chip-v{padding:5px 12px;border-radius:8px;background:#232a30;color:var(--text-1);font-size:14px;line-height:20px;overflow-wrap:anywhere}
 /* The chips' dialog, on Mark applied's pattern. */
 .chips-dlg{width:min(560px,calc(100vw - 32px));max-width:none;padding:24px;color:var(--text-1);box-shadow:var(--shadow-overlay)}
@@ -224,6 +230,7 @@ button,input,textarea{font:inherit;color:inherit}
 .pill-v{display:inline-flex;align-items:center;gap:4px;padding:4px 4px 4px 12px;border-radius:999px;background:#232a30;font-size:14px;line-height:20px;max-width:100%;overflow-wrap:anywhere}
 .pill-x{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--text-2);cursor:pointer}
 .pill-x:hover{background:var(--row-hover);color:var(--text-1)}
+.chips-limit{margin-top:8px;font-size:14px;line-height:20px;color:var(--text-2)}
 .chip-in{flex:1 1 140px;min-width:120px;height:32px;padding:0 4px;border:0;background:transparent;font-size:15px;outline:none}
 .dlg-acts{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:24px}
 @media (pointer:coarse){.btn,.btn-text,.pen,.dlg-x,.pill-x{min-height:44px;min-width:44px}}
@@ -242,7 +249,12 @@ CHIPS_JS = r"""
   var pills = document.getElementById('chips-pills');
   var input = document.getElementById('chips-in');
   var say = document.getElementById('chips-dlg-say');
+  var limitEl = document.getElementById('chips-limit');
+  // The longest line the save keeps, from the server's own constant.
+  var MAX = parseInt(dlg.getAttribute('data-max'), 10) || 0;
   var key = null, values = [], opener = null;
+  function fits(list) { return !MAX || list.join(', ').length <= MAX; }
+  function limit(on) { limitEl.hidden = !on; }
   function split(raw) {
     var out = [];
     String(raw || '').split(',').forEach(function (p) {
@@ -262,23 +274,35 @@ CHIPS_JS = r"""
       x.className = 'pill-x';
       x.setAttribute('aria-label', 'Remove ' + v);
       x.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6"/></svg>';
-      x.addEventListener('click', function () { values.splice(i, 1); draw(); input.focus(); });
+      x.addEventListener('click', function () { values.splice(i, 1); limit(false); draw(); input.focus(); });
       li.appendChild(x);
       pills.appendChild(li);
     });
   }
   // A keyword is added on Enter or a comma. A title holds commas of its own,
-  // so it is added on Enter only, and replaces the one there.
+  // so it is added on Enter only, and replaces the one there. Keywords stop
+  // at the first one that would take the line past the limit, and that one
+  // and the rest stay in the box. Returns false when something was held back.
   function add() {
     var typed = input.value;
     if (KINDS[key].many) {
-      split(typed).forEach(function (w) { if (values.indexOf(w) < 0) values.push(w); });
+      var words = split(typed), held = [];
+      words.forEach(function (w) {
+        if (held.length) { held.push(w); return; }
+        if (values.indexOf(w) >= 0) return;
+        if (fits(values.concat([w]))) values.push(w); else held.push(w);
+      });
+      input.value = held.join(', ');
+      limit(held.length > 0);
+      draw();
+      return held.length === 0;
     } else {
       var t = typed.replace(/\s+/g, ' ').trim();
       if (t) values = [t];
     }
     input.value = '';
     draw();
+    return true;
   }
   function open(k, from) {
     key = k; opener = from;
@@ -290,6 +314,7 @@ CHIPS_JS = r"""
     values = kind.many ? split(stored) : (stored.trim() ? [stored.trim()] : []);
     input.value = '';
     say.textContent = '';
+    limit(false);
     draw();
     if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
     input.focus();
@@ -304,7 +329,7 @@ CHIPS_JS = r"""
   });
   input.addEventListener('keydown', function (e) {
     if (e.key === 'Enter' || (e.key === ',' && KINDS[key].many)) { e.preventDefault(); add(); }
-    else if (e.key === 'Backspace' && !input.value && values.length) { values.pop(); draw(); }
+    else if (e.key === 'Backspace' && !input.value && values.length) { values.pop(); limit(false); draw(); }
   });
   document.getElementById('chips-x').addEventListener('click', close);
   document.getElementById('chips-cancel').addEventListener('click', close);
@@ -312,7 +337,8 @@ CHIPS_JS = r"""
     Promise.resolve().then(function () { if (opener && opener.focus) opener.focus(); });
   });
   document.getElementById('chips-save').addEventListener('click', function () {
-    if (input.value.trim()) add();
+    // Nothing typed is dropped quietly: past the limit the dialog stays open.
+    if (input.value.trim() && !add()) { input.focus(); return; }
     var btn = this;
     btn.disabled = true;
     fetch('/profile/setting', {

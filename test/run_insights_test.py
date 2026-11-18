@@ -267,15 +267,16 @@ def page_checks(tmp: Path) -> None:
     # cards, the week's other stories and three sections as rows, More stories.
     head = re.search(r'<header class="ins-head">.*?</header>', html, re.S).group(0)
     check('<span class="gchip g-story"' in head and "<h1>Insights</h1>" in head
-          and re.search(r'class="sec-count upd">Updated <time datetime="[^"]+" data-hm>\d\d:\d\d</time>', head)
+          and re.search(r'class="sec-count upd"><span>Updated <time datetime="[^"]+" data-hm>\d\d:\d\d</time></span></span>', head)
           and 'class="plain ins-health" href="/health">' in head,
           "the title row: amber chip, Insights, Updated HH:MM, and the health link at the right")
     toc = re.search(r'<nav class="ins-toc".*?</nav>', html, re.S).group(0)
     order = re.findall(r'href="#([a-z-]+)">([^<]+)<span class="visually-hidden">, </span><span class="toc-n">(\d+)', toc)
     check([o[1] for o in order] == ["Top stories", "Other stories this week", "Funding",
                                     "Spin-offs and accelerators", "Regulation and market news", "More stories"]
-          and all(f'id="{o[0]}"' in html for o in order) and toc.count('class="fact-rule"') == 5,
-          "the contents row links each section with its count, in order, thin dividers between")
+          and all(f'id="{o[0]}"' in html for o in order) and toc.count('<span class="dv-i">') == 6
+          and '<span class="dv"><span class="dv-in">' in toc and "fact-rule" not in toc,
+          "the contents row links each section with its count, in order, the shared divider between")
     tops = re.findall(r'<article class="card g-story glow-faint tcard[^"]*".*?</article>', html, re.S)
     check(len(tops) == len(model["top"]) and all(s["relevance"] >= 40 and not s["hidden"] for s in model["top"])
           and 'tcard is-first' in tops[0] and 'tcard is-first' not in "".join(tops[1:]),

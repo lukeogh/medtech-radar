@@ -1008,9 +1008,7 @@ def score_html(o: dict) -> str:
         status = esc(word)
         if gate == "cv" and o.get("cv_match") is not None:
             # The figure shares the status's line, set apart by the drawn rule.
-            status = (f'<span class="r-bit">{status}</span>'
-                      '<span class="visually-hidden">, </span>'
-                      f'<span class="r-bit gate-figure">{int(o["cv_match"])}%</span>')
+            status = page_frame.divided([status, f'<span class="gate-figure">{int(o["cv_match"])}%</span>'])
         glow = " gate-glow" if state in (radar_common.NOT_STATED, radar_common.FAILS) else ""
         icon = (f'<span class="gate-chip {cls}" aria-hidden="true"><svg viewBox="0 0 20 20" '
                 'width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" '
@@ -1281,8 +1279,7 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
     head = (f'<header class="detail-head g-jobs glow-head">{back}<div class="dh-grid">'
             f'<span class="dh-chip">{page_frame.chip("jobs", "jobs")}</span>'
             f'<h2 class="dh-title" id="role-title" tabindex="-1">{esc(title)}</h2>'
-            f'<div class="dh-meta"><p class="dh-facts"><span class="dh-facts-in">'
-            f'{meta_html(meta)}</span></p>{tags}</div>'
+            f'<div class="dh-meta"><p class="dh-facts">{page_frame.divided(meta)}</p>{tags}</div>'
             f'<div class="dh-nav">{open_advert}'
             f'{step(prev_id, "Previous job", "prev", "ic-left")}{step(next_id, "Next job", "next", "ic-right")}'
             f'</div></div>{actions_html(face, view)}{lead_html}</header>')
@@ -1637,13 +1634,9 @@ a{color:inherit}
 .dh-title:focus{outline:none}
 .dh-nav{grid-area:nav;display:flex;align-items:center;gap:8px;align-self:start}
 .dh-meta{grid-area:meta;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-height:20px;margin-top:4px}
-/* The row's facts beneath the title, set apart by the same drawn rule. They
-   may wrap here: every fact carries the rule before it, and the line is
-   pulled left by the rule's width and clipped, so no line starts with one. */
-.dh-facts{flex:0 1 auto;min-width:0;overflow:hidden;font-size:14px;line-height:20px;color:var(--text-2)}
-.dh-facts-in{position:relative;display:flex;flex-wrap:wrap;margin-left:-17px}
-.dh-facts .r-bit{min-width:0}
-.dh-facts .r-bit::before{content:"";display:inline-block;width:0;height:14px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-2px}
+/* The row's facts beneath the title, set apart by the shared divider
+   (page_frame, .dv). They may wrap here, and no line starts or ends on one. */
+.dh-facts{--dv-space:8px;--dv-h:14px;flex:0 1 auto;min-width:0;font-size:14px;line-height:20px;color:var(--text-2)}
 .actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px}
 /* Prepare application in solid teal, the Applications colour; the rest outlined. */
 .actions .btn-primary{background:var(--group-apps);border-color:var(--group-apps);color:var(--on-accent)}
@@ -1681,8 +1674,8 @@ a{color:inherit}
 .gate-name{grid-area:name;font-size:15px;line-height:20px;font-weight:600;color:var(--text-1)}
 .gate-status{grid-area:status;display:inline-flex;align-items:center;flex-wrap:wrap;font-size:14px;line-height:20px;font-weight:500}
 .gate-status.is-neu{color:var(--text-2)}
-.gate-status > .r-bit:first-child{display:inline-flex;align-items:center}
-.gate-status .r-bit ~ .r-bit::before{content:"";display:inline-block;width:0;height:12px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-1px}
+.gate-status{--dv-space:8px}
+.gate-status .dv-i:first-child{display:inline-flex;align-items:center}
 .gate-figure{color:var(--text-1);font-variant-numeric:tabular-nums}
 .is-cau{color:var(--caution)}
 .gate-note{grid-area:note;margin-top:10px;font-size:14px;line-height:20px;color:var(--text-2);text-wrap:pretty}

@@ -341,11 +341,38 @@ def edge_checks() -> None:
                   f"the greeting both start {logo:g}px in")
 
 
+def divider_checks() -> None:
+    """The one divider between facts (owner, 18 Nov): never at the start or
+    end of a wrapped line, on any page."""
+    css = page_frame.FRAME_CSS
+    check(".dv{display:block;min-width:0;overflow:hidden;padding:6px;margin:-6px}" in css
+          and ".dv-in{display:flex;flex-wrap:wrap;align-items:center;row-gap:var(--dv-row,4px);"
+              "margin-left:calc(-2 * var(--dv-space,10px) - 1px)}" in css
+          and '.dv-i::before{content:"";display:inline-block;width:0;height:var(--dv-h,12px);'
+              "margin:0 var(--dv-space,10px);border-left:1px solid var(--text-3)" in css,
+          "the shared divider: each fact draws its hairline before it, and the line is pulled left "
+          "by a hairline and its space and clipped, so none starts or ends a wrapped line")
+    html = page_frame.divided(["A", "", "B &amp; C", None, "D"])
+    check(html == ('<span class="dv"><span class="dv-in"><span class="dv-i">A</span>'
+                   '<span class="dv-i"><span class="visually-hidden">, </span>B &amp; C</span>'
+                   '<span class="dv-i"><span class="visually-hidden">, </span>D</span></span></span>')
+          and page_frame.divided(["A"], "kick").startswith('<span class="dv kick">'),
+          "divided() drops empties and puts a screen reader's comma before every fact after the first")
+    for name in ("cv_screen", "insights_page", "prepare_page", "jobs_page", "watchlist_page"):
+        src = (REPO_ROOT / "scripts" / f"{name}.py").read_text(encoding="utf-8")
+        # Jobs keeps its own rule only on the row's facts, a line that never wraps.
+        own = src.count('::before{content:"";display:inline-block;width:0;height:1')
+        check("fact-rule" not in src and "dh-facts-in" not in src and "page_frame.divided(" in src
+              and own == {"jobs_page": 2}.get(name, 0),
+              f"{name} draws its wrapping facts with the shared divider, none of its own")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--db", help="ignored: the suite passes it to every runner")
     parser.parse_args(argv)
     frame_checks()
+    divider_checks()
     light_checks()
     edge_checks()
     tmp = Path(tempfile.mkdtemp(prefix="radar-header-"))

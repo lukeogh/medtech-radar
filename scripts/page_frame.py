@@ -116,6 +116,15 @@ html{scrollbar-gutter:stable}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;box-shadow:0 0 0 2px var(--focus-gap,var(--surface))}
 @media (forced-colors:active){:focus-visible{outline-color:Highlight}}
 .visually-hidden{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+/* ---- the divider between facts (owner, 18 Nov), one for every page. Each
+   fact draws a hairline before it, and the line is pulled left by a hairline
+   and its space and clipped, so a fact that starts a wrapped line has its
+   hairline cut off and no line ends on one. The 6px of padding keeps a focus
+   ring inside the clip. --dv-space is the space either side. ---- */
+.dv{display:block;min-width:0;overflow:hidden;padding:6px;margin:-6px}
+.dv-in{display:flex;flex-wrap:wrap;align-items:center;row-gap:var(--dv-row,4px);margin-left:calc(-2 * var(--dv-space,10px) - 1px)}
+.dv-i{min-width:0}
+.dv-i::before{content:"";display:inline-block;width:0;height:var(--dv-h,12px);margin:0 var(--dv-space,10px);border-left:1px solid var(--text-3);vertical-align:-1px}
 .skip-link{position:absolute;left:8px;top:-60px;z-index:50;padding:8px 12px;background:var(--surface);color:var(--text-1);border:1px solid var(--border-strong);border-radius:var(--radius-2);font:600 14px/20px var(--font-sans)}
 .skip-link:focus{top:8px}
 /* The bar's ground and rule run the full width; its contents sit in
@@ -358,6 +367,11 @@ ICONS = {
     "settings": '<circle cx="10" cy="10" r="2.6"/><path d="M10 3.5v2M10 14.5v2M3.5 10h2M14.5 10h2'
                 'M5.4 5.4l1.4 1.4M13.2 13.2l1.4 1.4M5.4 14.6l1.4-1.4M13.2 6.8l1.4-1.4"/>',
     # A CV: a sheet with its lines.
+    "target": '<circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="3.5"/>'
+              '<circle cx="10" cy="10" r="0.8" fill="currentColor"/>',
+    "pin": '<path d="M10 17s-5-4.6-5-8.6a5 5 0 0 1 10 0c0 4-5 8.6-5 8.6z"/><circle cx="10" cy="8.4" r="1.8"/>',
+    "tag": '<path d="M3.5 4.5a1 1 0 0 1 1-1h5l7 7-6 6-7-7z"/><circle cx="7" cy="7" r="1.2"/>',
+    "person": '<circle cx="10" cy="7" r="3"/><path d="M4 16.5c.8-3 3.2-4.5 6-4.5s5.2 1.5 6 4.5"/>',
     "cv": '<path d="M5.5 3.5h6l3 3v10h-9z"/><polyline points="11.5,3.5 11.5,6.5 14.5,6.5"/>'
           '<line x1="7.5" y1="10" x2="12.5" y2="10"/><line x1="7.5" y1="13" x2="12.5" y2="13"/>',
     # A section of details: a list.
@@ -365,6 +379,19 @@ ICONS = {
             '<line x1="8" y1="14" x2="16" y2="14"/><line x1="4" y1="6" x2="4.5" y2="6"/>'
             '<line x1="4" y1="10" x2="4.5" y2="10"/><line x1="4" y1="14" x2="4.5" y2="14"/>',
 }
+
+
+def divided(parts, cls: str = "") -> str:
+    """Facts set apart by the shared divider, each already escaped, empties
+    dropped, with a comma between them for a screen reader. The divider never
+    starts or ends a wrapped line (FRAME_CSS, .dv)."""
+    items = [p for p in parts if p]
+    inner = "".join(f'<span class="dv-i">{"" if i == 0 else SR_COMMA}{p}</span>'
+                    for i, p in enumerate(items))
+    return f'<span class="dv{" " + cls if cls else ""}"><span class="dv-in">{inner}</span></span>'
+
+
+SR_COMMA = '<span class="visually-hidden">, </span>'
 
 
 def chip(icon: str, group: str) -> str:

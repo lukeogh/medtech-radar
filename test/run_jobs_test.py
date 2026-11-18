@@ -563,7 +563,7 @@ def pane_checks(tmp: Path) -> None:
     check('<h3 class="sec-title" id="score-heading">Score</h3><span class="tier-pill t-top">'
           'Top prospect</span></header>' in score
           and score.index("tier-pill") < score.index("gate-tiles")
-          and '<span class="r-bit gate-figure">80%</span>' in score
+          and '<span class="dv-i"><span class="visually-hidden">, </span><span class="gate-figure">80%</span></span>' in score
           and score.index("CV match") < score.index("80%") < score.index("Location")
           and "cv-line" not in html and "cv-figure" not in html,
           "Score is its own section: the tier's pill beside its title, then the gates, the CV "
@@ -574,15 +574,15 @@ def pane_checks(tmp: Path) -> None:
           and 'class="basis"' not in html and "Scored on" not in old_html
           and "pre-record" not in old_html,
           "the pane says nothing of how the score was made: no basis, date, model, prompt or CV")
-    meta = re.search(r'<p class="dh-facts"><span class="dh-facts-in">(.*?)</span></p>', html)
+    meta = re.search(r'<p class="dh-facts">(.*?)</p>', html)
     face = next(o for o in jobs_page.build_model(collect(db))["lists"]["open"] if o["id"] == spec)
     bits = jobs_page.facts_bits(face)
     bits[0] = f'<a class="link" id="detail-company" href="/watchlist/{company}">{bits[0]}</a>'
-    check(meta is not None and meta.group(1) == jobs_page.meta_html(bits)
+    check(meta is not None and meta.group(1) == page_frame.divided(bits)
           and " · " not in meta.group(1) and ".dh-title{grid-area:title;align-self:center;"
           "font-size:24px" in jobs_page.JOBS_CSS,
           "under a larger title the pane says the row's facts the row's way, set apart by "
-          "the drawn rule, the company linked to its record")
+          "the shared divider, the company linked to its record")
     check("·" not in re.sub(r"<style.*?</style>", "", html, flags=re.S),
           "and no middle dot anywhere in the role pane")
     check('<a class="evidence" id="reason-1-evidence" href="#q-1">' in html

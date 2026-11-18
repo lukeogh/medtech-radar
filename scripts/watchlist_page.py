@@ -248,9 +248,8 @@ def suggestions_section(model: dict) -> str:
 
 def story_kick(sig: dict) -> str:
     """A story's type in amber, a drawn rule, then its date."""
-    return (f'<span class="kick"><span class="r-bit sk-type">{esc(sig["type_words"])}</span>'
-            '<span class="visually-hidden">, </span>'
-            f'<span class="r-bit">{esc(wl.day_words(sig["found"]))}</span></span>')
+    return page_frame.divided([f'<span class="sk-type">{esc(sig["type_words"])}</span>',
+                               esc(wl.day_words(sig["found"]))], "kick")
 
 
 def followup_html(th: dict) -> str:
@@ -639,7 +638,7 @@ def record_head(rec: dict, model: dict, view: str) -> str:
                else "")
     facts = [x for x in (rec.get("place"), watched) if x]
     state_words = rec["state_words"] if rec.get("watched") else "Not on your Watchlist"
-    line = ('<span class="visually-hidden">, </span>').join(f'<span class="r-bit">{esc(x)}</span>' for x in facts)
+    line = page_frame.divided([esc(x) for x in facts])
     current = rec.get("stored_state") or ""
     items = "".join(
         f'<li role="none"><button type="button" role="menuitemradio" tabindex="-1" data-state="{esc(k)}" '
@@ -878,8 +877,7 @@ main:focus{outline:none}
 .fu-when{color:var(--text-2)}
 .fu-last{margin-top:2px;color:var(--text-2);font-size:14px;line-height:20px}
 .co-fu .ttag{margin-top:6px}
-.kick{display:flex;flex-wrap:wrap;align-items:center;font-size:13px;line-height:20px;color:var(--text-2)}
-.kick .r-bit ~ .r-bit::before{content:"";display:inline-block;width:0;height:12px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-1px}
+.kick{--dv-space:8px;font-size:13px;line-height:20px;color:var(--text-2)}
 .sk-type{color:var(--group-story);font-weight:600}
 .co-headline{margin-top:2px;color:var(--text-2);font-size:14px;line-height:20px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .role-pill{display:inline-flex;align-items:center;height:24px;margin-top:4px;padding:0 10px;border-radius:12px;background:rgba(167,156,240,.18);color:#c9c2f8;font:600 13px/20px var(--font-sans);white-space:nowrap}
@@ -929,8 +927,7 @@ main:focus{outline:none}
 @media (min-width:1024px){.rh-close{display:inline-flex}}
 .dis-foot{margin-top:-8px}
 .rh-meta{grid-area:meta;display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-top:4px}
-.rh-facts{display:flex;flex-wrap:wrap;color:var(--text-2);font-size:14px;line-height:20px}
-.rh-facts .r-bit ~ .r-bit::before{content:"";display:inline-block;width:0;height:14px;margin:0 8px;border-left:1px solid var(--text-3);vertical-align:-2px}
+.rh-facts{--dv-space:8px;--dv-h:14px;display:flex;min-width:0;color:var(--text-2);font-size:14px;line-height:20px}
 .rec-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .btn-quiet{background:transparent;border-color:var(--border-subtle);color:var(--text-2)}
 .btn-quiet:hover{color:var(--text-1);border-color:var(--border-strong)}

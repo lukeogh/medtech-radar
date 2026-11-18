@@ -1727,6 +1727,11 @@ def read_pref_line(key: str, config: dict | None = None) -> str | None:
     return match.group(1) if match else None
 
 
+# The longest value one labelled preferences line holds. update_pref_line cuts
+# at this, and the Settings page's dialog stops adding before it.
+PREF_LINE_MAX = 200
+
+
 def update_pref_line(key: str, value: str,
                      config: dict | None = None) -> str:
     """Surgically set one labelled line in the live preferences file.
@@ -1744,7 +1749,7 @@ def update_pref_line(key: str, value: str,
                          "which re-sorts the roles already scored.")
     if key not in PREF_EDITABLE:
         raise ValueError(f"{key} is not a dashboard-editable line.")
-    value = " ".join(str(value or "").split())[:200]
+    value = " ".join(str(value or "").split())[:PREF_LINE_MAX]
     # The first name may be cleared: the line stays, empty, and Home greets
     # without a name. Every other line is a setting the scorer needs.
     if not value and key != "first_name":

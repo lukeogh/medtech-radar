@@ -2652,8 +2652,8 @@ def page_checks() -> None:
               and 'class="note st-stale' in inner and '<span data-pa-count="stale">1 stale</span>' in inner,
               "a copy edited since its score marks the ask whose cited line is gone as "
               "stale and not met, and says the copy has changed")
-        check("5 asks , 2 met , 1 partly , 1 gap 1 stale" in text,
-              "and counts it as stale, not as met")
+        check("5 asks , 2 met , 1 partly , 1 gap , 1 stale" in text,
+              "and counts it as stale, not as met, with a comma before it for a screen reader")
 
     with fresh() as env:
         # The master as scored stands for the copy, and a score made elsewhere.
@@ -2850,10 +2850,12 @@ def master_page_checks() -> None:
             check("<h1>CV</h1>" in page and data.get("mode") == "master"
                   and data["version"] == "cv-20261101-080000.md" and data["editable"]
                   and data.get("sheet") is True
-                  and re.search(r'class="btn btn-rose" id="tb-save" data-cv-act="master"[^>]*hidden>', page)
+                  and re.search(r'class="btn btn-rose" id="tb-save" data-cv-act="master"[^>]*>', page)
+                  and 'id="tb-save" data-cv-act="master" aria-keyshortcuts="Control+S">' in page
                   and "1 Nov 08:00 UTC" in text and "&quot;savedAt&quot;: &quot;1 Nov 08:00 UTC&quot;" in page,
                   "the CV page holds the master in the editor, on its sheet, with its version "
-                  "and the date it was saved, and Save version waits for an edit (C1, C2)")
+                  "and the date it was saved, and, the version not being in Radar's layout, "
+                  "Save version shows with no edit to make (C1, C2)")
             check([s["title"] for s in data["doc"]["sections"]] == list(cv_doc.STANDARD_SECTIONS)
                   and data["doc"]["sections"][0]["lines"] == [{"b": False, "t": "Software leader."}]
                   and data["doc"]["sections"][2]["lines"] == [{"b": True, "t": "IEC 62304"}],

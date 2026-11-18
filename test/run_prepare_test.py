@@ -2500,9 +2500,10 @@ def look_checks() -> None:
               "line one: chip, the title at 24px/600, the tier pill, the advert link and Mark "
               "applied as the one solid purple button")
         facts = re.search(r'<p class="ph-facts">(.*?)</p>', head, re.S).group(1)
-        check(facts.count('class="fact-rule"') == 3 and "Veltrix Diagnostics" in facts
-              and "First seen" in facts and "\u00b7" not in facts,
-              "line two: company, place, source and first seen, with thin dividers")
+        check(facts.startswith('<span class="dv"><span class="dv-in">')
+              and facts.count('<span class="dv-i">') == 4 and "Veltrix Diagnostics" in facts
+              and "First seen" in facts and "\u00b7" not in facts and "fact-rule" not in facts,
+              "line two: company, place, source and first seen, with the shared divider")
         check(re.findall(r'</span>([A-Za-z ]+)</li>', head[head.index('class="stages"'):])
               == ["Preparing", "Applied", "In conversation", "Interviewing", "Offer"]
               and '<span class="pa-app-l" id="pa-app-l">Application</span>' in head
@@ -2515,10 +2516,17 @@ def look_checks() -> None:
         check(score.count('<div class="gate gate-') == 4 and "<table" not in score
               and ".gate-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))" in css
               and "@media (max-width:899.98px){.gate-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}" in css
-              and "@media (max-width:479.98px){.gate-tiles{grid-template-columns:minmax(0,1fr)}}" in css
+              and "479.98px" not in css
               and ".gate-num{font:600 28px/36px" in css and not re.search(r'card[^"]*"[^>]*>\s*<div class="gate-tiles"', score),
-              "four gate tiles in one row, two by two under 900px, one column on a phone, not "
-              "in an outer card, the CV figure at 28px")
+              "four gate tiles in one row, two by two under 900px, not in an outer card, the CV "
+              "figure at 28px")
+        phone = css.split("@media (max-width:599.98px){", 1)[1].split("\n}", 1)[0] if "@media (max-width:599.98px){" in css else ""
+        check(".gate-tiles{display:block;border:1px solid var(--border-subtle);border-radius:12px" in phone
+              and 'grid-template-areas:"chip name num status" "note note note note"' in phone
+              and "padding:12px 14px" in phone and ".gate + .gate{border-top:1px solid var(--border-subtle)}" in phone
+              and ".gate-num{grid-area:num;margin-left:12px;font:600 17px/20px" in phone,
+              "under 600px the four gates are one card of compact rows with hairlines between: icon "
+              "and name at the left, the status at the right, the reason under, the CV score at 17px/600")
         check('<details class="pa-why card g-jobs glow-faint"><summary>Why this score</summary>' in score,
               "Why these scores is one fold under the tiles, Why this score")
         adv = part(render_inner(env, oid), "advert")
@@ -2534,7 +2542,8 @@ def look_checks() -> None:
               "the Tailored CV takes the CV's rose chip and glow, with Save copy at the right of "
               "its title; the description stays purple")
         work = part(render_inner(env, oid), "workhead")
-        check('<span class="tally" data-pa-tally><b>4 asks</b>' in work
+        check('<span class="tally dv" data-pa-tally><span class="dv-in"><b class="dv-i">4 asks</b>' in work
+              and 'fact-rule' not in work
               and 'id="pa-pages">1 page, limit is 2</span>' in work
               and ".pill.is-over{" in css and "var(--caution)" in css.split(".pill.is-over{", 1)[1].split("}", 1)[0],
               "the CV's strip: the asks summary and the pages pill, amber when over the limit")
