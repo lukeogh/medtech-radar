@@ -60,6 +60,21 @@ def _money(key: str, label: str, value: str, after: str, lock: str) -> str:
             f'data-was="{value}"{lock}><span class="affix">{esc(after)}</span></span></div>')
 
 
+def _rate(key: str, label: str, value: str, lock: str) -> str:
+    """An exchange rate, pounds to one of the currency, £ before it."""
+    return (f'<div class="field"><label for="pref-{key}">{esc(label)}</label>'
+            f'<span class="affixed"><span class="affix" aria-hidden="true">£</span>'
+            f'<input class="input short" id="pref-{key}" name="{key}" inputmode="decimal" value="{value}" '
+            f'data-was="{value}"{lock}></span></div>')
+
+
+def _percent(key: str, label: str, value: str, lock: str) -> str:
+    return (f'<div class="field"><label for="pref-{key}">{esc(label)}</label>'
+            f'<span class="affixed"><input class="input short" id="pref-{key}" name="{key}" '
+            f'inputmode="decimal" value="{value}" data-was="{value}"{lock}>'
+            f'<span class="affix">%</span></span></div>')
+
+
 def _mark(key: str, label: str, value: str, lock: str) -> str:
     return (f'<div class="field"><label for="pref-{key}">{esc(label)}</label>'
             f'<input class="input short" id="pref-{key}" name="{key}" inputmode="numeric" value="{value}" '
@@ -88,6 +103,7 @@ def body_html(config: dict, prefs: dict) -> str:
     missing = ("" if live else
                f'<p class="notice warn st-missing">No preferences file at {esc(prefs["path"])}, so '
                'nothing here can be saved.</p>')
+    money = radar_common.read_money_prefs(config)
     scoring = f"""<form class="prefs" id="prefs-form" novalidate>
 <fieldset class="group"><legend>Pay floors</legend>
 {_money('day_rate_floor_gbp', 'Contract day rate', num(prefs['day_rate_floor_gbp']), 'a day', lock)}
@@ -97,6 +113,12 @@ def body_html(config: dict, prefs: dict) -> str:
 <fieldset class="group"><legend>CV match</legend>
 <div class="pair">{_mark('cv_pass_score', 'Pass mark', num(prefs['cv_pass_score']), lock)}
 {_mark('cv_floor_score', 'Filtered under', num(prefs['cv_floor_score']), lock)}</div>
+</fieldset>
+<hr class="rule">
+<fieldset class="group"><legend>Exchange rates and fees</legend>
+<div class="pair">{_rate('usd_to_gbp', 'One US dollar', num(money['USD']), lock)}
+{_rate('eur_to_gbp', 'One euro', num(money['EUR']), lock)}</div>
+<div class="field-gap">{_percent('upwork_fee_percent', 'Upwork fee', num(money['fee']), lock)}</div>
 </fieldset>
 <div class="form-foot"><button type="submit" class="btn btn-solid" id="prefs-save"{lock}>Save and re-sort</button></div>
 <p class="say" id="prefs-say" aria-live="polite"></p>
@@ -178,6 +200,7 @@ button,input,textarea{font:inherit;color:inherit}
 .affix{font-size:15px;color:var(--text-2)}
 .pair{display:flex;flex-wrap:wrap;gap:16px 24px}
 .pair .field + .field{margin-top:0}
+.field-gap{margin-top:16px}
 .form-foot{margin-top:20px}
 .btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 16px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--text-1);font:500 14px/20px var(--font-sans);cursor:pointer;white-space:nowrap;text-decoration:none}
 .btn:hover{background:var(--row-hover)}

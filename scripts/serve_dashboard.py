@@ -1153,6 +1153,24 @@ def add_hand_role(body) -> dict:
     return result
 
 
+def edit_hand_role(body) -> dict:
+    """Edit on a role added by hand: its link, client, location, type, source,
+    rate and fee, under the write lock in one transaction, the Rate gate and
+    the tier judged again in code. No model call."""
+    config = radar_common.load_config()
+    now = radar_common.now_iso()
+
+    def go(conn):
+        radar_common.begin_write(conn)
+        result = hand_roles.edit_role(conn, body, now, config)
+        if result.get("ok"):
+            conn.commit()
+        else:
+            conn.rollback()
+        return result
+    return _write(go)
+
+
 def experience_write(fn) -> dict:
     """One experience bank write under the write lock, in one transaction:
     commit what succeeded, roll back what was refused."""
@@ -2165,13 +2183,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
             return
-        if path == "/jobs/add":
+        if path in ("/jobs/add", "/jobs/edit-role"):
             body = self._read_json_body()
             if not isinstance(body, dict):
                 self._send(400, b'{"ok": false, "note": "send JSON"}', "application/json")
                 return
-            result = add_hand_role(body)
-            status = (200 if result.get("ok") else 422 if result.get("invalid") else 409)
+            result = add_hand_role(body) if path == "/jobs/add" else edit_hand_role(body)
+            status = (200 if result.get("ok") else 422 if result.get("invalid")
+                      else 404 if result.get("gone") else 409)
             self._send(status, json.dumps(result).encode(), "application/json")
             return
         if path == "/jobs/source":

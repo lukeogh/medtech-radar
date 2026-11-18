@@ -732,6 +732,7 @@ SCORE_WRITERS = {
     ("scripts/regate_rates.py", "regate"),
     ("scripts/check_jobs.py", "apply_page"),
     ("scripts/prepare_application.py", "_store_score"),  # a score against the full description
+    ("scripts/hand_roles.py", "edit_role"),          # Edit judges the Rate gate again, in code
 }
 OTHER_WRITERS = {
     ("scripts/backfill_pay.py", "main"),             # pay columns, filled once

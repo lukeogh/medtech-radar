@@ -142,9 +142,13 @@ def scorer_checks() -> None:
           "a stated figure under its floor fails, in code")
     check(all(r["gate_rate"] is None and r["rate_stated"] == 0 and r["rate_basis"] == "unstated"
               and r["rate_value"] is None and r["gate_rate_note"] == rc.RATE_NOT_STATED_NOTE
-              for r in (silent, words, usd)),
-          "no figure, competitive with no figure, and a currency no floor covers are all "
-          "not stated (gate NULL, rate_stated 0, code's note), whatever the reply said")
+              for r in (silent, words)),
+          "no figure and competitive with no figure are not stated (gate NULL, "
+          "rate_stated 0, code's note), whatever the reply said")
+    check(usd["gate_rate"] is None and usd["rate_stated"] == 0 and usd["rate_basis"] == "unstated"
+          and usd["rate_value"] is None and usd["gate_rate_note"] == "$200,000 a year.",
+          "a dollar figure with no exchange rate set is judged neither way, and its note is the "
+          "rate as written, for Check the rate")
     check(silent["tier"] == "top" and silent["question_text"] is None
           and json.loads(silent["failed_gates"]) == [],
           "a role passing Sector, CV and Location with no rate stated is a Top prospect "

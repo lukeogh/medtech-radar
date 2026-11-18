@@ -13,7 +13,7 @@
 <link rel="icon" href="data:image/svg+xml,
 <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2314161a'/><circle cx='16' cy='21' r='7' fill='%23f2efe8'/><rect x='0' y='21' width='32' height='11' fill='%2314161a'/><rect x='4' y='21' width='24' height='1.6' rx='0.8' fill='%237db4e8'/></svg>">
 
-<style>/* style 8dddac86d8f5, 42094 chars */</style>
+<style>/* style 0fffa7ebc5b3, 42673 chars */</style>
 </head>
 
 <body>
@@ -104,7 +104,7 @@
 <template id="no-selection">
 <div class="no-selection"></div></template>
 
-<dialog class="ar-dlg" id="ar-dlg" aria-labelledby="ar-h" data-mode="add" data-missing="{&quot;title&quot;: &quot;Add a title.&quot;, &quot;advert&quot;: &quot;Paste the advert.&quot;}">
+<dialog class="ar-dlg" id="ar-dlg" aria-labelledby="ar-h" data-mode="add" data-missing="{&quot;title&quot;: &quot;Add a title.&quot;, &quot;advert&quot;: &quot;Paste the advert.&quot;}" data-money="{&quot;USD&quot;: null, &quot;EUR&quot;: null, &quot;fee&quot;: 15}">
 
 <form class="ar-form" id="ar-form" novalidate>
 
@@ -199,7 +199,16 @@
 <label class="seg">
 <input type="radio" name="period" value="fixed"><span>fixed</span></label></div>
 </div>
-<p class="ar-err" id="ar-rate-err" data-err="rate" aria-live="polite"></p></fieldset>
+<p class="ar-err" id="ar-rate-err" data-err="rate" aria-live="polite"></p>
+
+<div class="ar-fee" id="ar-fee-row" hidden>
+<label for="ar-fee">Upwork fee</label>
+
+<input class="ar-in ar-fee-in" id="ar-fee" name="fee" type="text" inputmode="decimal" autocomplete="off" value="15" data-default="15" aria-describedby="ar-fee-err">
+<span class="ar-pct">%</span></div>
+<p class="ar-err" id="ar-fee-err" data-err="fee" aria-live="polite"></p>
+
+<p class="ar-about" id="ar-about" aria-live="polite"></p></fieldset>
 
 <p class="ar-err ar-form-err" data-err="form" aria-live="polite"></p>
 
@@ -212,6 +221,6 @@
 </dialog>
 </div>
 
-<script>/* script 4dfd96d663d7, 30701 chars */</script>
+<script>/* script 44c167f9660d, 32899 chars */</script>
 </body>
 </html>
