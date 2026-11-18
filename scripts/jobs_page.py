@@ -1295,9 +1295,13 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
 
 
 def no_selection_html(view: str, note: str = "") -> str:
-    """The role pane with no role chosen: those words and no more, or why the
-    address named no role."""
-    return f'<div class="no-selection"><p>{esc(note or "No role chosen.")}</p></div>'
+    """The role pane with no role in it. Where the list and the pane sit side
+    by side the page opens a role itself (owner, 18 Nov), so the pane is empty
+    until it does; with no role in the list it says No roles match; or why
+    the address named no role."""
+    del view
+    return (f'<div class="no-selection"><p>{esc(note)}</p></div>' if note
+            else '<div class="no-selection"></div>')
 
 
 # ------------------------------------------------------------------ the page
@@ -1390,7 +1394,8 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
     else:
         role_cls = "role role-empty"
         note = (f"There is no role {int(selected)}. It may have been removed from "
-                "the database." if status == 404 else "")
+                "the database." if status == 404
+                else "" if 'data-id="' in queue else "No roles match.")
         role = no_selection_html(view, note)
         label = 'aria-label="Role"'
         title = "Jobs, MedTech Radar"
@@ -1846,6 +1851,8 @@ JOBS_SCRIPT = """
                unack: 'Back in the open roles', undismiss: 'Dismiss undone', unclose: 'Close undone',
                unapply: 'Application undone', move: 'Moved' };
   var narrow = window.matchMedia('(max-width: 1023.98px)');
+  // The last role viewed, for this browser tab only (owner, 18 Nov).
+  var LAST = 'radar-jobs-last';
 
   function json(url) {
     return fetch(url, { headers: { 'Accept': 'application/json' } }).then(function (r) {
@@ -2008,6 +2015,7 @@ JOBS_SCRIPT = """
     var adv = role.querySelector('.advert');
     if (adv) adv.scrollTop = 0;
     current = { id: j.id, key: j.key, tier: j.tier, unread: j.unread, title: j.title };
+    try { sessionStorage.setItem(LAST, String(j.id)); } catch (e) {}
     if (narrow.matches && app.dataset.view !== 'role') listScroll = window.scrollY;
     app.dataset.view = 'role';
     document.title = j.title + ', Jobs, MedTech Radar';
@@ -2029,7 +2037,10 @@ JOBS_SCRIPT = """
     return json('/jobs/' + id + '?part=role' + amp).then(function (j) {
       if (mine !== seq) return;
       showRole(j, opts);
-      if (opts.push !== false) history.pushState({ id: j.id }, '', j.url);
+      // A role the page opened itself takes the address's place, so Back
+      // leaves Jobs in one press.
+      if (opts.replace) history.replaceState({ id: j.id }, '', j.url);
+      else if (opts.push !== false) history.pushState({ id: j.id }, '', j.url);
     }).catch(function () {
       if (mine === seq) location.href = '/jobs/' + id + qs;
     });
@@ -2053,7 +2064,44 @@ JOBS_SCRIPT = """
       var row = was ? rowFor(was.key) : null;
       var link = row ? row.querySelector('.r-link') : null;
       if (link) link.focus({ preventScroll: true });
+    } else {
+      autoOpen();
     }
+  }
+  // ---- a role opens by itself where the list and the pane sit side by side
+  // (owner, 18 Nov): the first role of a group the address names
+  // (#group-question from a Home tile), else the last role viewed in this
+  // tab while it is still in the list, else the list's first role. On a
+  // phone nothing opens by itself.
+  function listRows(scope) {
+    return Array.prototype.slice.call((scope || queue).querySelectorAll('.row[data-id]'));
+  }
+  function firstShown(scope) {
+    var rows = listRows(scope).filter(function (r) { return !r.closest('[hidden]'); });
+    return rows.length ? Number(rows[0].dataset.id) : null;
+  }
+  function noRoles() {
+    role.className = 'role role-empty';
+    role.removeAttribute('aria-labelledby');
+    role.setAttribute('aria-label', 'Role');
+    role.innerHTML = '<div class="no-selection"><p>No roles match.</p></div>';
+  }
+  function autoOpen() {
+    if (narrow.matches || current) return Promise.resolve();
+    var m = (location.hash || '').match(/^#group-([a-z]+)$/);
+    var group = m ? queue.querySelector('section.group[data-tier="' + m[1] + '"]') : null;
+    var ready = group && m[1] === 'reading' ? setReading(true) : Promise.resolve();
+    return ready.then(function () {
+      var id = group ? firstShown(group) : null;
+      if (id === null && !group) {
+        var last = null;
+        try { last = Number(sessionStorage.getItem(LAST)) || null; } catch (e) {}
+        if (last && listRows().some(function (r) { return Number(r.dataset.id) === last; })) id = last;
+      }
+      if (id === null) id = firstShown(null);
+      if (id === null) { noRoles(); return; }
+      return select(id, { push: false, replace: true });
+    });
   }
   function locFromAddress() {
     var m = location.search.match(/[?&]loc=([^&]*)/);
@@ -2081,8 +2129,10 @@ JOBS_SCRIPT = """
     var path = current ? '/jobs/' + current.id : '/jobs';
     if (push) history.pushState(current ? { id: current.id } : {}, '', path + qs + location.hash);
     return refreshQueue().then(function () {
-      // The role stays open; its Previous and Next follow the chips.
+      // The role stays open; its Previous and Next follow the chips. With
+      // none open, one opens where the pane sits beside the list.
       if (current) return select(current.id, { push: false });
+      return autoOpen();
     });
   }
   document.querySelectorAll('[data-loc]').forEach(function (b) {
@@ -2302,6 +2352,9 @@ JOBS_SCRIPT = """
     history.replaceState({ id: current.id }, '', location.pathname + location.search + location.hash);
     markCurrent(current.key, false);
     startRead(current);
+    try { sessionStorage.setItem(LAST, String(current.id)); } catch (e) {}
+  } else {
+    autoOpen();
   }
 })();
 """

@@ -1029,9 +1029,43 @@ def page_checks(tmp: Path) -> None:
           and keydowns and all(not re.search(r"'[jkpadcmo?]'", k) for k in keydowns),
           "no shortcuts button, no list of keys and no key hints; the page listens for "
           "Escape alone, so J, K, P and ? do nothing")
-    check("No role chosen." in html and "Choose a role" not in html
-          and "if (!current) {\n      var first" not in html,
-          "with no role chosen the pane says so and no more, and no role opens by itself")
+    # Jobs opens on a role (owner, 18 Nov).
+    pane = re.search(r'<section class="role role-empty" id="role" aria-label="Role">(.*?)</section>', html, re.S)
+    check(pane and pane.group(1) == '<div class="no-selection"></div>' and "No role chosen." not in html
+          and '<template id="no-selection"><div class="no-selection"></div></template>' in html,
+          "with no role in the address the pane is empty, not a no-role-chosen screen, until one opens")
+    script = jobs_page.JOBS_SCRIPT
+    auto = script[script.index("function autoOpen()"):script.index("function autoOpen()") + 1200]
+    check("if (narrow.matches || current) return Promise.resolve();" in auto
+          and "var narrow = window.matchMedia('(max-width: 1023.98px)');" in script
+          and ".app{" in html,
+          "a role opens by itself only where the list and the pane sit side by side (1024px "
+          "and up); on a phone nothing opens")
+    check("(location.hash || '').match(/^#group-([a-z]+)$/)" in auto
+          and "queue.querySelector('section.group[data-tier=\"' + m[1] + '\"]')" in auto
+          and "m[1] === 'reading' ? setReading(true)" in auto
+          and "var id = group ? firstShown(group) : null;" in auto,
+          "arriving at a group anchor opens the first role in that group, Reading's loaded first")
+    check("var LAST = 'radar-jobs-last';" in script
+          and "try { sessionStorage.setItem(LAST, String(j.id)); } catch (e) {}" in script
+          and "last = Number(sessionStorage.getItem(LAST)) || null;" in auto
+          and "listRows().some(function (r) { return Number(r.dataset.id) === last; })" in auto
+          and "localStorage.setItem(LAST" not in script,
+          "the last role viewed is kept for the tab in sessionStorage, nothing on the server, and "
+          "opens again while it is still in the list, else the first role")
+    check("return select(id, { push: false, replace: true });" in auto
+          and "if (opts.replace) history.replaceState({ id: j.id }, '', j.url);" in script,
+          "opening a role this way adds no history entry, so Back leaves Jobs in one press")
+    check("if (id === null) { noRoles(); return; }" in auto
+          and "role.innerHTML = '<div class=\"no-selection\"><p>No roles match.</p></div>';" in script
+          and "} else {\n    autoOpen();\n  }\n})();" in script and "return autoOpen();" in script,
+          "with an empty list the pane says No roles match; it runs on load, after a location "
+          "chip and on going back to the list")
+    empty_db = tmp / "empty-frame.sqlite"
+    rc.get_db(empty_db).close()
+    empty = page(empty_db)
+    check('<div class="no-selection"><p>No roles match.</p></div>' in empty.split('<template id="no-selection">')[0],
+          "and the page drawn with no role in the list says No roles match in the pane")
     check('<button type="button" class="btn btn-secondary list-toggle" id="list-toggle" '
           'aria-expanded="true" aria-controls="queue">Hide the list</button>' in html
           and ".app.list-off .queue{display:none}" in html and "'Show the list'" in html,
