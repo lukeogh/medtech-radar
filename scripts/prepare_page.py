@@ -64,6 +64,7 @@ import page_frame  # noqa: E402
 import prepare_application as prep  # noqa: E402
 import radar_common as rc  # noqa: E402
 import tailored_cv  # noqa: E402
+import experience  # noqa: E402
 import tiers  # noqa: E402
 
 esc = bd.esc
@@ -198,7 +199,9 @@ def model(conn, item_id: int, config: dict, notices=None) -> dict | None:
              if shown_text else [])
     company_known = bool(row.get("company_id")) and conn.execute(
         "SELECT 1 FROM companies WHERE id = ?", (row["company_id"],)).fetchone() is not None
+    advert_text = "\n".join(t for t in (row.get("title") or "", description) if t)
     return {"row": row, "id": int(item_id), "applied": applied, "is_open": is_open,
+            "experience": experience.matches_for_advert(conn, advert_text),
             "company_known": company_known,
             "design": design, "pages": pages,
             "can_edit": can_edit, "description": description, "working": working,
@@ -1294,14 +1297,40 @@ def gaps_html(m: dict) -> str:
     return "".join(out)
 
 
+# ------------------------------------------------- from your experience
+
+XP_SHOWN = 5   # rows before Show all
+
+
+def experience_html(m: dict) -> str:
+    """The backed entries of the experience bank with a tag the advert names,
+    most matching tags first (experience.matches_for_advert). Read only:
+    nothing goes into the CV from here. Empty when nothing matches."""
+    hits = m.get("experience") or []
+    if not hits:
+        return ""
+    rows = []
+    for i, h in enumerate(hits):
+        chips = "".join(f'<li class="chip-v">{esc(t)}</li>' for t in h["matched"])
+        rows.append(f'<li class="xp-row"{" hidden data-xp-more" if i >= XP_SHOWN else ""}>'
+                    f'<a class="plain xp-link" href="/cv/experience/{h["id"]}">{esc(h["title"])}</a>'
+                    f'<ul class="chips" aria-label="Matched tags">{chips}</ul></li>')
+    more = (f'<p class="xp-all"><button type="button" class="btn-text" data-xp-all>'
+            f'Show all {len(hits)}</button></p>' if len(hits) > XP_SHOWN else "")
+    return (f'<details class="pa-xp"><summary><span class="xp-sum">From your experience</span>'
+            f'<span class="xp-n">{len(hits)}</span></summary>'
+            f'<ol class="xp-rows">{"".join(rows)}</ol>{more}</details>')
+
+
 # ------------------------------------------------------------ the parts
 
-SLOTS = ("head", "score", "advert", "workhead", "bar", "gaps", "notes")
+SLOTS = ("head", "score", "advert", "workhead", "bar", "experience", "gaps", "notes")
 
 
 def parts(m: dict) -> dict:
     return {"head": head_html(m), "score": score_html(m), "advert": advert_html(m),
-            "workhead": workhead_html(m), "bar": bar_html(m), "gaps": gaps_html(m),
+            "workhead": workhead_html(m), "bar": bar_html(m),
+            "experience": experience_html(m), "gaps": gaps_html(m),
             "notes": notes_html(m)}
 
 
@@ -1371,15 +1400,17 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str = "",
     editable = m["can_edit"] and not m["unlaid"] and m["shown_text"] is not None
     save = ('<button type="button" class="btn btn-plain sec-link" data-cv-act="save" disabled>Save copy</button>'
             if editable else "")
+    xp_slot = slot("experience", "div", "pa-xpslot" + ("" if p["experience"] else " is-empty"))
     if m["unlaid"] and m["copy"] is None:
         # No copy can be made until the master is in the editor's layout.
         cv_body = ('<p class="notice warn pa-unlaid">Save your master CV on the CV page to make a copy '
-                   'for this role. <a class="plain" href="/cv">Open CV</a></p>')
+                   'for this role. <a class="plain" href="/cv">Open CV</a></p>' + xp_slot)
     else:
         cv_body = f"""{slot("workhead", "div", "work-head")}
 {slot("bar", "div", "pa-bar" + ("" if p["bar"] else " is-empty"), 'role="group" aria-label="Tailored CV"')}
 <p class="cv-note notice-line" id="cv-say"></p>
 {slot("gaps", "section", "gaps" + ("" if p["gaps"] else " is-empty"), 'aria-label="Gaps"')}
+{xp_slot}
 <div class="sheet-wrap">
 {slot("notes", "div", "pa-notes", 'aria-label="Margin notes"')}
 <div class="gut" aria-hidden="true"></div>
@@ -1565,6 +1596,19 @@ a.plain:hover{color:var(--text-1);text-decoration-color:var(--text-1)}
 .save-as b{color:var(--text-2);font-weight:500}
 .gaps{margin-bottom:12px;padding:12px 16px;border:1px dashed var(--negative);border-radius:10px;background:var(--negative-tint)}
 .gaps.is-empty{display:none}
+/* From your experience, in rose: a fold above the sheet (owner, 18 Nov). */
+.pa-xpslot{margin:0 0 16px}
+.pa-xpslot.is-empty{display:none}
+.pa-xp{border:1px solid rgb(var(--group-cv-rgb) / .40);border-radius:10px;background:rgb(var(--group-cv-rgb) / .06);padding:0 16px}
+.pa-xp summary{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;color:var(--group-cv);font-size:15px;line-height:24px;font-weight:600}
+.pa-xp .xp-n{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px solid rgb(var(--group-cv-rgb) / .45);border-radius:11px;background:rgb(var(--group-cv-rgb) / .12);font-size:13px;line-height:20px;font-weight:500;color:var(--group-cv);font-variant-numeric:tabular-nums}
+.pa-xp .xp-rows{display:flex;flex-direction:column;gap:12px;margin:0;padding:4px 0 16px;list-style:none}
+.pa-xp .xp-row{display:flex;flex-direction:column;gap:6px;min-width:0}
+.pa-xp .xp-link{font-size:15px;line-height:24px;font-weight:500;overflow-wrap:anywhere}
+.pa-xp .chips{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+.pa-xp .chip-v{padding:5px 12px;border-radius:8px;background:#232a30;color:var(--text-1);font-size:14px;line-height:20px;overflow-wrap:anywhere}
+.pa-xp .xp-all{margin:-8px 0 12px}
+.pa-xp .btn-text{min-height:40px;padding:0;border:0;background:none;color:var(--text-1);font:500 14px/20px var(--font-sans);text-decoration:underline;text-decoration-color:#5b6770;text-underline-offset:3px;cursor:pointer}
 .gaps ol{display:grid;gap:12px;margin-top:8px}
 .gaps ol + h3{margin-top:16px}
 .pa-unlaid{margin:0}
@@ -2105,6 +2149,16 @@ PREPARE_SCRIPT = r"""
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!t || !t.closest) return;
+    // From your experience: Show all N shows the rows past the first five.
+    var xpAll = t.closest('[data-xp-all]');
+    if (xpAll) {
+      var fold = xpAll.closest('.pa-xp');
+      Array.prototype.forEach.call(fold.querySelectorAll('[data-xp-more]'), function (r) { r.hidden = false; });
+      var first = fold.querySelector('[data-xp-more] a');
+      xpAll.parentNode.parentNode.removeChild(xpAll.parentNode);
+      if (first) first.focus();
+      return;
+    }
     var toggle = t.closest('.note-toggle');
     if (toggle) {
       var note = toggle.closest('[data-note]');
@@ -2233,7 +2287,7 @@ PREPARE_SCRIPT = r"""
         s.textContent = '';
         kids.forEach(function (k) { detach(k); s.appendChild(k); });
       }
-      if ((name === 'bar' || name === 'gaps') && s.classList) s.classList.toggle('is-empty', empty);
+      if ((name === 'bar' || name === 'gaps' || name === 'experience') && s.classList) s.classList.toggle('is-empty', empty);
     });
     carrier.innerHTML = '';
     all('[data-cv-act]').forEach(function (b) { b.disabled = !enabled; });
