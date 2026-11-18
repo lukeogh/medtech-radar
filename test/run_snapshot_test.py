@@ -352,6 +352,7 @@ def views(ids: dict) -> list[tuple[str, str]]:
         ("role-hand-fixed", f"/jobs/{ids['hand_fixed']}"),
         ("prepare-hand", f"/prepare/{ids['hand_upwork']}"),
         ("insights", "/insights"),
+        ("insights-sources", "/insights/sources"),
         ("watchlist", "/watchlist"),
         ("watchlist-company", f"/watchlist/{ids['company']}"),
         ("company-unwatched", f"/watchlist/{ids['unwatched']}"),

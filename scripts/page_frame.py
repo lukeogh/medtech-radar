@@ -343,6 +343,9 @@ def appbar_html(current: str, jobs: dict | None = None, page_name: str = "",
 # --group-story, --group-jobs and --group-apps; Radar's own items and the
 # Open actions title take a neutral chip.
 ICONS = {
+    # The news watcher's sources.
+    "feed": '<path d="M4.5 4.5a11 11 0 0 1 11 11"/><path d="M4.5 9a6.5 6.5 0 0 1 6.5 6.5"/>'
+            '<circle cx="5.5" cy="14.5" r="1.3"/>',
     # The experience bank's three sections: To review, Backed, Parked.
     "review": '<circle cx="9" cy="9" r="5"/><line x1="12.6" y1="12.6" x2="16.5" y2="16.5"/>',
     "backed": '<path d="M10 3.5 15.5 5.5v4.2c0 3.3-2.3 5.8-5.5 6.8-3.2-1-5.5-3.5-5.5-6.8V5.5z"/>',

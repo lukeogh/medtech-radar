@@ -268,8 +268,8 @@ def page_checks(tmp: Path) -> None:
     head = re.search(r'<header class="ins-head">.*?</header>', html, re.S).group(0)
     check('<span class="gchip g-story"' in head and "<h1>Insights</h1>" in head
           and re.search(r'class="sec-count upd"><span>Updated <time datetime="[^"]+" data-hm>\d\d:\d\d</time></span></span>', head)
-          and 'class="plain ins-health" href="/health">' in head,
-          "the title row: amber chip, Insights, Updated HH:MM, and the health link at the right")
+          and 'class="plain ins-health" href="/insights/sources">' in head,
+          "the title row: amber chip, Insights, Updated HH:MM, and the sources link at the right, to /insights/sources")
     toc = re.search(r'<nav class="ins-toc".*?</nav>', html, re.S).group(0)
     order = re.findall(r'href="#([a-z-]+)">([^<]+)<span class="visually-hidden">, </span><span class="toc-n">(\d+)', toc)
     check([o[1] for o in order] == ["Top stories", "Other stories this week", "Funding",

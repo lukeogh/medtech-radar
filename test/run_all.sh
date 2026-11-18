@@ -99,6 +99,7 @@ run_one "settings page    (test/run_settings_test.py)" "test/run_settings_test.p
 run_one "experience bank  (test/run_experience_test.py)" "test/run_experience_test.py"
 run_one "add a role       (test/run_add_role_test.py)" "test/run_add_role_test.py"
 run_one "fix-up           (test/run_fixup_test.py)" "test/run_fixup_test.py"
+run_one "news sources     (test/run_sources_test.py)" "test/run_sources_test.py"
 run_one "shared header    (test/run_header_test.py)" "test/run_header_test.py"
 run_one "page snapshots   (test/run_snapshot_test.py)" "test/run_snapshot_test.py"
 

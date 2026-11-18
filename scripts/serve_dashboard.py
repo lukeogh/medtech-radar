@@ -92,6 +92,8 @@ import cv_store
 import experience
 import experience_page
 import hand_roles
+import news_sources
+import sources_page
 import home_page
 import prepare_application
 import score_item
@@ -313,7 +315,9 @@ def render_insights(kind: str, arg=None):
     config = radar_common.load_config()
     conn = _insights_conn()
     try:
-        if kind == "story":
+        if kind == "sources":
+            page = sources_page.render(conn, config)
+        elif kind == "story":
             page = insights_page.render_story(conn, arg, config)
         elif kind == "section":
             page = insights_page.render_section(conn, arg, config)
@@ -1153,6 +1157,34 @@ def add_hand_role(body) -> dict:
     return result
 
 
+def sources_write(path: str, body: dict) -> dict:
+    """One of /insights/sources' writes. Look fetches the address once, before
+    any lock; the rest are one transaction under the write lock."""
+    config = radar_common.load_config()
+    now = radar_common.now_iso()
+    if path == "/insights/sources/look":
+        conn = _insights_conn()
+        try:
+            return news_sources.look(conn, body.get("url"), config)
+        finally:
+            conn.close()
+
+    def go(conn):
+        radar_common.begin_write(conn)
+        if path == "/insights/sources/add":
+            result = news_sources.add(conn, body.get("token"), body.get("name"), now)
+        elif path == "/insights/sources/pause":
+            result = news_sources.set_paused(conn, body.get("source_id"), body.get("paused") is True, now)
+        else:
+            result = news_sources.remove(conn, body.get("source_id"))
+        if result.get("ok"):
+            conn.commit()
+        else:
+            conn.rollback()
+        return result
+    return _write(go)
+
+
 def edit_hand_role(body) -> dict:
     """Edit on a role added by hand: its link, client, location, type, source,
     rate and fee, under the write lock in one transaction, the Rate gate and
@@ -1766,6 +1798,8 @@ class Handler(BaseHTTPRequestHandler):
             parts = rest.split("/") if rest else []
             if not parts:
                 kind, arg = "front", None
+            elif parts == ["sources"]:
+                kind, arg = "sources", None
             elif len(parts) == 2 and parts[0] == "story" and parts[1].isdigit():
                 kind, arg = "story", int(parts[1])
             elif len(parts) == 2 and parts[0] == "section":
@@ -2182,6 +2216,17 @@ class Handler(BaseHTTPRequestHandler):
                                        bool(body.get("confirm")))
             self._send(200 if result["ok"] else 409,
                        json.dumps(result).encode(), "application/json")
+            return
+        if path in ("/insights/sources/look", "/insights/sources/add",
+                    "/insights/sources/pause", "/insights/sources/remove"):
+            body = self._read_json_body()
+            if not isinstance(body, dict):
+                self._send(400, b'{"ok": false, "note": "send JSON"}', "application/json")
+                return
+            result = sources_write(path, body)
+            status = (200 if result.get("ok") else 422 if result.get("invalid")
+                      else 404 if result.get("gone") else 409)
+            self._send(status, json.dumps(result).encode(), "application/json")
             return
         if path in ("/jobs/add", "/jobs/edit-role"):
             body = self._read_json_body()

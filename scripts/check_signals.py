@@ -56,6 +56,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import draft_outreach
 import radar_common as rc  # noqa: E402
 import applications  # noqa: E402
+import news_sources  # noqa: E402
 import watchlist  # noqa: E402
 
 WATCHLIST_PATH = REPO_ROOT / "config" / "watchlist.yaml"
@@ -217,11 +218,16 @@ def _due(source: dict, state: dict | None, config: dict) -> bool:
 def check_rss(source: dict, state: dict | None, config: dict, conn, notes: list):
     """Fetch the feed politely, return new items since the last check."""
     import feedparser
-    status, headers, body = rc.http_get(
-        source["rss_url"], config,
-        etag=state.get("etag") if state else None,
-        last_modified=state.get("last_modified") if state else None,
-    )
+    if source.get("added"):
+        # A source Luke added is read with the safe fetch: http or https, no
+        # local or private address, ten seconds and two megabytes at most.
+        status, headers, body = news_sources.run_fetch(source["rss_url"], config)
+    else:
+        status, headers, body = rc.http_get(
+            source["rss_url"], config,
+            etag=state.get("etag") if state else None,
+            last_modified=state.get("last_modified") if state else None,
+        )
     checked = rc.now_iso()
     if status == 999:
         notes.append(f"{source['id']}: blocked by robots.txt")
@@ -249,6 +255,12 @@ def check_rss(source: dict, state: dict | None, config: dict, conn, notes: list)
             first_run = True
 
     items = []
+    # A built-in source scores its first five new entries in feed order, as it
+    # always has; a source Luke added scores its ten newest.
+    cap = MAX_NEW_ITEMS_PER_SOURCE
+    if source.get("added"):
+        cap = int(source.get("max_items") or news_sources.MAX_ITEMS)
+        entries = news_sources.newest(entries, len(entries))
     if first_run:
         notes.append(f"{source['id']}: first run, baselined {len(current_ids)} entries")
     else:
@@ -265,7 +277,7 @@ def check_rss(source: dict, state: dict | None, config: dict, conn, notes: list)
                 "date": entry.get("published") or entry.get("updated"),
                 "text": summary,
             })
-            if len(items) >= MAX_NEW_ITEMS_PER_SOURCE:
+            if len(items) >= cap:
                 break
 
     merged = current_ids + [i for i in previous if i not in current_ids]
@@ -881,7 +893,12 @@ def main(argv=None) -> int:
             return 2
     else:
         items = []
-        sources = load_watchlist()
+        # The built-in sources, then the ones Luke added on /insights/sources,
+        # none that he paused. A spot check of one source reads it even paused.
+        sources = load_watchlist() + news_sources.added_sources(conn)
+        if not args.source:
+            paused = news_sources.paused_ids(conn)
+            sources = [s for s in sources if s.get("id") not in paused]
         if args.source:
             sources = [s for s in sources if s.get("id") == args.source]
             if not sources:
