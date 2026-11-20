@@ -13,6 +13,11 @@ advert once. The page draws first; its script then makes one POST,
   check beside the last known date
 - held back by a limit: the last known date and nothing else
 
+Every role with a LinkedIn advert says its last check in the header's facts
+line, on Jobs and on Prepare application, whether or not it is due a read:
+Live on and the date of the last read that answered live, or Not checked yet.
+The list's rows say nothing of it, and Details keeps its State line.
+
 The read is the page checker's own: its fetch, its ladder and its way of
 storing a verdict (check_jobs.store_verdict), through the limiter every
 LinkedIn read shares (linkedin_reads). No model is asked anything: the page is
@@ -112,15 +117,25 @@ def due(row, applied: bool, now: str | None = None) -> bool:
 
 
 def header_bit(row, applied: bool, now: str | None = None) -> str:
-    """The header's check, as one fact for the facts line, or "".
+    """The header's check, as one fact for the facts line, or "" for a role
+    with no LinkedIn advert or one added by hand.
 
-    Drawn only for a role due a read. It says Checking the advert, muted, and
-    the page script makes the read and says what came back."""
-    if not due(row, applied, now):
+    Every other role says its last check: Live on 17 Nov, or Not checked yet,
+    and a role the check closed says Closed on LinkedIn in a red chip. A role
+    due a read says Checking the advert, muted, and the page script makes the
+    read and says what came back, the last known check kept for when it
+    cannot."""
+    if job_id(row) is None:
         return ""
+    if (rc._row_field(row, "closed_at")
+            and rc._row_field(row, "closed_source") == "page_check"):
+        return '<span class="adv-check"><span class="adv-closed">Closed on LinkedIn</span></span>'
+    words = last_words(row)
+    if not due(row, applied, now):
+        return f'<span class="adv-check">{esc(words)}</span>'
     oid = int(rc._row_field(row, "id"))
     return (f'<span class="adv-check adv-muted" data-advert-check="{oid}" data-due="1" '
-            f'data-last="{esc(last_words(row))}" '
+            f'data-last="{esc(words)}" '
             f'data-title="{esc(rc._row_field(row, "title") or "")}" '
             'role="status" aria-live="polite">Checking the advert</span>')
 

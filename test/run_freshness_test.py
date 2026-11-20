@@ -21,6 +21,9 @@ expired redirect), a login wall (authwall.html, served at /authwall) and a
 3. The route: through the write guard, the page drawing first and the read
    after it, the header's words, and Undo last bringing a closed role back.
 4. No model call anywhere on the way.
+5. How fresh the check is: every role with a LinkedIn advert says its last
+   check in the header's facts line, on Jobs and Prepare application; the
+   rows say nothing of it; Details keeps its State line.
 """
 
 from __future__ import annotations
@@ -377,8 +380,10 @@ def route_checks() -> None:
                   and "radarAdvertCheck" in html,
                   "and the page carries the script that makes the read")
             s, b = call(port, "GET", f"/jobs/{fresh_row}", headers=own)
-            check("data-advert-check" not in header_facts(b.decode()),
-                  "a role read in the last day has no check to make")
+            facts = header_facts(b.decode())
+            check("data-advert-check" not in facts
+                  and f'<span class="adv-check">Live on {advert_check.day(rc.now_iso())}</span>' in facts,
+                  "a role read in the last day has no check to make, and says Live on with that day")
 
             s1, _ = post("/jobs/advert-check", {"id": due}, {**w, "Origin": "https://evil.example"})
             s2, _ = post("/jobs/advert-check", {"id": due},
@@ -457,11 +462,88 @@ def model_checks() -> None:
     check(out["state"] == "live" and not called, "and a read on open makes no model call")
 
 
+# ------------------------------------------------------------ 5. how fresh
+
+def fresh_header_checks() -> None:
+    now = rc.now_iso()
+    today = advert_check.day(now)
+    with tempfile.TemporaryDirectory() as tmp:
+        db, conn = fresh(tmp)
+        live = plant(conn, "8000000001", "top", last_checked_at="2026-11-17T09:00:00Z",
+                     last_check_result="live", last_live_check_at="2026-11-17T09:00:00Z")
+        unclear = plant(conn, "8000000002", "question", last_checked_at="2026-11-19T09:00:00Z",
+                        last_check_result="unknown", last_live_check_at="2026-11-17T09:00:00Z")
+        older = plant(conn, "8000000003", "question", last_checked_at="2026-11-16T09:00:00Z",
+                      last_check_result="live")
+        never_acked = plant(conn, "8000000004", "question", acknowledged_at=now)
+        shut = plant(conn, "8000000005", "question", closed_at=now, closed_source="page_check",
+                     last_checked_at=now, last_check_result="closed")
+        hand = plant(conn, "8000000006", "question", added_at=now, source="upwork")
+        offsite = plant(conn, "8000000007", "question",
+                        source_url="https://www.reed.co.uk/jobs/director/1")
+        due = plant(conn, "8000000008", "question")
+        rows = {k: row_of(conn, v) for k, v in (("live", live), ("unclear", unclear), ("older", older),
+                                               ("acked", never_acked), ("shut", shut), ("hand", hand),
+                                               ("offsite", offsite), ("due", due))}
+        # Each drawn an hour after its last read, when it is not due another.
+        def hour_on(r):
+            when = r.get("last_checked_at")
+            if not when:
+                return now
+            at = datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ") + timedelta(hours=1)
+            return at.strftime("%Y-%m-%dT%H:%M:%SZ")
+        bit = {k: advert_check.header_bit(r, False, hour_on(r)) for k, r in rows.items()}
+        check(bit["live"] == '<span class="adv-check">Live on 17 Nov</span>',
+              "a role last read live on 17 Nov says Live on 17 Nov")
+        check(bit["unclear"] == '<span class="adv-check">Live on 17 Nov</span>',
+              "a later unclear read does not lose the date it was last seen live")
+        check(bit["older"] == '<span class="adv-check">Live on 16 Nov</span>',
+              "a live read from before the column existed still gives its date")
+        check(bit["acked"] == '<span class="adv-check">Not checked yet</span>',
+              "a role never read, and not due a read, says Not checked yet")
+        check('<span class="adv-closed">Closed on LinkedIn</span>' in bit["shut"],
+              "a role the check closed says Closed on LinkedIn in the red chip")
+        check(bit["hand"] == "" and bit["offsite"] == "",
+              "a role added by hand, or with no LinkedIn advert, has no check line")
+        check('data-last="Not checked yet"' in bit["due"] and "Checking the advert" in bit["due"],
+              "a role due a read says Checking the advert and keeps Not checked yet for after")
+        two_hours = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        shown = plant(conn, "8000000009", "top", last_checked_at=two_hours,
+                      last_check_result="live", last_live_check_at=two_hours)
+        words = f"Live on {advert_check.day(two_hours)}"
+        with serving(db) as port:
+            own = {"Host": f"127.0.0.1:{port}"}
+            del FETCHES[:]
+            s, b = call(port, "GET", f"/jobs/{shown}", headers=own)
+            page = b.decode()
+            facts = header_facts(page)
+            check(s == 200 and facts.endswith('<span class="dv-i"><span class="visually-hidden">, </span>'
+                                              f'<span class="adv-check">{words}</span></span></span></span>'),
+                  "on Jobs it is the last fact in the header's facts line, after the shared divider")
+            queue = re.search(r'<section class="queue" id="queue"[^>]*>(.*?)</section>', page, re.S)
+            check(queue and 'data-id="' in queue.group(1)
+                  and not any(w in queue.group(1) for w in ("adv-check", "Live on", "Not checked yet",
+                                                            "Checking the advert")),
+                  "nothing is added to the rows in the list")
+            check(f"<dt>State</dt><dd>Live, seen {jobs_page._day(now)}</dd>" in page,
+                  "Details keeps its State line as it is")
+            s, b = call(port, "GET", f"/prepare/{shown}", headers=own)
+            check(s == 200 and words in header_facts(b.decode()),
+                  "Prepare application says it the same way")
+            s, b = call(port, "GET", f"/prepare/{offsite}", headers=own)
+            check(s == 200 and "adv-check" not in header_facts(b.decode()),
+                  "and draws no check line for a role with no LinkedIn advert")
+            check(not FETCHES, "and drawing any of it reads nothing")
+        conn.close()
+    del today
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--db", help="ignored: the suite passes it to every runner")
     parser.parse_args(argv)
-    for section in (limiter_checks, open_checks, route_checks, script_checks, model_checks):
+    for section in (limiter_checks, open_checks, route_checks, script_checks, model_checks,
+                    fresh_header_checks):
         try:
             section()
         except Exception as err:  # noqa: BLE001  one section's failure is reported, the rest run
