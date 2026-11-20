@@ -23,6 +23,7 @@ if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import check_jobs
+import linkedin_reads  # noqa: E402
 import enrich_company
 import process_email
 import radar_common
@@ -426,6 +427,7 @@ def main() -> int:
         real_fetch = check_jobs.fetch_job_page
         check_jobs.fetch_job_page = fake_fetch
         try:
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             trial = check_jobs.run_checks(conn, cap=2, write=False,
                                           now=now_s, pause=no_pause)
             check(trial["checked"] == 2 and len(calls) == 2,
@@ -437,6 +439,7 @@ def main() -> int:
             check(unstamped == 0, "a dry run writes nothing")
 
             calls.clear()
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             run = check_jobs.run_checks(conn, cap=25, write=True,
                                         now=now_s, pause=no_pause)
             check(run["due"] == 5 and run["checked"] == 5
@@ -468,6 +471,7 @@ def main() -> int:
                   "a page_check close derives closed like a manual one")
 
             calls.clear()
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             again = check_jobs.run_checks(conn, cap=25, write=True,
                                           now=now_s, pause=no_pause)
             check(again["due"] == 0 and not calls,
@@ -500,6 +504,7 @@ def main() -> int:
             def fake_wait(seconds):
                 waits.append(seconds)
 
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             carried = check_jobs.run_checks(conn, cap=25, write=True,
                                             now=now_s, pause=no_pause,
                                             backoff=0, wait=fake_wait)
@@ -549,6 +554,7 @@ def main() -> int:
             responses["1616"] = limited("1616")
             responses["1717"] = live_for("1717")
             waits.clear()
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             struck = check_jobs.run_checks(conn, cap=25, write=True,
                                            now=now_s, pause=no_pause,
                                            backoff=0, wait=fake_wait)
@@ -570,6 +576,7 @@ def main() -> int:
                   "the stop names how many rows were left")
 
             waits.clear()
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             tallied = check_jobs.run_checks(conn, cap=25, write=False,
                                             now=now_s, pause=no_pause,
                                             backoff=7, wait=fake_wait)
@@ -585,6 +592,7 @@ def main() -> int:
             radar_common.now_iso = lambda: now_s
             try:
                 with contextlib.redirect_stdout(buf):
+                    linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
                     rc_main = check_jobs.main(["--dry-run", "--db", str(db),
                                                "--backoff", "0"])
             finally:
@@ -603,6 +611,7 @@ def main() -> int:
 
             responses["1313"] = (
                 0, "https://www.linkedin.com/jobs/view/1313/", "")
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             failed = check_jobs.run_checks(conn, cap=25, write=True,
                                            now=now_s, pause=no_pause,
                                            backoff=0, wait=fake_wait)
@@ -616,6 +625,7 @@ def main() -> int:
             responses["555"] = (
                 200, "https://www.linkedin.com/jobs/view/555/",
                 pages["live"].replace(jid, "555"))
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             spot = check_jobs.run_checks(conn, only_id=d, write=False,
                                          now=now_s, pause=no_pause)
             check(spot["checked"] == 1
@@ -803,6 +813,7 @@ def main() -> int:
         real_fetch = check_jobs.fetch_job_page
         check_jobs.fetch_job_page = fake_fetch_c
         try:
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             dry_c = check_jobs.run_checks(conn, cap=25, write=False,
                                           now=now_s, pause=lambda: None,
                                           backoff=0, wait=lambda s: None)
@@ -816,6 +827,7 @@ def main() -> int:
                   and untouched == 0,
                   "a dry run reads five pages, reports three pay figures and"
                   " one tier move, and writes nothing")
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             live_c = check_jobs.run_checks(conn, cap=25, write=True,
                                            now=now_s, pause=lambda: None,
                                            backoff=0, wait=lambda s: None)
@@ -893,6 +905,7 @@ def main() -> int:
                   " and where on the page the pay came from")
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
+                linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
                 rc_c = check_jobs.main(["--dry-run", "--db",
                                         str(Path(tmp) / "reader.sqlite"),
                                         "--backoff", "0"])

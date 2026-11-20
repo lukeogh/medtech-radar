@@ -81,6 +81,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import radar_common as rc  # noqa: E402
 import applications  # noqa: E402
 import check_jobs  # noqa: E402
+import linkedin_reads  # noqa: E402
 import cv_doc  # noqa: E402
 import cv_store  # noqa: E402
 import hand_roles  # noqa: E402
@@ -520,11 +521,16 @@ def _log_run(conn, usage: dict, config: dict, stored: bool, note: str,
 
 # ----------------------------------------------------------- the one fetch
 
-def _fetch_page(row: dict, out: dict):
+def _fetch_page(row: dict, out: dict, conn=None):
     """Ask LinkedIn for the advert's page once. (description, fetched_at) or None.
 
     None means a notice has said why. Everything that stops this from asking,
     and everything that goes wrong after it has, is told to the page.
+
+    The read goes through the limiter every LinkedIn read shares
+    (linkedin_reads), when given the connection: the gap after any other read,
+    whatever made it, is waited out, and a 429 backoff another reader started
+    stops this one too.
     """
     why = fetch_blocked_why(row)
     if why:
@@ -534,15 +540,32 @@ def _fetch_page(row: dict, out: dict):
     key = ("page", row["id"])
     url = f"https://www.linkedin.com/jobs/view/{job_id}/"
     with GUARD.fetch_lock:
-        # The checker spaces its requests 8 to 12 seconds apart. Clicks on
-        # two roles in quick succession are spaced the same way.
+        # Any two LinkedIn reads are kept linkedin_reads.READ_GAP_SECONDS
+        # apart, whatever made them. Clicks on two roles in quick succession
+        # are spaced the same way.
         if GUARD.last_fetch is not None:
-            _sleep(check_jobs.SPACING_SECONDS[0] - (_mono() - GUARD.last_fetch))
+            _sleep(linkedin_reads.READ_GAP_SECONDS - (_mono() - GUARD.last_fetch))
         if GUARD.blocked_for() > 0:       # a 429 came in while this waited
             _fetch_failed(out, "LinkedIn answered 429, too many requests, a "
                                "moment ago, so Radar is not asking again for "
                                f"{_minutes(GUARD.blocked_for())}.")
             return None
+        read = None
+        if conn is not None:
+            try:
+                read = linkedin_reads.reserve_waiting(conn, "prepare", row["id"])
+            except sqlite3.OperationalError:
+                # The database is held busy. The in-process spacing above
+                # still holds, and the click goes on as it always has.
+                read = None
+            if read is not None and not read["ok"]:
+                # Only a backoff refuses a Prepare read: another reader had
+                # a 429. The gap has been waited out above.
+                GUARD.block(read["wait"])
+                _fetch_failed(out, "LinkedIn answered 429, too many requests, "
+                                   "a moment ago, so Radar is not asking again "
+                                   f"for {_minutes(read['wait'])}.")
+                return None
         out["fetched"] = True
         try:
             status, final_url, body = check_jobs.fetch_job_page(url)
@@ -553,6 +576,10 @@ def _fetch_page(row: dict, out: dict):
         GUARD.last_fetch = _mono()
         if status == 429:
             GUARD.block(check_jobs.BACKOFF_SECONDS)
+        if read is not None:
+            linkedin_reads.finish(conn, read["id"], linkedin_reads.outcome_of(
+                status, check_jobs.classify(status, final_url, body,
+                                            row.get("title"), job_id)[0]))
     if status == 0:
         _fetch_failed(out, "Radar could not reach LinkedIn from this machine.",
                       retry=True)
@@ -634,7 +661,7 @@ def _fetch_and_store(conn, row: dict, out: dict) -> str:
     """
     got = GUARD.take_parked("page", row["id"])
     if got is None:
-        got = _fetch_page(row, out)
+        got = _fetch_page(row, out, conn)
     if got is None:
         return ""
     return _store_description(conn, row, got[0], got[1], out)

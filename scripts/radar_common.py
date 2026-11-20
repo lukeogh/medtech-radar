@@ -167,6 +167,10 @@ _MIGRATIONS = (
     ("opportunities", "expired_at", "TEXT"),
     ("opportunities", "last_checked_at", "TEXT"),
     ("opportunities", "last_check_result", "TEXT"),
+    # Advert freshness. When a page read last answered live, kept apart from
+    # last_checked_at, which a later unclear answer overwrites, so the header
+    # can still say when the advert was last seen live on LinkedIn.
+    ("opportunities", "last_live_check_at", "TEXT"),
     # Closure detection, stage four. One role across its reposts,
     # normalised title plus normalised company. Set in code at store
     # time, backfilled once below, so a repost chain is a GROUP BY

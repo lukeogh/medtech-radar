@@ -92,6 +92,7 @@ import backfill_pay
 import build_dashboard
 import build_digest
 import check_jobs
+import linkedin_reads
 import check_signals
 import process_email
 import radar_common
@@ -1748,7 +1749,9 @@ def checker_checks() -> None:
                                          pause=lambda: None)
             check(len(calls) == 1 and spot["checked"] == 1,
                   "--id on a role that is not applied still fetches its page")
-            # ----- the live run
+            # ----- the live run, a day on, so the shared read limits let the
+            # role that was just spot-checked be read again
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)
             calls.clear()
             run = check_jobs.run_checks(conn, cap=25, write=True, now=now,
                                         pause=lambda: None)
@@ -1801,6 +1804,7 @@ def checker_checks() -> None:
             check_jobs.fetch_job_page = fake_fetch
             real_helper = radar_common.role_is_applied
             radar_common.role_is_applied = lambda *_a, **_k: False
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)   # a day on
             try:
                 calls.clear()
                 run = check_jobs.run_checks(conn, only_id=c, write=True, now=now,
@@ -2863,7 +2867,7 @@ def static_scan_checks() -> None:
           "and every exception still matches a statement "
           f"(stale: {sorted(set(EXCEPTIONS) - used)})")
     wired = {(f, fn) for f, fn, _l, t in sites if "NOT_APPLIED_SQL" in t}
-    needed = {("check_jobs.py", "due_candidates"), ("check_jobs.py", "run_checks"),
+    needed = {("check_jobs.py", "due_candidates"), ("check_jobs.py", "store_verdict"),
               ("check_jobs.py", "expire_stale"), ("regate_rates.py", "regate"),
               ("rescore.py", "rescore_opportunities"),
               ("rescore.py", "regate_backlog"), ("rescore.py", "rescore_stale_cv"),

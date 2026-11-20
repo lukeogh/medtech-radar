@@ -331,7 +331,7 @@ def route_checks() -> None:
             page_checks(b.decode(), first)
             s, b = call(port, "GET", f"/prepare/{first}", headers=own)
             prep = text(b.decode())
-            check(s == 200 and "Client not named" in prep and "Added by you 18 Nov" in prep,
+            check(s == 200 and "Client not named" in prep and f"Added by you {prepare_page.day(rc.now_iso())}" in prep,
                   "Prepare application says it the same way")
             check("Open the advert on Upwork" in prep, "and its advert link names Upwork")
 
@@ -397,11 +397,11 @@ def page_checks(page: str, oid: int) -> None:
     pane = re.search(r'<section class="role role-detail".*?</section>\s*</main>', page, re.S).group(0)
     facts = text(re.search(r'<p class="dh-facts">(.*?)</p>', pane, re.S).group(1))
     check("Client not named" in facts and "Remote" in facts and "Contract" in facts and "Upwork" in facts
-          and "Added by you 18 Nov" in facts, f"the facts line: client, place, type, source, Added by you ({facts.strip()})")
+          and f"Added by you {jobs_page._day(rc.now_iso())}" in facts, f"the facts line: client, place, type, source, Added by you ({facts.strip()})")
     raw = re.search(r'<p class="dh-facts">(.*?)</p>', pane, re.S).group(1)
     check(raw.startswith('<span class="dv') and "\u00b7" not in facts, "set apart by the shared divider")
     check("Open the advert on Upwork" in pane, "the advert link reads Open the advert on Upwork")
-    check("Pasted by you on 18 Nov" in pane and "Read from" not in pane, "the description strip says Pasted by you")
+    check(f"Pasted by you on {jobs_page._day(rc.now_iso())}" in pane and "Read from" not in pane, "the description strip says Pasted by you")
     check('id="detail-company"' not in pane, "no company record link for a client not on file")
     script = add_role_page.SCRIPT
     check("'/jobs/add'" in script and "window.location.href = '/jobs/' + id" in script

@@ -101,6 +101,7 @@ run_one "add a role       (test/run_add_role_test.py)" "test/run_add_role_test.p
 run_one "fix-up           (test/run_fixup_test.py)" "test/run_fixup_test.py"
 run_one "news sources     (test/run_sources_test.py)" "test/run_sources_test.py"
 run_one "shared header    (test/run_header_test.py)" "test/run_header_test.py"
+run_one "advert freshness  (test/run_freshness_test.py)" "test/run_freshness_test.py"
 run_one "page snapshots   (test/run_snapshot_test.py)" "test/run_snapshot_test.py"
 
 echo

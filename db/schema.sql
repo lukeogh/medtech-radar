@@ -404,6 +404,22 @@ CREATE TABLE IF NOT EXISTS news_sources (
   paused_at   TEXT                  -- NULL when the source is read
 );
 
+-- Advert freshness. One row per read of a LinkedIn job page, whatever asked
+-- for it (scheduled, sweep, open, prepare), written before the request goes
+-- out and given its outcome when it comes back. The shared read limits are
+-- worked out from these rows (scripts/linkedin_reads.py), so the dashboard
+-- and the checker under n8n keep one pace between them.
+CREATE TABLE IF NOT EXISTS linkedin_reads (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  at             REAL NOT NULL,       -- seconds since the epoch, UTC
+  ts             TEXT NOT NULL,       -- the same moment, ISO
+  kind           TEXT NOT NULL,       -- open | scheduled | sweep | prepare
+  opportunity_id INTEGER,
+  outcome        TEXT NOT NULL DEFAULT 'pending'
+                 -- pending | live | closed | gone | unknown | 429 | network
+);
+CREATE INDEX IF NOT EXISTS idx_linkedin_reads_at ON linkedin_reads(at);
+
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT

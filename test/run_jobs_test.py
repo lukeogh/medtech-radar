@@ -52,6 +52,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.path.insert(0, str(TEST_DIR))
 
 import build_dashboard  # noqa: E402
+import advert_check  # noqa: E402
 import jobs_page
 import page_frame  # noqa: E402
 
@@ -578,6 +579,7 @@ def pane_checks(tmp: Path) -> None:
     face = next(o for o in jobs_page.build_model(collect(db))["lists"]["open"] if o["id"] == spec)
     bits = jobs_page.facts_bits(face)
     bits[0] = f'<a class="link" id="detail-company" href="/watchlist/{company}">{bits[0]}</a>'
+    bits.append(advert_check.header_bit(face, False))   # the header's advert check
     check(meta is not None and meta.group(1) == page_frame.divided(bits)
           and " · " not in meta.group(1) and ".dh-title{grid-area:title;align-self:center;"
           "font-size:24px" in jobs_page.JOBS_CSS,

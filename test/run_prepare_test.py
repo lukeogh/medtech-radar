@@ -101,6 +101,7 @@ for sub in ("scripts", "test"):
 
 import build_dashboard  # noqa: E402
 import check_jobs  # noqa: E402
+import linkedin_reads  # noqa: E402
 import cv_store  # noqa: E402
 import mocks  # noqa: E402
 import prepare_page  # noqa: E402
@@ -236,6 +237,12 @@ check_jobs.fetch_job_page = fake_fetch
 radar_common.claude_call = counting_claude_call
 prep._mono = lambda: CLOCK[0]
 prep._sleep = lambda seconds: None
+# The shared read limits run on the same hand-moved clock, from a fixed day.
+# A wait for the gap between two reads moves the limits' clock alone, so the
+# guard's own memos are not aged by it.
+READ_SHIFT = [0.0]
+linkedin_reads.clock = lambda: 1_800_000_000.0 + CLOCK[0] + READ_SHIFT[0]
+linkedin_reads.sleep = lambda seconds: READ_SHIFT.__setitem__(0, READ_SHIFT[0] + max(0.0, seconds))
 
 
 def reset() -> None:
@@ -345,10 +352,13 @@ class Env:
             c.close()
 
     def dump(self) -> str:
-        """Every row of every table, to prove that nothing was written."""
+        """Every row of every table, to prove that nothing was written. The
+        log of LinkedIn reads is left out: a read is logged whatever comes of
+        it, because the shared limits are worked out from that log."""
         c = self.conn()
         try:
-            return "\n".join(c.iterdump())
+            return "\n".join(line for line in c.iterdump()
+                             if "linkedin_reads" not in line)
         finally:
             c.close()
 
@@ -2138,11 +2148,11 @@ def fetch_spacing_checks() -> None:
             check(slept == [], "the first page request waits for nobody")
             CLOCK[0] += 3
             env.prepare(b)
-            check(slept == [round(check_jobs.SPACING_SECONDS[0] - 3, 3)],
-                  "a second one three seconds later waits out the rest of the page "
-                  f"checker's eight ({slept})")
+            check(slept == [round(linkedin_reads.READ_GAP_SECONDS - 3, 3)],
+                  "a second one three seconds later waits out the rest of the "
+                  f"twenty seconds every LinkedIn read keeps apart ({slept})")
             del slept[:]
-            CLOCK[0] += check_jobs.SPACING_SECONDS[0] + 1
+            CLOCK[0] += linkedin_reads.READ_GAP_SECONDS + 1
             env.prepare(c)
             check(slept == [], "and one that comes after the gap does not wait")
     finally:
@@ -2501,9 +2511,11 @@ def look_checks() -> None:
               "applied as the one solid purple button")
         facts = re.search(r'<p class="ph-facts">(.*?)</p>', head, re.S).group(1)
         check(facts.startswith('<span class="dv"><span class="dv-in">')
-              and facts.count('<span class="dv-i">') == 4 and "Veltrix Diagnostics" in facts
-              and "First seen" in facts and "\u00b7" not in facts and "fact-rule" not in facts,
-              "line two: company, place, source and first seen, with the shared divider")
+              and facts.count('<span class="dv-i">') == 5 and "Veltrix Diagnostics" in facts
+              and "First seen" in facts and "Checking the advert" in facts
+              and "\u00b7" not in facts and "fact-rule" not in facts,
+              "line two: company, place, source, first seen and the advert check, with the "
+              "shared divider")
         check(re.findall(r'</span>([A-Za-z ]+)</li>', head[head.index('class="stages"'):])
               == ["Preparing", "Applied", "In conversation", "Interviewing", "Offer"]
               and '<span class="pa-app-l" id="pa-app-l">Application</span>' in head
@@ -3437,9 +3449,9 @@ def static_checks() -> None:
                 name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
                 if name == "fetch_job_page":
                     askers.append(path.name)
-    check(sorted(askers) == ["check_jobs.py", "prepare_application.py"],
-          "and the only two places in the code that ask LinkedIn for a page are the "
-          f"page checker and this one ({sorted(askers)})")
+    check(sorted(askers) == ["advert_check.py", "check_jobs.py", "prepare_application.py"],
+          "and the only places in the code that ask LinkedIn for a page are the page "
+          f"checker, the check made when a role opens, and this one ({sorted(askers)})")
     arch = (REPO_ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
     check("does not fetch LinkedIn on a schedule" in arch
           and "check_jobs.fetch_job_page" in arch.split("hard rule")[1][:400],

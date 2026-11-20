@@ -738,7 +738,7 @@ OTHER_WRITERS = {
     ("scripts/backfill_pay.py", "main"),             # pay columns, filled once
     ("scripts/build_digest.py", "commit_token"),     # status after a digest
     ("scripts/check_jobs.py", "expire_stale"),       # expired_at
-    ("scripts/check_jobs.py", "run_checks"),         # last_checked_at, closed_at
+    ("scripts/check_jobs.py", "store_verdict"),      # last_checked_at, last_live_check_at, closed_at
     ("scripts/engagement.py", "backfill"),           # the badge, empty cells only
     ("scripts/enrich_company.py", "enrich_company"), # region
     ("scripts/prepare_application.py", "_store_description"),  # description_text only

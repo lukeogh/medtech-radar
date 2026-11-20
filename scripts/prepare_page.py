@@ -54,6 +54,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import advert_check  # noqa: E402
 import applications  # noqa: E402
 import build_dashboard as bd  # noqa: E402
 import cv_doc  # noqa: E402
@@ -492,6 +493,8 @@ def head_html(m: dict) -> str:
             facts[0] = "Client not named"
         facts[2] = esc(hand_roles.type_word(row))
         facts[4] = f'Added by you {esc(day(row["added_at"]))}'
+    # The advert check, as Jobs draws it (advert freshness).
+    facts.append(advert_check.header_bit(row, bool(m["applied"])))
     marked = ""
     if m["applied"]:
         name = row.get("applied_cv")
@@ -1437,7 +1440,7 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str = "",
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Prepare application, {esc(title)}, MedTech Radar</title>
 <link rel="icon" href="{bd.FAVICON}">
-<style>{page_frame.FRAME_CSS}{legacy_tokens()}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{tiers.PILL_CSS}{PREPARE_CSS}{cv_page.CV_CSS}{SHEET_CSS}</style>
+<style>{page_frame.FRAME_CSS}{legacy_tokens()}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{tiers.PILL_CSS}{PREPARE_CSS}{cv_page.CV_CSS}{SHEET_CSS}{advert_check.CSS}</style>
 </head>
 <body>
 {page_frame.appbar_html("jobs", rc.job_health(conn), "Prepare application")}
@@ -1468,7 +1471,7 @@ def render_prepare_page(conn, item_id: int, config: dict, db_label: str = "",
 </dialog>
 <noscript><p class="notice bad">This page needs JavaScript to fetch, score and edit.</p></noscript>
 </main>
-<script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{PREPARE_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}</script>
+<script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{PREPARE_SCRIPT}{cv_page.CV_MODEL_JS}{cv_page.CV_EDITOR_JS}{advert_check.SCRIPT}</script>
 </body>
 </html>"""
 
@@ -2303,6 +2306,8 @@ PREPARE_SCRIPT = r"""
       if ((name === 'bar' || name === 'gaps' || name === 'experience') && s.classList) s.classList.toggle('is-empty', empty);
     });
     carrier.innerHTML = '';
+    // A redrawn header may carry an advert check still due.
+    if (typeof window !== 'undefined' && window.radarAdvertCheck) window.radarAdvertCheck(slot('head'));
     all('[data-cv-act]').forEach(function (b) { b.disabled = !enabled; });
     setAdvert(advertOpen);
     if (gates && !gatesOpen) gates.removeAttribute('open');

@@ -32,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 import radar_common
 import build_dashboard as bd
 import add_role_page
+import advert_check
 import add_role_page
 import hand_roles
 import page_frame
@@ -1304,6 +1305,10 @@ def role_inner_html(data: dict, model: dict, face: dict, view: str) -> str:
     if cid and int(cid) in (data.get("company_ids") or set()):
         meta[0] = (f'<a class="link" id="detail-company" href="/watchlist/{int(cid)}">'
                    f'{meta[0]}</a>')
+    # The advert check (advert freshness): a role due a read says so here,
+    # and the page script reads its advert once the pane has drawn.
+    meta.append(advert_check.header_bit(
+        face, view == "applied" or bool(face.get("applied_at")), now))
     tags = spec_tag(face)
     if view == "applied":
         tags += (f'<span class="tag tag-positive">{_use("st-pos")}Applied '
@@ -1468,7 +1473,7 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title>
 <link rel="icon" href="{bd.FAVICON}">
-<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{JOBS_CSS}{add_role_page.CSS}</style>
+<style>{page_frame.FRAME_CSS}{page_frame.GROUPS_CSS}{page_frame.TITLES_CSS}{JOBS_CSS}{add_role_page.CSS}{advert_check.CSS}</style>
 </head>
 <body>
 <div class="app" data-page="jobs" data-show="{view}" data-view="{"role" if face is not None else "list"}" data-state="{state_json}">
@@ -1494,7 +1499,7 @@ def render(data: dict, config: dict, db_label: str, selected: int | None = None,
 <template id="no-selection">{no_selection_html(view)}</template>
 {add_role_page.dialog_with_data(config)}
 </div>
-<script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{JOBS_SCRIPT}{add_role_page.SCRIPT}</script>
+<script>{bd.SCRIPT}{page_frame.FRAME_SCRIPT}{JOBS_SCRIPT}{add_role_page.SCRIPT}{advert_check.SCRIPT}</script>
 </body>
 </html>"""
     return status, page
@@ -1950,6 +1955,8 @@ JOBS_SCRIPT = """
                          + ', ' + s[s.length - 1].title : 'Undo last, nothing to undo');
   }
   setStack(stack());
+  // A role the advert check closed goes on the stack from outside this script.
+  document.addEventListener('radar-undo-changed', function () { setStack(stack()); });
 
   // ---- the queue
   function rowFor(key) {
@@ -2085,6 +2092,8 @@ JOBS_SCRIPT = """
       if (h) h.focus({ preventScroll: true });
     }
     startRead(current);
+    // The advert check: a role due a read has its advert read now the pane is drawn.
+    if (window.radarAdvertCheck) window.radarAdvertCheck(role);
   }
   function select(id, opts) {
     opts = opts || {};

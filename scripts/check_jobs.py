@@ -69,13 +69,14 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import radar_common as rc  # noqa: E402
 import engagement  # noqa: E402
+import linkedin_reads  # noqa: E402
 import regate_rates  # noqa: E402
 
 CAP_DEFAULT = 25
 RECHECK_DAYS = 7                 # an answered page is not asked again inside a week
 EXPIRY_DAYS = 45                 # no sign of life this long retires the role (J17)
 SPACING_SECONDS = (8.0, 12.0)    # agent B hit one 429 in ten at five seconds
-BACKOFF_SECONDS = 600            # the wait after a 429, a run of 25 stays under half an hour
+BACKOFF_SECONDS = linkedin_reads.BACKOFF_SECONDS   # the shared wait after a 429, ten minutes
 MAX_429_PER_RUN = 3              # the third 429 ends the run
 FETCH_TIMEOUT = 20
 CHROME_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -513,9 +514,6 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
     wait = wait or _backoff
     if result is None:
         result = new_result(write)
-    floors = None
-    thresholds = None
-    config = None
 
     if only_id is not None:
         raw = conn.execute("SELECT * FROM opportunities WHERE id = ?",
@@ -542,6 +540,7 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
         1 for r in rows if r.get("due_reason") == "never read")
     batch = len(rows[:max(cap, 0)])
 
+    cache: dict = {}
     for index, row in enumerate(rows[:batch]):
         if index:
             pause()
@@ -550,8 +549,30 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
             result["notes"].append(
                 f"id {row['id']}: no LinkedIn job id in its URL, skipped")
             continue
+        # Every read goes through the one limiter the dashboard shares
+        # (linkedin_reads): the gap between any two reads is waited out, a
+        # 429 backoff that is running is waited out too, and a role read in
+        # the last day is left for later.
+        got = linkedin_reads.reserve_waiting(conn, "scheduled", row["id"])
+        if not got["ok"] and got["why"] == "backoff":
+            linkedin_reads.sleep(got["wait"])
+            got = linkedin_reads.reserve_waiting(conn, "scheduled", row["id"])
+        if not got["ok"]:
+            if got["why"] == "role":
+                result["notes"].append(
+                    f"id {row['id']}: read in the last day, left for later")
+                continue
+            line = (f"id {row['id']}: the read limit said {got['why']},"
+                    f" run stopped, {batch - index} left due")
+            result["notes"].append(line)
+            _log(line)
+            break
         status, final_url, body = fetch_job_page(
             f"https://www.linkedin.com/jobs/view/{jid}/")
+        verdict, reason = classify(status, final_url, body,
+                                   row.get("title"), jid)
+        linkedin_reads.finish(conn, got["id"],
+                              linkedin_reads.outcome_of(status, verdict))
         if status == 0:
             result["notes"].append(
                 f"id {row['id']}: network failure, run stopped, row left due")
@@ -562,8 +583,6 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
             result["notes"].append(
                 f"id {row['id']}: marked applied since it fell due, left alone")
             continue
-        verdict, reason = classify(status, final_url, body,
-                                   row.get("title"), jid)
         result["checked"] += 1
         result["verdicts"][verdict] = result["verdicts"].get(verdict, 0) + 1
         result["checks"].append({
@@ -597,25 +616,16 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
             _log(line)
             wait(backoff)
             continue
-        # The page was served, so read it while it is open (Brief C). A
-        # closed page still carries the description until LinkedIn drops
-        # it, and the type and pay are as true of a closed advert as of a
-        # live one. Gone, unknown and authwall results say nothing about
-        # the advert and nothing is read off them.
-        if verdict == "live" or (verdict == "closed" and _MARKUP.search(body)):
-            if floors is None:
-                config = rc.load_config()
-                floors = rc.read_rate_floors(config)
-                thresholds = rc.read_score_thresholds(config)
-            outcome = apply_page(conn, row, read_page(body), floors, config,
-                                 write=write, thresholds=thresholds)
-            if outcome.get("left_alone"):
-                # Applied for while the page was being read, so nothing was
-                # written, and nothing more is stamped or closed for the row.
-                result["notes"].append(
-                    f"id {row['id']}: marked applied since it fell due, "
-                    "left alone")
-                continue
+        stored = store_verdict(conn, row, verdict, body, write, cache)
+        if stored["left_alone"]:
+            # Applied for while the page was being read, so nothing was
+            # written, and nothing more is stamped or closed for the row.
+            result["notes"].append(
+                f"id {row['id']}: marked applied since it fell due, "
+                "left alone")
+            continue
+        outcome = stored["page"]
+        if outcome is not None:
             result["pages_read"] += 1
             result["page_reads"].append(outcome)
             if outcome["engagement_type"] != "unknown":
@@ -627,28 +637,65 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
             if move and move["from"] != move["to"]:
                 key = f"{move['from']} to {move['to']}"
                 result["tier_moves"][key] = result["tier_moves"].get(key, 0) + 1
-        if write:
-            # Both statements carry the condition that leaves an applied role
-            # alone, for a click that lands after the look at the top of the
-            # loop, and the stamp is not made for a role that was applied for.
-            conn.execute(
-                "UPDATE opportunities SET last_checked_at = ?,"
-                " last_check_result = ? WHERE id = ? AND "
-                + rc.NOT_APPLIED_SQL,
-                (rc.now_iso(), verdict, row["id"]))
-            if verdict in ("gone", "closed"):
-                cur = conn.execute(
-                    "UPDATE opportunities SET closed_at = ?,"
-                    " closed_source = 'page_check'"
-                    " WHERE id = ? AND closed_at IS NULL AND "
-                    + rc.NOT_APPLIED_SQL,
-                    (rc.now_iso(), row["id"]))
-                if cur.rowcount:
-                    result["closed"] += 1
-            conn.commit()
-        elif verdict in ("gone", "closed"):
+        if stored["closed"]:
             result["closed"] += 1
     return result
+
+
+def store_verdict(conn, row: dict, verdict: str, body: str, write: bool,
+                  cache: dict, stamp_unknown: bool = True) -> dict:
+    """What a served page's verdict leaves on the row, the one way it is
+    stored whoever read the page: the scheduled run or a role being opened.
+
+    The page is read while it is open (Brief C). A closed page still carries
+    the description until LinkedIn drops it, and the type and pay are as true
+    of a closed advert as of a live one. Gone, unknown and authwall results
+    say nothing about the advert and nothing is read off them. Then, when
+    writing, the stamps: last_checked_at and last_check_result, with
+    last_live_check_at on a live answer, and closed_at with closed_source
+    page_check on gone or closed. stamp_unknown False leaves an unknown
+    answer unwritten altogether. cache holds the config between rows.
+
+    Returns {"left_alone": the role was applied for meanwhile and nothing was
+    written, "page": apply_page's outcome or None, "closed": the row was
+    closed (in a dry run, would have been)}.
+    """
+    out = {"left_alone": False, "page": None, "closed": False}
+    if verdict == "live" or (verdict == "closed" and _MARKUP.search(body or "")):
+        if "floors" not in cache:
+            cache["config"] = rc.load_config()
+            cache["floors"] = rc.read_rate_floors(cache["config"])
+            cache["thresholds"] = rc.read_score_thresholds(cache["config"])
+        outcome = apply_page(conn, row, read_page(body), cache["floors"],
+                             cache["config"], write=write,
+                             thresholds=cache["thresholds"])
+        if outcome.get("left_alone"):
+            out["left_alone"] = True
+            return out
+        out["page"] = outcome
+    if not write:
+        out["closed"] = verdict in ("gone", "closed")
+        return out
+    if verdict == "unknown" and not stamp_unknown:
+        return out
+    # Both statements carry the condition that leaves an applied role alone,
+    # for a click that lands after the look before the fetch, and the stamp
+    # is not made for a role that was applied for.
+    stamp = rc.now_iso()
+    live = ", last_live_check_at = ?" if verdict == "live" else ""
+    conn.execute(
+        "UPDATE opportunities SET last_checked_at = ?, last_check_result = ?"
+        + live + " WHERE id = ? AND " + rc.NOT_APPLIED_SQL,
+        (stamp, verdict, *((stamp,) if live else ()), row["id"]))
+    if verdict in ("gone", "closed"):
+        cur = conn.execute(
+            "UPDATE opportunities SET closed_at = ?,"
+            " closed_source = 'page_check'"
+            " WHERE id = ? AND closed_at IS NULL AND " + rc.NOT_APPLIED_SQL,
+            (stamp, row["id"]))
+        out["closed"] = bool(cur.rowcount)
+    conn.commit()
+    return out
 
 
 # ------------------------------------------------------------------- expiry

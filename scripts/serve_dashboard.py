@@ -79,6 +79,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import radar_common
+import advert_check
 import applications
 import build_dashboard
 import jobs_page
@@ -903,6 +904,27 @@ def set_read(item_id: int) -> dict:
         return {"ok": True, "id": item_id, "stamped": stamped}
     except sqlite3.OperationalError as err:
         return {"ok": False, "note": f"database busy, try again. {err}"}
+    finally:
+        conn.close()
+
+
+def check_advert(item_id: int) -> dict:
+    """A role was opened: read its LinkedIn advert once, if it is due a read
+    and the shared limits allow one (advert_check). The page has drawn already;
+    this answers its script. A database that stays locked is a polite failure,
+    and the header then says it could not check."""
+    try:
+        conn = radar_common.get_db(db_path())
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "state": "failed", "note": f"database busy, try again. {err}"}
+    try:
+        result = advert_check.check_on_open(conn, item_id)
+        if result.get("rate_limited"):
+            # Prepare application keeps its own note of a 429 for its button.
+            prepare_application.GUARD.block(advert_check.linkedin_reads.BACKOFF_SECONDS)
+        return result
+    except sqlite3.OperationalError as err:
+        return {"ok": False, "state": "failed", "note": f"database busy, try again. {err}"}
     finally:
         conn.close()
 
@@ -2019,6 +2041,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
             result = set_read(item_id)
             self._send(200 if result["ok"] else 409,
+                       json.dumps(result).encode(), "application/json")
+            return
+        if path == advert_check.ROUTE:
+            body = self._read_json_body()
+            item_id = body.get("id") if isinstance(body, dict) else None
+            # The same id rule as /apply: a real integer that SQLite can hold.
+            if (not isinstance(item_id, int) or isinstance(item_id, bool)
+                    or not -2 ** 63 <= item_id < 2 ** 63):
+                self._send(400, b'{"ok": false, "note": "id must be an integer"}',
+                           "application/json")
+                return
+            result = check_advert(item_id)
+            self._send(200 if result.get("ok") else 409,
                        json.dumps(result).encode(), "application/json")
             return
         if path in ("/close", "/unclose", "/dismiss", "/undismiss"):
