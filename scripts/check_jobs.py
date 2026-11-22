@@ -1,11 +1,11 @@
 """Radar page checker.
 
 Asks the public job page itself whether a top or question role is still
-accepting applications. A row with no liveness signal in seven days, no
-sighting and no live check, gets one polite anonymous fetch and a verdict
-from agent B's ladder: gone, closed, live or unknown. Only a documented
-closed marker ever closes a role. Unknown changes nothing and is asked
-again a week later.
+accepting applications. A row that has been quiet for three days, no
+sighting and no read of its page, gets one polite anonymous fetch and a
+verdict from agent B's ladder: gone, closed, live or unknown. Only a
+documented closed marker ever closes a role. Unknown changes nothing and
+the row is asked again after another three quiet days.
 
 The daily run ends with the expiry pass: any role whose repost chain has
 shown no sign of life in forty-five days retires as expired, every tier
@@ -20,19 +20,29 @@ figure, takes the page's stated pay and re-runs the rate gate and the
 tier in code. Nothing is read off a gone, unknown or login-wall result.
 Every word stored is the advert's, none is the checker's (J9).
 
-Selection (J20): a top or question role with no live confirmation in
-seven days, or whose page has never been read, is checked at source,
-stale rows first, never-read rows after them, inside the same cap.
+Selection (advert freshness): every top or question role whose page has
+never been read, or whose last read and last sighting are both more than
+three days old. Top prospects before One question away, and within each,
+the longest unchecked first, never-read rows leading.
+
+The sweep (--sweep, off by default): every role in Top prospects and One
+question away read once, whatever its dates, at the same pace and under
+the same limits, with no daily cap. It stops on a 429 and the same command
+carries on where it left off: a role read since the sweep began, or in the
+last day, counts as done. It ends when none is left. No expiry pass.
 
 Safety posture:
 - Dry run is the default. Fetches happen and the classifications print,
-  nothing is written. Live stamps need an explicit --live.
-- Polite fetching. Sequential, 8 to 12 seconds apart, 20 second timeout,
-  no in-run retries, hard cap per run. A 429 is a wait, not a stop: the
-  row is not stamped and stays due, the run backs off ten minutes and
-  carries on with the next row. The third 429 in one run ends it and
-  the rest of the batch waits for tomorrow. The study saw the limit
-  lift within seconds, so one 429 should never cost a day.
+  nothing is written. Live stamps need an explicit --live. The sweep only
+  runs live, because a dry run would never mark a role done.
+- Polite fetching. Sequential, 60 to 75 seconds apart, 20 second timeout,
+  no in-run retries, hard cap per run, and every read through the one
+  limiter the dashboard shares (linkedin_reads): at least 20 seconds
+  between any two LinkedIn reads whatever made them, one read per role a
+  day, at most 15 scheduled reads a UTC day, and nothing at all for ten
+  minutes after a 429. The first 429 ends the run: the row is not stamped
+  and the rest are left for the next run. A backoff another reader started
+  ends it the same way.
 - Honest verdicts. Body text, JSON-LD and the bare HTTP status each
   mislead on their own, the study showed it, so none of them decides
   anything alone. The default verdict is unknown.
@@ -42,10 +52,11 @@ Safety posture:
 Flags:
   --dry-run   fetch and classify, write nothing (also the default)
   --live      write the stamps, close on a confirmed marker
-  --cap N     fetches per run, default 25
+  --cap N     fetches per run, default 25 (the daily limit of 15 holds too)
   --id N      spot-check one stored row, bypasses the due gate
+  --sweep     read every top and question role once, carrying on from the
+              last sweep if it stopped; needs --live
   --db PATH   alternate database for test isolation
-  --backoff S seconds to wait after a 429 before the next row, default 600
 """
 
 from __future__ import annotations
@@ -73,11 +84,11 @@ import linkedin_reads  # noqa: E402
 import regate_rates  # noqa: E402
 
 CAP_DEFAULT = 25
-RECHECK_DAYS = 7                 # an answered page is not asked again inside a week
+QUIET_DAYS = 3                   # no read and no sighting this long makes a role due
 EXPIRY_DAYS = 45                 # no sign of life this long retires the role (J17)
-SPACING_SECONDS = (8.0, 12.0)    # agent B hit one 429 in ten at five seconds
+SPACING_SECONDS = (60.0, 75.0)   # between two reads in one run, with a little spread
 BACKOFF_SECONDS = linkedin_reads.BACKOFF_SECONDS   # the shared wait after a 429, ten minutes
-MAX_429_PER_RUN = 3              # the third 429 ends the run
+SWEEP_KEY = "check_sweep_started_at"   # in meta while a sweep is under way
 FETCH_TIMEOUT = 20
 CHROME_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
              " (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
@@ -176,13 +187,6 @@ def _pause() -> None:
     if rc.mock_mode_active():
         return
     time.sleep(random.uniform(*SPACING_SECONDS))
-
-
-def _backoff(seconds: float) -> None:
-    """The wait after a 429. Skipped in mock mode, tests never wait."""
-    if rc.mock_mode_active() or seconds <= 0:
-        return
-    time.sleep(seconds)
 
 
 def _log(line: str) -> None:
@@ -443,46 +447,69 @@ def apply_page(conn, row: dict, page: dict, floors: dict,
 HAND_SKIP_SQL = "added_at IS NULL"
 
 
-def due_candidates(conn, now: str | None = None) -> list[dict]:
-    """Top and question rows due a look at their page (J20).
-
-    Two reasons, in this order. Stale: no liveness signal in seven days.
-    A sighting or a live check inside the window keeps a row off this
-    part of the list, and so does a check of any verdict, so an
-    unanswered page is asked weekly rather than daily. Never read: the
-    page has never been checked at all, however fresh the sighting, so
-    its type and pay get read once. Within each reason Top rows come
-    first, then the stalest liveness, so the cap spends itself where it
-    matters. Each row carries its reason in due_reason. Rows without a
-    LinkedIn job URL cannot be asked and are left out.
-    """
-    now = now or rc.now_iso()
-    moment = datetime.strptime(now, "%Y-%m-%dT%H:%M:%SZ")
-    recheck_cutoff = ((moment - timedelta(days=RECHECK_DAYS))
-                      .strftime("%Y-%m-%dT%H:%M:%SZ"))
+def _open_top_rows(conn) -> list[dict]:
+    """Every open top or question row with a LinkedIn job page Radar may ask
+    for: not acknowledged, closed, dismissed, expired, applied or added by
+    hand."""
     rows = conn.execute(
         "SELECT * FROM opportunities"
         " WHERE acknowledged_at IS NULL AND closed_at IS NULL"
         " AND dismissed_at IS NULL AND expired_at IS NULL"
         " AND " + rc.NOT_APPLIED_SQL + " AND " + HAND_SKIP_SQL +
-        " AND tier IN ('top', 'question')"
-        " ORDER BY CASE tier WHEN 'top' THEN 0 ELSE 1 END,"
-        " COALESCE(last_seen, first_seen)").fetchall()
+        " AND tier IN ('top', 'question') ORDER BY id").fetchall()
+    return [dict(r) for r in rows if job_view_id(r["source_url"] or "")]
+
+
+def _longest_unchecked(rows: list[dict]) -> list[dict]:
+    """Top prospects before One question away, and within each the longest
+    unchecked first: never read, then the oldest read, then the stalest
+    sign of life."""
+    return sorted(rows, key=lambda r: (
+        0 if r.get("tier") == "top" else 1,
+        r.get("last_checked_at") or "",
+        rc.latest_liveness(r)))
+
+
+def due_candidates(conn, now: str | None = None) -> list[dict]:
+    """Top and question rows due a look at their page (advert freshness).
+
+    Due: the page has never been read, or neither a read of any verdict nor
+    a sighting has happened in three days. Ordered by _longest_unchecked.
+    Each row carries its reason in due_reason, never read or stale. Rows
+    without a LinkedIn job URL cannot be asked and are left out.
+    """
+    now = now or rc.now_iso()
+    moment = datetime.strptime(now, "%Y-%m-%dT%H:%M:%SZ")
+    quiet = ((moment - timedelta(days=QUIET_DAYS))
+             .strftime("%Y-%m-%dT%H:%M:%SZ"))
     due = []
-    never_read = []
-    for raw in rows:
-        row = dict(raw)
-        if not job_view_id(row.get("source_url") or ""):
-            continue
-        if rc.life_state(row, now) == "unknown":
-            if (row.get("last_checked_at") or "") > recheck_cutoff:
-                continue
-            row["due_reason"] = "stale"
-            due.append(row)
-        elif not row.get("last_checked_at"):
+    for row in _open_top_rows(conn):
+        checked = row.get("last_checked_at") or ""
+        if not checked:
             row["due_reason"] = "never read"
-            never_read.append(row)
-    return due + never_read
+        elif checked > quiet or rc.latest_liveness(row) > quiet:
+            continue
+        else:
+            row["due_reason"] = "stale"
+        due.append(row)
+    return _longest_unchecked(due)
+
+
+def sweep_candidates(conn, since: str, now: str | None = None) -> list[dict]:
+    """The rows a sweep begun at since has still to read: every open top or
+    question row with a LinkedIn page, less those read since the sweep began
+    or in the last day. Ordered by _longest_unchecked."""
+    now = now or rc.now_iso()
+    moment = datetime.strptime(now, "%Y-%m-%dT%H:%M:%SZ")
+    day = (moment - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    done_after = min(since, day)
+    left = []
+    for row in _open_top_rows(conn):
+        if (row.get("last_checked_at") or "") >= done_after:
+            continue
+        row["due_reason"] = "sweep"
+        left.append(row)
+    return _longest_unchecked(left)
 
 
 # ----------------------------------------------------------------- the run
@@ -492,7 +519,7 @@ def new_result(write: bool) -> dict:
     return {
         "mode": "live" if write else "dry-run",
         "due": 0, "due_never_read": 0, "checked": 0, "closed": 0,
-        "rate_limited": 0, "backoff_seconds": 0, "rate_limits": [],
+        "rate_limited": 0, "rate_limits": [], "stopped": None,
         "verdicts": {}, "checks": [], "notes": [],
         "pages_read": 0, "types_set": 0, "siblings_set": 0, "pay_set": 0,
         "tier_moves": {}, "page_reads": [],
@@ -501,17 +528,19 @@ def new_result(write: bool) -> dict:
 
 def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
                only_id: int | None = None, now: str | None = None,
-               pause=None, backoff: float = BACKOFF_SECONDS,
-               wait=None, result: dict | None = None) -> dict:
+               pause=None, result: dict | None = None,
+               sweep_since: str | None = None) -> dict:
     """Fetch, classify and (in live mode) stamp one capped batch.
 
-    backoff is the wait in seconds after a 429, wait is the function that
-    performs it. Tests pass a recorder and zero. result, when given, is the
-    tally to fill, so that a run that fails part-way still has its counts.
+    pause is the gap between two reads, tests pass one that returns at once.
+    result, when given, is the tally to fill, so that a run that fails
+    part-way still has its counts. sweep_since, the moment a sweep began,
+    makes this a sweep: its rows are sweep_candidates and its reads are of
+    kind sweep, which no daily cap holds.
     """
     now = now or rc.now_iso()
     pause = pause or _pause
-    wait = wait or _backoff
+    kind = "scheduled" if sweep_since is None else "sweep"
     if result is None:
         result = new_result(write)
 
@@ -533,6 +562,8 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
                 f"id {only_id}: on a role marked applied, left alone")
             return result
         rows = [dict(raw)]
+    elif sweep_since is not None:
+        rows = sweep_candidates(conn, sweep_since, now)
     else:
         rows = due_candidates(conn, now)
     result["due"] = len(rows)
@@ -551,19 +582,20 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
             continue
         # Every read goes through the one limiter the dashboard shares
         # (linkedin_reads): the gap between any two reads is waited out, a
-        # 429 backoff that is running is waited out too, and a role read in
-        # the last day is left for later.
-        got = linkedin_reads.reserve_waiting(conn, "scheduled", row["id"])
-        if not got["ok"] and got["why"] == "backoff":
-            linkedin_reads.sleep(got["wait"])
-            got = linkedin_reads.reserve_waiting(conn, "scheduled", row["id"])
+        # role read in the last day is left for later, and a running 429
+        # backoff or the day's cap ends the run.
+        got = linkedin_reads.reserve_waiting(conn, kind, row["id"])
         if not got["ok"]:
             if got["why"] == "role":
                 result["notes"].append(
                     f"id {row['id']}: read in the last day, left for later")
                 continue
-            line = (f"id {row['id']}: the read limit said {got['why']},"
-                    f" run stopped, {batch - index} left due")
+            words = {"backoff": "a 429 backoff is running",
+                     "daily": "the day's limit of"
+                              f" {linkedin_reads.DAILY_CAPS.get(kind)} reads is reached"}
+            result["stopped"] = got["why"]
+            line = (f"{words.get(got['why'], got['why'])}, run stopped,"
+                    f" {batch - index} left due")
             result["notes"].append(line)
             _log(line)
             break
@@ -592,30 +624,19 @@ def run_checks(conn, cap: int = CAP_DEFAULT, write: bool = False,
         })
         if status == 429:
             # A 429 says nothing about the page, so nothing is stamped and
-            # the row stays due, at the head of tomorrow's batch. The run
-            # waits out the limit and moves on to the next row. The same
-            # URL is never asked twice in one run. A third 429 means the
-            # limit is holding, so the run ends and the rest waits.
+            # the row stays due. The first one ends the run and the rest are
+            # left for the next, and the backoff it starts holds every other
+            # reader for ten minutes.
             stamp = rc.now_iso()
             result["rate_limited"] += 1
-            entry = {"ts": stamp, "id": row["id"], "fetch": index + 1,
-                     "waited": 0}
-            result["rate_limits"].append(entry)
-            if result["rate_limited"] >= MAX_429_PER_RUN:
-                line = (f"{stamp}: 429 on id {row['id']}, fetch {index + 1}"
-                        f" of {batch}, the third this run, run stopped,"
-                        f" {batch - index - 1} left due")
-                result["notes"].append(line)
-                _log(line)
-                break
-            entry["waited"] = backoff
-            result["backoff_seconds"] += backoff
+            result["rate_limits"].append({"ts": stamp, "id": row["id"],
+                                          "fetch": index + 1})
+            result["stopped"] = "429"
             line = (f"{stamp}: 429 on id {row['id']}, fetch {index + 1}"
-                    f" of {batch}, waiting {backoff:g}s, row left due")
+                    f" of {batch}, run stopped, {batch - index - 1} left due")
             result["notes"].append(line)
             _log(line)
-            wait(backoff)
-            continue
+            break
         stored = store_verdict(conn, row, verdict, body, write, cache)
         if stored["left_alone"]:
             # Applied for while the page was being read, so nothing was
@@ -698,6 +719,39 @@ def store_verdict(conn, row: dict, verdict: str, body: str, write: bool,
     return out
 
 
+# -------------------------------------------------------------------- sweep
+
+def run_sweep(conn, cap: int = 10_000, now: str | None = None, pause=None,
+              result: dict | None = None) -> dict:
+    """Read every role in Top prospects and One question away once, live.
+
+    The sweep's start is kept in meta under SWEEP_KEY, so a sweep that a 429
+    or a backoff stopped carries on where it left off the next time this
+    runs. When no role is left, the key goes and the sweep is done; the next
+    --sweep begins a new one. result["sweep_done"] says which it was.
+    """
+    now = now or rc.now_iso()
+    if result is None:
+        result = new_result(True)
+    held = conn.execute("SELECT value FROM meta WHERE key = ?",
+                        (SWEEP_KEY,)).fetchone()
+    since = held["value"] if held else now
+    if not held:
+        conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                     (SWEEP_KEY, since))
+        conn.commit()
+    result["sweep_since"] = since
+    run_checks(conn, cap=cap, write=True, now=now, pause=pause,
+               result=result, sweep_since=since)
+    left = sweep_candidates(conn, since, rc.now_iso())
+    result["sweep_left"] = len(left)
+    result["sweep_done"] = not left
+    if not left:
+        conn.execute("DELETE FROM meta WHERE key = ?", (SWEEP_KEY,))
+        conn.commit()
+    return result
+
+
 # ------------------------------------------------------------------- expiry
 
 def expire_stale(conn, write: bool = False, now: str | None = None) -> dict:
@@ -772,23 +826,28 @@ def main(argv=None) -> int:
                     help="fetch and classify, write nothing (default)")
     ap.add_argument("--live", action="store_true",
                     help="write the stamps, close on a confirmed marker")
-    ap.add_argument("--cap", type=int, default=CAP_DEFAULT,
-                    help=f"fetches per run, default {CAP_DEFAULT}")
+    ap.add_argument("--cap", type=int, default=None,
+                    help=f"fetches per run, default {CAP_DEFAULT}, and no cap"
+                         " on a sweep")
     ap.add_argument("--id", type=int, metavar="N",
                     help="spot-check one stored row, bypasses the due gate")
+    ap.add_argument("--sweep", action="store_true",
+                    help="read every top and question role once, carrying on"
+                         " from the last sweep if it stopped; needs --live")
     ap.add_argument("--db", metavar="PATH", help="alternate database path")
-    ap.add_argument("--backoff", type=float, default=BACKOFF_SECONDS,
-                    metavar="S",
-                    help="seconds to wait after a 429 before the next row,"
-                         f" default {BACKOFF_SECONDS}")
     args = ap.parse_args(argv)
 
     if args.dry_run and args.live:
         print("Choose one of --dry-run or --live, not both.", file=sys.stderr)
         return 2
+    if args.sweep and (not args.live or args.id is not None):
+        print("--sweep needs --live, and no --id: a dry run would never mark"
+              " a role done.", file=sys.stderr)
+        return 2
     write = args.live
     if not write and not args.dry_run:
         print("No mode flag given, defaulting to dry run.", file=sys.stderr)
+    cap = args.cap if args.cap is not None else (10_000 if args.sweep else CAP_DEFAULT)
 
     conn = rc.get_db(Path(args.db)) if args.db else rc.get_db()
     # The row in runs is written however the run ends. It used to be the
@@ -798,9 +857,12 @@ def main(argv=None) -> int:
     result = new_result(write)
     failure = None
     try:
-        run_checks(conn, cap=args.cap, write=write, only_id=args.id,
-                   backoff=args.backoff, result=result)
-        if args.id is None:
+        if args.sweep:
+            run_sweep(conn, cap=cap, result=result)
+        else:
+            run_checks(conn, cap=cap, write=write, only_id=args.id,
+                       result=result)
+        if args.id is None and not args.sweep:
             # The expiry pass rides on the daily run, never on a spot check.
             expiry = expire_stale(conn, write=write)
             result["expired"] = expiry["expired"]
@@ -817,14 +879,19 @@ def main(argv=None) -> int:
     verdicts = ", ".join(f"{v} {k}" for k, v in sorted(
         result["verdicts"].items(), key=lambda kv: -kv[1]))
     note = f"{result['due']} due, {result['checked']} checked"
+    if args.sweep:
+        note = ("sweep " + ("complete" if result.get("sweep_done") else "to carry on")
+                + f", {result['due']} left, {result['checked']} checked")
     if verdicts:
         note += f", {verdicts}"
     if result["rate_limited"]:
         # The clock times of every 429 ride in the runs row, so a week of
         # rows shows whether the limit has a pattern.
         stamps = ", ".join(e["ts"][11:] for e in result["rate_limits"])
-        note += (f", {result['rate_limited']} rate limited, 429 at {stamps},"
-                 f" {result['backoff_seconds']:g}s backoff")
+        note += f", {result['rate_limited']} rate limited, 429 at {stamps}, run stopped"
+    elif result.get("stopped"):
+        note += {"backoff": ", stopped: a 429 backoff was running",
+                 "daily": ", stopped: the day's limit was reached"}.get(result["stopped"], "")
     if result["pages_read"]:
         note += (f", {result['pages_read']} pages read, {result['types_set']}"
                  f" types, {result['siblings_set']} siblings, {result['pay_set']}"

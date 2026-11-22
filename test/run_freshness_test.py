@@ -24,6 +24,10 @@ expired redirect), a login wall (authwall.html, served at /authwall) and a
 5. How fresh the check is: every role with a LinkedIn advert says its last
    check in the header's facts line, on Jobs and Prepare application; the
    rows say nothing of it; Details keeps its State line.
+6. The scheduled check: due after three quiet days, Top prospects first and
+   the longest unchecked first, 60 to 75 seconds between reads, stopped by
+   the first 429, at most 15 reads a day; and the sweep, which reads every
+   Top and One question away role once, stops on a 429 and carries on.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ import argparse
 import ast
 import contextlib
 import http.client
+import io
 import json
 import os
 import re
@@ -538,12 +543,160 @@ def fresh_header_checks() -> None:
     del today
 
 
+# ------------------------------------------------------------ 6. scheduled
+
+def days_ago(n: float) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=n)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def midday() -> None:
+    """Move the limits' clock to the next midday UTC, so a day's reads never
+    straddle midnight."""
+    CLOCK[0] = CLOCK[0] - CLOCK[0] % 86400 + 86400 + 43200
+
+
+def scheduled_checks() -> None:
+    check(check_jobs.QUIET_DAYS == 3 and check_jobs.SPACING_SECONDS == (60.0, 75.0)
+          and lr.DAILY_CAPS["scheduled"] == 15 and "sweep" not in lr.DAILY_CAPS,
+          "three quiet days, 60 to 75 seconds apart, 15 scheduled reads a day, no cap on the sweep")
+    slept = []
+    real_mock, real_sleep = rc.mock_mode_active, check_jobs.time.sleep
+    rc.mock_mode_active = lambda: False
+    check_jobs.time.sleep = slept.append
+    try:
+        for _ in range(40):
+            check_jobs._pause()
+    finally:
+        rc.mock_mode_active, check_jobs.time.sleep = real_mock, real_sleep
+    check(len(slept) == 40 and all(60 <= x <= 75 for x in slept) and len(set(slept)) > 1,
+          f"the pause between reads is 60 to 75 seconds, with a little spread ({min(slept):.1f} to {max(slept):.1f})")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db, conn = fresh(tmp)
+        midday()
+        q_old = plant(conn, "9100000001", "question", seen=days_ago(20),
+                      last_checked_at=days_ago(10), last_check_result="live")
+        q_never = plant(conn, "9100000002", "question", seen=days_ago(1))
+        quiet_at = days_ago(4)
+        t_quiet = plant(conn, "9100000003", "top", seen=days_ago(9),
+                        last_checked_at=quiet_at, last_check_result="live")
+        t_older = plant(conn, "9100000004", "top", seen=days_ago(9),
+                        last_checked_at=days_ago(6), last_check_result="unknown")
+        plant(conn, "9100000005", "top", seen=days_ago(9),
+              last_checked_at=days_ago(2), last_check_result="live")      # read two days ago
+        plant(conn, "9100000006", "question", seen=days_ago(2),
+              last_checked_at=days_ago(8), last_check_result="live")      # seen two days ago
+        plant(conn, "9100000007", "reading", seen=days_ago(20))           # not top or question
+        plant(conn, "9100000008", "top", seen=days_ago(20), added_at=days_ago(20),
+              source="upwork")                                             # added by hand
+        order = [r["id"] for r in check_jobs.due_candidates(conn)]
+        check(order == [t_older, t_quiet, q_never, q_old],
+              "due after three quiet days: Top prospects first, the longest unchecked first;"
+              " a role read or seen in the last three days, Reading and hand roles left out")
+
+        ANSWERS.update({"9100000004": "live", "9100000003": "429", "9100000002": "live"})
+        del FETCHES[:]
+        pauses = []
+        run = check_jobs.run_checks(conn, cap=25, write=True, pause=lambda: pauses.append(1))
+        check(len(FETCHES) == 2 and run["stopped"] == "429" and run["rate_limited"] == 1
+              and row_of(conn, t_quiet)["last_checked_at"] == quiet_at
+              and row_of(conn, q_never)["last_checked_at"] is None,
+              "the first 429 stops the run: nothing stamped for it, the rest left for the next run")
+        check(len(pauses) == 1, "the run pauses between its two reads, not before the first")
+        tick(30)
+        opened = advert_check.check_on_open(conn, q_never)
+        check(opened["state"] == "limited" and opened["why"] == "backoff" and len(FETCHES) == 2,
+              "and the scheduled run's 429 holds the read on open too, one limiter")
+        tick(601)
+        ANSWERS["9100000003"] = "login"
+        run = check_jobs.run_checks(conn, cap=25, write=True, pause=lambda: None)
+        check(run["checked"] == 3 and row_of(conn, t_quiet)["last_check_result"] == "unknown"
+              and row_of(conn, t_quiet)["closed_at"] is None,
+              "after the backoff the next run carries on; a login wall is unknown and closes nothing")
+        conn.close()
+
+    # fifteen scheduled reads a day
+    with tempfile.TemporaryDirectory() as tmp:
+        db, conn = fresh(tmp)
+        midday()
+        ids = [plant(conn, f"92000000{n:02d}", "question", seen=days_ago(10)) for n in range(20)]
+        del FETCHES[:]
+        run = check_jobs.run_checks(conn, cap=25, write=True, pause=lambda: None)
+        check(len(FETCHES) == 15 and run["checked"] == 15 and run["stopped"] == "daily"
+              and any("limit of 15 reads" in n and "5 left due" in n for n in run["notes"]),
+              "at most 15 scheduled reads a day, the rest left for tomorrow, whatever the cap")
+        tick(30)
+        opened = advert_check.check_on_open(conn, ids[-1])
+        check(opened["state"] == "live", "the scheduled cap does not hold back a read on open")
+        conn.close()
+
+    # the sweep
+    with tempfile.TemporaryDirectory() as tmp:
+        db, conn = fresh(tmp)
+        midday()
+        half_day = days_ago(0.5)
+        fresh_read = plant(conn, "9300000001", "top", seen=days_ago(1),
+                           last_checked_at=half_day, last_check_result="live")
+        recent = plant(conn, "9300000002", "top", seen=days_ago(1),
+                       last_checked_at=days_ago(2), last_check_result="live")
+        many = [plant(conn, f"93000001{n:02d}", "question", seen=days_ago(1)) for n in range(17)]
+        reading = plant(conn, "9300000003", "reading", seen=days_ago(1))
+        hand = plant(conn, "9300000004", "top", seen=days_ago(1), added_at=days_ago(1),
+                     source="upwork")
+        check(recent not in [r["id"] for r in check_jobs.due_candidates(conn)]
+              and recent in [r["id"] for r in check_jobs.sweep_candidates(conn, rc.now_iso())],
+              "the sweep reads a role the schedule would not read yet, one read two days ago")
+        ANSWERS["9300000002"] = "live"
+        for n in range(17):
+            ANSWERS[f"93000001{n:02d}"] = "live"
+        ANSWERS["9300000105"] = "429"
+        del FETCHES[:]
+        first = check_jobs.run_sweep(conn, pause=lambda: None)
+        held = conn.execute("SELECT value FROM meta WHERE key = ?",
+                            (check_jobs.SWEEP_KEY,)).fetchone()
+        check(first["stopped"] == "429" and not first["sweep_done"] and held is not None
+              and len(FETCHES) == 7 and view("9300000002") == FETCHES[0],
+              "the sweep reads Top first, stops on a 429 and keeps its place")
+        check(view("9300000001") not in FETCHES and view("9300000003") not in FETCHES
+              and view("9300000004") not in FETCHES,
+              "a role read in the last day counts as done; Reading and hand roles are not swept")
+        tick(601)
+        ANSWERS["9300000105"] = "live"
+        del FETCHES[:]
+        second = check_jobs.run_sweep(conn, pause=lambda: None)
+        gone = conn.execute("SELECT value FROM meta WHERE key = ?",
+                            (check_jobs.SWEEP_KEY,)).fetchone()
+        check(second["sweep_done"] and gone is None and len(FETCHES) == 12
+              and view("9300000002") not in FETCHES and view("9300000100") not in FETCHES,
+              "the same command carries on where it left off, reads only what is left, and ends the sweep")
+        check(all(row_of(conn, oid)["last_check_result"] == "live" for oid in many + [recent]),
+              "every Top and One question away role was read once, more than 15 in a day: the sweep has no daily cap")
+        check(row_of(conn, reading)["last_checked_at"] is None
+              and row_of(conn, hand)["last_checked_at"] is None
+              and row_of(conn, fresh_read)["last_checked_at"] == half_day,
+              "and nothing else was touched")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            refused = check_jobs.main(["--sweep", "--db", str(db)])
+        check(refused == 2 and "needs --live" in err.getvalue(),
+              "--sweep without --live is refused, a dry run would never mark a role done")
+        tick(30)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = check_jobs.main(["--live", "--sweep", "--db", str(db)])
+        note = conn.execute("SELECT note FROM runs WHERE workflow = 'check'"
+                            " ORDER BY id DESC LIMIT 1").fetchone()["note"]
+        check(code == 0 and note.startswith("sweep complete") and "expired" not in note,
+              f"the command runs a sweep, logs it, and runs no expiry pass ({note})")
+        conn.close()
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--db", help="ignored: the suite passes it to every runner")
     parser.parse_args(argv)
     for section in (limiter_checks, open_checks, route_checks, script_checks, model_checks,
-                    fresh_header_checks):
+                    fresh_header_checks, scheduled_checks):
         try:
             section()
         except Exception as err:  # noqa: BLE001  one section's failure is reported, the rest run

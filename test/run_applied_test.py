@@ -2867,7 +2867,7 @@ def static_scan_checks() -> None:
           "and every exception still matches a statement "
           f"(stale: {sorted(set(EXCEPTIONS) - used)})")
     wired = {(f, fn) for f, fn, _l, t in sites if "NOT_APPLIED_SQL" in t}
-    needed = {("check_jobs.py", "due_candidates"), ("check_jobs.py", "store_verdict"),
+    needed = {("check_jobs.py", "_open_top_rows"), ("check_jobs.py", "store_verdict"),
               ("check_jobs.py", "expire_stale"), ("regate_rates.py", "regate"),
               ("rescore.py", "rescore_opportunities"),
               ("rescore.py", "regate_backlog"), ("rescore.py", "rescore_stale_cv"),

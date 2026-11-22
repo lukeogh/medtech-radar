@@ -677,10 +677,14 @@ def route_checks(tmp: Path) -> None:
         s, _c, b = call(port, "POST", "/touch/log", json.dumps(
             {"company_id": h, "channel": "comment", "next_step": "Chase.", "due": ""}), w)
         check(s == 409 and json.loads(b)["field"] == "due", "a next step without a date is a 409 on the due field")
+        # A week from the real today: the contact is stamped now, and a due
+        # date before it is refused, so a date from the fixed clock stops
+        # passing a week after that clock.
+        week_on = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
         s, _c, b = call(port, "POST", "/touch/log", json.dumps(
             {"company_id": h, "channel": "connection-note", "note": "Sent the note.",
-             "next_step": "Follow up.", "due": day(7)}), w)
-        check(s == 200 and json.loads(b)["thread"]["due_date"] == day(7), "a contact with its next step is a 200")
+             "next_step": "Follow up.", "due": week_on}), w)
+        check(s == 200 and json.loads(b)["thread"]["due_date"] == week_on, "a contact with its next step is a 200")
         ok = ids["Okara Diagnostics"]
         # One company page (owner, 17 Nov): the old page redirects to the record.
         conn_ = http.client.HTTPConnection("127.0.0.1", port, timeout=60)

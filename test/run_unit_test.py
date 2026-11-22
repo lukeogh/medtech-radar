@@ -385,8 +385,14 @@ def main() -> int:
                   last_check_result="unknown")
         d = plant("555", "top", "2026-11-05T00:00:00Z")
         e = plant("666", "top", "2026-10-20T00:00:00Z",
-                  last_checked_at="2026-11-04T00:00:00Z",
+                  last_checked_at="2026-11-05T00:00:00Z",
                   last_check_result="unknown")
+        h = plant("4545", "top", "2026-10-01T00:00:00Z",
+                  last_checked_at="2026-10-30T00:00:00Z",
+                  last_check_result="unknown")
+        plant("4646", "question", "2026-11-06T00:00:00Z",
+              last_checked_at="2026-10-01T00:00:00Z",
+              last_check_result="unknown")
         plant("777", "reading", "2026-10-20T00:00:00Z")
         plant("888", "top", "2026-10-20T00:00:00Z",
               closed_at="2026-11-01T00:00:00Z", closed_source="manual")
@@ -395,12 +401,14 @@ def main() -> int:
         conn.commit()
 
         due = check_jobs.due_candidates(conn, now_s)
-        check([r["id"] for r in due] == [a, i, b, c, d]
+        check([r["id"] for r in due] == [a, d, h, b, c, i]
               and [r["due_reason"] for r in due]
-              == ["stale"] * 4 + ["never read"],
-              "due is the stale rows, top first then stalest liveness, then"
-              " the never-read fresh row (J20); recently checked, reading,"
-              " closed and off-site rows are left out")
+              == ["never read", "never read", "stale", "never read",
+                  "never read", "stale"],
+              "due is every never-read row and every row quiet for three days,"
+              " Top prospects first, the longest unchecked first within each;"
+              " a row read two days ago, one seen yesterday, reading, closed"
+              " and off-site rows are left out")
 
         gone_url = ("https://www.linkedin.com/jobs/search/"
                     "?position=1&trk=expired_jd_redirect")
@@ -426,6 +434,14 @@ def main() -> int:
 
         real_fetch = check_jobs.fetch_job_page
         check_jobs.fetch_job_page = fake_fetch
+        # The shared read limits on a clock moved by hand, from midday UTC, so
+        # a day's reads never straddle midnight.
+        vclock = [1_800_000_000.0 - 1_800_000_000.0 % 86400 + 43200]
+        real_clock, real_sleep = linkedin_reads.clock, linkedin_reads.sleep
+        linkedin_reads.clock = lambda: vclock[0]
+        linkedin_reads.sleep = lambda sec: vclock.__setitem__(0, vclock[0] + max(0.0, sec))
+        responses["4545"] = (200, "https://www.linkedin.com/jobs/view/4545/",
+                             pages["live"].replace(jid, "4545"))
         try:
             linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             trial = check_jobs.run_checks(conn, cap=2, write=False,
@@ -442,11 +458,11 @@ def main() -> int:
             linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             run = check_jobs.run_checks(conn, cap=25, write=True,
                                         now=now_s, pause=no_pause)
-            check(run["due"] == 5 and run["checked"] == 5
-                  and run["due_never_read"] == 1,
-                  "the live run checks all five due rows, one of them"
+            check(run["due"] == 6 and run["checked"] == 6
+                  and run["due_never_read"] == 4,
+                  "the live run checks all six due rows, four of them"
                   " never read")
-            check(run["closed"] == 2 and run["verdicts"].get("live") == 2
+            check(run["closed"] == 2 and run["verdicts"].get("live") == 3
                   and run["verdicts"].get("unknown") == 1,
                   "the verdicts land two live, one closed, one gone,"
                   " one unknown, two rows retired")
@@ -475,11 +491,11 @@ def main() -> int:
             again = check_jobs.run_checks(conn, cap=25, write=True,
                                           now=now_s, pause=no_pause)
             check(again["due"] == 0 and not calls,
-                  "a second run finds nothing due, checked rows wait a week")
+                  "a second run finds nothing due, checked rows wait three quiet days")
 
-            # A 429 is a wait, not a stop. Nothing is stamped, the row
-            # stays due, the run backs off and carries on. The third 429
-            # in one run ends it.
+            # The first 429 ends the run. Nothing is stamped, the row stays
+            # due, the rest are left for the next run, and the backoff it
+            # starts holds every reader for ten minutes.
             import contextlib
             import io
             import json
@@ -499,22 +515,15 @@ def main() -> int:
             responses["1212"] = live_for("1212")
             responses["1313"] = limited("1313")
             responses["1414"] = live_for("1414")
-            waits = []
-
-            def fake_wait(seconds):
-                waits.append(seconds)
-
-            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
-            carried = check_jobs.run_checks(conn, cap=25, write=True,
-                                            now=now_s, pause=no_pause,
-                                            backoff=0, wait=fake_wait)
-            check(carried["due"] == 3 and carried["checked"] == 3
-                  and carried["verdicts"] == {"live": 2, "unknown": 1},
-                  "sequence 200, 429, 200: three rows processed, one"
-                  " unknown, the run completes")
-            check(carried["rate_limited"] == 1
-                  and carried["backoff_seconds"] == 0 and waits == [0],
-                  "one 429 is counted and the backoff is waited once")
+            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)
+            calls.clear()
+            stopped = check_jobs.run_checks(conn, cap=25, write=True,
+                                            now=now_s, pause=no_pause)
+            check(stopped["due"] == 3 and stopped["checked"] == 2 and len(calls) == 2
+                  and stopped["verdicts"] == {"live": 1, "unknown": 1}
+                  and stopped["stopped"] == "429",
+                  "sequence 200, 429, 200: the run stops at the first 429,"
+                  " the third row is never asked")
             row_k = conn.execute(
                 "SELECT last_checked_at, last_check_result FROM"
                 " opportunities WHERE id = ?", (k,)).fetchone()
@@ -524,97 +533,62 @@ def main() -> int:
             beside = [conn.execute(
                 "SELECT last_check_result FROM opportunities WHERE id = ?",
                 (x,)).fetchone()["last_check_result"] for x in (j, m)]
-            check(beside == ["live", "live"],
-                  "the rows either side of the 429 are stamped live")
-            unknown_entry = [c for c in carried["checks"]
-                             if c["id"] == k][0]
+            check(beside == ["live", None],
+                  "the row before the 429 is stamped live, the one after is untouched")
+            unknown_entry = [c for c in stopped["checks"] if c["id"] == k][0]
             check(unknown_entry["verdict"] == "unknown"
                   and unknown_entry["reason"] == "rate limited, 429",
                   "the 429 row is recorded unknown with its reason")
-            check(len(carried["rate_limits"]) == 1
-                  and carried["rate_limits"][0]["id"] == k
+            check(len(stopped["rate_limits"]) == 1
+                  and stopped["rate_limits"][0]["id"] == k
                   and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ",
-                                   carried["rate_limits"][0]["ts"]),
-                  "every 429 is logged with a timestamp")
+                                   stopped["rate_limits"][0]["ts"]),
+                  "the 429 is logged with a timestamp")
             check(any(re.match(r"\d{4}-\d\d-\d\dT\S+ 429 on id", n)
-                      for n in carried["notes"]),
-                  "the run notes carry the 429 with its clock time")
+                      and "run stopped, 1 left due" in n
+                      for n in stopped["notes"]),
+                  "the run notes carry the 429 with its clock time and what was left")
+            check([row["id"] for row in check_jobs.due_candidates(conn, now_s)] == [k, m],
+                  "the 429 row and the one after it are due next time, longest"
+                  " unchecked first")
 
-            p = plant("1515", "question", "2026-10-01T00:00:00Z")
-            r = plant("1616", "question", "2026-10-02T00:00:00Z")
-            q = plant("1717", "question", "2026-10-03T00:00:00Z")
-            conn.commit()
-            due_next = [row["id"] for row in
-                        check_jobs.due_candidates(conn, now_s)]
-            check(due_next == [k, p, r, q],
-                  "the 429 row is selected first by due_candidates on the"
-                  " next run")
+            calls.clear()
+            linkedin_reads.sleep(300)
+            held = check_jobs.run_checks(conn, cap=25, write=True,
+                                         now=now_s, pause=no_pause)
+            check(not calls and held["checked"] == 0 and held["stopped"] == "backoff"
+                  and any("a 429 backoff is running" in n for n in held["notes"]),
+                  "five minutes on, a run reads nothing while the backoff runs")
+            linkedin_reads.sleep(301)
 
-            responses["1515"] = limited("1515")
-            responses["1616"] = limited("1616")
-            responses["1717"] = live_for("1717")
-            waits.clear()
-            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
-            struck = check_jobs.run_checks(conn, cap=25, write=True,
-                                           now=now_s, pause=no_pause,
-                                           backoff=0, wait=fake_wait)
-            check(struck["due"] == 4 and struck["checked"] == 3
-                  and struck["rate_limited"] == 3,
-                  "sequence 429, 429, 429, 200: the run stops after the"
-                  " third 429")
-            check(len(waits) == 2,
-                  "the third 429 ends the run without another wait")
-            row_q = conn.execute(
-                "SELECT last_checked_at FROM opportunities WHERE id = ?",
-                (q,)).fetchone()
-            check(row_q["last_checked_at"] is None
-                  and q in [row["id"] for row in
-                            check_jobs.due_candidates(conn, now_s)],
-                  "the fourth row is untouched and still due")
-            check(any("run stopped" in n and "1 left due" in n
-                      for n in struck["notes"]),
-                  "the stop names how many rows were left")
-
-            waits.clear()
-            linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
-            tallied = check_jobs.run_checks(conn, cap=25, write=False,
-                                            now=now_s, pause=no_pause,
-                                            backoff=7, wait=fake_wait)
-            check(tallied["backoff_seconds"] == 14 and waits == [7, 7],
-                  "the total backoff is the sum of the waits taken")
-
-            # The command line: the flag parses and the runs row carries
-            # the 429 count, the clock times and the backoff total. The
-            # command has no way to be given a time, and the rows planted
-            # above are dated against now_s, so it runs on that clock.
+            # The command line: the runs row carries the 429 and its clock
+            # time. The command has no way to be given a time, and the rows
+            # planted above are dated against now_s, so it runs on that clock.
             buf = io.StringIO()
             real_now = radar_common.now_iso
             radar_common.now_iso = lambda: now_s
             try:
                 with contextlib.redirect_stdout(buf):
-                    linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
-                    rc_main = check_jobs.main(["--dry-run", "--db", str(db),
-                                               "--backoff", "0"])
+                    rc_main = check_jobs.main(["--dry-run", "--db", str(db)])
             finally:
                 radar_common.now_iso = real_now
             printed = json.loads(buf.getvalue())
-            check(rc_main == 0 and printed["rate_limited"] == 3
-                  and printed["backoff_seconds"] == 0,
-                  "the run JSON carries the 429 count and the backoff total")
+            check(rc_main == 0 and printed["rate_limited"] == 1
+                  and printed["checked"] == 1 and printed["stopped"] == "429",
+                  "the run JSON carries the 429 and where the run stopped")
             run_note = conn.execute(
                 "SELECT note FROM runs WHERE workflow = 'check'"
                 " ORDER BY id DESC LIMIT 1").fetchone()["note"]
-            check("3 rate limited, 429 at " in run_note
-                  and run_note.count("Z") == 3
-                  and "0s backoff" in run_note,
-                  "the runs row names the 429 count, times and backoff")
+            check("1 rate limited, 429 at " in run_note
+                  and run_note.count("Z") == 1 and "run stopped" in run_note,
+                  "the runs row names the 429, its time and the stop")
+            linkedin_reads.sleep(601)
 
             responses["1313"] = (
                 0, "https://www.linkedin.com/jobs/view/1313/", "")
             linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             failed = check_jobs.run_checks(conn, cap=25, write=True,
-                                           now=now_s, pause=no_pause,
-                                           backoff=0, wait=fake_wait)
+                                           now=now_s, pause=no_pause)
             still_k = conn.execute(
                 "SELECT last_checked_at FROM opportunities WHERE id = ?",
                 (k,)).fetchone()
@@ -633,10 +607,11 @@ def main() -> int:
                   "a spot check by id bypasses the due gate")
         finally:
             check_jobs.fetch_job_page = real_fetch
+            linkedin_reads.clock, linkedin_reads.sleep = real_clock, real_sleep
         check(conn.execute(
             "SELECT last_checked_at FROM opportunities WHERE id = ?",
-            (e,)).fetchone()["last_checked_at"] == "2026-11-04T00:00:00Z",
-              "a row checked three days ago was never re-asked")
+            (e,)).fetchone()["last_checked_at"] == "2026-11-05T00:00:00Z",
+              "a row checked two days ago was never re-asked")
         conn.close()
 
     # ----- Brief C. The checker reads the page while it is open: the job
@@ -770,7 +745,9 @@ def main() -> int:
                      engagement_type="unknown")
         v6 = plant_c("2008", "question", role_key="other-role-e",
                      gate_location=0, question_text="Would they go remote")
-        v7 = plant_c("2009", "top", role_key="other-role-f")
+        # The 429 sorts last, a question row planted last, because the first
+        # 429 ends the run.
+        v7 = plant_c("2009", "question", role_key="other-role-f")
         conn.commit()
 
         gone_url = ("https://www.linkedin.com/jobs/search/"
@@ -815,8 +792,7 @@ def main() -> int:
         try:
             linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             dry_c = check_jobs.run_checks(conn, cap=25, write=False,
-                                          now=now_s, pause=lambda: None,
-                                          backoff=0, wait=lambda s: None)
+                                          now=now_s, pause=lambda: None)
             untouched = conn.execute(
                 "SELECT COUNT(*) AS n FROM opportunities WHERE description_text"
                 " IS NOT NULL OR pay_source IS NOT NULL OR (engagement_type"
@@ -829,8 +805,7 @@ def main() -> int:
                   " one tier move, and writes nothing")
             linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
             live_c = check_jobs.run_checks(conn, cap=25, write=True,
-                                           now=now_s, pause=lambda: None,
-                                           backoff=0, wait=lambda s: None)
+                                           now=now_s, pause=lambda: None)
             rows_c = {r["url_hash"]: dict(r) for r in conn.execute(
                 "SELECT * FROM opportunities")}
             r1 = rows_c["2001"]
@@ -907,15 +882,14 @@ def main() -> int:
             with contextlib.redirect_stdout(buf):
                 linkedin_reads.sleep(linkedin_reads.ROLE_GAP_SECONDS)  # a day on, past the per-role read limit
                 rc_c = check_jobs.main(["--dry-run", "--db",
-                                        str(Path(tmp) / "reader.sqlite"),
-                                        "--backoff", "0"])
+                                        str(Path(tmp) / "reader.sqlite")])
             note_c = conn.execute(
                 "SELECT note FROM runs WHERE workflow = 'check'"
                 " ORDER BY id DESC LIMIT 1").fetchone()["note"]
-            check(rc_c == 0 and "never read" not in note_c
+            check(rc_c == 0 and note_c.startswith("1 due")
                   and "pages read" not in note_c,
-                  "after the live run the next run finds nothing due and the"
-                  " runs row says so plainly")
+                  "after the live run only the row the 429 left is due, nothing"
+                  f" else is read again, and the runs row says so plainly ({note_c})")
         finally:
             check_jobs.fetch_job_page = real_fetch
         conn.close()

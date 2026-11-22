@@ -672,8 +672,9 @@ other advert are told to the page and nothing is stored. The description is
 stored in `description_text` as the checker's reader cuts it, at its 20,000
 characters, with `description_fetched_at`. A 429 stores nothing and stops every
 later fetch from this page for the checker's backoff, ten minutes, held in memory
-and so forgotten by a restart. Fetches are also spaced by the checker's eight
-seconds. Any other page that cannot be used, an expired redirect, a closed advert,
+and also in the shared read log (`linkedin_reads`), so a restart does not forget
+it and every other reader keeps it too. Fetches are spaced by the shared twenty
+seconds, whatever made the read before. Any other page that cannot be used, an expired redirect, a closed advert,
 the authwall, a page for another advert or one with no description, is remembered
 for five minutes for that role, so the click that follows says why and asks nobody;
 a network that was down is not remembered, and the page offers Try again. A page
@@ -1254,6 +1255,43 @@ no Prepare application or Rescore role is pressed until the restart is done.
 Rolling back is code only; the columns and every reason stay and old code
 ignores them. `test/run_quotes_test.py` checks all of it, and
 `docs/box-checks-scorer-quotes.md` holds the deploy.
+
+## Advert freshness
+
+A role whose advert has closed should leave the list before Luke opens it. Three
+things now look, all reading the same public guest page with the same ladder
+(`check_jobs.classify`) and storing the answer the same way
+(`check_jobs.store_verdict`): live stamps `last_checked_at`,
+`last_check_result` and `last_live_check_at`; closed (no longer accepting
+applications, the `closed-job` marker with no apply button) and gone (the
+expired redirect) also stamp `closed_at` with `closed_source` page_check. Nothing
+else ever closes a role. No model is asked anything.
+
+- Opening a role (`advert_check.py`). On Jobs and Prepare application, a role
+  with a LinkedIn advert and no page read in 24 hours has it read once, after the
+  page has drawn, through `POST /jobs/advert-check`. The header's facts line says
+  Checking the advert, then Live on and the date, the red Closed on LinkedIn chip
+  (the close goes on Jobs' undo stack, so Undo last restores it), or Couldn't
+  check beside the last known date. An unclear answer, a login wall, a 429 or no
+  answer stores nothing. Roles added by hand, roles off LinkedIn and roles outside
+  the open groups are never read. Every role with a LinkedIn advert says its last
+  check in the facts line, Live on 17 Nov or Not checked yet.
+- The schedule (`check_jobs.py --live`, n8n Radar Page Check, daily). Top
+  prospects and One question away, due when never read or quiet for three days
+  (no read and no sighting), Top first and the longest unchecked first. Reads 60 to
+  75 seconds apart. The first 429 ends the run and leaves the rest for the next.
+- The sweep (`check_jobs.py --live --sweep`, run by hand). Every Top and One
+  question away role once, at the same pace, with no daily cap. It stops on a 429;
+  the same command carries on where it left off (its start is kept in `meta` as
+  `check_sweep_started_at`, and a role read since then, or in the last day, is
+  done). No expiry pass.
+
+The limits (`linkedin_reads.py`, one row per read in the `linkedin_reads` table,
+reserved under the write lock before the request goes out, so the dashboard and
+the checker under n8n keep one pace): at least 20 seconds between any two
+LinkedIn reads, whatever made them; no read at all for ten minutes after a 429;
+one check per role per 24 hours; at most 40 reads on open and 15 scheduled reads
+in a UTC day. A read on open that a limit holds back simply does not happen.
 
 ## The renderer, and the one page to trust
 

@@ -1020,8 +1020,7 @@ def page_loop_checks() -> None:
                 before = row_of(conn, oid)
                 with counted_reads() as reads:
                     res = check_jobs.run_checks(conn, cap=5, write=write,
-                                                pause=lambda: None,
-                                                wait=lambda s: None)
+                                                pause=lambda: None)
                 after = row_of(conn, oid)
                 check(len(reads) == 1,
                       "the page-check loop reads the thresholds once and hands them to "

@@ -15,8 +15,12 @@ The limits (advert freshness):
 - one read per role per ROLE_GAP_SECONDS, for the checks (not for Prepare,
   which is a click asking for the description). A read that got a 429 or no
   answer at all does not count, it read nothing.
-- at most DAILY_CAPS[kind] reads of that kind in a UTC day: 40 on open.
-  Prepare has no daily cap, only the pace.
+- at most DAILY_CAPS[kind] reads of that kind in a UTC day: 40 on open, 15
+  scheduled. The sweep and Prepare have no daily cap, only the pace.
+
+The scheduled check and its sweep keep their own pace on top of these, 60 to
+75 seconds between reads (check_jobs.SPACING_SECONDS), and stop at the first
+429.
 
 Nothing here fetches anything. A caller asks reserve(), and fetches only when
 it says yes.
@@ -43,7 +47,7 @@ import radar_common as rc  # noqa: E402
 READ_GAP_SECONDS = 20            # between any two LinkedIn reads
 BACKOFF_SECONDS = 600            # no read at all for this long after a 429
 ROLE_GAP_SECONDS = 24 * 3600     # one check per role per day
-DAILY_CAPS = {"open": 40}
+DAILY_CAPS = {"open": 40, "scheduled": 15}
 KINDS = ("open", "scheduled", "sweep", "prepare")
 ROLE_LIMITED = ("open", "scheduled", "sweep")
 
